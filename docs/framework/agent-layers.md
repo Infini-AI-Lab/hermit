@@ -49,6 +49,7 @@ How a model takes steps. Layer 2 holds only the framework's agents:
 | `codex` | The Codex CLI, working in a workspace |
 | `claude` | The Claude Code CLI, working in a workspace |
 | `pi` | The Pi CLI, working in a workspace (no roles, no web search) |
+| `mini-swe-agent` | mini-swe-agent's bash loop, working in a workspace: one task through its Python API, in a process of its own (no roles, no web search) |
 | `opencode` | The OpenCode CLI, working in a workspace (a model reference only; no roles, no web search) |
 
 API, the only one Layer 3 sees:
@@ -70,7 +71,7 @@ agent, prompt = agent.instructed(system, prompt)   # a copy that takes `system` 
   environment, step by step in a resumed learning session. Codex and Claude Code resume their thread; direct and
   react carry the message history.
 - `roles`: named sub-agents (name, description, instructions) the agent may delegate to: Codex's roles, Claude
-  Code's agents. direct and react refuse them.
+  Code's agents. direct, react, pi, mini-swe-agent and opencode refuse them.
 - `trajectory`: the run as standard steps: messages, reasoning, commands with their exit codes and output, tool
   calls, file changes, errors. Layer 3 reads only these; a CLI's raw log (`agent-codex.jsonl`) is kept beside them
   as an archive.
@@ -82,10 +83,12 @@ none), Codex's own sandbox mode, the CLI's home, the time limit (the full list i
 leaves the agent as it was. Running a task again when the provider could not serve it is Layer 3's: the workspace
 is placed anew first.
 
-Codex, Claude Code, Pi and OpenCode share one runner, `CliAgent`: the isolation, the home, the sign-in, the tool server and the
-process are the same for every CLI. Each CLI is a subclass whose hooks give what is its own: its command, its home,
-and how its event stream is read (the reply, the trajectory, the usage, whether the provider served it, and what a
-session that was not served met: `outcome`). A new CLI is
+Codex, Claude Code, Pi, mini-swe-agent and OpenCode share one runner, `CliAgent`: the isolation, the home, the
+sign-in, the tool server and the process are the same for every CLI. Each CLI is a subclass whose hooks give what is
+its own: its command, its home, and how its event stream is read (the reply, the trajectory, the usage, whether the
+provider served it, and what a session that was not served met: `outcome`). mini-swe-agent's process is the
+framework's own (`hermit/agent/base/mini_swe_agent_run.py`): it runs one task through mini-swe-agent's Python API and
+writes the session as JSON events, the stream the runner reads. A new CLI is
 a subclass listed in `CLIS`, a reader of its stream in `hermit/agent/base/trajectory.py`, and its model binding in
 Layer 1.
 
@@ -143,6 +146,7 @@ Each Base Agent offers the tools to the model in its own way:
 | `direct` | Their schemas in the API request | Layer 3, which then calls `direct` again |
 | `react` | Their schemas in the API request | `react`, in its loop |
 | `codex`, `claude`, `pi`, `opencode` | The framework's tool server, over MCP (streamable HTTP) | The tool server |
+| `mini-swe-agent` | One bash command, `hermit-tool <name> '<JSON arguments>'`, listed in its system message | The tool server, through its JSON entrance |
 
 The tool server (`hermit/agent/base/tool_server.py`) is started for the one call and stopped after it. It carries a
 token in its URL, so that only the session it was started for can call it, and tells Codex to approve its tools
@@ -157,7 +161,8 @@ inside the agent's sandbox with the agent's permissions.
 ## Limits
 
 `limits` states what the agent may touch. Each Base Agent enforces it with its own isolation, and refuses a limit it
-cannot enforce (`Unsupported`) rather than ignore it. For Codex and Claude Code:
+cannot enforce (`Unsupported`) rather than ignore it. For Codex, Claude Code, Pi, mini-swe-agent and OpenCode (Pi,
+mini-swe-agent and OpenCode run in the run's sandbox or with no isolation, not in a container):
 
 | Limit | In a container | In the run's sandbox | No isolation |
 |---|---|---|---|

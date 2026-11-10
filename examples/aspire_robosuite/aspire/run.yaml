@@ -1,0 +1,58 @@
+# ASPIRE on Robosuite: the seven Robosuite tasks of ASPIRE's harness, one task per step in the order the
+# coordinator chooses (its curriculum); ASPIRE's seeds (development 101-125, unseen-check 126-130, held-out 1-100,
+# written into the task rows by launch.sh); Codex acting and coordinating, GLM 5.3 Flash. Started by launch.sh.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/all.txt
+  val: ../utils/splits/verify.txt   # the verifier's rows: run only by the coordinator, through run_agent
+  test: ../utils/splits/rerun.txt   # every task again with the final library: ASPIRE's backward transfer
+  step_size: 1
+  shuffle: false
+task_info: ../utils/task-info
+agent:
+  base: codex
+  concurrency: 1
+  params:
+    prompt: ../utils/agent/task.py:prompt
+    prepare: ../utils/agent/task.py:prepare
+    answer: ../utils/agent/task.py:answer
+    collect: ../utils/agent/task.py:collect
+    aspire_root: $ASPIRE_ROOT
+  model: {ref: fireworks/accounts/fireworks/models/glm-5p3-flash, effort: medium}
+  codex:
+    web_search: false
+    timeout_s: 21600              # a fix loop and an evolutionary search on 25 seeds
+    codex_sandbox: danger-full-access   # the task sandbox is the boundary; the session reaches bin/sim's service
+    shell_env: all                  # only the declared variables are in the sandbox
+    project_doc_max_bytes: 131072   # AGENTS.md carries the whole library (the template caps it at 100,000 bytes)
+environment:                        # the task sandbox: the actor's code, ASPIRE's prompts and docs, nothing else of it
+  read:
+    - ../utils/agent
+    - $ASPIRE_ROOT/docs/api-reference.md
+    - $ASPIRE_ROOT/docs/run-artifacts.md
+    - $ASPIRE_ROOT/docs/robosuite.md
+    - $ASPIRE_ROOT/.claude/skills/iterative-debugging/subagent-prompt.md
+    - $ASPIRE_ROOT/.claude/skills/iterative-debugging/verifier-prompt.md
+    - $ASPIRE_ROOT/.claude/skills/iterative-debugging/scripts/scene_snapshot.py
+    - $ASPIRE_ROOT/.claude/skills/iterative-debugging/skills/task-exploration.md
+    - $ASPIRE_ROOT/.claude/skills/evosearch/subagent-prompt.md
+    - $ASPIRE_ROOT/.claude/skills/evosearch/skills/evosearch-iteration.md
+  env: [ASPIRE_SIM_URL]             # the host's simulator service (launch.sh): its 127.0.0.1 port is forwarded
+judge:
+  path: ../utils/judge.py           # on the host: Stage 2 on the held-out seeds
+template: aspire
+evolver:
+  name: aspire
+  base: codex
+  model: {ref: fireworks/accounts/fireworks/models/glm-5p3-flash, effort: medium}
+  codex: {web_search: false}
+sandbox:
+  enabled: true
+  enforce: required
+trainer:
+  run_name: aspire
+  epochs: 1
+  call_timeout_min: 720             # the coordinator, its verifiers included
+  budget: {usd: 300, hours: 120}
+eval:
+  repeats: 1

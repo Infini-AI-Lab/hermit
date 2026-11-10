@@ -7,7 +7,7 @@
 A config names the agent:
 
     agent:
-      name: react                        # a built-in: react | codex | claude-code | pi | opencode
+      name: react                        # a built-in: react | codex | claude-code | pi | mini-swe-agent | opencode
       name: agent/agent.py:CLBenchAgent  # or the task's own class (file.py:Class, module:Class)
       name: agent/pipeline.py:run        # or a plain function run(task, adapter), wrapped as a FunctionAgent
       concurrency: 4
@@ -75,10 +75,10 @@ def builtin(name: str):
     if name == "react":
         from hermit.agent.acting.react import ReactAgent
         return ReactAgent
-    if name in ("cli", "codex", "claude-code", "claude", "pi", "opencode"):
+    if name in ("cli", "codex", "claude-code", "claude", "pi", "mini-swe-agent", "opencode"):
         from hermit.agent.acting.workspace import CliAgent
         backend = {"codex": "codex", "claude-code": "claude", "claude": "claude", "pi": "pi",
-                   "opencode": "opencode"}.get(name)
+                   "mini-swe-agent": "mini-swe-agent", "opencode": "opencode"}.get(name)
         if backend is None:
             return CliAgent
         return lambda params, base: CliAgent({"backend": backend, **(params or {})}, base)
@@ -88,7 +88,7 @@ def builtin(name: str):
     return None
 
 
-BUILTIN_NAMES = ("react", "codex", "claude-code", "pi", "opencode", "cli", "harbor")
+BUILTIN_NAMES = ("react", "codex", "claude-code", "pi", "mini-swe-agent", "opencode", "cli", "harbor")
 
 
 def load_agent(name: str, params: dict | None, base: Path) -> Agent:

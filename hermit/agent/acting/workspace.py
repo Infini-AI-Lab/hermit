@@ -1,8 +1,9 @@
-"""The `codex`, `claude-code`, `pi` and `opencode` agents: one task run by the agent CLI in a workspace the adapter is
-deployed into. They are the framework's one way to act with a coding-agent CLI; a task adds only what is its own.
+"""The `codex`, `claude-code`, `pi`, `mini-swe-agent` and `opencode` agents: one task run by the agent CLI in a
+workspace the adapter is deployed into. They are the framework's one way to act with a coding-agent CLI; a task adds
+only what is its own.
 
     agent:
-      name: codex                            # or claude-code; `cli` with params.backend is the same
+      name: codex                            # or claude-code, pi, mini-swe-agent or opencode (`cli`: params.backend)
       params:
         model: gpt-5.4                       # optional: the CLI's default otherwise. A `<backend>/<model>` reference
                                              # (hermit.agent.model.backends) binds the CLI to that backend: its provider
@@ -38,6 +39,8 @@ deployed into. They are the framework's one way to act with a coding-agent CLI; 
         retries: 3                           # runs the provider could not serve are run again, then an error
         retry_wait_s: 120
         workspaces: .logs/workspaces         # one fresh directory per task, beside the config (`~` is expanded)
+        # mini-swe-agent only (hermit.agent.base.cli.MiniSweAgent): model_class (litellm or litellm_textbased),
+        # config (its config file, beside the run config), step_limit (model calls per task, default 50)
 
 For every task a new directory holds the workspace (`work/`), the CLI's home (`home/`, Codex) and the log (`log/`).
 The adapter is deployed into the workspace as `hermit deploy` deploys it (hermit.hosts): the whole adapter under
@@ -69,7 +72,7 @@ from hermit.agent.base.interface import BaseAgent, Limits, LoginFailed, Mount, m
 from hermit.agent.base.login import LOGINS, NO_LOGIN
 from hermit.task import RunOutput, load_callable
 
-BACKENDS = ("codex", "claude", "pi", "opencode")
+BACKENDS = ("codex", "claude", "pi", "mini-swe-agent", "opencode")
 DEPLOYS = ("host",)
 ISOLATIONS = ("none", "container")
 INPUT_FIELDS = ("question", "prompt", "instruction", "input", "query")
@@ -144,6 +147,9 @@ def deploy(adapter: Path, workspace: Path, backend: str, *, context: str | None 
     if backend == "pi":
         from hermit.hosts.pi import prepare as prepare_pi
         return prepare_pi(adapter, workspace, sys.executable, context=context)
+    if backend == "mini-swe-agent":
+        from hermit.hosts.mini_swe_agent import prepare as prepare_mini
+        return prepare_mini(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
     if backend == "opencode":
         from hermit.hosts.opencode import prepare as prepare_opencode
         return prepare_opencode(adapter, workspace, sys.executable, context=context)
@@ -159,9 +165,10 @@ def _deploy(task: dict, adapter: Path | None, work: Path, backend: str, params: 
     from hermit.adapter.loader import agent_tools, load_manifest
     from hermit.adapter.manifest import PORTABLE
     manifest = load_manifest(adapter)
-    # A container session cannot start the tools' server on this machine: the session's own tool server (the Base
-    # Agent's, which a container reaches) serves them instead.
-    harness_tools = params.get("isolation") == "container" and bool(agent_tools(manifest))
+    # A container session cannot start the tools' server on this machine, and mini-swe-agent reaches tools only
+    # through its Base Agent: the session's own tool server (the Base Agent's) serves them instead.
+    harness_tools = (params.get("isolation") == "container" or backend == "mini-swe-agent") and \
+        bool(agent_tools(manifest))
     # An adapter only hermit runs (not plugin-portable: a context tool's per-task context, say) has no installed
     # workspace, so `hermit deploy` refuses it; here the task is known, so its context is deployed.
     context, record = _context(task, adapter, params) if not manifest.get(PORTABLE, True) else (None, None)
@@ -182,6 +189,8 @@ def _session_args(backend: str, deployed: dict, work: Path) -> list[str]:
     if backend == "codex":
         return ["-c", f'projects={{"{work}" = {{ trust_level = "trusted" }} }}',
                 *(["--enable", "multi_agent"] if deployed.get("roles") else [])]
+    if backend == "mini-swe-agent":                 # it reads the deployment's config from the workspace itself
+        return []
     return ["--mcp-config", str(work / ".mcp.json")] if deployed.get("server_name") else []
 
 
@@ -283,7 +292,7 @@ def _check(backend: str, params: dict) -> str:
     if not isinstance(params.get("web_search"), bool):
         raise ValueError("agent.params.web_search must be set, true or false: Codex's hosted search runs at the "
                          "provider, past any sandbox or proxy, so it is never left to a default")
-    if backend in NO_LOGIN:                         # signs in through a model reference, and runs on this machine
+    if backend in NO_LOGIN:                         # they sign in through a model reference, and run on this machine
         if params.get("login") is not None:
             raise ValueError(f"agent {backend} takes no login: its model is a <backend>/<model> reference")
         if params.get("isolation") == "container":
@@ -313,7 +322,7 @@ def base_agent(backend: str, params: dict) -> BaseAgent:
     settings = {k: params[k] for k in ("model", "binding", "login", "plan_dir", "plan_max_wait_s", "usage_credits",
                                        "effort", "isolation", "container", "codex_sandbox", "shell_env",
                                        "project_doc_max_bytes", "args", "env", "price", "provider",
-                                       "image_input")
+                                       "image_input", "model_class", "config", "step_limit")
                 if k in params and (params[k] is not None or k == "plan_max_wait_s")}
     if params.get("claude_permission_mode"):
         settings["permission_mode"] = params["claude_permission_mode"]
@@ -322,6 +331,8 @@ def base_agent(backend: str, params: dict) -> BaseAgent:
 
 def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutput:
     backend = _check(params.get("backend", "codex"), params)
+    if params.get("config"):                        # mini-swe-agent's config file, beside the run config
+        params = {**params, "config": str(Path(base) / os.path.expanduser(str(params["config"])))}
     agent = base_agent(backend, params)
     root = Path(os.path.expanduser(str(params.get("workspaces", ".logs/workspaces"))))
     # Resolved: a container binds each directory at its real path, and the CLI is given these paths.

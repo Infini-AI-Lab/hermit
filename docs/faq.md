@@ -61,7 +61,7 @@ Follow [Deploy an adapter](tutorials/deploy-an-adapter.md) for the commands and 
 <details class="ha-faq" id="can-i-reuse-an-adapter-across-models-and-harnesses">
 <summary>Can I Reuse an Adapter Across Models and Harnesses?</summary>
 
-Yes, when the receiving agent supports the exports the adapter needs. Hermit currently generates workspaces for Codex, Claude Code, and Pi, and converts native plugin packages for Claude Code, Codex, Pi, and Hermes. Each route has different capabilities; a target may refuse unsupported exports.
+Yes, when the receiving agent supports the exports the adapter needs. Hermit currently generates workspaces for Codex, Claude Code, Pi, mini-swe-agent, and OpenCode, and converts native plugin packages for Claude Code, Codex, Pi, and Hermes. Each route has different capabilities; a target may refuse unsupported exports.
 
 Compatibility does not guarantee the same performance on a different model, harness, or task. Evaluate the adapter in its new setting. See the [host capability matrix](framework/commands.md#what-each-hosts-plugin-carries) and [compatibility limits](reference/compatibility.md).
 

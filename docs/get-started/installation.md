@@ -87,6 +87,16 @@ PyPI's torch for Linux is the CUDA build; for the CPU one, install torch first f
 is shown to the sandboxes too (`sandbox.hide` covers a benchmark's scoring module; an editable install's checkout is
 never shown).
 
+## Install mini-swe-agent
+
+The `mini-swe-agent` acting agent and `hermit deploy --host mini-swe-agent` need mini-swe-agent (2.4.6, which brings
+litellm), published as an extra:
+
+```bash
+python -m pip install -e ".[mini-swe-agent]"      # a checkout
+python -m pip install "hermit-harness[mini-swe-agent]"
+```
+
 ## Choose the additional requirements
 
 | Workflow | Additional requirements |
@@ -94,6 +104,7 @@ never shown).
 | [Offline first training](quickstart.md) | None beyond the core install |
 | [First real-model training](first-model.md) | `python -m pip install -e . --group gepa`, a compatible chat-completions endpoint, model id, and credential; data is included |
 | Generate a Codex / Claude Code / Pi / OpenCode workspace | No host CLI is needed until you start the host |
+| Act with, or deploy to, mini-swe-agent | The `mini-swe-agent` extra and a chat-completions model ([tutorial](../tutorials/mini-swe-agent.md)) |
 | Run an acting host | Installed and authenticated host, plus adapter tool dependencies |
 | Prompt-only learner | The Codex CLI, Linux with bubblewrap, and a learner backend that serves the Responses API |
 | GEPA | `python -m pip install -e . --group gepa`, learner endpoint, validation split |

@@ -34,8 +34,9 @@ jobs:
           sudo apt-get install -y bubblewrap strace
           python -m venv "$RUNNER_TEMP/test-env"
           "$RUNNER_TEMP/test-env/bin/python" -m pip install --upgrade pip
-          # the methods' dependency groups, so their tests run rather than skip (not ace's: it pulls torch)
-          "$RUNNER_TEMP/test-env/bin/python" -m pip install -e '.[test]' \
+          # the methods' dependency groups and the mini-swe-agent extra, so their tests run rather than skip (not
+          # ace's group: it pulls torch)
+          "$RUNNER_TEMP/test-env/bin/python" -m pip install -e '.[test,mini-swe-agent]' \
             --group gepa --group skillopt --group harness2 --group rrsi
           echo "$RUNNER_TEMP/test-env/bin" >> "$GITHUB_PATH"
       - name: The test groups this pull request touches

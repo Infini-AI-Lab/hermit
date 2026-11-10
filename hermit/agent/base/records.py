@@ -124,6 +124,18 @@ def parse_pi(log: Path, model: str) -> tuple[str | None, list[Usage]]:
     return _parse(log, model, _pi_event)
 
 
+def _mini_swe_agent_event(event: dict, usage: Usage, session):
+    if event.get("type") == "session.started":
+        session = event.get("session") or session
+    if event.get("type") == "message" and isinstance(event.get("usage"), dict):
+        u = event["usage"]
+        usage.input_tokens += int(u.get("input_tokens", 0))
+        usage.cached_input_tokens += int(u.get("cached_input_tokens", 0))
+        usage.output_tokens += int(u.get("output_tokens", 0))
+        usage.calls += 1
+    return session
+
+
 def _opencode_event(event: dict, usage: Usage, session):
     """OpenCode: the session id every event carries, and each model request's usage as its `step_finish` keeps it.
     OpenCode's `input` leaves the cache out and its `output` the reasoning, so the input counted is input, cache
@@ -161,6 +173,14 @@ def parse_claude(log: Path, model: str) -> tuple[str | None, list[Usage]]:
     return _parse(log, model, _claude_event)
 
 
+def parse_mini_swe_agent(log: Path, model: str) -> tuple[str | None, list[Usage]]:
+    """mini-swe-agent's events (hermit.agent.base.mini_swe_agent_run): the session id, and each model response's
+    usage (a response that broke the format included: it was billed)."""
+    return _parse(log, model, _mini_swe_agent_event)
+
+
 def parse_log(log: Path, backend: str, model: str) -> tuple[str | None, list[Usage]]:
-    """Session handle and usage from the agent's JSON event stream: Codex's, else Claude Code's."""
-    return (parse_codex if backend == "codex" else parse_claude)(log, model)
+    """Session handle and usage from the agent's JSON event stream: Codex's, Pi's, mini-swe-agent's, else Claude
+    Code's."""
+    return {"codex": parse_codex, "pi": parse_pi, "mini-swe-agent": parse_mini_swe_agent}.get(backend, parse_claude)(
+        log, model)

@@ -77,14 +77,45 @@ export MWM_CLBENCH=$CLBENCH MWM_METAWORLD=$METAWORLD
 command -v codex >/dev/null || { echo "REFUSING: codex CLI not on PATH"; exit 1; }
 [ -f "$TASKDIR/tasks.jsonl" ] || { echo "REFUSING: run $TASKDIR/prepare.py first"; exit 1; }
 
+# The meters this launch starts stop within a second or two of the processes that use them ending (#82): its own and
+# those of any launch that reuses one. Each launch on a port lists its processes in the port's users file, emptied
+# when the meter stops; a launch reuses a running meter only if it is still up on a second look (one being stopped is
+# gone by then).
+METERS=() OWNED=() PORTS=()
+meter_users() { echo "/tmp/hermit-wire-meter-$(id -u)-$1.users"; }   # port: /tmp, which every launch on it shares
+meter_started() {  # port pid: a meter this launch started, this launch one of its users
+  { echo $$ >> "$(meter_users "$1")" || true; } 2>/dev/null
+  METERS+=("$2"); OWNED+=("$1")
+}
+stop_meters_after() {  # pid...: what this launch leaves running; the meters it started stop after every user
+  local port files=()
+  [ $# -eq 0 ] || for port in ${PORTS[@]+"${PORTS[@]}"}; do
+    printf '%s\n' "$@" >> "$(meter_users "$port")" 2>/dev/null || true; done
+  [ ${#METERS[@]} -gt 0 ] || return 0
+  for port in "${OWNED[@]}"; do files+=("$(meter_users "$port")"); done
+  setsid nohup bash -c 'while :; do up=
+      for p in $(cat $1 2>/dev/null); do kill -0 "$p" 2>/dev/null && { up=1; break; }; done
+      [ -n "$up" ] || break; sleep 1; done
+    for f in $1; do : > "$f"; done 2>/dev/null    # a launch listed after this look finds the meter gone and starts one
+    for m in $2; do kill -- "-$m" 2>/dev/null || kill "$m" 2>/dev/null || true; done' _ "${files[*]}" "${METERS[*]}" \
+    > /dev/null 2>&1 < /dev/null &
+}
+meter_health() {  # port: the /health of a meter still up three seconds on, this launch listed as one of its users first
+  curl -s -m 2 "http://127.0.0.1:$1/health" > /dev/null 2>&1 \
+    && { echo $$ >> "$(meter_users "$1")" || true; } 2>/dev/null \
+    && sleep 3 && curl -s -m 2 "http://127.0.0.1:$1/health" 2>/dev/null
+}
+trap 'stop_meters_after ${PIDS[@]+"${PIDS[@]}"}' EXIT   # after the trainings started below, if any
 start_meter() {  # port upstream ledger log [extra env...]: a meter already on the port must face the same upstream
   local port=$1 upstream=$2 ledger=$3 log=$4 health; shift 4
-  if health=$(curl -s -m 2 "http://127.0.0.1:$port/health" 2>/dev/null); then
+  PORTS+=("$port")                                  # started here or reused: this launch's processes use it
+  if health=$(meter_health $port); then
     case "$health" in *"\"upstream\": \"$upstream\""*) echo "wire meter already on port $port -> $upstream";;
       *) echo "REFUSING: port $port has a wire meter facing another or an unknown upstream ($health); choose another WM_PORT"; exit 1;; esac
   else
-    env "$@" PORT=$port LEDGER="$ledger" UPSTREAM="$upstream" \
+    env "$@" PORT=$port LEDGER="$ledger" LEDGER_RESUME=1 UPSTREAM="$upstream" \
       setsid nohup "$PY" "$METER" > "$log" 2>&1 < /dev/null &
+    meter_started $port $!
     echo "wire meter pid $! port $port -> $upstream"; sleep 2
   fi
 }

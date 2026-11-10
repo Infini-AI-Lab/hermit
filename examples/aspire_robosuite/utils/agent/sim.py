@@ -1,0 +1,309 @@
+"""The robot execution engine: ASPIRE's CaP harness (github.com/NVlabs/ASPIRE, `cap-harness`) in its own venv.
+
+Every call here is a subprocess of ASPIRE's `.venv-robosuite`; nothing of ASPIRE is imported into this process. A
+program runs as `cap-harness run-batch` over a list of seeds, and each seed leaves ASPIRE's run directory
+(docs/run-artifacts.md): outcome.json, source/program-result.json (one CallTrace per public call), trace/events.jsonl
+and media/keyframes/ (lossless RGB before and after every motion call). `digest` reads those back as the per-primitive
+trace the actor diagnoses from.
+
+Where the engine runs is the host's business, not this file's: the perception, IK and planning services must be up
+on the ports ASPIRE expects (or the URLs in CAP_HARNESS_SAM3_URL / CAP_HARNESS_CUROBO_URL), and the simulator's
+render device is set by the environment the config gives (`agent.params.sim_env`, e.g. MUJOCO_GL=egl and
+MUJOCO_EGL_DEVICE_ID). See the example's README.
+"""
+from __future__ import annotations
+
+import base64
+import json
+import os
+from pathlib import Path
+import re
+import signal
+import subprocess
+import sys
+import time
+
+# The motion tools around which ASPIRE records before/after keyframes (cap_harness/runtime.py).
+MOTION_TOOLS = ("step", "execute_trajectory", "set_gripper", "set_grippers", "move_to_joints", "move_to_pose",
+                "move_synchronized", "open_gripper", "close_gripper", "go_home")
+
+_VALIDATE = """
+import ast, sys
+from cap_harness.runtime import _ProgramValidator
+src = open(sys.argv[1]).read()
+try:
+    _ProgramValidator().visit(ast.parse(src))
+except (SyntaxError, ValueError) as exc:
+    print(f"{type(exc).__name__}: {exc}")
+    sys.exit(1)
+"""
+
+
+# The environment's secrets (model keys, tokens), which cap-harness does not need and a generated program must not
+# reach: it runs in cap-harness's process, on the host
+SECRET = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH", re.I)
+
+
+def scrubbed(environ) -> dict:
+    """environ without its secrets, for the simulator's processes."""
+    return {k: v for k, v in environ.items() if not SECRET.search(k)}
+
+
+class Engine:
+    """ASPIRE's harness at `root` (a checkout with `.venv-robosuite` bootstrapped)."""
+
+    def __init__(self, root: Path | str, *, env: dict | None = None, workers: int = 4, max_steps: int | None = None,
+                 timeout_s: float = 3600.0):
+        self.root = Path(root).expanduser().resolve()
+        self.cli = self.root / ".venv-robosuite" / "bin" / "cap-harness"
+        self.python = self.root / ".venv-robosuite" / "bin" / "python"
+        if not self.cli.is_file():
+            raise FileNotFoundError(f"{self.cli}: bootstrap ASPIRE's Robosuite venv (scripts/bootstrap_robosuite.sh)")
+        self.env = {k: str(v) for k, v in (env or {}).items()}
+        self.workers, self.max_steps, self.timeout_s = int(workers), max_steps, float(timeout_s)
+
+    def _env(self) -> dict:
+        env = scrubbed(os.environ)
+        for key, value in self.env.items():
+            env[key] = os.path.expandvars(os.path.expanduser(value))
+        return env
+
+    def validate(self, program: Path) -> str | None:
+        """The sandbox's own static check of a program (ASPIRE's _ProgramValidator): None, or why it is refused."""
+        try:
+            done = subprocess.run([str(self.python), "-c", _VALIDATE, str(program)], capture_output=True, text=True,
+                                  cwd=self.root, env=self._env(), timeout=300)
+        except subprocess.TimeoutExpired:
+            return None   # the check could not run in time: the sweep's own validation still refuses a bad program
+        return None if done.returncode == 0 else (done.stdout.strip() or done.stderr.strip()[-2000:])
+
+    def run(self, program: Path, *, suite: str, seeds: list[int], out: Path, task_id: int = 0,
+            videos: bool = False) -> list[dict]:
+        """Run `program` on every seed; one record per seed: seed, task_success, program_ok, termination_reason,
+        run_dir, error (ASPIRE's results.jsonl joined with each run's outcome.json)."""
+        out.mkdir(parents=True, exist_ok=True)
+        results = out / "results.jsonl"
+        results.unlink(missing_ok=True)
+        cmd = [str(self.cli), "run-batch", "--benchmark", "robosuite", "--suite", suite, "--task-id", str(task_id),
+               "--seeds", *[str(s) for s in seeds], "--program", str(program), "--output-root", str(out),
+               "--flat-run-dir", "--workers", str(min(self.workers, len(seeds))), "--results-jsonl", str(results),
+               "--log-dir", str(out / "logs")]
+        if not videos:
+            cmd.append("--no-videos")
+        if self.max_steps:
+            cmd += ["--max-steps", str(self.max_steps)]
+        started = time.time()
+        # run-batch's workers are its children: a timeout (or an interrupt) stops the whole process group, so no
+        # simulator outlives its sweep
+        with open(out / "run-batch.log", "w") as log:
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=log, cwd=self.root, env=self._env(),
+                                    start_new_session=True)
+            try:
+                proc.wait(timeout=self.timeout_s)
+            except BaseException:
+                _stop(proc)
+                if not isinstance(sys.exc_info()[1], subprocess.TimeoutExpired):
+                    raise
+                log.write(f"\nrun-batch timed out after {self.timeout_s:.0f} s\n")
+        tail = (out / "run-batch.log").read_text(errors="replace")[-4000:]
+        rows = {}
+        if results.is_file():
+            for line in results.read_text().splitlines():
+                try:
+                    row = json.loads(line)
+                    rows[int(row["seed"])] = row
+                except (ValueError, KeyError, TypeError):
+                    continue   # a line cut short when the sweep was stopped
+        records = []
+        for seed in seeds:
+            row = rows.get(int(seed))
+            record = {"seed": int(seed), "task_success": False, "program_ok": False, "termination_reason": None,
+                      "run_dir": None, "error": None}
+            if row is None:
+                record["error"] = f"no result for seed {seed}: {tail[-600:]}"
+            else:
+                record["run_dir"] = row.get("run_dir")
+                record["error"] = row.get("error")
+                outcome = _read_json(Path(row["run_dir"]) / "outcome.json") if row.get("run_dir") else None
+                if outcome:
+                    record.update(task_success=bool(outcome.get("task_success")),
+                                  program_ok=bool(outcome.get("program_ok")),
+                                  termination_reason=outcome.get("termination_reason"),
+                                  steps_executed=outcome.get("steps_executed"),
+                                  error=outcome.get("error") or record["error"])
+            records.append(record)
+        (out / "records.json").write_text(json.dumps({"wall_s": time.time() - started, "records": records}, indent=1))
+        return records
+
+
+def seeds_of(value) -> list[int]:
+    """`[1, 2]`, `"101-125"`, `"1-3 7"` -> a list of ints."""
+    if value is None:
+        return []
+    if isinstance(value, int):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        return [s for v in value for s in seeds_of(v)]
+    out = []
+    for part in str(value).replace(",", " ").split():
+        lo, _, hi = part.partition("-")
+        out += list(range(int(lo), int(hi) + 1)) if hi else [int(lo)]
+    return out
+
+
+def _stop(proc: subprocess.Popen) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+        proc.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+    except ProcessLookupError:
+        pass
+
+
+def _read_json(path: Path):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def calls(run_dir: Path | str | None) -> list[dict]:
+    """The program's public calls in order (ASPIRE's CallTrace records)."""
+    if not run_dir:
+        return []
+    result = _read_json(Path(run_dir) / "source" / "program-result.json") or {}
+    return list(result.get("calls") or [])
+
+
+def program_result(run_dir: Path | str | None) -> dict:
+    if not run_dir:
+        return {}
+    data = _read_json(Path(run_dir) / "source" / "program-result.json") or {}
+    return {k: data.get(k) for k in ("ok", "error", "result", "stdout")}
+
+
+def _clip(text, n: int) -> str:
+    text = text if isinstance(text, str) else json.dumps(text, default=str)
+    return text if len(text) <= n else text[: n // 2] + " ... " + text[-n // 2:]
+
+
+# Observations repeat the whole camera state on every call; the trace names them only.
+ELIDED = ("Observation", "CameraObservation", "TaskContext")
+PROVIDERS = ("sam3-", "pyroki-", "curobo-", "contact-graspnet-", "graspnet-")
+
+
+def compact(value, digits: int = 4, max_items: int = 16):
+    """A call's recorded JSON made readable: inline arrays as rounded lists (a long one as its shape), floats
+    rounded, `$type` kept as `type`."""
+    if isinstance(value, dict):
+        if "$array_inline" in value:
+            items = value["$array_inline"]
+            flat = items if not items or not isinstance(items[0], list) else [x for row in items for x in row]
+            if len(flat) > max_items:
+                return f"<array {value.get('dtype')} shape {value.get('shape')}>"
+            return compact(items, digits, max_items)
+        if "$array" in value or "$array_file" in value:
+            return f"<array {value.get('dtype')} shape {value.get('shape')}>"
+        if value.get("$type") in ELIDED:
+            return f"<{value['$type']}>"
+        out = {}
+        for key, item in value.items():
+            out["type" if key == "$type" else key] = compact(item, digits, max_items)
+        return out
+    if isinstance(value, list):
+        if len(value) > 4 * max_items:
+            return [compact(v, digits, max_items) for v in value[:max_items]] + [f"... {len(value) - max_items} more"]
+        return [compact(v, digits, max_items) for v in value]
+    if isinstance(value, float):
+        return round(value, digits)
+    return value
+
+
+def digest(record: dict, *, call_chars: int = 500, max_calls: int = 80) -> str:
+    """One seed's per-primitive trace as text: the outcome, then every recorded call in order (the program's public
+    calls, and indented below them the provider calls they made) with its inputs, its output or error and its
+    return status; the failing calls at three times the width; then the program's result and stdout."""
+    lines = [f"seed {record['seed']}: task_success={record['task_success']} program_ok={record['program_ok']} "
+             f"termination={record.get('termination_reason')} steps={record.get('steps_executed')}"]
+    if record.get("error"):
+        lines.append(f"  error: {_clip(record['error'], 1200)}")
+    run_dir = record.get("run_dir")
+    root = Path(run_dir) / "trace" / "calls" if run_dir else None
+    entries = sorted(root.iterdir()) if root and root.is_dir() else []
+    if len(entries) > max_calls:
+        entries = entries[: max_calls // 2] + [None] + entries[-max_calls // 2:]
+    for entry in entries:
+        if entry is None:
+            lines.append("  ... calls omitted ...")
+            continue
+        name = entry.name.split("-", 2)[-1]
+        provider = name.startswith(PROVIDERS)
+        args = _read_json(entry / "input.json")
+        output = _read_json(entry / "output.json")
+        error = _read_json(entry / "error.json")
+        ok = error is None and not (isinstance(output, dict) and output.get("ok") is False)
+        indent = "      " if provider else "  "
+        status = "ok" if ok else "FAILED"
+        if isinstance(output, dict) and isinstance(output.get("error"), dict):
+            status += f" {output['error'].get('code', '')}".rstrip()
+        lines.append(f"{indent}{entry.name.split('-', 2)[1]} {name}: {status}")
+        width = call_chars * (1 if ok else 3)
+        if args is not None:
+            lines.append(f"{indent}  in:  {_clip(json.dumps(compact(args)), width)}")
+        if output is not None:
+            lines.append(f"{indent}  out: {_clip(json.dumps(compact(output)), width)}")
+        if error is not None:
+            lines.append(f"{indent}  error: {_clip(json.dumps(compact(error)), width)}")
+    if not entries:   # no call directory: the program's own CallTrace records
+        for call in calls(run_dir):
+            status = "ok" if call.get("ok") else f"FAILED {call.get('failure_code') or ''}".rstrip()
+            lines.append(f"  [{call.get('index')}] {call.get('tool')} -> {call.get('result_type')} {status}")
+            if call.get("error_message"):
+                lines.append(f"      error: {_clip(call['error_message'], call_chars)}")
+    result = program_result(run_dir)
+    if result.get("result") is not None:
+        lines.append(f"  result: {_clip(json.dumps(compact(result['result'])), 2000)}")
+    if result.get("stdout"):
+        lines.append(f"  stdout: {_clip(result['stdout'], 1500)}")
+    return "\n".join(lines)
+
+
+def keyframes(run_dir: Path | str | None, *, camera: str = "agentview", limit: int = 3) -> list[tuple[str, Path]]:
+    """The keyframes that localize a failure: the one after the first failed motion call when there is one, the
+    last motion's after-frame, and the reset frame; (label, png) pairs, most informative first."""
+    if not run_dir:
+        return []
+    root = Path(run_dir) / "media" / "keyframes"
+    if not root.is_dir():
+        return []
+    frames = sorted(p for p in root.iterdir() if (p / f"{camera}.png").is_file())
+    if not frames:
+        return []
+    chosen: list[Path] = []
+    trace = calls(run_dir)
+    failed = [i for i, c in enumerate(trace) if not c.get("ok") and c.get("tool") in MOTION_TOOLS]
+    if failed:
+        # the failing call's own frames: the k-th call of its tool is the k-th frame pair of that tool (an exception
+        # leaves no after-frame, so its before-frame stands in)
+        tool = trace[failed[0]]["tool"]
+        k = sum(1 for c in trace[:failed[0]] if c.get("tool") == tool)
+        slug = str(tool).replace("_", "-")
+        for when in ("after", "before"):
+            mine = [p for p in frames if p.name.split("-", 1)[-1] == f"{when}-{slug}"]
+            if len(mine) > k:
+                chosen.append(mine[k])
+                break
+    chosen += [frames[-1], frames[0]]
+    seen, picked = set(), []
+    for frame in chosen:
+        if frame not in seen:
+            seen.add(frame)
+            picked.append((frame.name, frame / f"{camera}.png"))
+    return picked[:limit]
+
+
+def image_part(png: Path) -> dict:
+    return {"type": "image_url",
+            "image_url": {"url": "data:image/png;base64," + base64.b64encode(png.read_bytes()).decode("ascii")}}

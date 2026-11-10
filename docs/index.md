@@ -60,6 +60,7 @@ guides/troubleshooting
 tutorials/your-own-task
 tutorials/customize-an-adapter
 tutorials/deploy-an-adapter
+tutorials/mini-swe-agent
 ```
 
 ```{toctree}
@@ -74,6 +75,7 @@ methods/mwm
 methods/harness2
 methods/continual_harness
 methods/reharness
+methods/aspire
 methods/meta_harness_adapter
 methods/ace
 methods/ahe_adapter

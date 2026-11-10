@@ -36,7 +36,7 @@ import threading
 import time
 
 LOGINS = {"chatgpt": "codex", "claude": "claude"}             # a `login`: the CLI it signs in
-NO_LOGIN = ("pi", "opencode")             # the CLIs that sign in only through a <backend>/<model> reference
+NO_LOGIN = ("pi", "mini-swe-agent", "opencode")   # the CLIs that sign in only through a <backend>/<model> reference
 FILE = "auth.json"
 ROOT = Path.home() / ".cache" / "hermit" / "codex-login"      # the shared copy: ROOT/login/auth.json
 TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN"                         # the token of `claude setup-token`, the user's to export

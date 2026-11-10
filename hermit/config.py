@@ -44,12 +44,11 @@ def _merge(base: dict, extra: dict, prefix: str = "") -> dict:
 
 
 FREE = ("params", "llm", "backends", "container", "resources",   # sections whose keys the framework does not know
-        "model", *("codex", "claude", "pi", "opencode", "react", "direct"))   # a layer's settings
-                                                                            # (docs/framework/agent-layers.md)
-BASES = {"codex": "codex", "claude": "claude-code", "claude-code": "claude-code", "pi": "pi", "opencode": "opencode",
-         "react": "react",
-         "direct": None}
-CLI_BASES = ("codex", "claude-code", "pi", "opencode")   # the bases that are a CLI (their Layer 1 settings: _model)
+        "model", *("codex", "claude", "pi", "mini-swe-agent", "opencode", "react", "direct"))   # a layer's
+                                                                                              # (agent-layers.md)
+BASES = {"codex": "codex", "claude": "claude-code", "claude-code": "claude-code", "pi": "pi",
+         "mini-swe-agent": "mini-swe-agent", "opencode": "opencode", "react": "react", "direct": None}
+CLI_BASES = ("codex", "claude-code", "pi", "mini-swe-agent", "opencode")   # the bases that are a CLI (_model)
 MODEL_KEYS = ("login", "effort", "price")           # Layer 1 settings a CLI takes beside its model
 # A login's plan settings: Layer 2's (agent.<base>, evolver.<base>), refused beside the model's name.
 PLAN_KEYS = {"plan_dir", "plan_max_wait_s", "plan_rerun", "usage_credits", "login_root"}
@@ -116,16 +115,17 @@ def layered(data: dict) -> None:
     agent = data["agent"]
     base = agent.pop("base", None)
     model = agent.pop("model", None)
-    sections = {b: agent.pop(b, None) for b in ("codex", "claude", "pi", "opencode", "react", "direct")}
+    sections = {b: agent.pop(b, None) for b in ("codex", "claude", "pi", "mini-swe-agent", "opencode", "react",
+                                                 "direct")}
     if base is None:
         if model is not None or any(sections.values()):
-            raise ValueError("agent.model and agent.<base> need agent.base (codex, claude, pi, opencode, react or "
-                             "direct)")
+            raise ValueError("agent.model and agent.<base> need agent.base (codex, claude, pi, mini-swe-agent, "
+                             "opencode, react or direct)")
     else:
         if base not in BASES:
             raise ValueError(f"agent.base must be one of {sorted(BASES)}, not {base!r}")
         builtin = {"codex": "codex", "claude-code": "claude-code", "claude": "claude-code", "pi": "pi",
-                   "opencode": "opencode", "react": "react", "cli": None}
+                   "mini-swe-agent": "mini-swe-agent", "opencode": "opencode", "react": "react", "cli": None}
         if not agent.get("name"):
             if BASES[base] is None:
                 raise ValueError("agent.base: direct needs agent.name (the task's own loop calls it)")

@@ -71,13 +71,18 @@ user chooses: `--adapter none` runs the acting agent with no harness adapter at 
 hermit deploy --adapter DIR --workspace WORKSPACE --host codex
 hermit deploy --adapter DIR --workspace WORKSPACE --host claude-code
 hermit deploy --adapter DIR --workspace WORKSPACE --host pi
+hermit deploy --adapter DIR --workspace WORKSPACE --host mini-swe-agent
 hermit deploy --adapter DIR --workspace WORKSPACE --host opencode
 ```
 
 This generates host instruction files, role/skill files, and tool configuration. It does not launch the acting
 agent. Pi has no subagents and reads no hook file, so `--host pi` names an adapter's roles and hooks in `AGENTS.md`
 instead; its `.pi/` files (tools, skills) load once the user trusts the project in Pi, while `AGENTS.md` needs no
-trust. `--host opencode` writes `AGENTS.md`, the project's `opencode.json` (the tools, offered directly) and
+trust. mini-swe-agent reads one config file, so `--host mini-swe-agent` writes `mini-swe-agent.yaml`: Hermit's
+prompts over mini-swe-agent's `mini` config, with the context, the names of the adapter's skills, roles, hooks and
+other files, and its tools as one bash command (`hermit-tool`) in the system template; run `mini -c
+mini-swe-agent.yaml` from the workspace ([tutorial](../tutorials/mini-swe-agent.md)).
+`--host opencode` writes `AGENTS.md`, the project's `opencode.json` (the tools, offered directly) and
 `.opencode/skills`, which OpenCode loads with no trust step; it names roles and hooks in `AGENTS.md`, as for Pi.
 `--context-limit BYTES` (Codex) is the `project_doc_max_bytes` your Codex configuration sets, 32768 (Codex's
 default) when not given: a longer `AGENTS.md` is refused, since Codex would cut it; `0` skips the check. It is the per-project way to use an adapter; the per-agent way, `convert`, and how the two compare are in
@@ -169,7 +174,7 @@ It is not an HTTP preview server or the proposed standalone-service launcher. `-
   `evolver_access.environment`) and that no declared path holds the data, the judge or the runs. It does not check
   the pipeline's host: adapters are meant to be usable by any acting agent, and each pipeline deploys the exports
   (context, tools, roles, skills) in its own way.
-- `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi|opencode` copies an adapter to
+- `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi|mini-swe-agent|opencode` copies an adapter to
   `hermit/<id>/` in a host workspace and connects its exports there (context block, MCP tools, native roles, skills,
   hooks).
 - `hermit convert --adapter DIR --output OUT --target ...` emits a plugin in the host's native format instead,
