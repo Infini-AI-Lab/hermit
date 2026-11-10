@@ -28,6 +28,7 @@ from pathlib import Path
 
 from hermit.agent.evolver.agent import AgentEvolver
 from hermit.agent.evolver.base import StepContext, StepResult
+from hermit.sandbox import read_regular
 
 NEXT = "next_tasks.json"
 
@@ -43,8 +44,9 @@ class AspireEvolver(AgentEvolver):
 
 def next_tasks(path: Path) -> list | None:
     """The task ids the session named in output/next_tasks.json (a JSON list), or None; the Trainer checks them."""
+    text = read_regular(path)                  # the learner's file, read on the host: no link, no pipe
     try:
-        value = json.loads(path.read_text())
-    except (OSError, ValueError):
+        value = json.loads(text) if text is not None else None
+    except ValueError:
         return None
     return value if isinstance(value, list) else None

@@ -17,8 +17,11 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE / "agent"))
+from sim import seeds_of  # noqa: E402
 TASKS = [  # suite, what it is (task-info only; the actor reads the language from get_task_context())
     ("cube_lifting", "Lift"),
     ("cube_stack", "Stack"),
@@ -37,6 +40,13 @@ def main() -> None:
     ap.add_argument("--eval", default="1-100", help="held-out seeds, run only by the judge")
     ap.add_argument("--verify", default="101-105", help="the verifier's seeds")
     a = ap.parse_args()
+    # A held-out seed a session could run would be scored as unseen: the sets must not meet
+    dev, unseen, held, verify = (set(seeds_of(v)) for v in (a.dev, a.unseen, a.eval, a.verify))
+    for name, other in (("development", dev), ("unseen-check", unseen), ("verifier", verify)):
+        if held & other:
+            ap.error(f"the held-out seeds overlap the {name} seeds: {sorted(held & other)[:10]}")
+    if dev & unseen:
+        ap.error(f"the unseen-check seeds overlap the development seeds: {sorted(dev & unseen)[:10]}")
     seeds = {"debug_seeds": a.dev, "unseen_seeds": a.unseen, "eval_seeds": a.eval}
     rows = [{"id": f"robosuite-{suite}", "suite": suite, "task_id": 0, **seeds} for suite, _ in TASKS]
     # The verifier of each task (ASPIRE verifier-prompt.md): a fresh actor that re-solves the task from the library

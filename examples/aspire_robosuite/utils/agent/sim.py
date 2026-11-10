@@ -17,6 +17,7 @@ import base64
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import sys
@@ -38,6 +39,16 @@ except (SyntaxError, ValueError) as exc:
 """
 
 
+# The environment's secrets (model keys, tokens), which cap-harness does not need and a generated program must not
+# reach: it runs in cap-harness's process, on the host
+SECRET = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH", re.I)
+
+
+def scrubbed(environ) -> dict:
+    """environ without its secrets, for the simulator's processes."""
+    return {k: v for k, v in environ.items() if not SECRET.search(k)}
+
+
 class Engine:
     """ASPIRE's harness at `root` (a checkout with `.venv-robosuite` bootstrapped)."""
 
@@ -52,7 +63,7 @@ class Engine:
         self.workers, self.max_steps, self.timeout_s = int(workers), max_steps, float(timeout_s)
 
     def _env(self) -> dict:
-        env = dict(os.environ)
+        env = scrubbed(os.environ)
         for key, value in self.env.items():
             env[key] = os.path.expandvars(os.path.expanduser(value))
         return env

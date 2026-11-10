@@ -79,7 +79,8 @@ class AspireActor(Agent):
     """`agent.name: ../utils/agent/agent.py:AspireActor`
 
     params: aspire_root (an ASPIRE checkout with .venv-robosuite), sim_env (the engine's environment), model,
-    effort, max_tokens, debug_seeds, eval_seeds (a task row's own seeds win), max_versions, search (debug | evo),
+    effort, max_tokens, debug_seeds (a task row's own seeds win; its held-out seeds are the row's, for the judge),
+    max_versions, search (debug | evo),
     evo {k, rounds, threshold, qualify_below, parents}, workers, max_steps, failed_shown, keyframes, evidence_chars,
     unserved_retries, sweep_timeout_s, scratch, logs.
     """
@@ -94,11 +95,14 @@ class AspireActor(Agent):
         with self._lock:
             if self._agent is None:
                 from hermit.agent.base.interface import make
-                from hermit.agent.model.backends import Binding, registry, resolve
+                from hermit.agent.model.backends import registry, resolve
                 from hermit.agent.model.llm import ChatClient
                 model = self.params.get("model") or DEFAULT_MODEL
-                binding = Binding.from_spec(model) if isinstance(model, dict) else resolve(model, registry())
-                spec = {**binding.spec(), "extra_body": {"reasoning_effort": self.params.get("effort", "medium")}}
+                # a spec as given (its timeout, its request fields), the actor's effort added to its extra_body
+                base = dict(model) if isinstance(model, dict) else resolve(model, registry()).spec()
+                extra = dict(base.get("extra_body") or {})
+                extra["reasoning_effort"] = self.params.get("effort") or extra.get("reasoning_effort") or "medium"
+                spec = {**base, "extra_body": extra}
                 self._agent = make("direct", {"max_tokens": int(self.params.get("max_tokens", 32000))},
                                    ChatClient.from_spec(spec, max_retries=4, retry_wait=4.0, retry_wait_max=60.0))
             return self._agent
@@ -141,11 +145,20 @@ class AspireActor(Agent):
         scratch = self.path(p.get("scratch") or (self.log_dir() / "scratch")) / f"{task['id']}-{stamp}"
         run = _Run(self, engine, task, log, scratch, debug, self._skills(adapter, task), p)
 
-        run.explore()
-        best = run.debug_loop(int(p.get("max_versions", 8)))
-        if p.get("search", "debug") == "evo":
-            best = run.evolve(best, **(p.get("evo") or {}))
-        findings, report = run.findings(best) if p.get("findings", True) else ("", None)
+        try:
+            run.explore()
+            best = run.debug_loop(int(p.get("max_versions", 8)))
+            if p.get("search", "debug") == "evo":
+                best = run.evolve(best, **(p.get("evo") or {}))
+            findings, report = run.findings(best) if p.get("findings", True) else ("", None)
+        except Exception as exc:              # a failed task (an outage past the retries): what it spent still counts
+            run.save()
+            from hermit.agent.base.interface import login_failure
+            if login_failure(exc) is not None:    # a lost sign-in stops the run (run_one), not this one task
+                raise
+            return RunOutput(output=None, log=log, wall_s=time.time() - started, **run.spent(),
+                             messages=run.transcript_messages(),
+                             extra={"session_failed": f"{type(exc).__name__}: {exc}"[:600], "usage": run.totals})
         run.save()
 
         rate = best.passed / len(debug)       # the development rate; the judge runs the held-out seeds (Stage 2)
@@ -153,13 +166,12 @@ class AspireActor(Agent):
         # the facts in the Codex actor's schema (task.py:collect), which the judge and the coordinator read; a
         # verifier's verdict is ASPIRE's rule on its own seeds (>= 4 of 5)
         facts = {"role": role, "suite": task["suite"], "findings": findings, "skill_report": report,
-                 "fix_code": best.source, "unseen": None,
+                 "fix_code": best.source, "unseen": None, "max_steps": p.get("max_steps"),
                  **({"verification": {"verdict": "verified" if best.passed >= 0.8 * len(debug) else "refuted"}}
                     if role == "verifier" else {})}
         extra = {"task": facts, "selected": best.name, "debug_passed": best.passed, "debug_total": len(debug),
                  "versions": [v.summary() for v in run.versions], "usage": run.totals}
-        return RunOutput(output=rate, log=log, wall_s=time.time() - started, cost_usd=run.totals["cost_usd"],
-                         tokens=(run.totals["input_tokens"] + run.totals["output_tokens"]) or None,
+        return RunOutput(output=rate, log=log, wall_s=time.time() - started, **run.spent(),
                          messages=run.transcript_messages(), extra=extra)
 
     def _skills(self, adapter: Path | None, task: dict) -> str:
@@ -209,7 +221,7 @@ class _Run:
         self.scene = ""
         self.scene_images: list[dict] = []
         self.transcript: list[dict] = []
-        self.totals = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "cut_off": 0}
+        self.totals = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "cut_off": 0, "unpriced": 0}
         self._lock = threading.Lock()
         self.params = params
         for d in ("code", "sweeps", "keyframes"):
@@ -227,10 +239,18 @@ class _Run:
                 self.totals["calls"] += 1
                 self.totals["input_tokens"] += u.input_tokens
                 self.totals["output_tokens"] += u.output_tokens
-                self.totals["cost_usd"] += u.cost_usd or 0.0
+                if u.cost_usd is None:                      # an unpriced call: the run's cost is unknown
+                    self.totals["unpriced"] += 1
+                else:
+                    self.totals["cost_usd"] += u.cost_usd
             self.totals["cut_off"] += finish_reason == "length"
             self.transcript.append({"stage": stage, "reply": reply, "reasoning_chars": len(reasoning or ""),
                                     "finish_reason": finish_reason})
+
+    def spent(self) -> dict:
+        """The run's cost (None when a call was unpriced) and tokens, as RunOutput takes them."""
+        return {"cost_usd": None if self.totals["unpriced"] else self.totals["cost_usd"],
+                "tokens": (self.totals["input_tokens"] + self.totals["output_tokens"]) or None}
 
     def transcript_messages(self) -> list[dict]:
         return [{"role": "assistant", "content": f"[{t['stage']}]\n{t['reply']}"} for t in self.transcript]

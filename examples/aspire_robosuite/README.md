@@ -77,8 +77,10 @@ only if a fresh verifier re-solves the task from the library and the proposals a
 
    The protocol is ASPIRE's: each task learns on its development seeds and is scored once on held-out seeds; the
    reruns score the same held-out seeds again, so the comparison reuses that partition (as ASPIRE's Phase 3 does).
-   The first evaluation ran `run.yaml` with `agent.params.eval_seeds=1-50` (half of ASPIRE's 1-100), as
-   `./launch.sh train agent.params.eval_seeds=1-50`, and its reruns with the same override.
+   The first evaluation ran `run.yaml` on held-out seeds 1-50 (half of ASPIRE's 1-100), and its reruns on the same
+   seeds. The held-out seeds are the task rows' (`prepare.py --eval`), so they are set when the launcher writes the
+   rows: `ASPIRE_EVAL_SEEDS=1-50 ./launch.sh`, and `ASPIRE_EVAL_SEEDS=1-50 ./launch.sh eval --adapter final` for the
+   reruns (an `agent.params.eval_seeds` override has no effect).
 
 ## Protocol
 

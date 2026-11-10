@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Train (and then evaluate) the ASPIRE method on Robosuite. Run it on the host that serves ASPIRE's providers.
+# Train, or evaluate, the ASPIRE method on Robosuite. Run it on the host that serves ASPIRE's providers.
 #
 #   ASPIRE_ROOT=/path/to/ASPIRE ./launch.sh                      # train run.yaml
 #   ASPIRE_CONFIG=smoke.yaml ./launch.sh                          # train the smoke (its seeds: ASPIRE_SEEDS=smoke)
@@ -19,9 +19,13 @@
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 : "${ASPIRE_ROOT:?set ASPIRE_ROOT to an ASPIRE checkout with .venv-robosuite}"
+# Absolute, from where the launcher was called: the service, the judge and the sandboxed workers each start elsewhere
+ASPIRE_ROOT="$(cd "$ASPIRE_ROOT" && pwd)"
+[[ -z "${ASPIRE_OUT:-}" ]] || { mkdir -p "$ASPIRE_OUT" && ASPIRE_OUT="$(cd "$ASPIRE_OUT" && pwd)"; }
 : "${FIREWORKS_API_KEY:?set FIREWORKS_API_KEY}"
 CONFIG="${ASPIRE_CONFIG:-run.yaml}"
 HERMIT="${HERMIT_PYTHON:-python}"
+[[ "$HERMIT" != */* || "$HERMIT" == /* ]] || HERMIT="$PWD/$HERMIT"          # a relative path: from here, as given
 SIM_ENV="${ASPIRE_SIM_ENV:-}"
 if [[ -n "$SIM_ENV" ]]; then
   SIM_ENV_JSON="$("$HERMIT" -c 'import json,sys,yaml; print(json.dumps(yaml.safe_load(open(sys.argv[1]))))' "$SIM_ENV")"
@@ -42,7 +46,7 @@ ACTUAL="$(git -C "$ASPIRE_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
 cd "$HERE"
 
 # The seeds, in the task rows: the simulator service and the judge read them there.
-case "${ASPIRE_SEEDS:-$([[ "$CONFIG" == smoke* ]] && echo smoke || echo aspire)}" in
+case "${ASPIRE_SEEDS:-$([[ "${CONFIG##*/}" == smoke* ]] && echo smoke || echo aspire)}" in
   smoke)  SEEDS=(--dev 101-103 --unseen 126 --eval "${ASPIRE_EVAL_SEEDS:-1-3}") ;;
   aspire) SEEDS=(--dev 101-125 --unseen 126-130 --eval "${ASPIRE_EVAL_SEEDS:-1-100}") ;;
   *) echo "ASPIRE_SEEDS is smoke or aspire" >&2; exit 2 ;;
@@ -57,15 +61,20 @@ export ASPIRE_ROOT ASPIRE_OUT="$OUT" ASPIRE_SIM_ENV="$SIM_ENV_JSON"      # for t
 
 # The simulator service: the actors' engine, on the host (the task sandbox has no GPU).
 PORT="${ASPIRE_SIM_PORT:-8120}"
+NONCE="$$-$RANDOM-$(date +%s%N)"                  # this launch's service answers /health with it, another run's not
 "$HERMIT" ../utils/agent/sim_service.py --port "$PORT" --aspire-root "$ASPIRE_ROOT" --tasks ../utils/tasks.jsonl \
-  --workspaces "$OUT/actor-logs" --state "$OUT/sim-service" --sim-env "$SIM_ENV_JSON" > "$OUT/sim-service.log" 2>&1 &
+  --workspaces "$OUT/actor-logs" --state "$OUT/sim-service" --sim-env "$SIM_ENV_JSON" --nonce "$NONCE" \
+  > "$OUT/sim-service.log" 2>&1 &
 SERVICE=$!
 trap 'kill "$SERVICE" 2>/dev/null || true' EXIT
+ours() { curl -sf "http://127.0.0.1:$PORT/health" 2>/dev/null | grep -qF "\"nonce\": \"$NONCE\""; }
 for _ in $(seq 1 30); do
-  curl -sf -o /dev/null "http://127.0.0.1:$PORT/health" && break
-  kill -0 "$SERVICE" 2>/dev/null || { echo "the simulator service failed: $OUT/sim-service.log" >&2; exit 1; }
+  ours && break
+  kill -0 "$SERVICE" 2>/dev/null \
+    || { echo "the simulator service failed (port $PORT taken?): $OUT/sim-service.log" >&2; exit 1; }
   sleep 1
 done
+ours || { echo "the simulator service did not come up on port $PORT: $OUT/sim-service.log" >&2; exit 1; }
 export ASPIRE_SIM_URL="http://127.0.0.1:$PORT"
 
 MODE=train

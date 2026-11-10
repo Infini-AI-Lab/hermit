@@ -2,6 +2,7 @@
 Trainer (next_tasks), and the example's pieces: the Codex task functions (prompt assembly, the workspace and its
 registration), the simulator service's rules as bin/sim meets them (a real service on a loopback port, over a fake
 checkout), the judge's Stage 2 (a stand-in engine), and pure helpers; no simulator, no model, no network."""
+import hashlib
 import importlib.util
 import json
 import os
@@ -10,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -92,6 +94,20 @@ def test_check_refuses_a_broken_entry_a_bad_snippet_and_an_unlinked_file(tmp_pat
     assert "orphan.md is not linked" in problems
 
 
+def test_check_reads_the_snippets_outside_the_entries_too(tmp_path):
+    """The actor reads a skill file whole and ADAPTER.md above it: a snippet before a file's entries or in ADAPTER.md
+    is checked like an entry's."""
+    adapter = seed(tmp_path)
+    grasp = adapter / "skills" / "grasp.md"
+    head, sep, rest = grasp.read_text().partition("\n## ")
+    grasp.write_text(head + "\n```python\nimport os\n```\n" + sep + rest if sep else
+                     grasp.read_text() + "\n```python\nimport os\n```\n")
+    (adapter / "ADAPTER.md").write_text((adapter / "ADAPTER.md").read_text() + "\n```python\nx = env.sim\n```\n")
+    problems = " ".join(i["problem"] for i in spec(adapter)["issues"])
+    assert "skills/grasp.md (before its entries): the snippet would be refused" in problems
+    assert "ADAPTER.md: the snippet uses privileged access (env.sim)" in problems
+
+
 def test_check_refuses_staged_proposals_privileged_access_and_reads_headings_in_code_as_code(tmp_path):
     adapter = seed(tmp_path)
     grasp = adapter / "skills" / "grasp.md"
@@ -124,6 +140,19 @@ def test_reader_leaves_out_the_staged_proposals(tmp_path):
 
 
 # ---------- the coordinator ----------
+
+def test_next_tasks_reads_only_a_regular_file(tmp_path):
+    """output/next_tasks.json is the learner's, read on the host: a link or a pipe in its place names no task."""
+    path = tmp_path / "next_tasks.json"
+    path.write_text('["robosuite-cube_stack"]')
+    assert E.next_tasks(path) == ["robosuite-cube_stack"]
+    path.unlink()
+    (tmp_path / "host.json").write_text('["robosuite-cube_stack"]')
+    path.symlink_to(tmp_path / "host.json")
+    assert E.next_tasks(path) is None
+    path.unlink()
+    os.mkfifo(path)
+    assert E.next_tasks(path) is None                           # returns at once, not blocked on the pipe
 
 def test_the_coordinator_chooses_tasks_and_returns_its_named_next_task(tmp_path, monkeypatch):
     from hermit.agent.evolver.agent import AgentEvolver
@@ -170,6 +199,53 @@ def test_actor_reads_seeds_and_the_outermost_program_fence():
     assert A.program_of(reply).endswith("result = {}\n")
     assert A.program_of("no program") is None
     assert A.json_of('text ```json\n{"a": 1}\n```') == {"a": 1}
+
+
+def test_the_direct_actor_keeps_its_models_settings_and_an_unknown_cost_unknown(monkeypatch):
+    import threading
+    from hermit.agent.model import llm
+    A = _actor_module()
+    specs = []
+    monkeypatch.setattr(llm.ChatClient, "from_spec", classmethod(lambda cls, spec, **k: specs.append(spec)))
+    monkeypatch.setattr("hermit.agent.base.interface.make", lambda *a, **k: object())
+    model = {"base_url": "http://127.0.0.1:9/v1", "model": "m", "timeout": 7,
+             "extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
+    A.AspireActor({"model": model, "effort": "high"})._base_agent()
+    assert specs[-1]["timeout"] == 7
+    assert specs[-1]["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}, "reasoning_effort": "high"}
+    A.AspireActor({"model": {**model, "extra_body": {"reasoning_effort": "low"}}})._base_agent()
+    assert specs[-1]["extra_body"] == {"reasoning_effort": "low"}            # the model's own, when the actor names none
+    run = SimpleNamespace(totals={"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "cut_off": 0,
+                                  "unpriced": 0}, _lock=threading.Lock(), transcript=[])
+    A._Run.account(run, [SimpleNamespace(input_tokens=10, output_tokens=5, cost_usd=None)], "v00", "r", "", "stop")
+    assert run.totals["unpriced"] == 1 and run.totals["cost_usd"] == 0.0     # RunOutput then carries None
+
+
+def test_a_failed_direct_task_keeps_what_it_spent(tmp_path, monkeypatch):
+    A = _actor_module()
+
+    class Engine:
+        def __init__(self, root, **k):
+            self.root = Path(root)
+
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "api-reference.md").write_text("# api\n")
+
+    def explore(run):                                           # one paid call, then an outage past the retries
+        run.account([SimpleNamespace(input_tokens=10, output_tokens=5, cost_usd=0.5)], "explore", "r", "", "stop")
+        raise RuntimeError("model unavailable: 503")
+    monkeypatch.setattr(A.sim, "Engine", Engine)
+    monkeypatch.setattr(A._Run, "explore", explore)
+    actor = A.AspireActor({"aspire_root": str(tmp_path), "scratch": str(tmp_path / "scratch")}, base=tmp_path)
+    monkeypatch.setattr(actor, "log_dir", lambda: tmp_path / "logs")
+    monkeypatch.setattr(actor, "session", lambda adapter: None)
+    out = actor.run(dict(ROW), None)
+    assert out.cost_usd == 0.5 and out.tokens == 15 and "503" in out.extra["session_failed"]
+    from hermit.agent.base.interface import LoginFailed
+    from hermit.trainer.rollout import run_one
+    monkeypatch.setattr(A._Run, "explore", lambda run: (_ for _ in ()).throw(RuntimeError("hermit_login_failed: x")))
+    with pytest.raises(LoginFailed):                            # a lost sign-in stops the run, not one task
+        run_one(dict(ROW), None, lambda task, adapter: actor.run(task, adapter), lambda task, out: {"score": 0})
 
 
 def test_sim_compact_makes_traces_readable():
@@ -244,7 +320,38 @@ def fake_aspire(tmp: Path) -> Path:
     (evosearch / "subagent-prompt.md").write_text("intro\n\n```\n## Task Assignment\n\nBENCHMARK: <x>\n\n---\n\n"
                                                   "## EVAL SET LOCKOUT\nsearch text\n```\n")
     (evosearch / "skills" / "evosearch-iteration.md").write_text("# iteration\n")
+    harness = root / ".venv-robosuite" / "bin" / "cap-harness"
+    harness.parent.mkdir(parents=True)
+    harness.write_text(FAKE_HARNESS.format(python=sys.executable))
+    harness.chmod(0o755)
     return root
+
+
+# cap-harness without a simulator: the run's files where ASPIRE writes them (run.json, results.jsonl naming the run's
+# directory, outcome.json), the program and settings it was given; a program saying SLEEP runs until stopped.
+FAKE_HARNESS = """#!{python}
+import argparse, json, os, pathlib, sys, time
+ap = argparse.ArgumentParser()
+for flag in ("--benchmark", "--suite", "--task-id", "--program", "--output-root", "--max-steps", "--seed", "--workers",
+             "--results-jsonl", "--log-dir"):
+    ap.add_argument(flag)
+ap.add_argument("--seeds", nargs="+")
+ap.add_argument("--flat-run-dir", action="store_true")
+ap.add_argument("--no-videos", action="store_true")
+ap.add_argument("cmd")
+a = ap.parse_args()
+code = pathlib.Path(a.program).read_text()
+if "SLEEP" in code:
+    time.sleep(60)
+out = pathlib.Path(a.output_root)
+run = out / "run-1"
+run.mkdir(parents=True, exist_ok=True)
+(out / "run.json").write_text(json.dumps({{"program": a.program, "max_steps": a.max_steps, "code": code,
+                                          "env": sorted(os.environ)}}))
+(run / "outcome.json").write_text(json.dumps({{"task_success": True}}))
+(out / "results.jsonl").write_text(json.dumps({{"run_dir": str(run)}}) + chr(10))
+print("ran", a.program, "into", out, "max_steps", a.max_steps)
+"""
 
 
 ROW = {"id": "robosuite-cube_lifting", "suite": "cube_lifting", "task_id": 0, "debug_seeds": "101-103",
@@ -270,17 +377,17 @@ def test_the_actor_prompt_is_the_header_the_assignment_and_aspires_template(tmp_
 
 
 class _Service:
-    """The simulator service on a free loopback port, over a fake checkout (no simulator: a run that passes the
-    rules fails to start cap-harness, which is not what these tests hold)."""
+    """The simulator service on a free loopback port, over a fake checkout whose cap-harness writes a run's files
+    without a simulator (FAKE_HARNESS)."""
 
-    def __init__(self, tmp: Path, root: Path):
+    def __init__(self, tmp: Path, root: Path, **options):
         import threading
         from http.server import ThreadingHTTPServer
         S = _load("aspire_sim_service", EXAMPLE / "agent" / "sim_service.py")
         self.sessions = tmp / "sessions"
         self.sessions.mkdir()
-        service = S.Service(root, {r["id"]: r for r in (ROW, VERIFY)}, [self.sessions], S.Ledger(tmp / "ledger.json"),
-                            {}, 2)
+        self.service = service = S.Service(root, {r["id"]: r for r in (ROW, VERIFY)}, [self.sessions],
+                                           S.Ledger(tmp / "ledger.json"), {}, 2, **options)
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), S.handler(service))
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
@@ -333,8 +440,9 @@ def test_prepare_registers_the_session_and_the_service_holds_its_rules(tmp_path,
     _sim(work, "run", "--seed", "126", "--program", "p.py", "--output-root", "u", "--init-mode", "saved")
     again = _sim(work, "run", "--seed", "126", "--program", "p.py", "--output-root", "u")
     assert again.returncode == 2 and "run once" in again.stderr
-    with pytest.raises(RuntimeError, match="registered its session already"):
-        T.prepare(ROW, work, params, tmp_path)                    # a session cannot register itself again
+    T.prepare(ROW, work, params, tmp_path)                        # a retry's prepare: the registration as it was
+    again = _sim(work, "run", "--seed", "126", "--program", "p.py", "--output-root", "u")
+    assert again.returncode == 2 and "run once" in again.stderr     # what the session spent stays spent
 
 
 def test_a_session_cannot_forge_a_registration_for_more_seeds(tmp_path, service):
@@ -375,15 +483,86 @@ def test_a_verifier_may_run_two_programs_and_sees_the_staged_proposals(tmp_path,
     assert codes[2].returncode == 2 and "attempt budget is 2 programs" in codes[2].stderr
 
 
+def test_the_service_follows_no_link_the_session_puts_in_its_workspace(tmp_path, service):
+    """A run is written by the service into its own directory and moved into the workspace: a link the session put
+    where the run's files go is replaced, not followed, and a program that is a link is not read."""
+    T = _task_module()
+    work = _workspace(service, ROW)
+    T.prepare(ROW, work, {"aspire_root": str(tmp_path / "ASPIRE")}, tmp_path)
+    victim = tmp_path / "victim.txt"
+    victim.write_text("the host's own file\n")
+    (work / "out").mkdir()
+    (work / "out" / "run.json").symlink_to(victim)               # where cap-harness writes
+    (work / "out" / "run-1").symlink_to(tmp_path)                # a directory of the run's
+    (work / "p.py").write_text("result = {}\n")
+    ran = _sim(work, "run", "--seed", "101", "--program", "p.py", "--output-root", "out")
+    assert victim.read_text() == "the host's own file\n" and not (tmp_path / "outcome.json").exists()
+    assert ran.returncode == 2 and "a link in its path" in ran.stderr
+    (work / "out" / "run-1").unlink()
+    ran = _sim(work, "run", "--seed", "101", "--program", "p.py", "--output-root", "out")
+    assert ran.returncode == 0 and victim.read_text() == "the host's own file\n"
+    record = json.loads((work / "out" / "run.json").read_text())
+    assert not (work / "out" / "run.json").is_symlink() and record["program"] == str(work / "p.py")
+    rows = (work / "out" / "results.jsonl").read_text()
+    assert json.loads(rows)["run_dir"] == str(work / "out" / "run-1")     # the workspace's paths, not the service's
+    assert str(work / "p.py") in ran.stdout and str(service.service.scratch) not in ran.stdout
+    secret = tmp_path / "secret.py"
+    secret.write_text("KEY = 'host'\n")
+    (work / "q.py").symlink_to(secret)
+    refused = _sim(work, "validate", "--program", "q.py")
+    assert refused.returncode == 2 and "no program at q.py" in refused.stderr
+    assert list(service.service.scratch.iterdir()) == []                 # the service's copies are gone
+    import urllib.request
+    service.service.nonce = "n-1"
+    with urllib.request.urlopen(service.url + "/health") as reply:         # launch.sh knows its own service by it
+        assert json.loads(reply.read())["nonce"] == "n-1"
+    service.service.stop()
+    late = _sim(work, "run", "--seed", "101", "--program", "p.py", "--output-root", "out")
+    assert late.returncode == 1 and "stopping" in late.stderr          # no run starts once the service stops
+
+
+def test_bin_sim_quotes_the_interpreter(tmp_path, service, monkeypatch):
+    T = _task_module()
+    work = _workspace(service, ROW)
+    monkeypatch.setattr(T.sys, "executable", "/opt/hermit env/bin/python")
+    T.prepare(ROW, work, {"aspire_root": str(tmp_path / "ASPIRE")}, tmp_path)
+    assert "exec '/opt/hermit env/bin/python' " in (work / "bin" / "sim").read_text()
+
+
+def test_a_run_takes_the_registrations_max_steps_and_stops_at_the_timeout(tmp_path, monkeypatch):
+    monkeypatch.setenv("TEST_PROVIDER_API_KEY", "k")       # the host's secrets: not for a generated program
+    svc = _Service(tmp_path, fake_aspire(tmp_path), run_timeout=2)
+    try:
+        work = _workspace(svc, ROW)
+        assert _register(svc.url, {"workspace": str(work), "task": ROW["id"], "max_steps": 300})["ok"]
+        (work / "bin").mkdir()
+        shutil.copy2(EXAMPLE / "agent" / "sim_cli.py", work / "bin" / "sim_cli.py")
+        (work / "bin" / "sim.json").write_text(json.dumps({"workspace": str(work), "url": svc.url}))
+        sim = lambda *args: subprocess.run([sys.executable, str(work / "bin" / "sim_cli.py"), *args],
+                                           capture_output=True, text=True, cwd=work)
+        (work / "p.py").write_text("result = {}\n")
+        ran = sim("run", "--seed", "101", "--program", "p.py", "--output-root", "o", "--max-steps", "5000")
+        record = json.loads((work / "o" / "run.json").read_text())
+        assert ran.returncode == 0 and record["max_steps"] == "300"
+        assert "TEST_PROVIDER_API_KEY" not in record["env"] and "PATH" in record["env"]
+        (work / "slow.py").write_text("SLEEP\n")
+        started = time.time()
+        slow = sim("run", "--seed", "102", "--program", "slow.py", "--output-root", "s")
+        assert slow.returncode == 124 and "stopped after 2 s" in slow.stderr and time.time() - started < 30
+    finally:
+        svc.close()
+
+
 def test_the_judge_runs_stage_two_on_the_rows_seeds_and_a_verifier_only_when_verified(tmp_path, monkeypatch):
     J = _load("aspire_judge", EXAMPLE / "judge.py")
-    runs = []
+    runs, engines = [], []
 
     class Engine:
         def __init__(self, *a, **k):
-            pass
+            engines.append(k)
 
         def validate(self, program):
+            assert program.is_absolute() and program.is_file()      # cap-harness runs in ASPIRE's checkout
             return "ValueError: only math" if "import os" in program.read_text() else None
 
         def run(self, program, *, suite, seeds, out, task_id=0):
@@ -391,15 +570,32 @@ def test_the_judge_runs_stage_two_on_the_rows_seeds_and_a_verifier_only_when_ver
             return [{"task_success": s % 2 == 1} for s in seeds]
     monkeypatch.setattr(J.sim, "Engine", Engine)
     monkeypatch.setenv("ASPIRE_ROOT", str(tmp_path))
-    monkeypatch.setenv("ASPIRE_OUT", str(tmp_path / "out"))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ASPIRE_OUT", "out")                     # relative, as a user may give it
     out = lambda facts: SimpleNamespace(extra={"task": facts}, output=None)
     actor = {"role": "actor", "fix_code": "result = {}\n", "unseen": {"passed": 1, "total": 1}}
     assert J.score(ROW, out(actor))["score"] == 2 / 3 and runs[-1] == [1, 2, 3]   # the row's held-out seeds
     assert J.score(ROW, out({**actor, "fix_code": "import os\n"}))["score"] == 0.0
-    verified = {"role": "verifier", "fix_code": "result = {}\n", "verification": {"verdict": "verified"}}
+    assert J.score(ROW, out({**actor, "max_steps": 300}))["score"] == 2 / 3 and engines[-1]["max_steps"] == 300
+    work = str(tmp_path / "w")
+    verified = {"role": "verifier", "fix_code": "result = {}\n", "verification": {"verdict": "verified"},
+                "workspace": work}
+    ledger = tmp_path / "out" / "sim-service" / "ledger.json"
+    ledger.parent.mkdir(parents=True)
+    ledger.write_text(json.dumps({work: {"programs": [hashlib.sha256(b"result = {}\n").hexdigest()]}}))
     assert J.score(VERIFY, out(verified))["score"] == 3 / 5 and runs[-1] == [101, 102, 103, 104, 105]
     assert J.score(VERIFY, out({**verified, "verification": {"verdict": "void"}}))["score"] == 0.0
+    third = J.score(VERIFY, out({**verified, "fix_code": "result = {'v': 3}\n"}))   # beyond its two programs
+    assert third["score"] == 0.0 and "attempt budget" in third["feedback"]
+    direct = {k: v for k, v in verified.items() if k != "workspace"}  # the direct actor's: it runs its own versions
+    assert J.score(VERIFY, out({**direct, "fix_code": "result = {'v': 3}\n"}))["score"] == 3 / 5
     assert J.score(ROW, out({"role": "actor"}))["score"] == 0.0                 # no program: not scored
+
+
+def test_prepare_refuses_held_out_seeds_a_session_could_run():
+    for args in (["--eval", "1-200"], ["--unseen", "120-130"], ["--eval", "1-100", "--verify", "50-54"]):
+        done = subprocess.run([sys.executable, str(EXAMPLE / "prepare.py"), *args], capture_output=True, text=True)
+        assert done.returncode == 2 and "overlap" in done.stderr, args
 
 
 def test_prune_drops_the_runs_images_and_keeps_their_records(tmp_path):

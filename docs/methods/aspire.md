@@ -96,8 +96,12 @@ is the evaluation on the test split (`rerun-<task>` rows, the same seeds), compa
 :language: yaml
 ```
 
-The actor's settings are the example's (`agent.params`): `debug_seeds`, `unseen_seeds`, `eval_seeds`, `workers`,
-`aspire_root`, `sim_env`. The verifier's rows carry their own seeds.
+The Codex actor's settings (`agent.params`) are `aspire_root` and `max_steps`; its seeds are the task rows'
+(`utils/prepare.py`, which the launcher runs: `ASPIRE_EVAL_SEEDS` for the held-out ones), and the simulator's
+environment and workers are the simulator service's (`ASPIRE_SIM_ENV`). The direct comparison actor
+(`run_direct.yaml`) reads `debug_seeds`, `workers`, `aspire_root` and `sim_env` from `agent.params`, a task row's own
+seeds winning; the held-out seeds are the task rows' for both actors (the judge reads them there). The verifier's rows
+carry their own seeds.
 
 ## The authors' implementation against this one
 

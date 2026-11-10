@@ -5,10 +5,10 @@ The surface:
     skills/README.md      the index: links every skill file, and only files that exist
     skills/<topic>.md     frontmatter `description:`; entries under `## <title>`, each with **Failure signature.**,
                           **When to apply.** and **Provenance.**, each at the start of a line
-Every ```python snippet runs under the CaP program rules (ASPIRE cap_harness/runtime.py `_ProgramValidator`: only
-`import math`, no names or attributes starting with `_`, no class, with, global, nonlocal, del or async) and names no
-privileged access. The whole library is at most 100,000 bytes (the actor's context holds it whole), and a staged
-`skills/proposed.md` never stays.
+Every ```python snippet (in an entry, before a file's entries, in ADAPTER.md or the index) runs under the CaP program
+rules (ASPIRE cap_harness/runtime.py `_ProgramValidator`: only `import math`, no names or attributes starting with
+`_`, no class, with, global, nonlocal, del or async) and names no privileged access. The whole library is at most
+100,000 bytes (the actor's context holds it whole), and a staged `skills/proposed.md` never stays.
 """
 from __future__ import annotations
 
@@ -58,6 +58,19 @@ def entries(body: str) -> list[tuple[str, str]]:
     return [(lines[a][3:].strip(), "\n".join(lines[a:b])) for a, b in zip(marks, marks[1:] + [len(lines)])]
 
 
+def snippet_problems(where: str, text: str) -> list[str]:
+    """Why each ```python snippet of text would be refused, as `<where>: ...` lines."""
+    out = []
+    for snippet in FENCE.findall(text):
+        found = PRIVILEGED.search(snippet)
+        if found:
+            out.append(f"{where}: the snippet uses privileged access ({found.group(0)})")
+        why = program_problem(snippet)
+        if why:
+            out.append(f"{where}: the snippet would be refused by the program sandbox: {why}")
+    return out
+
+
 def problems(adapter: Path) -> list[dict]:
     issues = []
     issue = lambda path, problem: issues.append({"path": path, "problem": problem})
@@ -92,21 +105,24 @@ def problems(adapter: Path) -> list[dict]:
         rel = f"skills/{name}"
         if not re.search(r"^description:\s*\S", text[:600], re.M):
             issue(rel, f"{rel} needs a `description:` in its frontmatter")
+        found = entries(text)
+        head = text[:text.find(found[0][1])] if found else text      # before the first entry: the actor reads it too
+        for problem in snippet_problems(f"{rel} (before its entries)", head):
+            issue(rel, problem)
         seen = set()
-        for title, body in entries(text):
+        for title, body in found:
             if title in seen:
                 issue(rel, f"{rel} has two entries titled {title!r}")
             seen.add(title)
             missing = [f for f in FIELDS if not any(line.startswith(f) for line in body.split("\n"))]
             if missing:
                 issue(rel, f"{rel} § {title}: missing {', '.join(missing)}")
-            for snippet in FENCE.findall(body):
-                found = PRIVILEGED.search(snippet)
-                if found:
-                    issue(rel, f"{rel} § {title}: the snippet uses privileged access ({found.group(0)})")
-                why = program_problem(snippet)
-                if why:
-                    issue(rel, f"{rel} § {title}: the snippet would be refused by the program sandbox: {why}")
+            for problem in snippet_problems(f"{rel} § {title}", body):
+                issue(rel, problem)
+    for rel in ("ADAPTER.md", "skills/README.md"):                 # above the library in the actor's context
+        if (adapter / rel).is_file():
+            for problem in snippet_problems(rel, (adapter / rel).read_text(encoding="utf-8", errors="replace")):
+                issue(rel, problem)
     return issues
 
 

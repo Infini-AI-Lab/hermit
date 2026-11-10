@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import stat
 import sys
@@ -67,7 +68,7 @@ def prepare(task: dict, workspace: Path, params: dict, base: Path) -> list[dict]
     shutil.copy2(HERE / "sim_cli.py", bin_dir / "sim_cli.py")
     (bin_dir / "sim.json").write_text(json.dumps({"workspace": str(work.resolve()), "url": url}, indent=1))
     wrapper = bin_dir / "sim"
-    wrapper.write_text(f"#!/bin/sh\nexec {sys.executable} \"$(dirname \"$0\")/sim_cli.py\" \"$@\"\n")
+    wrapper.write_text(f"#!/bin/sh\nexec {shlex.quote(sys.executable)} \"$(dirname \"$0\")/sim_cli.py\" \"$@\"\n")
     wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     (work / "docs").mkdir(exist_ok=True)
     for name in DOCS:
@@ -185,7 +186,7 @@ def collect(task: dict, workspace: Path, log: Path, params: dict) -> dict:
     read = lambda name: (work / name).read_text(errors="replace") if (work / name).is_file() else None
     facts = {"role": s["role"], "suite": s["suite"], "findings": read("findings.md") or read("findings_report.md"),
              "skill_report": _json(read("skill_report.json")), "verification": _json(read("verification_report.json")),
-             "unseen": _unseen(work)}
+             "unseen": _unseen(work), "workspace": str(Path(workspace).resolve()), "max_steps": s["max_steps"]}
     evo = Path(workspace) / evo_dir(s)
     if s["role"] == "actor" and evo.is_dir():
         for name in ("evosearch_best_code.py", "findings.md", "task_analysis.md", "BLOCKED"):
