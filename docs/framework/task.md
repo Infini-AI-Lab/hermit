@@ -128,7 +128,7 @@ What the agent does for every task:
   calls the adapter's tools without approvals and may start its sub-agents. An adapter with `memory/NOTES.md` (the
   continual-harness template) is told so in the prompt, and the notes the session leaves come back in the log
   (`log/memory/`). The context must fit `project_doc_max_bytes` (Codex reads no further): a longer one is refused. So
-  is one past what DeepSeek Harness gives the model of a project's instructions (at most 65,536 bytes).
+  is one too long for DeepSeek Harness, which gives the model at most 65,536 bytes of a project's instructions.
 - **Isolate.** With `environment.image`, the CLI runs in a container of its own, started from a worker on the host
   that runs the adapter's code the deployment renders or serves in the strict sandbox: the workspace and the session's
   home read-write, the mounts read-only at their targets, an internal network whose only way out is an egress proxy to
@@ -143,8 +143,9 @@ What the agent does for every task:
   DeepSeek Harness's glob and grep, does not follow a link), and linked with a warning where bubblewrap cannot nest.
   DeepSeek Harness also confines its commands and file tools in a sandbox of its own, inside the task sandbox
   (`permission_mode`). Its default, `workspace-write`, lets them write only the workspace and `/tmp`, so not
-  `environment.write`. Where neither bubblewrap nor Landlock can start there, it refuses every command and the
-  session goes on. `danger-full-access` turns it off and leaves the task sandbox as the boundary.
+  `environment.write`. Where neither bubblewrap nor Landlock (the Linux kernel's own way of confining a process) can
+  start there, it refuses every command and the session goes on. `danger-full-access` turns it off and leaves the task
+  sandbox as the boundary.
 - **Sign in.** A `<backend>/<model>` reference binds Codex to that backend's key; `login: chatgpt` uses the user's
   own ChatGPT login (`codex login`; `model` is then a Codex model name, the cost unknown), from one shared copy
   (`~/.cache/hermit/codex-login/`, outside every run's directory) that each session's refreshed token is written back
@@ -163,7 +164,8 @@ What the agent does for every task:
   `CronDelete`, `CronList`, `ScheduleWakeup`, `ListAgents` and `SendMessage`
   ([Claude subscription](../guides/claude-subscription.md#execution-boundaries)).
   DeepSeek Harness's web search and fetch follow `web_search` too; its search is DeepSeek's own service, so unless the
-  model is reached through DeepSeek's API on `DEEPSEEK_API_KEY`, `true` gives the session web fetch only.
+  model is reached through DeepSeek's API on `DEEPSEEK_API_KEY`, `true` gives the session web fetch only. Its fetch
+  runs in the session, not at the provider: in the task sandbox it reaches only what `environment.network` allows.
 - **Stop and retry.** One session per run, stopped at `timeout_s`. A session the provider could not serve (429, 5xx,
   a container that did not start) runs again after `retry_wait_s`, up to `retries`; then the run is an error, not a
   wrong answer. On Claude Code and DeepSeek Harness any failed session is an error, with its tokens and log kept

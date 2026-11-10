@@ -37,7 +37,7 @@ framework's stdio server. Neither command guarantees that arbitrary tool depende
 - The Trainer's own process is not sandboxed; the acting agent, the judge (when sandboxed), the declared tools and the learner run in sandboxes of their own ([Sandbox design](../developer/sandbox-design.md)), except where the pipeline runs on the host by design (`sandbox.enabled: false`, Harbor, `environment.runner: host`).
 - An isolated network is a network namespace: the only ways out are the forwarded ports and the allowlist proxy, so a program that ignores proxy settings has no route out.
 - Budget observation can overshoot with in-flight work; missing usage remains unknown.
-- DeepSeek Harness reports no cost: the cost recorded follows the price. A compaction's request and web searches are not counted, though the session's cost still reads as known, so `budget.usd` can undercount it.
+- DeepSeek Harness reports no cost: the cost recorded follows the price (the agent's own `price`, else the backend's). Web searches and the request that summarizes a long session's history are not counted, though the session's cost still reads as known, so `budget.usd` can undercount it.
 - Crash recovery restores the last completed framework step, not arbitrary external service state.
 - The evaluator's `solved_once` threshold is fixed at score 1.0.
 - Per-task adapter context comes only through `exports.yaml`'s `context_tool`, consumed by `Session`, the `react` agent and the `codex`, `claude-code`, `pi`, `mini-swe-agent` and `dsh` agents; its template must declare `plugin-portable: false`, and `deploy` and `convert` refuse such adapters.

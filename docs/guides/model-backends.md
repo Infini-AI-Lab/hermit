@@ -44,14 +44,16 @@ at each request, so no file holds the key) and the backend's price. The cost rec
 own `price`, else the backend's), not Pi's own figure. Pi sends such a model text only; for a model that takes images
 (a tool's result, such as a screenshot), set `image_input: true` in `agent.pi` or `evolver.pi`.
 
-For DeepSeek Harness a reference becomes its `llm-pi-ai` provider `hermit`, in the patch layer the session is started
-with (`--patch`): the backend's URL and the name of the key's variable (DeepSeek Harness reads the key at each request,
-so no file holds it). `provider` in `agent.dsh` or `evolver.dsh` replaces the provider a reference makes with your own
-(`api`, `baseURL`, `apiKeyEnv`, and `models`, which must list the model); a sandbox lets through the reference's key and
-host, not yours. DeepSeek Harness reports no cost: the cost recorded follows the price (the agent's own `price`, else
-the backend's). As with Pi, set `image_input: true` in `agent.dsh` or `evolver.dsh` for a model that takes images.
-Declare the backend's `context_window` for DeepSeek Harness: without one it assumes 1,000,000 tokens and asks for up to
-128,000 output tokens a request, which a smaller vLLM server refuses.
+For DeepSeek Harness a reference becomes a provider `hermit` of its `llm-pi-ai` model plugin, in the patch layer the
+session is started with (an overlay of settings, loaded with `--patch`): the backend's URL and the name of the key's
+variable (DeepSeek Harness reads the key at each request, so no file holds it). `provider` in `agent.dsh` or
+`evolver.dsh` replaces the provider a reference makes with your own (`api`, the dialect as `openai-completions`,
+`anthropic-messages` or `openai-responses`; `baseURL`; `apiKeyEnv`; and `models`, a list of `{id: <the model's id>}`
+that must include the model); a sandbox lets through the reference's key and host, not yours. DeepSeek Harness reports
+no cost: the cost recorded follows the price (the agent's own `price`, else the backend's). As with Pi, set
+`image_input: true` in `agent.dsh` or `evolver.dsh` for a model that takes images. Declare the backend's
+`context_window` for DeepSeek Harness (with your own `provider`, `contextWindow` beside the model's `id`): without one
+it assumes 1,000,000 tokens and asks for up to 128,000 output tokens a request, which a smaller vLLM server refuses.
 
 A string whose first segment is no backend's name is not a reference: for a Codex or Claude Code agent it is a
 model of the CLI's own provider (`gpt-5.4`), as before. So a provider id that happens to start with a backend's
