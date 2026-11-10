@@ -1863,11 +1863,11 @@ class Dsh(CliAgent):
     @classmethod
     def outage(cls, raw: str) -> bool:
         """The provider could not serve the run: its `final` event ended it with one of dsh's codes for that
-        (DSH_OUTAGES), or with pi-ai's own code for an error dsh could not classify (PI_AI_ERROR: an overload a
-        provider sends inside a 200 stream, such as the Messages API's `overloaded_error` event, has no status) whose
-        words are an outage's (UNAVAILABLE, as Pi's are read). Only that event says so, not the stream's other lines:
-        a deployed tool server writes on dsh's own stderr, which the stream keeps, and a tool's words of an outage are
-        the session's own work."""
+        (DSH_OUTAGES), or with the code dsh's pi-ai adapter gives an error it could not classify (PI_AI_ERROR: an
+        overload a provider sends inside a 200 stream, such as the Messages API's `overloaded_error` event, has no
+        status) whose words are an outage's (UNAVAILABLE, the words Pi's notices are matched with). Only that event
+        says so, not the stream's other lines: a deployed tool server writes on dsh's own stderr, which the stream
+        keeps, and a tool's words of an outage are the session's own work."""
         error = cls._reason(raw).get("error")          # dsh's only end with an error is `{"kind": "error", ...}`
         if not isinstance(error, dict):
             return False
@@ -1878,8 +1878,9 @@ class Dsh(CliAgent):
         """dsh exits 0 for a run whose `final` event is `completed`, and 1 for any other end (an error, an abort, the
         token limit, ...), but also 0 when SIGTERM stops it: a run without a completed end has failed, whatever its
         exit code. So has one whose tools did not start (an MCP row dsh reports inactive): it ran without them. The
-        run is `unavailable` only by its end's error code (outage). The session started once dsh wrote its `session`
-        event (a usage error is an `error` event before any session)."""
+        run is `unavailable` only by its end's error (outage): one of dsh's codes for that, or its unclassified
+        PI_AI_ERROR with an outage's words. The session started once dsh wrote its `session` event (a usage error is
+        an `error` event before any session)."""
         notes, done = self.notices(raw), self.served(raw)
         down = DSH_TOOLS_DOWN.findall(notes)
         failure = f"{down[0][0]} did not start, so the session ran without its tools: {down[0][1]}" if down else \
@@ -1897,9 +1898,9 @@ class Dsh(CliAgent):
 
     @classmethod
     def errors(cls, event):
-        """A run that did not complete: an error, as dsh writes it on stderr (`dsh: <code>: <message>`: the code is
-        how a provider that could not serve is told, DSH_OUTAGES), or any other end (aborted, max-tokens, blocked,
-        interrupted, ...); a failure outside a turn."""
+        """A run that did not complete: an error, as dsh writes it on stderr (`dsh: <code>: <message>`: the code, and
+        for dsh's unclassified PI_AI_ERROR its words, tell a provider that could not serve, outage), or any other
+        end (aborted, max-tokens, blocked, interrupted, ...); a failure outside a turn."""
         kind = event.get("type")
         reason = event.get("reason") if isinstance(event.get("reason"), dict) else {}
         if kind == "final" and reason.get("kind") not in (None, "completed"):

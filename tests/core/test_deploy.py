@@ -52,11 +52,12 @@ def test_pi(tmp_path):
         codex_prepare(LEAN, tmp_path / "p", sys.executable)
 
 
-def test_dsh(tmp_path):
+def test_dsh_gets_the_tools_and_skills_as_rows_of_the_workspaces_patch_layer(tmp_path):
     """dsh has no project file for MCP servers or skill folders: the tools are an `insert` row of the workspace's
     patch layer, which a session loads with --patch, and the layer names the workspace's .dsh/skills (dsh reads a
-    project's skills only at the nearest folder with a .git); roles stay files named in AGENTS.md; a context longer
-    than dsh gives the model of a project's instructions is refused."""
+    project's skills at its root only: the nearest folder with a .git, the working directory included, else the
+    working directory); roles stay files named in AGENTS.md; a context longer than dsh gives the model of a project's
+    instructions is refused."""
     result = dsh_prepare(LEAN, tmp_path / "d", sys.executable)
     layer = json.loads((tmp_path / "d" / ".dsh" / "hermit.patch.yml").read_text())
     [server] = [r for r in layer if "insert" in r]
@@ -66,7 +67,8 @@ def test_dsh(tmp_path):
     assert row["config"]["transport"] == "stdio" and row["config"]["args"][:3] == ["-m", "hermit.runtime.mcp_server",
                                                                                   "--adapter"]
     assert row["config"]["toolCallTimeoutMs"] == 120_000           # Codex's tool_timeout_sec, not dsh's 60 s
-    assert row["config"]["failOnStartupError"] is True             # a server that does not start fails the session
+    # dsh reports a server that does not start (the dsh acting agent fails the session; dsh runs on)
+    assert row["config"]["failOnStartupError"] is True
     assert result["patch"] == str(tmp_path / "d" / ".dsh" / "hermit.patch.yml")
     assert "hermit:lean-collab:start" in (tmp_path / "d" / "AGENTS.md").read_text()
     assert (tmp_path / "d" / ".dsh" / "skills" / "good-map" / "SKILL.md").exists()

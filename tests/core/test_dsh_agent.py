@@ -188,7 +188,8 @@ def test_a_failed_run_is_an_error_and_only_an_outage_is_unavailable(fake, monkey
     stream the provider closed) from a refusal, and only an outage is `unavailable`: the acting agent runs the task
     again only when the provider could not serve it. An overload a provider sends inside a 200 stream (recorded:
     overloaded.jsonl, the Messages API's `overloaded_error` event) has no status, and dsh leaves it unclassified
-    (pi-ai's PI_AI_ERROR): it is told by its words, as Pi's are read, and pi-ai's own refusal so coded is no outage."""
+    (PI_AI_ERROR, the code of dsh's pi-ai adapter for an error it could not classify): it is told by its words, which
+    are matched as Pi's notices are, and pi-ai's own refusal so coded is no outage."""
     monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / "failure.jsonl"))
     monkeypatch.setenv("FAKE_DSH_EXIT", "1")
     work = fake / "work"
@@ -214,23 +215,30 @@ def test_a_failed_run_is_an_error_and_only_an_outage_is_unavailable(fake, monkey
 
 def test_a_tool_servers_words_of_an_outage_are_no_outage(fake, monkeypatch):
     """dsh starts a deployed stdio tool server on its own stderr, which the Base Agent keeps in the stream: a tool's
-    line with an outage's words (written here by hand into the recorded stream of a run that ended at the token
-    limit) is the session's own work, not the provider's end. The acting agent runs the task once and records the
-    session's failure, not an outage it would run `retries` times and then leave at an unknown cost."""
+    line with an outage's words (written here by hand into a recorded stream) is the session's own work, not the
+    provider's end, whether the run ended at the token limit (max_tokens.jsonl) or with an error dsh left
+    unclassified that is no outage (overloaded.jsonl's end, made pi-ai's refusal of a route without a key), whose
+    words are read from the end alone. The acting agent runs the task once and records the session's failure, not an
+    outage it would run `retries` times and then leave at an unknown cost."""
     from hermit.agent.acting import workspace as acting
-    lines = (STREAMS / "max_tokens.jsonl").read_text().splitlines(keepends=True)
     tool = "requests.exceptions.HTTPError: 503 Server Error: Service Unavailable for url: https://example.com/v1\n"
-    stream = fake / "tool_stderr.jsonl"
-    stream.write_text("".join(lines[:3]) + tool + "".join(lines[3:]))
-    monkeypatch.setenv("FAKE_DSH_STREAM", str(stream))
-    monkeypatch.setenv("FAKE_DSH_EXIT", "1")
+    said = '{"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}}'
+    no_key = (STREAMS / "overloaded.jsonl").read_text().replace(json.dumps(said)[1:-1], "No API key for provider: x")
     work = fake / "work"
     work.mkdir()
-    result = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
-    assert result.extra["failed"] and not result.extra["served"] and not result.extra["unavailable"]
-    out = acting.run({"id": "q1"}, None, params={**bound(), "backend": "dsh", "web_search": False, "prompt": "go",
-                                                 "workspaces": "ws", "retries": 3, "retry_wait_s": 0}, base=fake)
-    assert out.extra["attempts"] == 1 and "run max-tokens" in out.extra["session_failed"]
+    for k, (text, ended) in enumerate((((STREAMS / "max_tokens.jsonl").read_text(), "run max-tokens"),
+                                       (no_key.replace(said, "No API key for provider: x"), "No API key"))):
+        lines = text.splitlines(keepends=True)
+        stream = fake / f"tool_stderr_{k}.jsonl"
+        stream.write_text("".join(lines[:3]) + tool + "".join(lines[3:]))
+        monkeypatch.setenv("FAKE_DSH_STREAM", str(stream))
+        monkeypatch.setenv("FAKE_DSH_EXIT", "1")
+        result = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+        assert result.extra["failed"] and not result.extra["served"] and not result.extra["unavailable"], ended
+        out = acting.run({"id": "q1"}, None, params={**bound(), "backend": "dsh", "web_search": False, "prompt": "go",
+                                                     "workspaces": f"ws{k}", "retries": 3, "retry_wait_s": 0},
+                         base=fake)
+        assert out.extra["attempts"] == 1 and ended in out.extra["session_failed"]
 
 
 def test_a_run_dsh_was_stopped_in_is_no_success_although_dsh_exits_0(fake, monkeypatch, tmp_path):
@@ -281,6 +289,36 @@ def test_a_resumed_session_is_adopted_by_its_id_and_counts_only_its_new_usage(fa
     agent.run("again", workspace=work, session="session-gone")     # no such session kept: a new one
     agent.run("again", workspace=work, session="*")                 # nor a glob
     assert all("--session-id" not in call["args"] for call in seen(fake)[1:])
+
+
+def test_a_kept_home_is_not_written_through_a_link_the_last_session_left(fake, monkeypatch):
+    """A home kept between calls, which its sessions can write (the dsh Evolver's agent_home: dsh's own sandbox is off
+    there, the evolver sandbox the boundary): the next call writes its patch layer as a file of its own, never through
+    a link the last session left in its place, which would write, from outside the sandbox, a file the sandbox hides,
+    nor into a pipe left there, on which the write would wait for a reader forever."""
+    home, work, outside = fake / "home", fake / "work", fake / "outside"
+    work.mkdir()
+    outside.mkdir()
+    (outside / "own.txt").write_text("own")
+    agent = make("dsh", {**bound(), "web_search": False, "home": str(home)})
+    monkeypatch.setenv("FAKE_DSH_RUN", f'ln -sfn {outside / "own.txt"} "$DSH_HOME/{base_cli.DSH_PATCH}"')
+    agent.run("go", workspace=work)
+    assert (home / base_cli.DSH_PATCH).is_symlink()                    # the session left the link
+    monkeypatch.delenv("FAKE_DSH_RUN")
+    assert agent.run("go", workspace=work).extra["served"]
+    assert (outside / "own.txt").read_text() == "own"                   # nothing written through the link
+    assert not (home / base_cli.DSH_PATCH).is_symlink()
+    assert row(rows(seen(fake)[-1], home), "tool-web") == {"id": "tool-web", "disabled": True}
+    layer = f'"$DSH_HOME/{base_cli.DSH_PATCH}"'
+    monkeypatch.setenv("FAKE_DSH_RUN", f"rm -f {layer}; mkfifo {layer}")
+    agent.run("go", workspace=work)                                     # the session leaves a pipe in its place
+    monkeypatch.delenv("FAKE_DSH_RUN")
+    done = []
+    worker = threading.Thread(target=lambda: done.append(agent.run("go", workspace=work)), daemon=True)
+    worker.start()
+    worker.join(60)
+    assert done and done[0].extra["served"], "the layer's write waited on the pipe the session left"
+    assert (home / base_cli.DSH_PATCH).is_file()
 
 
 def test_dsh_refuses_roles_and_a_container_and_searches_only_on_deepseeks_own_provider(fake):

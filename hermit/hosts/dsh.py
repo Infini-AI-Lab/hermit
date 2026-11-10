@@ -4,19 +4,19 @@ connected to dsh's own places: AGENTS.md context, .dsh/skills, and a patch layer
 
 dsh reads, without any trust prompt, the instruction files (AGENTS.md, CLAUDE.md and their .local overlays) of every
 folder from the project's root down to the working directory, and the skills of the root's .dsh/skills and
-.agents/skills; the root is the nearest folder above with a `.git`, else the working directory. It has no project
-file for MCP servers or for more skill folders: they are rows of its plugin tree, so the patch layer holds the
-adapter's tool server (an `insert` row: a server dsh cannot start is reported on its stderr, not retried in the
-background, and the `dsh` acting agent then fails the session; dsh itself goes on without the tools) and names the
-workspace's .dsh/skills (the `skill-filesystem` row's customSkillDirs, so that a workspace below a repository's root
-keeps its skills; the row replaces any `skill-filesystem` settings of the user's own while the layer is loaded, and
-dsh's web profile turns the row off). A session loads the layer from the workspace with `dsh --profile headless
---patch .dsh/hermit.patch.yml`, as the `dsh` acting agent does. dsh gives the model 65,536 bytes of a project's
-instructions (its agent-instructions maxBytes), its own frame around them included, and cuts the rest, so a longer
-AGENTS.md is refused: exactly for a session whose project root is the workspace and which holds no other instruction
-file (the acting agent's); a session below a repository's root also counts that repository's AGENTS.md files. dsh
-runs no hook file of its own (its experimental bridge to Claude Code's hooks is not used) and has no role file: an
-adapter's roles and hooks stay files of its copy, which AGENTS.md names with what to do with them
+.agents/skills; the root is the nearest folder with a `.git`, the working directory included, else the working
+directory. It has no project file for MCP servers or for more skill folders: they are rows of its plugin tree, so the
+patch layer holds the adapter's tool server (an `insert` row: a server dsh cannot start is reported on its stderr, not
+retried in the background, and the `dsh` acting agent then fails the session; dsh itself goes on without the tools)
+and names the workspace's .dsh/skills (the `skill-filesystem` row's customSkillDirs, so that a workspace below a
+repository's root keeps its skills; the row replaces any `skill-filesystem` settings of the user's own while the layer
+is loaded, and dsh's web profile turns the row off). A session loads the layer from the workspace with `dsh --profile
+headless --patch .dsh/hermit.patch.yml`, as the `dsh` acting agent does. dsh gives the model 65,536 bytes of a
+project's instructions (its agent-instructions maxBytes), its own frame around them included, and cuts the rest, so a
+longer AGENTS.md is refused: exactly for a session whose project root is the workspace and which holds no other
+instruction file (the acting agent's); a session below a repository's root also counts that repository's AGENTS.md
+files. dsh runs no hook file of its own (its experimental bridge to Claude Code's hooks is not used) and has no role
+file: an adapter's roles and hooks stay files of its copy, which AGENTS.md names with what to do with them
 (hermit.hosts.inputs.resources), as it names the other files. dsh's own settings ($DSH_HOME) are never changed.
 """
 import argparse
