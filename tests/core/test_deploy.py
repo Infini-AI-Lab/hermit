@@ -276,7 +276,8 @@ def test_a_redeployment_replaces_the_copy(tmp_path):
 
 
 @pytest.mark.parametrize("prepare,skills", [(codex_prepare, ".codex/skills"), (claude_prepare, ".claude/skills"),
-                                            (pi_prepare, ".pi/skills"), (opencode_prepare, ".opencode/skills")])
+                                            (pi_prepare, ".pi/skills"), (opencode_prepare, ".opencode/skills"),
+                                            (dsh_prepare, ".dsh/skills")])
 def test_a_redeployment_retires_the_skills_and_drops_the_skill_files_the_adapter_no_longer_has(tmp_path, prepare,
                                                                                                skills):
     """A skill the new version no longer exports leaves the host's discovery (its contents kept in .retired-skills/),

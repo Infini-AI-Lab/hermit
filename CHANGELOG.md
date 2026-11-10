@@ -197,9 +197,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 ### Fixed
 
 - A redeployment (`hermit deploy` into the same workspace) left a skill the new adapter no longer exports in the
-  host's skills folder (`.codex/skills`, `.claude/skills`, `.pi/skills`, `.opencode/skills`), where the agent still
-  loaded it, and a file a skill no longer has inside its copy. Each exported skill's copy is now replaced, and a
-  skill the last deployment's record names that this one does not export is moved to `.retired-skills/` (as a
+  host's skills folder (`.codex/skills`, `.claude/skills`, `.pi/skills`, `.opencode/skills`, `.dsh/skills`), where the
+  agent still loaded it, and a file a skill no longer has inside its copy. Each exported skill's copy is now replaced,
+  and a skill the last deployment's record names that this one does not export is moved to `.retired-skills/` (as a
   role is to `.retired-roles/`); a skill the user put there stays. A redeployment refuses, before writing anything,
   when an exported skill would replace a skill folder no deployment wrote or the skills folder is a link (#96).
 - ASPIRE's generated programs ran unconfined on the host: cap-harness runs them, and ASPIRE's program validator is

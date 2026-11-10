@@ -30,8 +30,8 @@ from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, 
 from hermit.agent.base.cli import DSH_INSTRUCTION_BYTES, DSH_INSTRUCTION_FRAME
 from hermit.hosts.context import PROJECT_CONTEXT, START, append_context
 from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, adapter_files, adapter_folder,
-                                 check_workspace, copy_adapter, copy_skills, folder_note, render_exports, resources,
-                                 server_name, source_label)
+                                 check_skills, check_workspace, copy_adapter, copy_skills, folder_note, render_exports,
+                                 resources, retire_skills, server_name, source_label)
 
 NATIVE = {"skills"}
 PATCH = Path(".dsh") / "hermit.patch.yml"     # the workspace's patch layer: the adapter's tool server and skills
@@ -53,6 +53,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
         raise ValueError(f"dsh takes an MCP server name of 32 characters at most ([A-Za-z0-9_-]), not "
                          f"{server_name(manifest)!r} (the adapter's id)")
     files = adapter_files(adapter, output, manifest, previous)
+    check_skills(adapter, output, manifest, previous, output / ".dsh" / "skills")
     exports = render_exports(adapter, python)
     listed, placed = resources(adapter, output, manifest, exports, hook_definitions(adapter, manifest), NATIVE)
     if has_tools:
@@ -88,6 +89,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
         if learning_material is not None:
             server["args"].extend(["--learning-material", str(Path(learning_material).resolve())])
     skills = copy_skills(adapter, manifest, output / ".dsh" / "skills")
+    retire_skills(output, previous, skills, output / ".dsh" / "skills")
     rows = [*([{"insert": [{"id": f"mcp-{server_name(manifest)}", "name": "@deepseek-ai/dsh-mcp-client",
                             "config": server}]}] if has_tools else []),
             # the workspace's own skills wherever it lies, beside dsh's default roots (the row's settings replace
