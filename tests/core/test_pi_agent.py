@@ -376,15 +376,23 @@ def test_the_sessions_effort_is_sent_as_named_and_over_the_backends_extra_body(f
 
 
 @pytest.mark.parametrize("error, unavailable, rejected", [
-    ('503: {"message":"busy"}', True, False), ('503 {"error":{"message":"busy"}}', True, False),
-    ('429 {"error":{"message":"slow down"}}', True, False), ('400: {"message":"no such field"}', False, True),
-    ('401 {"error":{"message":"bad key"}}', False, True), ('408: {"message":"too slow"}', False, False)],
-    ids=["outage", "outage, Messages API", "rate limit, Messages API", "bad request", "bad key, Messages API",
-         "request timeout"])
+    ('503: {"message":"busy"}', True, False), ("503 status code (no body)", True, False),
+    ("503 <html><body>Service Unavailable</body></html>", True, False),
+    ('503 {"error":{"message":"busy"}}', True, False),
+    ('hermit API error (503): {"error":{"message":"busy"}}', True, False),
+    ('429 {"error":{"message":"slow down"}}', True, False), ("Connection error.", True, False),
+    ('400: {"message":"no such field"}', False, True), ('401 {"error":{"message":"bad key"}}', False, True),
+    ('hermit API error (404): {"error":{"message":"no such model"}}', False, True),
+    ('408: {"message":"too slow"}', False, False)],
+    ids=["outage", "outage, no body", "outage, a proxy's page", "outage, Messages API", "outage, Responses API",
+         "rate limit, Messages API", "no connection, retries given up", "bad request", "bad key, Messages API",
+         "no such model, Responses API", "request timeout"])
 def test_a_failed_requests_status_says_whether_a_retry_can_help(fake, monkeypatch, error, unavailable, rejected):
-    """Pi reports a provider's status as `503: {...}` from an OpenAI-compatible API and as `503 {...}` from the
-    Messages API. An outage or a rate limit is `unavailable` (retried; the chat endpoint's 503); a status no retry can
-    help is `rejected` (the chat endpoint's 400, which a client does not retry); a timeout or a conflict is neither."""
+    """Pi reports a provider's status in its own forms (those Pi 1.5.0 printed): `503: {...}` or `503 status code (no
+    body)` from chat completions, `503 {...}` from the Messages API, `<provider> API error (503): ...` from the
+    Responses API. An outage or a rate limit is `unavailable` (retried; the chat endpoint's 503), and so is an error
+    with no status that Pi retried until it gave up (a dropped connection); a status no retry can help is `rejected`
+    (the chat endpoint's 400, which a client does not retry); a timeout or a conflict is neither."""
     from hermit.agent.base.endpoint import _no_reply
     recorded = '503: {"message":"mock: service unavailable"}'
     stream = (STREAMS / "failure.jsonl").read_text().replace(json.dumps(recorded)[1:-1], json.dumps(error)[1:-1])
@@ -502,8 +510,11 @@ def test_a_requests_sampling_fields_reach_pis_model_where_its_api_takes_them(fak
     [model] = json.loads(seen(fake)[0]["files"]["models.json"])["providers"]["hermit"]["models"]
     assert status == 200 and "unapplied" not in json.loads(body)
     assert model["samplingParams"] == {"seed": 1, "temperature": 0.3, "top_p": 0.9}
+    status, body, _ = cli_answer(make("pi", {**bound(apis=["responses"]), "web_search": False}), request)
+    [model] = json.loads(seen(fake)[1]["files"]["models.json"])["providers"]["hermit"]["models"]
+    assert status == 200 and model["samplingParams"] == {"temperature": 0.3, "top_p": 0.9}
     status, body, _ = cli_answer(make("pi", {**bound(apis=["messages"]), "web_search": False}), request)
-    assert status == 400 and "temperature" in json.loads(body)["error"]["message"] and len(seen(fake)) == 1
+    assert status == 400 and "temperature" in json.loads(body)["error"]["message"] and len(seen(fake)) == 2
 
 
 @pytest.mark.parametrize("spec, match", [({}, "needs a <backend>/<model> reference"),

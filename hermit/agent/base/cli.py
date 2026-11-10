@@ -123,7 +123,6 @@ ISOLATIONS = ("none", "sandbox", "container")
 UNAVAILABLE = re.compile(r"unexpected status (?:429|5\d\d)|exceeded retry limit|stream disconnected|"
                          r"error sending request|too many requests|service unavailable|bad gateway|overloaded|"
                          r"model is at capacity|"
-                         r"^(?:429|5\d\d)(?:: | \{)|"             # Pi's report of a provider's status (two forms)
                          r"error response from daemon|cannot connect to the docker daemon|"
                          + re.escape(container.MISSING), re.I | re.M)
 CODEX_HOME_SETTINGS = ["features.shell_snapshot = false",          # a snapshot would bring back the whole environment
@@ -1350,9 +1349,9 @@ export default function (pi) {{
 }}
 """
 PI_PARAMS = ("provider", "image_input", "command_timeout_s")     # a Pi session's settings a method passes on
-# Pi's report of a provider's status no retry can help ("400: {...}" from an OpenAI-compatible API, "400 {...}" from
-# the Messages API): not a timeout, a conflict or a rate limit
-PI_REJECTED = re.compile(r"^4(?!08|09|29)\d\d(?::| \{)")
+# The provider's status in Pi's report of a failed request: "503: {...}" or "503 status code (no body)" from chat
+# completions, "503 {...}" from the Messages API, "<provider> API error (503): ..." from the Responses API
+PI_STATUS = re.compile(r"^(\d{3})\b|API error \((\d{3})\)")
 
 
 class Pi(CliAgent):
@@ -1501,8 +1500,14 @@ class Pi(CliAgent):
         cut = last.get("stopReason") == "length"
         if self.settings.get("text_only") and any(e.get("type") == "tool_execution_start" for e in _objects(raw)[0]):
             notes, done = "the session was to have no tools, and it ran one", False
-        unavailable = bool(UNAVAILABLE.search(notes))
-        rejected = not done and not unavailable and bool(PI_REJECTED.match(str(last.get("errorMessage") or "")))
+        found = PI_STATUS.search(str(last.get("errorMessage") or ""))
+        code = int(found.group(1) or found.group(2)) if found else None      # the last request's: it decides
+        if code is not None:
+            unavailable = code == 429 or code >= 500
+        else:       # no status (a dropped connection): Pi retries what it takes to pass, and says when it gave up
+            unavailable = any(e.get("type") == "auto_retry_end" and not e.get("success") for e in _objects(raw)[0]) \
+                or bool(UNAVAILABLE.search(notes))
+        rejected = not done and code is not None and 400 <= code < 500 and code not in (408, 409, 429)
         return {"reply": self.last_message(stream, last_file), "served": done, "unavailable": unavailable,
                 "refused": False, "rejected": rejected, "failed": not done or cut,
                 "finish_reason": "length" if cut else ("stop" if done else None),
