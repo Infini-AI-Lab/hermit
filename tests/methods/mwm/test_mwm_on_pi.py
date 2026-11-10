@@ -9,7 +9,8 @@ import yaml
 from hermit.config import Config
 
 NEEDS_BWRAP = pytest.mark.skipif(not shutil.which("bwrap"), reason="needs bubblewrap")
-BACKENDS = {"fake": {"base_url": "http://127.0.0.1:9/v1", "api_key_env": "FAKE_KEY", "apis": ["chat"],
+# The sandbox forwards a loopback model's port into the session's network, where only root may listen below 1024
+BACKENDS = {"fake": {"base_url": "http://127.0.0.1:59999/v1", "api_key_env": "FAKE_KEY", "apis": ["chat"],
                      "prices": {"m-1": {"input": 1.0, "cached_input": 0.1, "output": 2.0}}}}
 
 FAKE_MWM_PI = r'''#!/usr/bin/env python3
@@ -47,7 +48,8 @@ def test_the_mwm_learner_runs_on_pi_with_its_bound_model(tmp_path, monkeypatch):
     Trainer(Config.load(path), log=lambda *_: None).train()
     run = tmp_path / "runs" / "mwm-test"
     steps = [json.loads(line) for line in (run / "steps.jsonl").read_text().splitlines()]
-    assert [s["evolver"]["status"] for s in steps] == ["done", "done", "done"]
+    assert [s["evolver"]["status"] for s in steps] == ["done", "done", "done"], \
+        [s["evolver"].get("summary") for s in steps]
     sessions = json.loads((run / "step_0001" / "output" / "sessions.json").read_text())
     assert sessions[0]["status"] == "adopted" and sessions[0]["tool_calls"] == 3 and sessions[0]["turns"] == 4
     assert (run / "step_0001" / "output" / "review_0001.pi.jsonl").is_file()
