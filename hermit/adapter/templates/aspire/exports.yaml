@@ -1,0 +1,27 @@
+# What the acting agent receives: ADAPTER.md as its context and, below it, the whole skill library as the reader
+# `library` renders it (context_tool: the harness calls it once per task, never the agent).
+context: ADAPTER.md
+tools:
+  - name: library
+    description: 'The skill library rendered for the actor: the index, then every skill file in the index''s order. Called by the harness once per task (context_tool in exports.yaml), never by the agent.'
+    entrypoint: interface.py:library
+    input_schema:
+      type: object
+      properties:
+        query: {type: string}
+        task: {type: object}
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        text: {type: string}
+        files: {type: array}
+        entries: {type: integer}
+      required: [text, files, entries]
+    annotations:
+      readOnlyHint: true
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: false
+context_tool: library
+internal: [interface.py]

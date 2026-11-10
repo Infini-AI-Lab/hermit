@@ -1,0 +1,13 @@
+item,warehouse,units
+bolt,north,120
+bolt,south,75
+nut,north,300
+nut,east,45
+washer,south,80
+washer,east,20
+bracket,north,12
+bracket,south,30
+hinge,east,64
+hinge,north,16
+spring,south,9
+spring,east,41

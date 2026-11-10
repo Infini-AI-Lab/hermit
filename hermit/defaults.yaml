@@ -9,15 +9,18 @@ data:
   shuffle_seed: 0
 task_info: null
 agent:
-  name: null                  # react | codex | claude-code | pi, or file.py:Class / file.py:function of the task's own
+  name: null                  # react | codex | claude-code | pi | mini-swe-agent, or file.py:Class /
+                              # file.py:function of the task's own
   concurrency: 4
   timeout_min: null           # a sandboxed task call that runs longer is stopped and recorded as an error; null: none
   params: {}                  # Layer 3: the Acting Agent's own settings (docs/framework/agent-layers.md)
-  base: null                  # Layer 2: codex | claude | pi | react | direct; its settings go in a section of its name
+  base: null                  # Layer 2: codex | claude | pi | mini-swe-agent | react | direct; its settings go in a
+                              # section of its name
   model: null                 # Layer 1: a <backend>/<model> reference, or {ref | name, login, effort, price, ...}
   codex: null
   claude: null
   pi: null
+  mini-swe-agent: null
   react: null
   direct: null
 pipeline:                     # the older spelling of `agent`: run -> name
@@ -40,6 +43,8 @@ environment:                   # the task sandbox, where the acting agent runs (
   network: no-network          # no-network | allowlist | public; the agent's model and the tool endpoint stay reachable
   allowed_hosts: []            # allowlist: hosts reachable through the allowlist proxy
   resources: {}                # memory_mb, file_mb, cpu_s: per process
+  gpu: []                      # NVIDIA GPUs shown, by the N of /dev/nvidia<N> (CUDA and EGL; inside they count from 0);
+                               # none: no GPU (EGL renders in software where Mesa is installed)
 judge:
   path: null
   name: score

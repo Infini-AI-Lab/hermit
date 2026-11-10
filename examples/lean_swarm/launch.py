@@ -398,6 +398,9 @@ def killpg(proc: subprocess.Popen | None):
             os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+        except PermissionError:  # macOS: only exited processes, not yet reaped, are left
+            if proc.poll() is None:
+                raise
 
 
 def cost(ledger: dict, price: dict | None):
