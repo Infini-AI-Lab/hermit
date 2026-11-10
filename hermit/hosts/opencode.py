@@ -18,9 +18,9 @@ import sys
 
 from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, not_portable
 from hermit.hosts.context import PROJECT_CONTEXT, START, append_context
-from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, adapter_files, adapter_folder, check_workspace, copy_adapter,
-                                 copy_skills, folder_note, render_exports, resources, retire_skills, server_name,
-                                 source_label)
+from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, adapter_files, adapter_folder, check_skills, check_workspace,
+                                 copy_adapter, copy_skills, folder_note, render_exports, resources, retire_skills,
+                                 server_name, source_label)
 
 NATIVE = {"skills"}
 TOOL_TIMEOUT_MS = 120 * 1000          # Codex's tool_timeout_sec, not OpenCode's 30 s
@@ -38,6 +38,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     previous = check_workspace(adapter, output, "opencode")
     manifest = load_manifest(adapter)
     files = adapter_files(adapter, output, manifest, previous)
+    check_skills(adapter, output, manifest, previous, output / ".opencode" / "skills")
     exports = render_exports(adapter, python)
     listed, placed = resources(adapter, output, manifest, exports, hook_definitions(adapter, manifest), NATIVE)
     has_tools = bool(agent_tools(manifest)) and serve_tools     # the context tool is the harness's, not served

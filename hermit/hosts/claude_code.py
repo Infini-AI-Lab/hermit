@@ -12,9 +12,9 @@ import sys
 from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, not_portable
 from hermit.hosts.context import PROJECT_CONTEXT, START, append_context
 from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, adapter_files, adapter_folder,
-                                 check_workspace, copy_adapter, copy_skills, folder_note, hook_commands, native_hooks,
-                                 render_exports, resources, retire_roles, retire_skills, role_body, server_name,
-                                 source_label, subagent_markdown, subagent_name)
+                                 check_skills, check_workspace, copy_adapter, copy_skills, folder_note, hook_commands,
+                                 native_hooks, render_exports, resources, retire_roles, retire_skills, role_body,
+                                 server_name, source_label, subagent_markdown, subagent_name)
 
 NATIVE = {"skills", "agents"}
 HOOK_TYPES = {"command", "prompt"}
@@ -35,6 +35,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     output.mkdir(parents=True, exist_ok=True)
     manifest = load_manifest(adapter)
     files = adapter_files(adapter, output, manifest, previous)
+    check_skills(adapter, output, manifest, previous, output / ".claude" / "skills")
     hooks = hook_definitions(adapter, manifest)
     settings_path = output / ".claude" / "settings.json"     # the hooks' place; other settings in it are kept
     settings = json.loads(settings_path.read_text()) if settings_path.is_file() else {}

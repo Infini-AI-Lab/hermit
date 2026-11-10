@@ -16,9 +16,9 @@ import tomllib
 from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, not_portable
 from hermit.hosts.context import PROJECT_CONTEXT, append_context
 from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, adapter_files, adapter_folder,
-                                 check_context_size, check_workspace, copy_adapter, copy_skills, folder_note,
-                                 hook_commands, native_hooks, render_exports, resources, retire_roles, retire_skills,
-                                 role_body, server_name, source_label)
+                                 check_context_size, check_skills, check_workspace, copy_adapter, copy_skills,
+                                 folder_note, hook_commands, native_hooks, render_exports, resources, retire_roles,
+                                 retire_skills, role_body, server_name, source_label)
 
 DOC_BYTES = 32 * 1024                     # Codex's project_doc_max_bytes when the user's config does not set it
 NATIVE = {"skills", "agents"}
@@ -48,6 +48,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     output.mkdir(parents=True, exist_ok=True)
     manifest = load_manifest(adapter)
     files = adapter_files(adapter, output, manifest, previous)
+    check_skills(adapter, output, manifest, previous, output / ".codex" / "skills")
     hooks = hook_definitions(adapter, manifest)
     exports = render_exports(adapter, python)
     listed, placed = resources(adapter, output, manifest, exports, hooks, NATIVE, HOOK_TYPES)

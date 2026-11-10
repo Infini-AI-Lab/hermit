@@ -184,7 +184,8 @@ replaces each exported skill's copy in the host's skills folder, and moves a ski
 that the new version no longer exports to `.retired-skills/` (a stale role goes to `.retired-roles/`), out of the
 host's discovery; a skill you put there yourself stays. It refuses,
 before writing anything, when a copied file was changed or replaced (by a directory or a link) since the last
-deployment or another file is in the way, and
+deployment or another file is in the way, when an exported skill would replace a skill folder no deployment wrote,
+or when the skills folder is a link (or reached through one), and
 names the file; an adapter link that leads outside the adapter is refused too.
 The generated `.codex/config.toml`, `.mcp.json`, `.pi/mcp.json`, `mini-swe-agent.yaml` or `opencode.json` is rewritten on
 deployment; it is not a general configuration
