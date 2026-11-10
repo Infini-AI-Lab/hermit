@@ -1,0 +1,8 @@
+# A SAM3-wire-compatible segmentation service from ungated models; its own venv (it is not imported by hermit).
+torch==2.9.1
+torchvision==0.24.1
+transformers>=4.50,<5
+fastapi
+uvicorn
+pillow
+numpy

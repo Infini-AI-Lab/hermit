@@ -103,6 +103,11 @@ def test_the_sections_are_checked(tmp_path):
     assert "sandbox.evolver takes" in load_error(path, "sandbox.evolver=false")
     assert "container" in load_error(path, "agent.name=codex", "environment.image=some:image",
                                      "environment.resources={memory_mb: 128}")      # limits a container ignores
+    assert "environment.gpu: a list of NVIDIA GPU numbers" in load_error(path, "environment.gpu=[cuda:0]")
+    assert "environment.gpu: a list of NVIDIA GPU numbers" in load_error(path, "environment.gpu=0")
+    assert "has none" in load_error(path, "agent.name=codex", "environment.image=some:image",
+                                    "environment.gpu=[0]")                      # a container shows no GPU
+    Config.load(path, ["environment.gpu=[0, 3]"])             # checked against the machine when a call starts
 
 
 def test_a_declared_path_may_not_hold_or_lie_in_a_secret(tmp_path):

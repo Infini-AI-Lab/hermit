@@ -152,6 +152,7 @@ Checkpoint frequency controls tags; completed steps still have records and accep
 | `environment.env` | list / [] | Variables passed in: names or patterns (`MWM_*`) |
 | `environment.network` | string / `no-network` | `no-network`, `allowlist` or `public`; the agent's model provider stays reachable |
 | `environment.allowed_hosts` | list / [] | With `allowlist`: hosts reachable through the proxy |
+| `environment.gpu` | list / [] | NVIDIA GPUs shown in the task sandbox, by the N of `/dev/nvidia<N>` (CUDA and EGL; inside they count from 0); none: no GPU (EGL renders in software where Mesa is installed). Not with `environment.image` ([sandbox guide](../guides/sandbox.md)) |
 | `environment.resources` | mapping / {} | `memory_mb`, `file_mb`, `cpu_s` per process (positive whole numbers; null: no limit); not with `environment.image` (the container keeps its own) |
 | `environment.image` | string / null | A Docker image: a Codex or Claude Code acting agent runs in a container of its own |
 | `environment.container` | mapping / {} | With `image`: the container's `network` and `proxy` |
