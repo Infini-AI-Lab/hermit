@@ -13,5 +13,6 @@ chat-completions model on the loopback: the model of `tests/core/test_opencode_a
   events), then ends with an `error` event (`provider.internal`, `provider.rate-limit`) and exits 1.
 - `failure_refused.jsonl`: a model URL nothing listens on; the same, with `provider.transport`.
 - `failure_401.jsonl`: every request answered 401; OpenCode ends at once with `provider.auth` and exits 1.
+- `failure_402.jsonl`: every request answered 402; OpenCode ends at once with `provider.quota` and exits 1.
 
 The streams are OpenCode's output unchanged: they hold no path of the machine they were recorded on.

@@ -35,7 +35,8 @@ example's `make_rows.py` writes them. The learners' CLI does not depend on the a
 deploy the adapter as `hermit deploy` does for its host, so that the host's hooks run the middleware (Codex:
 `.codex/hooks.json`; Claude Code: `hooks` in `.claude/settings.json`). Pi runs no hooks: its deployment lists the hook
 commands for the agent to run by hand, and run so, without an event's payload, only `session_start` has something to do
-(it hands the memory over).
+(it hands the memory over). OpenCode is not one of the template's hosts: its middleware refuses a copy deployed into
+an OpenCode workspace.
 
 ## The template
 

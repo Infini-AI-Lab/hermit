@@ -72,8 +72,8 @@ Settings (given once; `configured(...)` for a call's own):
   and runs under isolation none or sandbox.
   OpenCode only: provider (its config's provider for the bound model, from the binding: Binding.opencode_provider;
   required: OpenCode runs a model reference and takes no login), append_system_prompt (an instructions file in the
-  home), effort (the model's reasoningEffort). OpenCode takes no roles, has no web search and runs under isolation
-  none or sandbox.
+  home), effort (the model's reasoningEffort), skills (the only skills the session may load: the deployment's; none
+  by default). OpenCode takes no roles, has no web search and runs under isolation none or sandbox.
 
 Limits are enforced by the isolation, or the call is refused (Unsupported):
 
@@ -1471,15 +1471,15 @@ OPENCODE_PROVIDER = "hermit"      # the config provider a bound model is given u
 # Tools a session is not offered: questions for a person (no one answers), its own sub-agents (OpenCode takes no
 # roles), code mode (the call's tools are offered directly) and what reaches the network past the run's sandbox.
 OPENCODE_DENIED = ("question", "subagent", "execute", "webfetch", "websearch", "opencode_*")
-# No update, catalog or language-server download; no Claude Code files (~/.claude) and no skills from .claude/ or
-# .agents/ folders (an adapter's skills are deployed to .opencode/skills)
+OPENCODE_AGENT = "build"           # the agent a session runs: OpenCode's default, named so no config picks another
+# No update or catalog requests, no Claude Code files (~/.claude, .claude/ and their skills). (2.2 reads no variable
+# that keeps .agents/skills folders out: the skills a session may load are its permissions', `_held`.)
 OPENCODE_ENV = {"OPENCODE_DISABLE_AUTOUPDATE": "1", "OPENCODE_DISABLE_MODELS_FETCH": "1",
-                "OPENCODE_DISABLE_LSP_DOWNLOAD": "1", "OPENCODE_DISABLE_CLAUDE_CODE": "1",
-                "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1"}
+                "OPENCODE_DISABLE_CLAUDE_CODE": "1"}
 # OpenCode's reports (its error event's `type`) of a provider that could not serve, which it retries itself first
 OPENCODE_OUTAGES = ("provider.rate-limit", "provider.internal", "provider.transport", "provider.timeout")
-# ... and of a request that a retry would send to the same refusal
-OPENCODE_REJECTED = ("provider.auth", "provider.invalid-request", "provider.content-filter",
+# ... and of a request that a retry would send to the same refusal (a 402, the account's quota, included)
+OPENCODE_REJECTED = ("provider.auth", "provider.quota", "provider.invalid-request", "provider.content-filter",
                      "provider.unsupported-operation")
 OPENCODE_UNFINISHED = ("tool-calls", "length", "error", "content-filter")     # a last step's reason that is no answer
 
@@ -1533,7 +1533,10 @@ class OpenCode(CliAgent):
     def _held(self, home: Path) -> dict:
         """The inline config: the bound model (its reasoning effort), no other provider, the permissions, no update
         check, sharing or snapshots, and the call's system instructions (a file in the home, named by its path, which
-        a sandbox spells as it is inside, as it does every variable)."""
+        a sandbox spells as it is inside, as it does every variable). The permissions are given to the agent the
+        session runs too, which a workspace's (or, outside a sandbox, a parent folder's) config could otherwise give
+        its own; its skills are only the ones the `skills` setting names (the deployment's), never one a parent
+        folder's .agents/skills offers."""
         s = self.settings
         provider = json.loads(json.dumps(s.get("provider") or {}))
         if s.get("effort") and s["effort"] != "off":
@@ -1541,10 +1544,13 @@ class OpenCode(CliAgent):
                 if isinstance(entry, dict):
                     entry.setdefault("options", {})["reasoningEffort"] = s["effort"]
         ref = f"{OPENCODE_PROVIDER}/{s.get('model') or ''}"
+        permission = {"*": "allow", "external_directory": "allow", "doom_loop": "allow",
+                      **{tool: "deny" for tool in OPENCODE_DENIED},
+                      "skill": {"*": "deny", **{str(name): "allow" for name in s.get("skills") or ()}}}
         return {"provider": {OPENCODE_PROVIDER: provider}, "model": ref, "small_model": ref,
                 "enabled_providers": [OPENCODE_PROVIDER], "autoupdate": False, "share": "disabled", "snapshot": False,
-                "permission": {"*": "allow", "external_directory": "allow", "doom_loop": "allow",
-                               **{tool: "deny" for tool in OPENCODE_DENIED}},
+                "default_agent": OPENCODE_AGENT, "permission": permission,
+                "agent": {OPENCODE_AGENT: {"permission": permission}},
                 **({"instructions": [str(home / "system.md")]} if s.get("append_system_prompt") else {})}
 
     def prepare_home(self, home, roles, tools_url, tools_name):

@@ -119,6 +119,9 @@ def test_opencode_runs_in_its_home_with_its_model_held_and_the_tools_offered_dir
     assert held["provider"]["hermit"]["options"]["apiKey"] == "{env:FAKE_KEY}"
     assert held["provider"]["hermit"]["models"]["m-1"]["options"] == {"reasoningEffort": "high"}
     assert {held["permission"][t] for t in ("question", "subagent", "execute", "webfetch", "websearch")} == {"deny"}
+    # the agent the session runs holds them too (a workspace's config could give it its own), and no skill is allowed
+    assert held["default_agent"] == "build" and held["agent"]["build"]["permission"] == held["permission"]
+    assert held["permission"]["skill"] == {"*": "deny"}
     assert "sk-fake" not in env["OPENCODE_CONFIG_CONTENT"] + json.dumps(call["files"])
     [(server, entry)] = json.loads(call["files"]["opencode.json"])["mcp"]["servers"].items()
     assert server == "hermit_tools" and entry["codemode"] is False and entry["url"].startswith("http://127.0.0.1:")
@@ -148,14 +151,16 @@ def test_a_provider_that_could_not_serve_is_an_outage_read_from_opencodes_own_er
     assert result.usage == [] and result.trajectory[-1].kind == "error"
 
 
-def test_a_request_the_provider_refuses_is_rejected_not_an_outage(fake, monkeypatch):
-    """A 401 (a wrong key) fails the same way however often it is sent: no retry."""
-    replay(monkeypatch, "failure_401.jsonl", code=1)
+@pytest.mark.parametrize("stream,kind", [("failure_401.jsonl", "provider.auth"),
+                                         ("failure_402.jsonl", "provider.quota")])
+def test_a_request_the_provider_refuses_is_rejected_not_an_outage(fake, monkeypatch, stream, kind):
+    """A 401 (a wrong key) or a 402 (the account's quota) fails the same way however often it is sent: no retry."""
+    replay(monkeypatch, stream, code=1)
     work = fake / "work"
     work.mkdir()
     result = agent(fake).run("go", workspace=work)
     assert result.extra["failed"] and result.extra["rejected"] and not result.extra["unavailable"]
-    assert result.extra["failure"].startswith("provider.auth")
+    assert result.extra["failure"].startswith(kind)
 
 
 def test_the_acting_agent_runs_a_task_again_when_the_provider_could_not_serve_then_reports_an_error(fake, monkeypatch):
@@ -244,12 +249,24 @@ def test_the_opencode_acting_agent_deploys_the_adapter_where_opencode_reads_it(f
     work = Path(out.extra["workspace"])
     [call] = seen(fake)
     assert out.output == "the answer" and out.extra["backend"] == "opencode" and "--approve" not in call["args"]
+    held = json.loads(call["env"]["OPENCODE_CONFIG_CONTENT"])
+    assert held["permission"]["skill"] == {"*": "deny", "verify-output": "allow"}     # the deployment's skills only
     [server] = json.loads((work / "opencode.json").read_text())["mcp"]["servers"].values()
     assert server["type"] == "local" and server["codemode"] is False
     assert "hermit.runtime.mcp_server" in server["command"]
     assert (work / ".opencode" / "skills" / "verify-output" / "SKILL.md").is_file()
     assert "do it yourself" in (work / "AGENTS.md").read_text()
     assert (out.log / "agent-opencode.jsonl").is_file()
+
+
+def test_hermit_deploy_writes_an_opencode_workspace(tmp_path, capsys):
+    """`hermit deploy --host opencode`: the command a person runs, writing what OpenCode reads."""
+    from hermit.cli import main
+    assert main(["deploy", "--adapter", str(FILE_ADAPTER), "--workspace", str(tmp_path / "ws"),
+                 "--host", "opencode"]) == 0
+    record = json.loads(capsys.readouterr().out)
+    assert record["host"] == "opencode" and record["skills"] == ["verify-output"]
+    assert set(json.loads((tmp_path / "ws" / "opencode.json").read_text())["mcp"]["servers"]) == {"file_example"}
 
 
 def test_opencode_is_a_base_of_the_config_and_the_opencode_evolver_binds_its_model():
@@ -272,10 +289,11 @@ def test_opencode_is_a_base_of_the_config_and_the_opencode_evolver_binds_its_mod
 
 # ---------- the installed opencode (integration) ----------
 
-def serve_chat(script, status: int | None = None):
+def serve_chat(script, status: int | None = None, seen: list | None = None):
     """A chat-completions model on the loopback: `script(request body) -> (tool call (name, arguments) | None)`;
     None answers `the answer`, with a reasoning text first. Every response is streamed, with usage (1000 prompt
-    tokens, 400 of them cached; 20 completion tokens). With `status`, every request is answered that error."""
+    tokens, 400 of them cached; 20 completion tokens, 5 of them reasoning). With `status`, every request is answered
+    that error. `seen` gets each request's body and Authorization header."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     def chunk(body):
@@ -287,6 +305,8 @@ def serve_chat(script, status: int | None = None):
 
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers.get("content-length") or 0)) or b"{}")
+            if seen is not None:
+                seen.append({"body": body, "authorization": self.headers.get("authorization")})
             if status is not None:
                 data = json.dumps({"error": {"message": "the model is down", "type": "server_error"}}).encode()
                 self.send_response(status)
@@ -306,7 +326,8 @@ def serve_chat(script, status: int | None = None):
                              chunk({"choices": [{"index": 0, "delta": {}, "finish_reason":
                                                  "tool_calls" if call else "stop"}]}),
                              chunk({"choices": [], "usage": {"prompt_tokens": 1000, "completion_tokens": 20,
-                                                             "prompt_tokens_details": {"cached_tokens": 400}}}),
+                                                             "prompt_tokens_details": {"cached_tokens": 400},
+                                                             "completion_tokens_details": {"reasoning_tokens": 5}}}),
                              b"data: [DONE]\n\n"])
             self.send_response(200)
             self.send_header("content-type", "text/event-stream")
@@ -335,10 +356,13 @@ def mock_params(url: str) -> dict:
 @pytest.mark.parametrize("isolation", ["none", "sandbox"])
 def test_with_the_opencode_cli_a_session_reaches_its_model_and_its_tools(tmp_path, monkeypatch, isolation):
     """The installed OpenCode, bound to a scripted model: it calls the call's MCP tool (offered directly), writes a
-    file, answers; in the run's sandbox (isolated network) only its model and the tool server are reached."""
+    file, answers; in the run's sandbox (isolated network) only its model and the tool server are reached. The key
+    reaches the model from its variable, the effort reaches the request, and a parent folder (a Git repository's
+    root, with a skill and a config that allows the denied tools again) gives the session nothing."""
     from hermit.sandbox import Sandbox
     if isolation == "sandbox" and not _bwrap_works():
         pytest.skip("needs a working bubblewrap")
+    requests = []
 
     def script(body):
         done = sum(1 for m in body.get("messages") or [] if m.get("role") == "tool")
@@ -347,14 +371,20 @@ def test_with_the_opencode_cli_a_session_reaches_its_model_and_its_tools(tmp_pat
         assert plan[0][0] in names                       # the tool is offered directly, not through code mode
         return plan[done] if done < len(plan) else None
 
-    server, url = serve_chat(script)
+    (tmp_path / ".git").mkdir()                          # the parent folder: a repository's root, as a checkout is
+    (tmp_path / "opencode.json").write_text(json.dumps(
+        {"agent": {"build": {"permission": {"webfetch": "allow", "question": "allow"}}}}))
+    (tmp_path / ".agents" / "skills" / "parent-skill").mkdir(parents=True)
+    (tmp_path / ".agents" / "skills" / "parent-skill" / "SKILL.md").write_text(
+        "---\nname: parent-skill\ndescription: A skill of the parent folder.\n---\nNot the adapter's.\n")
+    server, url = serve_chat(script, seen=requests)
     monkeypatch.setenv("MOCK_KEY", "sk-mock")
     (tmp_path / "caller").mkdir()
     monkeypatch.setenv("PWD", str(tmp_path / "caller"))      # where OpenCode would work if it went by PWD
     work = tmp_path / "work"
     work.mkdir()
     settings = {**mock_params(url), "web_search": False, "home": str(tmp_path / "home"), "isolation": isolation,
-                "timeout_s": 300}
+                "timeout_s": 300, "effort": "high"}
     if isolation == "sandbox":
         settings["sandbox"] = Sandbox(network="isolated", env_allow=[], writable=[work], role="agent",
                                       record_dir=tmp_path / "records")
@@ -366,7 +396,12 @@ def test_with_the_opencode_cli_a_session_reaches_its_model_and_its_tools(tmp_pat
     assert (work / "note.txt").read_text() == "ok\n" and not any((tmp_path / "caller").iterdir())
     assert [s.kind for s in result.trajectory] == ["tool_call", "file_change", "reasoning", "message"]
     assert json.loads(result.trajectory[0].output) == {"echoed": "hi"}
-    assert result.usage[0].calls == 3
+    assert (result.usage[0].calls, result.usage[0].output_tokens) == (3, 60)    # the reasoning counted as output
+    assert {r["authorization"] for r in requests} == {"Bearer sk-mock"}
+    assert {r["body"].get("reasoning_effort") for r in requests} == {"high"}
+    offered = {t["function"]["name"] for r in requests for t in r["body"].get("tools") or []}
+    assert not offered & {"question", "subagent", "execute", "webfetch", "websearch"}
+    assert "parent-skill" not in json.dumps([r["body"] for r in requests])
     if isolation == "sandbox":
         [record] = (tmp_path / "records").glob("agent-*.json")
         data = json.loads(record.read_text())
@@ -380,12 +415,13 @@ def test_with_the_opencode_cli_the_acting_agent_uses_the_deployed_adapters_tools
     """The deployment as OpenCode reads it: the project's opencode.json starts the adapter's tool server, whose tool
     the model is offered directly and calls."""
     from hermit.agent.acting import workspace as acting
-    calls = []
+    calls, bodies = [], []
 
     def script(body):
         names = [t["function"]["name"] for t in body.get("tools") or []]
         done = any(m.get("role") == "tool" for m in body.get("messages") or [])
         calls.append(names)
+        bodies.append(body)
         return None if done else ("file_example_count_words", {"text": "a b c"})
 
     server, url = serve_chat(script)
@@ -397,5 +433,6 @@ def test_with_the_opencode_cli_the_acting_agent_uses_the_deployed_adapters_tools
     finally:
         server.shutdown()
     assert out.output == "the answer" and "file_example_count_words" in calls[0]
+    assert "verify-output" in json.dumps(bodies[0])          # the deployment's skill, the one the session may load
     audit = Path(out.extra["workspace"]) / "tool-calls.jsonl"
     assert '"count_words"' in audit.read_text()

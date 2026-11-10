@@ -140,6 +140,17 @@ pi-workspace/            # only for an adapter without roles
   .hermit-deploy.json
 ```
 
+```text
+opencode-workspace/      # roles stay files under hermit/<id>/, named in AGENTS.md
+  AGENTS.md
+  opencode.json
+  hermit/file-example/
+    ADAPTER.md  exports.yaml  tools.py  agents/  skills/  README.md
+  .opencode/
+    skills/verify-output/SKILL.md
+  .hermit-deploy.json
+```
+
 Only declared exports are connected; every file is copied. A prompt-only adapter has no tool-server entry, skills,
 roles or hooks to install, and its copy holds `ADAPTER.md`, `exports.yaml` and `README.md`. The generated deployment
 report identifies the actual paths and role names, and lists every copied file with its digest.
@@ -164,7 +175,7 @@ A redeployment replaces the copy under `hermit/<id>/`: files the new version no 
 before writing anything, when a copied file was changed or replaced (by a directory or a link) since the last
 deployment or another file is in the way, and
 names the file; an adapter link that leads outside the adapter is refused too.
-The generated `.codex/config.toml`, `.mcp.json` or `.pi/mcp.json` is rewritten on deployment; it is not a general configuration
+The generated `.codex/config.toml`, `.mcp.json`, `.pi/mcp.json` or `opencode.json` is rewritten on deployment; it is not a general configuration
 merger. Global host configuration is not modified.
 
 ### Tools run from the adapter source

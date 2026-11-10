@@ -348,7 +348,9 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
         deployed, context_tool = _deploy(task, adapter, work, backend, params)
         session = agent.configured(args=[*(agent.settings.get("args") or []), *_session_args(backend, deployed, work)],
                                    **({"tools_name": deployed["harness_tools"].replace("-", "_")}
-                                      if deployed.get("harness_tools") else {}))
+                                      if deployed.get("harness_tools") else {}),
+                                   # OpenCode loads only the skills it is allowed: the deployment's
+                                   **({"skills": list(deployed.get("skills") or [])} if backend == "opencode" else {}))
         memory = _memory(work, deployed)
         for item in params.get("files") or []:
             source = Path(base) / item

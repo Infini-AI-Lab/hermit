@@ -169,7 +169,7 @@ It is not an HTTP preview server or the proposed standalone-service launcher. `-
   `evolver_access.environment`) and that no declared path holds the data, the judge or the runs. It does not check
   the pipeline's host: adapters are meant to be usable by any acting agent, and each pipeline deploys the exports
   (context, tools, roles, skills) in its own way.
-- `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi` copies an adapter to
+- `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi|opencode` copies an adapter to
   `hermit/<id>/` in a host workspace and connects its exports there (context block, MCP tools, native roles, skills,
   hooks).
 - `hermit convert --adapter DIR --output OUT --target ...` emits a plugin in the host's native format instead,
