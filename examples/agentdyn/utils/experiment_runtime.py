@@ -82,6 +82,9 @@ def stop_process(proc):
             os.killpg(proc.pid, sig)
         except ProcessLookupError:
             pass
+        except PermissionError:  # macOS: only exited processes, not yet reaped, are left
+            if proc.poll() is None:
+                raise
         if sig == signal.SIGTERM:
             time.sleep(0.3)
     proc.wait(timeout=5)

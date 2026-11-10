@@ -9,9 +9,9 @@ logs, so that every Evolver reads the same steps:
     text(steps, message=1200, output=600)   # one line per step, each field clipped from its start
 
 The streams read: Codex's `codex exec --json` events (`agent-codex.jsonl`), Claude Code's stream-json
-(`agent-claude.jsonl`) and Pi's `--mode json` events (`agent-pi.jsonl`), also under another name below a log
-directory (Harbor's `agent/codex.txt`). A normalised
-message list (`RunOutput.messages`) is the pipeline's own rendering and is left to each Evolver.
+(`agent-claude.jsonl`), Pi's `--mode json` events (`agent-pi.jsonl`) and mini-swe-agent's events
+(`agent-mini-swe-agent.jsonl`), also under another name below a log directory (Harbor's `agent/codex.txt`). A
+normalised message list (`RunOutput.messages`) is the pipeline's own rendering and is left to each Evolver.
 """
 from __future__ import annotations
 
@@ -22,7 +22,10 @@ from pathlib import Path
 CODEX_STREAM = "agent-codex.jsonl"
 CLAUDE_STREAM = "agent-claude.jsonl"
 PI_STREAM = "agent-pi.jsonl"
-STREAM_HOSTS = {CODEX_STREAM: "codex", CLAUDE_STREAM: "claude", PI_STREAM: "pi"}   # the file a host's log keeps
+MINI_SWE_AGENT_STREAM = "agent-mini-swe-agent.jsonl"
+# the file a host's log keeps its events under
+STREAM_HOSTS = {CODEX_STREAM: "codex", CLAUDE_STREAM: "claude", PI_STREAM: "pi",
+                MINI_SWE_AGENT_STREAM: "mini-swe-agent"}
 STREAMS = tuple(STREAM_HOSTS)
 OTHER_STREAMS = ("agent/codex.txt", "codex.txt")   # a Harbor trial's Codex events: from the trial or its agent/
 
@@ -213,10 +216,53 @@ def pi_steps(stream: list[dict]) -> list[Step]:
     return steps
 
 
+def mini_swe_agent_steps(stream: list[dict]) -> list[Step]:
+    """mini-swe-agent's events (hermit.agent.base.mini_swe_agent_run): each assistant message's text and its
+    commands, each command with the output and exit code of the observation that answers it, a message the agent
+    was sent besides (a format error), an exit other than a submission and the process's errors as errors. The system
+    message and the task are left out, as the CLIs' streams leave out their prompt."""
+    steps, pending, prompts = [], [], 0
+    for event in stream:
+        kind, message = event.get("type"), event.get("message") or {}
+        if kind == "error":
+            text = str(event.get("message") or "")
+            if not (steps and steps[-1].kind == "error" and steps[-1].text == text):   # mini-swe-agent's exit, again
+                steps.append(Step("error", text))
+            continue
+        if kind != "message":
+            continue
+        role, content = message.get("role"), str(message.get("content") or "")
+        if role == "assistant":
+            if message.get("reasoning"):
+                steps.append(Step("reasoning", str(message["reasoning"])))
+            if content.strip():
+                steps.append(Step("message", content))
+            for command in message.get("actions") or []:
+                step = Step("command", command=str(command))
+                steps.append(step)
+                pending.append(step)
+        elif role in ("tool", "user") and "returncode" in message and pending:
+            step = pending.pop(0)
+            step.exit_code, step.output = message.get("returncode"), str(message.get("output") or "")
+        elif role == "user":
+            prompts += 1
+            if prompts > 1 and content.strip():          # the first is the task
+                steps.append(Step("message", content, role="user"))
+        elif role == "exit" and message.get("exit_status") == "Submitted" and pending:
+            # the command that submitted (the response's others never ran): its output is the submission
+            step = next((p for p in pending if "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT" in p.command), pending[-1])
+            step.exit_code, step.output = 0, str(message.get("submission") or "")
+            pending.clear()
+        elif role == "exit" and message.get("exit_status") != "Submitted":
+            steps.append(Step("error", f"{message.get('exit_status')}: {content}".rstrip(": ")))
+    return steps
+
+
 # Each host's stream: the reader of its events, and the event types that mark it (tried in this order when a stream
 # is found by its events). A host's stream is added here and in STREAM_HOSTS.
-READERS = {"codex": codex_steps, "claude": claude_steps, "pi": pi_steps}
+READERS = {"codex": codex_steps, "claude": claude_steps, "pi": pi_steps, "mini-swe-agent": mini_swe_agent_steps}
 MARKS = (("codex", {"thread.started", "turn.started", "turn.completed", "turn.failed", "item.completed"}),
+         ("mini-swe-agent", {"session.started"}),
          ("claude", {"system", "assistant", "user", "result"}),
          ("pi", {"agent_start", "agent_settled", "message_end", "tool_execution_end"}))
 

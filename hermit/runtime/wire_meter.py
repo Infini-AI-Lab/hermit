@@ -36,6 +36,9 @@ Adaptations for this repo's sandbox:
     the relay adds a metering hop, not an egress path.
   - the ledger is persisted to LEDGER as JSON every FLUSH_S seconds and on
     SIGTERM; GET /ledger serves it live, GET /health the error counters.
+    LEDGER_RESUME=1: a meter started on a LEDGER an earlier one left carries
+    its totals on (the example launchers: they stop their meters when their
+    runs end, and the next run on the port starts another on the same file).
 
 Dialects: OpenAI chat completions (prompt_tokens includes cached) and
 Anthropic messages (input_tokens excludes cache components — added back),
@@ -43,7 +46,8 @@ same normalisation as the original.
 
 Env: PORT (default 3129), BIND (default 127.0.0.1; 0.0.0.0 for a sidecar
 that other containers call), UPSTREAM (default https://api.fireworks.ai),
-PROXY (e.g. http://mw-egress-meta:3128), LEDGER (json path), FLUSH_S.
+PROXY (e.g. http://mw-egress-meta:3128), LEDGER (json path), LEDGER_RESUME,
+FLUSH_S.
 
 UPSTREAM_KEY_ENV names the variable holding the upstream's key: a request that
 arrives without an Authorization header gets `Bearer <that key>` (2026-10-25).
@@ -84,6 +88,7 @@ PORT = int(os.environ.get("PORT", "3129"))
 UPSTREAM = os.environ.get("UPSTREAM", "https://api.fireworks.ai")
 PROXY = os.environ.get("PROXY", "")
 LEDGER_PATH = os.environ.get("LEDGER", "")
+LEDGER_RESUME = os.environ.get("LEDGER_RESUME", "") not in ("", "0")
 FLUSH_S = float(os.environ.get("FLUSH_S", "15"))
 REWRITE_DEV = os.environ.get("REWRITE_DEVELOPER_ROLE", "") not in ("", "0")
 # PRIME_EFFORT (e.g. "high"): on the `prime` bucket, replace Prime's own
@@ -408,6 +413,22 @@ def _flush(path: str = LEDGER_PATH):
         pass
 
 
+def _resume(path: str = LEDGER_PATH):
+    """The totals an earlier meter left in LEDGER, added to this one's."""
+    try:
+        with open(path) as f:
+            old = json.load(f).get("ledger") or {}
+        with _lock:
+            for bucket, totals in old.items():
+                b = _ledger.setdefault(
+                    bucket, {"input": 0, "cacheRead": 0, "output": 0,
+                             "calls": 0})
+                for k in b:
+                    b[k] += int(totals.get(k, 0))
+    except (OSError, ValueError, AttributeError, TypeError):
+        pass
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -652,6 +673,8 @@ def main():
         sys.exit(f"wire meter: a relay that signs requests (UPSTREAM_KEY_ENV) listens on the loopback only; refusing "
                  f"BIND={BIND}")
     srv = Server((BIND, PORT), Handler)
+    if LEDGER_PATH and LEDGER_RESUME:
+        _resume()
 
     def _bye(sig, frame):
         _flush()

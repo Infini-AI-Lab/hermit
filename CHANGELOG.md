@@ -28,11 +28,22 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- GPUs in the bubblewrap sandbox: `environment.gpu: [<N>, ...]` shows those NVIDIA GPUs (the N of `/dev/nvidia<N>`) in
+  the task sandbox and its tools' and judge's, with what CUDA and EGL read to find them (the driver's devices and,
+  read-only, `/sys/devices`, `/sys/bus/pci`, `/sys/module/nvidia(_uvm)`), and no other GPU's device (their `/sys`
+  entries stay readable); inside they count from 0. `Sandbox(gpu=...)` for a sandbox a task starts itself. Without it,
+  as before, a sandbox has no GPU (EGL renders in software where Mesa is installed).
 - Pi as a CLI Base Agent (`pi`): the acting agent `agent.base: pi` and the `pi` Evolver run Pi 1.5's `--mode json`
   in its own home, offline, with a model reference as Pi's `models.json` provider (the key as `$VARIABLE`); the
   call's tools are an MCP server offered directly; a failed request fails the session although Pi exits 0. Pi takes
   no roles and has no web search; `image_input: true` declares a bound model that takes images. `hermit deploy
   --host pi` declares the adapter's tools `exposure: direct`, with a 120 s timeout.
+- mini-swe-agent as a CLI Base Agent (`mini-swe-agent`): the acting agent (`agent.name` or `agent.base:
+  mini-swe-agent`) runs one task through mini-swe-agent 2.4.6's Python API in a process of its own, whose JSON
+  events are the stream; a model reference is called through litellm with the key passed per request, and the
+  agent's commands get only `env`. The call's tools are one bash command, `hermit-tool`. `hermit deploy --host
+  mini-swe-agent` writes `mini-swe-agent.yaml`. Installed with the `mini-swe-agent` extra.
+  [Tutorial](docs/tutorials/mini-swe-agent.md).
 - Models in sandboxes as Harbor's agents get theirs: each sandbox gets its models' key variables and provider hosts
   (an isolated network becomes an allowlist) and forwards a model meter on the loopback; what a run keeps (the
   learning material, the step records, the adapter) is scrubbed of key values (`hermit/redact.py`). The allowlist
@@ -102,6 +113,14 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - The OPRO method (Yang et al., ICLR 2024, arXiv:2309.03409): the `opro` Evolver on the `prompt-only` template, one
   OPRO step per training step, with the authors' meta-prompt verbatim; the optimizer is the run's `llm`
   (`docs/methods/opro.md`). OPRO on OfficeQA: `examples/officeqa/opro/`, in the GPT-5.6-Luna setting.
+- ASPIRE (arXiv:2607.00272) as a method, with its three roles as Codex sessions given ASPIRE's own prompts: the
+  `aspire` template (a skill library of Markdown entries rendered whole as the actor's context, every snippet checked
+  under the CaP program rules, no privileged access) and the `aspire` Evolver (the coordinator: an agent Evolver with
+  ASPIRE's guide that repairs graded entries, verifies proposals with `run_agent` on the task's verifier row, and
+  chooses the next task through `StepResult.next_tasks`), with `examples/aspire_robosuite/`: the fix-loop subagent,
+  its evolutionary search and the verifier as the Codex acting agent in the task sandbox, which reaches ASPIRE's robot
+  execution engine through a simulator service on the host (the sandbox has no GPU) that holds its seed rules; the
+  judge runs Stage 2 on the host.
 
 ### Changed
 
@@ -157,6 +176,13 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
+- ASPIRE's generated programs ran unconfined on the host: cap-harness runs them, and ASPIRE's program validator is
+  passed by a format string's attribute traversal, so a program could read and write the host's files (other
+  sessions' workspaces, the judge's Stage 2 runs) and run held-out seeds itself. Every cap-harness process (the
+  simulator service's, the judge's, the direct actor's) now runs in a bubblewrap sandbox of its own
+  (`examples/aspire_robosuite/utils/agent/sim.py`: `confine`) that reads ASPIRE's checkout, writes only its run's
+  output, reaches only the providers' ports and renders on the GPUs `ASPIRE_SIM_GPU` names (Mesa's software
+  renderer without one).
 - A deployed workspace's tool server (`.codex/config.toml`, `.mcp.json`, `.pi/mcp.json`) in a task-sandboxed
   acting run crashed at startup, so the adapter's tools never loaded: its sandboxed Session loads no adapter in
   the server's process, and the server now reads the manifest from the Session.
@@ -202,6 +228,21 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - The AHE Adapter Evolver took a `change_manifest.json` an earlier step left for the current step's: a manifest
   naming the next iteration was refused at its own step, then archived as the next step's when that step's session
   wrote none. The file (or a directory a session made in its place) is now removed before each Evolve session.
+- Nine example launchers left their wire meters running after the run (#82), so a later run on the same port
+  reused one and wrote its records into the earlier run's ledger. The meters a launch starts now stop within a second
+  or two of the runs that use them ending: its own trainings (and, for ServeLearnBench, the tests after them) and
+  those of any launch that reuses one, which each list their processes in the port's users file
+  (`/tmp/hermit-wire-meter-<uid>-<port>.users`); the harness2 restart loop is stopped with its meter. A
+  launch reuses a running meter only if it is still up three seconds on, so it never takes one that is being
+  stopped. A meter started on a ledger an earlier one left now carries its totals on (`LEDGER_RESUME=1` in
+  `hermit/runtime/wire_meter.py`, which these launchers set): the next run's meter on the port (`launch.sh run &&
+  launch.sh run eval`, a ServeLearnBench `test` run again, a CL-Bench tag refused because it exists) wrote an empty
+  ledger over the earlier run's bill.
+- On macOS a CLI session stopped at its timeout or on cancel could leave processes behind or fail: the processes
+  below it were found through `/proc`, which macOS lacks, so one in a session of its own (as a sandbox starts its
+  program) was never stopped; and signalling a process group left with only exited, unreaped processes raises
+  `PermissionError` there. The processes are now found with `ps` where there is no `/proc`, and that error means the
+  group has ended. The same holds for the AgentDyn runner's and the Lean swarm launcher's stops.
 
 ## 0.2.0 - 2026-11-04
 

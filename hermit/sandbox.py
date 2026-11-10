@@ -66,6 +66,14 @@ PACKAGE = Path(__file__).resolve().parent
 DISTRIBUTION = "hermit-harness"                           # the installed distribution (pip name) of this package
 RELAY = PACKAGE / "sandbox_relay.py"
 ENV_HIDE = "HA_SANDBOX_HIDE"         # the run's sandbox.hide as paths: the sandboxes a child process starts cover them
+# What CUDA and EGL read to find an NVIDIA GPU besides its device (measured on the driver's layout: without
+# /sys/devices and /sys/module/nvidia EGL falls back to software rendering, without /sys/bus/pci CUDA finds no
+# device); shown read-only with `gpu`
+GPU_SYS = ("/sys/devices", "/sys/bus/pci", "/sys/module/nvidia", "/sys/module/nvidia_uvm")
+# The driver's own devices: control (required), and when present unified memory (CUDA's; a graphics-only host may
+# lack it), display modes and MIG capabilities
+GPU_DEVICES = ("nvidiactl", "nvidia-uvm", "nvidia-modeset", "nvidia-caps")
+DEV = "/dev"                                             # where they are on the host (inside: /dev)
 LOCAL_ANY = re.compile(r"(https?)://(?:127\.0\.0\.1|localhost)(?::(\d+))?(?![\w.:-])")   # a loopback URL
 
 
@@ -852,6 +860,35 @@ def _scrubbed(value):
     return redact_value(value)
 
 
+def gpu_list(value) -> list[int]:
+    """`gpu` as a list of GPU numbers (the N of /dev/nvidia<N>), refused when it is anything else."""
+    gpus = [] if value is None else value
+    if not isinstance(gpus, (list, tuple)) or \
+            not all(isinstance(g, int) and not isinstance(g, bool) and g >= 0 for g in gpus):
+        raise ValueError(f"gpu: a list of NVIDIA GPU numbers (the N of /dev/nvidia<N>), not {value!r}")
+    return sorted(set(gpus))
+
+
+def gpu_args(gpus: list[int]) -> list[str]:
+    """bwrap arguments that show these NVIDIA GPUs and nothing of the others: their /dev/nvidia<N>, the driver's
+    devices, and read-only what CUDA and EGL read to find them (GPU_SYS)."""
+    if not gpus:
+        return []
+    names = [*GPU_DEVICES, *(f"nvidia{g}" for g in gpus)]
+    missing = [f"/dev/{n}" for n in [names[0], *names[len(GPU_DEVICES):]] if not os.path.exists(os.path.join(DEV, n))]
+    if missing:
+        raise RuntimeError(f"gpu {gpus}: {', '.join(missing)} not on this machine (an NVIDIA GPU and its driver are "
+                           "needed; `nvidia-smi -q` shows each GPU's Minor Number, the N of /dev/nvidia<N>)")
+    args = []
+    for name in names:
+        if os.path.exists(os.path.join(DEV, name)):
+            args += ["--dev-bind", os.path.join(DEV, name), f"/dev/{name}"]
+    for path in GPU_SYS:
+        if os.path.exists(path):
+            args += ["--ro-bind", path, path]
+    return args
+
+
 def _record_counter(record_dir: Path | None, role: str):
     """The numbering of a role's records in a directory, one per process: every Sandbox writing there (a view, a
     resumed run's new one) takes the next number, after the records already there."""
@@ -900,6 +937,8 @@ class Sandbox:
     role: str = "learner"
     forward: list[int] = field(default_factory=list)     # loopback ports every command reaches (a model meter)
     sockets: dict = field(default_factory=dict)          # isolated network: {port inside: Unix socket outside}
+    gpu: list[int] = field(default_factory=list)         # NVIDIA GPUs shown, by /dev/nvidia<N>; inside they count
+                                                         # from 0 (CUDA, EGL); none: no GPU (EGL: Mesa's software)
 
     def __post_init__(self):
         self.network, _ = network_mode(self.network)
@@ -908,6 +947,7 @@ class Sandbox:
         unknown = set(self.limits) - LIMITS
         if unknown:
             raise ValueError(f"sandbox limits: unknown keys {sorted(unknown)}; known: {sorted(LIMITS)}")
+        self.gpu = gpu_list(self.gpu)
         self.binds = [Bind(Path(b[0]), str(b[1]), bool(b[2]) if len(b) > 2 else False) for b in self.binds]
         self._bridges: _Bridges | None = None
         self.last_record: Path | None = None             # the record of the latest wrapped command
@@ -1109,7 +1149,7 @@ class Sandbox:
         args = [shutil.which("bwrap") or "bwrap", "--die-with-parent", "--new-session", "--unshare-pid",
                 "--dev", "/dev", "--proc", "/proc",
                 "--tmpfs", "/tmp",
-                "--ro-bind", "/usr", "/usr"]
+                "--ro-bind", "/usr", "/usr", *gpu_args(self.gpu)]
         for link in ("/lib", "/lib64", "/bin", "/sbin"):
             if os.path.islink(link):
                 args += ["--symlink", os.readlink(link), link]
@@ -1236,7 +1276,8 @@ class Sandbox:
             args += ["--chdir", self.translate(str(chdir), binds)]
         policy = {"enforced": True, "network": self.network, "read_only": ro, "read_write": rw, "hidden": hidden,
                   "binds": named,
-                  "proxy": self.proxy_url, "allow": list(self.allow), "limits": dict(self.limits)}
+                  "proxy": self.proxy_url, "allow": list(self.allow), "limits": dict(self.limits),
+                  "gpu": list(self.gpu)}
         name = f"{self.role}-{next(self._count)}"
         deny = [p for p in self._absent(ro + rw + [b["source"] for b in named], binds)    # covered: empty inside
                 if not any(p == h or p.startswith(h.rstrip("/") + "/") for h in hidden)]

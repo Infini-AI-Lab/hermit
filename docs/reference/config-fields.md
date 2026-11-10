@@ -32,13 +32,13 @@ guarantee that their consumer supports arbitrary fields.
 | `data.shuffle` | boolean / true | Shuffle training order; set false for ordered streams |
 | `data.shuffle_seed` | integer / 0 | Training shuffle seed; does not seed every model or method |
 | `task_info` | directory / null | Learner-facing task description; provide `README.md` |
-| `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, `pi`, `harbor` (a benchmark's task set in Harbor's format, see [Benchmarks](../framework/task.md#benchmarks)), an Agent class, or a `file.py:function` / `module:function` |
+| `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `harbor` (a benchmark's task set in Harbor's format, see [Benchmarks](../framework/task.md#benchmarks)), an Agent class, or a `file.py:function` / `module:function` |
 | `agent.concurrency` | integer / 4 | Maximum concurrent rollout/evaluation task executions; use a positive value |
 | `agent.timeout_min` | number / null | A sandboxed task call (its worker) running longer is stopped and recorded as an error; null: no limit |
 | `agent.params` | mapping / {} | Passed to Agent constructors; plain functions receive it when they declare a `params` argument |
-| `agent.base` | string / null | Layer 2 in the per-layer form ([Agent layers](../framework/agent-layers.md#settings-by-layer)): `codex`, `claude`, `pi`, `react`, or `direct` (with `agent.name`, a task's own loop); sets `agent.name` when unset |
+| `agent.base` | string / null | Layer 2 in the per-layer form ([Agent layers](../framework/agent-layers.md#settings-by-layer)): `codex`, `claude`, `pi`, `mini-swe-agent`, `react`, or `direct` (with `agent.name`, a task's own loop); sets `agent.name` when unset |
 | `agent.model` | string / mapping / null | Layer 1: a `<backend>/<model>` reference, or `{ref` or `name, login, effort, price, ...}`; read into `agent.params` |
-| `agent.codex`, `agent.claude`, `agent.pi`, `agent.react`, `agent.direct` | mapping / null | Layer 2's settings for that Base Agent (the one `agent.base` names); read into `agent.params`. A key set in two layers is refused |
+| `agent.codex`, `agent.claude`, `agent.pi`, `agent.mini-swe-agent`, `agent.react`, `agent.direct` | mapping / null | Layer 2's settings for that Base Agent (the one `agent.base` names); read into `agent.params`. A key set in two layers is refused |
 | `pipeline.run` | string / null | Legacy alias for `agent.name`, applied only when `agent.name` is unset |
 | `pipeline.concurrency` | integer / null | Legacy concurrency override when the legacy pipeline alias is used |
 | `pipeline.params` | mapping / {} | Legacy parameters merged into `agent.params` when the pipeline alias is used |
@@ -79,8 +79,10 @@ dialects it serves, prices). See [Model backends](../guides/model-backends.md).
 | `llm` | reference, mapping / null | The run's chat-completions `llm` tool: a reference, `{model: <reference>, price, extra_body}`, the endpoint itself (below), or a CLI's sessions, `{cli: ..., ...}` (below) |
 
 `agent.params.model` takes the same forms. For a Codex or Claude Code acting agent or Evolver a reference becomes
-the CLI's provider settings (`args` for Codex, `env` for Claude Code, `provider` for Pi) and the model's id; a plain id without a
-backend goes to the CLI's own provider as before.
+the CLI's provider settings (`args` for Codex, `env` for Claude Code, `provider` for Pi) and the model's id; a
+mini-swe-agent acting agent calls the backend through litellm with the key passed per request. A plain id without a
+backend goes to the CLI's own provider as before (for mini-swe-agent: a litellm model id, its key from litellm's
+usual variable).
 
 ### Learner model tool
 
@@ -150,6 +152,7 @@ Checkpoint frequency controls tags; completed steps still have records and accep
 | `environment.env` | list / [] | Variables passed in: names or patterns (`MWM_*`) |
 | `environment.network` | string / `no-network` | `no-network`, `allowlist` or `public`; the agent's model provider stays reachable |
 | `environment.allowed_hosts` | list / [] | With `allowlist`: hosts reachable through the proxy |
+| `environment.gpu` | list / [] | NVIDIA GPUs shown in the task sandbox, by the N of `/dev/nvidia<N>` (CUDA and EGL; inside they count from 0); none: no GPU (EGL renders in software where Mesa is installed). Not with `environment.image` ([sandbox guide](../guides/sandbox.md)) |
 | `environment.resources` | mapping / {} | `memory_mb`, `file_mb`, `cpu_s` per process (positive whole numbers; null: no limit); not with `environment.image` (the container keeps its own) |
 | `environment.image` | string / null | A Docker image: a Codex or Claude Code acting agent runs in a container of its own |
 | `environment.container` | mapping / {} | With `image`: the container's `network` and `proxy` |
