@@ -1,0 +1,42 @@
+# The structured direct-chat actor (utils/agent/agent.py) in place of Codex: a comparison with ASPIRE's coding agent.
+# Smoke: two tasks, three development seeds, three held-out seeds, two versions and no search; the verifier's own
+# rows (5 seeds, 2 attempts). Started by launch.sh: ASPIRE_CONFIG=smoke_direct.yaml ./launch.sh
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke.txt
+  val: ../utils/splits/verify.txt
+  test: ../utils/splits/smoke_rerun.txt
+  step_size: 1
+  shuffle: false
+task_info: ../utils/task-info
+agent:
+  name: ../utils/agent/agent.py:AspireActor
+  concurrency: 1
+  params:
+    aspire_root: $ASPIRE_ROOT
+    sim_env: {}
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash
+    effort: medium
+    max_versions: 2
+    search: debug
+    workers: 3
+judge:
+  path: ../utils/judge.py
+template: aspire
+evolver:                            # the coordinator, as in run.yaml
+  name: aspire
+  base: codex
+  model: {ref: fireworks/accounts/fireworks/models/glm-5p3-flash, effort: medium}
+  codex: {web_search: false}
+environment:
+  runner: host                      # the direct actor starts the GPU simulator itself: on the host (a comparison)
+sandbox:
+  enabled: true
+  enforce: required
+trainer:
+  run_name: smoke-aspire-direct
+  epochs: 1
+  call_timeout_min: 120
+  budget: {usd: 5, hours: 4}
+eval:
+  repeats: 1
