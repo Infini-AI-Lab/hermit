@@ -107,6 +107,15 @@ class Harness2UpstreamEvolver(Evolver):
             if named:                         # every session would refuse it (the Base Agent), each stage fall back
                 raise ValueError(f"login: claude is the subscription; evolver.params.env names what would pay instead: "
                                  f"{named}")
+        if ctx.params.get("proposer") is None and ctx.params.get("backend") == "pi":
+            # refused here, not by every session: upstream turns a session's error into the starting harness
+            from hermit.agent.base.cli import Pi
+            if not ctx.params.get("provider"):
+                raise ValueError("harness2_upstream on Pi takes its model from evolver.base: pi and evolver.model (a "
+                                 "<backend>/<model> reference)")
+            problem = Pi.effort_problem(str(ctx.params.get("effort") or "medium"), ctx.params["provider"])
+            if problem:
+                raise ValueError(f"evolver.params.effort: {problem}")
         if ctx.params.get("library_from"):
             _markers(context, ctx.params.get("verdict_markers"))
             self._import_library(_path(ctx.params["library_from"], ctx.base), ctx.workspace, ctx.params, ctx.base,

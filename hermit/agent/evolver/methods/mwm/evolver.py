@@ -240,11 +240,12 @@ class MwmEvolver(Evolver):
         variable for its commands, a fresh home, the session's clock), inside the native mounts, told /w as its
         working directory, the channels' JSON entrance as MW_TOOLSRV (the venue's shell client). `login` and `effort`
         are the model's; a binding's Claude Code provider settings come in `env`, Pi's in `provider`."""
+        from hermit.agent.base.cli import PI_PARAMS
         params = ctx.params
         if not isinstance(params.get("web_search"), bool):
             raise ValueError("evolver.params.web_search must be set, true or false")
         return {**{k: params[k] for k in ("model", "binding", "args", "login", "login_root", "effort", "price",
-                                          "provider", "image_input",
+                                          *PI_PARAMS,
                                           "plan_dir", "plan_max_wait_s", "plan_rerun", "usage_credits")
                    if params.get(k) is not None or (k == "plan_max_wait_s" and k in params)},   # None: no limit
                 "web_search": params["web_search"], "isolation": "sandbox", "sandbox": box,

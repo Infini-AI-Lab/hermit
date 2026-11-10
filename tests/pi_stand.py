@@ -15,15 +15,16 @@ ROOT = Path(__file__).resolve().parents[1]
 STREAMS = ROOT / "tests" / "fixtures" / "pi"
 
 SCRIPT = f'''#!{sys.executable}
-"""A stand-in for `pi --mode json ...`: records its arguments, working directory, home files and stdin, makes the
-edits in edits.json (relative to its working directory), then prints stream.jsonl."""
+"""A stand-in for `pi --mode json ...`: records its arguments, working directory, home files, extensions, the keys it
+was given and stdin, makes the edits in edits.json (relative to its working directory), then prints stream.jsonl."""
 import json, os, sys
 from pathlib import Path
 here = Path(__file__).resolve().parent
 home = Path(os.environ["PI_CODING_AGENT_DIR"])
 seen = {{"args": sys.argv[1:], "cwd": os.getcwd(), "stdin": sys.stdin.read(),
          "files": {{p.name: p.read_text() for p in sorted(home.glob("*.json")) if p.is_file()}},
-         "keys": sorted(k for k in os.environ if k.endswith("_KEY"))}}
+         "keys": sorted(k for k in os.environ if k.endswith("_KEY")),
+         "extensions": sorted(p.name for p in home.glob("extensions/*"))}}
 with open(here / "seen.jsonl", "a") as f:
     f.write(json.dumps(seen) + "\\n")
 for name, text in json.loads((here / "edits.json").read_text()).items():

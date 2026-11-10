@@ -31,6 +31,13 @@ def test_a_role_on_pi_has_none_of_its_own_tools_and_answers_the_schema(pi_stand,
     assert call["args"][:6] == ["--mode", "json", "--provider", "hermit", "--model", "m-1"]
     assert call["args"][call["args"].index("--append-system-prompt") + 1] == "Be exact."
     assert "the evidence" in call["stdin"] and "satisfies this JSON schema" in call["stdin"]
+    assert call["extensions"] == ["hermit-command-limit.js"]
+    zero = tmp_path / "zero"
+    zero.mkdir()
+    ctx = ctx_of(zero)
+    ctx.params["command_timeout_s"] = 0                                    # evolver.pi's, passed on (PI_PARAMS)
+    pi_agent.call_role(ctx, messages, schema, "trial-001-criticizer")
+    assert pi_stand.seen()[0]["extensions"] == []
 
 
 def test_a_reply_that_is_no_answer_fails_the_role(pi_stand, tmp_path):  # noqa: F811

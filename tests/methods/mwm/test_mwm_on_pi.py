@@ -23,7 +23,8 @@ n = len(list(Path("memory").glob("note*.md")))
 Path("memory", f"note{n}.md").write_text(
     f"last_confirmed_t: {n}\nscope: always\nderived_from: none (reasoning only)\nbrief: note {n}\n\nA fact.\n")
 Path("meta", "pi.json").write_text(json.dumps({"args": sys.argv[1:-1], "cwd": os.getcwd(),
-                                               "models": (home / "models.json").read_text()}))
+                                               "models": (home / "models.json").read_text(),
+                                               "extensions": sorted(p.name for p in home.glob("extensions/*"))}))
 sys.stdout.write(Path(__file__).with_name("stream.jsonl").read_text())
 '''
 
@@ -38,7 +39,7 @@ def test_the_mwm_learner_runs_on_pi_with_its_bound_model(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_KEY", "sk-fake")
     path = M.make(tmp_path, monkeypatch)
     data = yaml.safe_load(path.read_text())
-    data["evolver"].update(base="pi", model="fake/m-1")
+    data["evolver"].update(base="pi", model="fake/m-1", pi={"command_timeout_s": 0})
     data["backends"] = BACKENDS
     path.write_text(yaml.safe_dump(data))
     fake = tmp_path / "fakebin" / "pi"
@@ -56,3 +57,4 @@ def test_the_mwm_learner_runs_on_pi_with_its_bound_model(tmp_path, monkeypatch):
     saw = json.loads((run / "checkout" / "meta" / "pi.json").read_text())
     assert saw["cwd"] == "/w" and saw["args"][:6] == ["--mode", "json", "--provider", "hermit", "--model", "m-1"]
     assert json.loads(saw["models"])["providers"]["hermit"]["apiKey"] == "$FAKE_KEY"
+    assert saw["extensions"] == []                                  # evolver.pi's command_timeout_s 0, passed on

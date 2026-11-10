@@ -1,5 +1,7 @@
 """Harness²'s editors on Pi (`evolver.base: pi`), against the stand-in `pi` (tests/pi_stand.py), and a Pi acting agent's
 trajectory in upstream's grammar."""
+import json
+
 import pytest
 
 from pi_stand import STREAMS, bound_params, pi_stand  # noqa: F401 (pi_stand: the fixture)
@@ -24,6 +26,11 @@ def test_harness2s_session_on_pi_takes_its_bound_model_and_keeps_its_usage(pi_st
     assert call["args"][:6] == ["--mode", "json", "--provider", "hermit", "--model", "m-1"]
     assert call["args"][call["args"].index("--append-system-prompt") + 1] == "be brief"
     assert call["args"][call["args"].index("--thinking") + 1] == "max"           # Claude Code's levels are Pi's too
+    model = json.loads(call["files"]["models.json"])["providers"]["hermit"]["models"][0]
+    assert model["thinkingLevelMap"] == {"max": "max"}                         # sent as max, not Pi's high
+    assert call["extensions"] == ["hermit-command-limit.js"]
+    proposer(command_timeout_s=0)._claude_cli(cwd, "the mission", "", wall=60)   # evolver.pi's, passed on
+    assert pi_stand.seen()[0]["extensions"] == []
 
 
 def test_a_pi_session_that_failed_is_no_reply(pi_stand, tmp_path):  # noqa: F811
@@ -61,7 +68,16 @@ def test_harness2_runs_its_editors_on_pi_and_pins_pis_binary(pi_stand, tmp_path)
     pytest.importorskip("harness2")
     from types import SimpleNamespace as NS
     from hermit.agent.evolver.methods.harness2_upstream.evolver import Harness2UpstreamEvolver
-    Harness2UpstreamEvolver().setup(NS(params={"backend": "pi"}))
+    Harness2UpstreamEvolver().setup(NS(params=bound_params()))
+    # refused at setup, not by each session: upstream would take a failed session for the starting harness
+    with pytest.raises(ValueError, match="takes its model from evolver.base: pi and evolver.model"):
+        Harness2UpstreamEvolver().setup(NS(params={"backend": "pi"}))
+    with pytest.raises(ValueError, match="Pi takes effort .*not 'huge'"):
+        Harness2UpstreamEvolver().setup(NS(params={**bound_params(), "effort": "huge"}))
+    messages = {**bound_params(), "effort": "max"}
+    messages["provider"] = {**messages["provider"], "api": "anthropic-messages"}
+    with pytest.raises(ValueError, match="Messages API high's thinking budget for effort max"):
+        Harness2UpstreamEvolver().setup(NS(params=messages))
     with pytest.raises(ValueError, match="not the sign-in of backend pi"):
         Harness2UpstreamEvolver().setup(NS(params={"backend": "pi", "login": "claude", "model": "m"}))
     ws = NS(state=tmp_path / "state")

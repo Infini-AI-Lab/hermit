@@ -22,6 +22,7 @@ from typing import Any
 
 from harness2.core.proposer import SYSTEM_ARG_MAX, Proposer, _DROP_ENV, _parse_json
 
+from hermit.agent.base.cli import PI_PARAMS
 from hermit.agent.base.interface import LoginFailed, make
 from hermit.agent.base.records import price_usage
 from hermit.agent.evolver.base import Usage
@@ -156,7 +157,7 @@ class FrameworkProposer(Proposer):
         settings = {"web_search": False, "bin": self.params.get("claude_bin") or "pi", "stdin": True,
                     "effort": self.spec.effort,                               # Claude Code's levels are Pi's too
                     "model": self.params.get("model") or self.spec.model, "binding": self.params.get("binding"),
-                    "provider": self.params.get("provider"), "image_input": self.params.get("image_input"),
+                    **{k: self.params.get(k) for k in PI_PARAMS},              # the bound model, images, command limit
                     "price": self.params.get("price"), "args": self.params.get("args"),
                     "append_system_prompt": system or None, "persist_session": False,
                     "home": Path(cwd) / ".pi-home", "home_files": [], "log": Path(cwd) / ".session.out",

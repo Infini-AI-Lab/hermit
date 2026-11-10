@@ -325,8 +325,8 @@ class Binding:
             model["contextWindow"] = int(self.backend.context_window)
         if self.backend.max_output_tokens:    # else Pi's 16384: a model that reasons long is cut before it answers
             model["maxTokens"] = int(self.backend.max_output_tokens)
-        if self.extra_body and api in ("chat", "responses"):   # sent with every request; the Messages API ignores them
-            model["samplingParams"] = dict(self.extra_body)
+        if self.extra_body and api == "chat":   # sent with every chat request, as the direct client sends them; the
+            model["samplingParams"] = dict(self.extra_body)       # Responses and Messages APIs take other fields
         if self.price:
             p = self.price
             model["cost"] = {"input": p.get("input", 0), "output": p.get("output", 0),

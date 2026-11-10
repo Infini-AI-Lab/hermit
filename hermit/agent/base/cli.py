@@ -70,9 +70,12 @@ Settings (given once; `configured(...)` for a call's own):
   `login: claude` may draw the account's usage credits; default: a session that did holds the next ones back)
   Pi only: provider (its models.json entry for a bound model, from the binding: Binding.pi_provider),
   image_input (true: the bound model takes images, such as a tool's result; default: text only, Pi's default for a
-  model it does not know), append_system_prompt, effort (its --thinking level), allowed_tools (Pi's own tools by name,
-  its --tools: read, grep, find, ls, bash, edit, write; the call's tools stay; empty: none of its own), persist_session
-  (false: --no-session), sampling (fields for the bound model's samplingParams: a chat request's temperature, top_p). Pi takes no roles, has no web search and runs under isolation none or sandbox.
+  model it does not know), append_system_prompt, effort (its --thinking level, sent as named and over the backend's
+  extra_body; a bound model on the Messages API takes up to high), allowed_tools (Pi's own tools by name, its --tools:
+  read, grep, find, ls, bash, edit, write; the call's tools stay; empty: none of its own), persist_session (false:
+  --no-session), sampling (fields for the bound model's samplingParams: a chat request's temperature, top_p),
+  command_timeout_s (a bash command's limit when the model gives none; default 600, 0: none). Pi takes no roles, has no
+  web search and runs under isolation none or sandbox.
   mini-swe-agent only: model_class, config, step_limit (MiniSweAgent; hermit.agent.base.mini_swe_agent). It takes no
   roles, no session and no login, has no web search and runs under isolation none or sandbox.
   OpenCode only: provider (its config's provider for the bound model, from the binding: Binding.opencode_provider;
@@ -120,7 +123,7 @@ ISOLATIONS = ("none", "sandbox", "container")
 UNAVAILABLE = re.compile(r"unexpected status (?:429|5\d\d)|exceeded retry limit|stream disconnected|"
                          r"error sending request|too many requests|service unavailable|bad gateway|overloaded|"
                          r"model is at capacity|"
-                         r"^(?:429|5\d\d): |"                     # Pi's report of a provider's status
+                         r"^(?:429|5\d\d)(?:: | \{)|"             # Pi's report of a provider's status (two forms)
                          r"error response from daemon|cannot connect to the docker daemon|"
                          + re.escape(container.MISSING), re.I | re.M)
 CODEX_HOME_SETTINGS = ["features.shell_snapshot = false",          # a snapshot would bring back the whole environment
@@ -1346,6 +1349,10 @@ export default function (pi) {{
   }});
 }}
 """
+PI_PARAMS = ("provider", "image_input", "command_timeout_s")     # a Pi session's settings a method passes on
+# Pi's report of a provider's status no retry can help ("400: {...}" from an OpenAI-compatible API, "400 {...}" from
+# the Messages API): not a timeout, a conflict or a rate limit
+PI_REJECTED = re.compile(r"^4(?!08|09|29)\d\d(?::| \{)")
 
 
 class Pi(CliAgent):
@@ -1370,6 +1377,19 @@ class Pi(CliAgent):
         api = (self.settings.get("provider") or {}).get("api")
         return self.sampling if api in ("openai-completions", "openai-responses") else ()
 
+    @classmethod
+    def effort_problem(cls, effort, provider: dict | None) -> str | None:
+        """Why a session could not send `effort` as given, or None: a level --thinking does not take (the CLI would
+        warn and go on at its default), or xhigh or max for a bound model on the Messages API, which Pi gives high's
+        thinking budget. On an OpenAI-compatible API both are sent as named (prepare_home maps them)."""
+        if not effort:
+            return None
+        if effort not in cls.efforts:
+            return f"Pi takes effort {', '.join(cls.efforts)}, not {effort!r}"
+        if effort in ("xhigh", "max") and (provider or {}).get("api") == "anthropic-messages":
+            return f"Pi gives a model on the Messages API high's thinking budget for effort {effort}: take high or lower"
+        return None
+
     def home_env(self, home):
         """Every variable Pi reads goes here, so that it passes the sandbox's filter: its agent directory, its HOME
         (Pi reads ~/.agents/skills), offline, no telemetry; a session directory of the caller's emptied, which Pi
@@ -1392,15 +1412,27 @@ class Pi(CliAgent):
         (home / "models.json").unlink(missing_ok=True)
         if s.get("provider"):
             provider = json.loads(json.dumps(s["provider"]))
-            if s.get("effort") and s["effort"] != "off":          # --thinking applies to a reasoning model only
-                for model in provider.get("models") or []:
+            effort = s.get("effort")
+            problem = self.effort_problem(effort, provider)
+            if problem:
+                raise Unsupported(problem)
+            for model in provider.get("models") or []:
+                if effort and effort != "off":                    # --thinking applies to a reasoning model only
                     model["reasoning"] = True
-            if s.get("image_input"):          # else Pi sends the model no image (a text-only model refuses them)
-                for model in provider.get("models") or []:
+                if effort in ("xhigh", "max") and provider.get("api") in ("openai-completions", "openai-responses"):
+                    # sent as named: a model with no map of its own, Pi takes either for high
+                    model["thinkingLevelMap"] = {**(model.get("thinkingLevelMap") or {}), effort: effort}
+                if s.get("image_input"):      # else Pi sends the model no image (a text-only model refuses them)
                     model["input"] = ["text", "image"]
-            if s.get("sampling"):             # a request's own (cli_answer), over the backend's extra_body
-                for model in provider.get("models") or []:
-                    model["samplingParams"] = {**(model.get("samplingParams") or {}), **s["sampling"]}
+                # A request's own sampling (cli_answer) over the backend's extra_body; the session's effort over the
+                # extra_body's, as a call's fields win on the direct client (Pi applies samplingParams last)
+                sampling = {**(model.get("samplingParams") or {}), **(s.get("sampling") or {})}
+                if effort:
+                    sampling.pop("reasoning_effort", None)
+                if sampling:
+                    model["samplingParams"] = sampling
+                else:
+                    model.pop("samplingParams", None)
             (home / "models.json").write_text(json.dumps({"providers": {PI_PROVIDER: provider}}, indent=1))
         # A tool call may take minutes (a Trainer tool runs rollouts): Codex's tool_timeout_sec, not Pi's 60 s
         servers = {tools_name: {"url": tools_url, "exposure": "direct", "timeout": 1800}} if tools_url else {}
@@ -1462,13 +1494,17 @@ class Pi(CliAgent):
     def outcome(self, raw, stream, last_file):
         """Pi's JSON mode exits 0 however the session ended: one that did not settle, aborted, or whose last request
         failed, was aborted or was cut at the output limit (Pi's text mode exits 1 for each) has failed, and so has a
-        session that was to have no tools and ran one."""
+        session that was to have no tools and ran one. A provider's outage or rate limit is `unavailable` (retried);
+        a status no retry can help (a bad request, a key the provider refused) is `rejected`."""
         notes, done = self.notices(raw), self.served(raw)
-        cut = self._last_assistant(raw).get("stopReason") == "length"
+        last = self._last_assistant(raw)
+        cut = last.get("stopReason") == "length"
         if self.settings.get("text_only") and any(e.get("type") == "tool_execution_start" for e in _objects(raw)[0]):
             notes, done = "the session was to have no tools, and it ran one", False
-        return {"reply": self.last_message(stream, last_file), "served": done,
-                "unavailable": bool(UNAVAILABLE.search(notes)), "refused": False, "failed": not done or cut,
+        unavailable = bool(UNAVAILABLE.search(notes))
+        rejected = not done and not unavailable and bool(PI_REJECTED.match(str(last.get("errorMessage") or "")))
+        return {"reply": self.last_message(stream, last_file), "served": done, "unavailable": unavailable,
+                "refused": False, "rejected": rejected, "failed": not done or cut,
                 "finish_reason": "length" if cut else ("stop" if done else None),
                 "failure": (notes or ("the reply was cut at its output limit" if cut else "the session did not settle")
                             )[-600:]}

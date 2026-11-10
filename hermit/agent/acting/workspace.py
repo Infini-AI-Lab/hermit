@@ -321,10 +321,11 @@ def _check(backend: str, params: dict) -> str:
 
 def base_agent(backend: str, params: dict) -> BaseAgent:
     """The Base Agent (Layer 2) these params describe: the CLI and how it is run, nothing of the task."""
+    from hermit.agent.base.cli import PI_PARAMS
     settings = {k: params[k] for k in ("model", "binding", "login", "plan_dir", "plan_max_wait_s", "usage_credits",
                                        "effort", "isolation", "container", "codex_sandbox", "shell_env",
-                                       "project_doc_max_bytes", "args", "env", "price", "provider",
-                                       "image_input", "model_class", "config", "step_limit")
+                                       "project_doc_max_bytes", "args", "env", "price", *PI_PARAMS,
+                                       "model_class", "config", "step_limit")
                 if k in params and (params[k] is not None or k == "plan_max_wait_s")}
     if params.get("claude_permission_mode"):
         settings["permission_mode"] = params["claude_permission_mode"]

@@ -8,13 +8,14 @@ from dataclasses import asdict
 import json
 import re
 
+from hermit.agent.base.cli import PI_PARAMS
 from hermit.agent.base.interface import Limits, LoginFailed, make
 from .experience import role_tools
 
 # The Layer 1/2 settings a configuration may give the role CLI; the rest are set per call below.
 CLI_SETTINGS = ("model", "binding", "login", "login_root", "plan_dir", "plan_max_wait_s", "plan_rerun", "usage_credits",
                 "effort", "codex_sandbox", "permission_mode", "shell_env", "project_doc_max_bytes",
-                "home_files", "args", "env", "env_drop", "price", "timeout_s", "bin", "provider", "image_input")
+                "home_files", "args", "env", "env_drop", "price", "timeout_s", "bin", *PI_PARAMS)
 CLI_PROPOSERS = ("codex", "claude", "pi")
 
 # Provider messages that mean the role request itself was refused (stop, never retried).
