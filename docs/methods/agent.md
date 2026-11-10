@@ -18,6 +18,9 @@ On the single-file prompt-only template, the Codex learner is the [prompt-only](
 Pi signs in only through the model reference and has no web search. A session cannot apply a request's `temperature`,
 and a request that asks for one is refused: OPRO, whose default is `1.0`, needs `evolver.pi: {unapplied: [temperature]}`
 or `evolver.params.temperature: null`. Pi has no sub-agents: an adapter's sub-agents stay files its acting agent can read.
+Pi caps one reply at 16384 tokens unless the backend says otherwise: where a long answer is due (EvoSafe's whole files)
+and the model reasons at length, give the backend a larger
+[`max_output_tokens`](../guides/model-backends.md).
 
 ## Requirements and setup
 

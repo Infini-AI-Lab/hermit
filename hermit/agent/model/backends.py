@@ -25,7 +25,9 @@ Backend fields:
     litellm         the litellm route prefix, for task agents that call through litellm (fireworks_ai, hosted_vllm)
     prices          per model id: {input, cached_input, output}, USD per million tokens
     extra_body      fields added to every chat request (for example reasoning_effort)
-    context_window  tokens; Codex is told it (model_context_window), Claude Code too (CLAUDE_CODE_MAX_CONTEXT_TOKENS)
+    context_window  tokens; Codex is told it (model_context_window), Claude Code too (CLAUDE_CODE_MAX_CONTEXT_TOKENS),
+                    Pi too (contextWindow)
+    max_output_tokens  tokens one request may answer with; Pi is told it (maxTokens; else its default, 16384)
     developer_role  what a relay in front of the backend does with the `developer` role Codex uses: keep (default),
                     or system for an endpoint that refuses the role (the examples' wire meter renames it)
     models          aliases: short names for model ids (`vllm/qwen` for a long id)
@@ -58,7 +60,7 @@ def user_file() -> Path:
     return Path(os.environ.get("HA_BACKENDS") or Path.home() / ".config" / "hermit" / "backends.yaml")
 APIS = ("chat", "responses", "messages")
 FIELDS = {"from", "base_url", "api_key_env", "key_required", "apis", "messages_url", "litellm", "prices", "extra_body",
-          "context_window", "developer_role", "models", "description"}
+          "context_window", "max_output_tokens", "developer_role", "models", "description"}
 DEVELOPER_ROLES = ("keep", "system")
 # What each consumer speaks: the dialect a backend must serve for it.
 NEEDS = {"chat": "chat", "react": "chat", "llm": "chat", "codex": "responses", "claude": "messages", "pi": "chat",
@@ -83,6 +85,7 @@ class Backend:
     prices: dict = field(default_factory=dict)
     extra_body: dict = field(default_factory=dict)
     context_window: int | None = None
+    max_output_tokens: int | None = None
     developer_role: str = "keep"
     models: dict = field(default_factory=dict)
     description: str = ""
@@ -111,14 +114,14 @@ class Backend:
                    messages_url=(str(data["messages_url"]).rstrip("/") if data.get("messages_url") else None),
                    litellm=data.get("litellm"), prices=dict(data.get("prices") or {}),
                    extra_body=dict(data.get("extra_body") or {}), context_window=data.get("context_window"),
-                   developer_role=role, models=dict(data.get("models") or {}),
+                   max_output_tokens=data.get("max_output_tokens"), developer_role=role, models=dict(data.get("models") or {}),
                    description=str(data.get("description") or ""))
 
     def to_dict(self) -> dict:
         return {"base_url": self.base_url, "api_key_env": self.api_key_env, "key_required": self.key_required,
                 "apis": list(self.apis), "messages_url": self.messages_url, "litellm": self.litellm,
                 "prices": self.prices, "extra_body": self.extra_body, "context_window": self.context_window,
-                "developer_role": self.developer_role, "models": self.models, "description": self.description}
+                "max_output_tokens": self.max_output_tokens, "developer_role": self.developer_role, "models": self.models, "description": self.description}
 
     @property
     def messages_root(self) -> str:
@@ -247,7 +250,8 @@ class Binding:
                 "api_key_env": self.api_key_env, "key_required": self.backend.key_required,
                 "apis": list(self.backend.apis), "messages_url": self.backend.messages_root,
                 "litellm": self.litellm_model, "price": self.price, "extra_body": dict(self.extra_body),
-                "context_window": self.backend.context_window}
+                "context_window": self.backend.context_window,
+                "max_output_tokens": self.backend.max_output_tokens}
 
     @classmethod
     def from_spec(cls, spec: dict) -> "Binding":
@@ -259,7 +263,8 @@ class Binding:
                           key_required=bool(spec.get("key_required", True)),
                           apis=tuple(spec.get("apis") or ["chat"]), messages_url=spec.get("messages_url"),
                           litellm=(spec["litellm"].split("/", 1)[0] if spec.get("litellm") else None),
-                          context_window=spec.get("context_window"))
+                          context_window=spec.get("context_window"),
+                          max_output_tokens=spec.get("max_output_tokens"))
         return cls(backend, str(spec["model"]), price=spec.get("price"), extra_body=dict(spec.get("extra_body") or {}))
 
     # ---- provider settings for the CLI agents ---------------------------------------------------------------
@@ -316,6 +321,8 @@ class Binding:
         model: dict = {"id": self.model}
         if self.backend.context_window:
             model["contextWindow"] = int(self.backend.context_window)
+        if self.backend.max_output_tokens:    # else Pi's 16384: a model that reasons long is cut before it answers
+            model["maxTokens"] = int(self.backend.max_output_tokens)
         if self.price:
             p = self.price
             model["cost"] = {"input": p.get("input", 0), "output": p.get("output", 0),

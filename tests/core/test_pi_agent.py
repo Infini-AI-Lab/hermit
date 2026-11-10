@@ -18,7 +18,7 @@ from hermit.agent.base import cli as base_cli
 from hermit.agent.base import trajectory
 from hermit.agent.base.interface import Unsupported, make
 from hermit.agent.base.tool import Tool
-from hermit.agent.model.backends import bind_agent_params, registry
+from hermit.agent.model.backends import Binding, bind_agent_params, registry
 
 ROOT = Path(__file__).resolve().parents[2]
 STREAMS = ROOT / "tests" / "fixtures" / "pi"
@@ -85,6 +85,10 @@ def test_a_bound_model_is_pis_provider_with_its_key_as_a_variable_in_the_dialect
     assert messages["api"] == "anthropic-messages" and messages["baseUrl"] == "http://127.0.0.1:9"
     system = bound(developer_role="system", context_window=32000)["provider"]
     assert system["compat"] == {"supportsDeveloperRole": False} and system["models"][0]["contextWindow"] == 32000
+    assert "maxTokens" not in params["provider"]["models"][0]          # Pi's own default, unless the backend says
+    long = bound(max_output_tokens=64000)
+    assert long["provider"]["models"][0]["maxTokens"] == 64000
+    assert Binding.from_spec(long["binding"]).pi_provider()["models"][0]["maxTokens"] == 64000   # a role's own binding
     free = bound(api_key_env="NO_SUCH_KEY_VAR", key_required=False)["provider"]
     assert free["apiKey"] == "local"                       # a server that needs no key gets the placeholder
 

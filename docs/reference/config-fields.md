@@ -75,7 +75,7 @@ dialects it serves, prices). See [Model backends](../guides/model-backends.md).
 | Field | Type / default | Meaning and constraints |
 |---|---|---|
 | `model` | string / null | The run's default model, a `<backend>/<model id>` reference; used by `llm`, `agent.params.model` and the `codex`, `claude` and `mwm` Evolvers' `evolver.params.model` when they name none |
-| `backends` | mapping / {} | Backends declared for this run by name, over `~/.config/hermit/backends.yaml` and the built-ins. Fields: `base_url`, `api_key_env`, `key_required`, `apis`, `messages_url`, `litellm`, `prices`, `extra_body`, `context_window`, `models`, or `from: <other>` to copy one |
+| `backends` | mapping / {} | Backends declared for this run by name, over `~/.config/hermit/backends.yaml` and the built-ins. Fields: `base_url`, `api_key_env`, `key_required`, `apis`, `messages_url`, `litellm`, `prices`, `extra_body`, `context_window`, `max_output_tokens`, `models`, or `from: <other>` to copy one |
 | `llm` | reference, mapping / null | The run's chat-completions `llm` tool: a reference, `{model: <reference>, price, extra_body}`, the endpoint itself (below), or a CLI's sessions, `{cli: ..., ...}` (below) |
 
 `agent.params.model` takes the same forms. For a Codex or Claude Code acting agent or Evolver a reference becomes
