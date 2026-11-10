@@ -130,7 +130,11 @@ GPUs `ASPIRE_SIM_GPU` names (hermit's `Sandbox(gpu=...)`). A program that escape
 session, none of the judge's runs and no host file, and what it leaves in its output is read without following a
 link. It still runs in cap-harness's own process, so it could write its own run's outcome: the score of such a
 program is not trustworthy, and the boundary is that it can affect nothing else. This sandbox is the example's own:
-it is on whatever the run's `sandbox.enabled` says, so the simulator always needs bubblewrap.
+it is on whatever the run's `sandbox.enabled` says, so the simulator always needs bubblewrap (the service refuses
+to start without it, or with an `ASPIRE_SIM_GPU` the machine lacks). Each run gets a HOME of its own, removed
+after it; the host's `CUDA_VISIBLE_DEVICES` is not passed in (inside, the GPUs count from 0); each confined run
+leaves its sandbox record under `$ASPIRE_OUT/sim-service/sandbox/` (the service's) or `$ASPIRE_OUT/sandbox/` (the
+judge's).
 
 ## Segmentation without SAM3
 

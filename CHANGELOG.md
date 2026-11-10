@@ -28,11 +28,11 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
-- GPUs in the bubblewrap sandbox: `environment.gpu: [<N>, ...]` shows those NVIDIA GPUs (the N of `/dev/nvidia<N>`)
-  in the task sandbox and its tools' and judge's, with what CUDA and EGL read to find them (the driver's devices and,
-  read-only, `/sys/devices`, `/sys/bus/pci`, `/sys/module/nvidia(_uvm)`), and nothing of the other GPUs; inside they
-  count from 0. `Sandbox(gpu=...)` for a sandbox a task starts itself. Without it, as before, a sandbox has no GPU (EGL
-  renders in software where Mesa is installed).
+- GPUs in the bubblewrap sandbox: `environment.gpu: [<N>, ...]` shows those NVIDIA GPUs (the N of `/dev/nvidia<N>`) in
+  the task sandbox and its tools' and judge's, with what CUDA and EGL read to find them (the driver's devices and,
+  read-only, `/sys/devices`, `/sys/bus/pci`, `/sys/module/nvidia(_uvm)`), and no other GPU's device (their `/sys`
+  entries stay readable); inside they count from 0. `Sandbox(gpu=...)` for a sandbox a task starts itself. Without it,
+  as before, a sandbox has no GPU (EGL renders in software where Mesa is installed).
 - Pi as a CLI Base Agent (`pi`): the acting agent `agent.base: pi` and the `pi` Evolver run Pi 1.5's `--mode json`
   in its own home, offline, with a model reference as Pi's `models.json` provider (the key as `$VARIABLE`); the
   call's tools are an MCP server offered directly; a failed request fails the session although Pi exits 0. Pi takes

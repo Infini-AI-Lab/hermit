@@ -20,10 +20,12 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from urllib.parse import urlsplit
 
@@ -49,8 +51,9 @@ SECRET = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH", re.I)
 
 
 def scrubbed(environ) -> dict:
-    """environ without its secrets, for the simulator's processes."""
-    return {k: v for k, v in environ.items() if not SECRET.search(k)}
+    """environ without its secrets, for the simulator's processes, nor the host's GPU numbering
+    (CUDA_VISIBLE_DEVICES): inside the simulator's sandbox its GPUs count from 0 (the config's sim_env may set it)."""
+    return {k: v for k, v in environ.items() if not SECRET.search(k) and k != "CUDA_VISIBLE_DEVICES"}
 
 
 # The services' loopback ports a program reaches from its sandbox, ASPIRE's own (cap_harness/providers/*/client.py):
@@ -98,14 +101,16 @@ def render_paths(env: dict) -> list[Path]:
 
 
 class _Confined:
-    """What a confined command holds open: its sandbox and, for a provider on another host, the allowlist proxy."""
+    """What a confined command holds open: its sandbox, its HOME (a directory of its own, removed after) and, for a
+    provider on another host, the allowlist proxy."""
 
-    def __init__(self, *held):
-        self.held = held
+    def __init__(self, home: Path, *held):
+        self.home, self.held = home, held
 
     def close(self) -> None:
         for item in self.held:
             item.close()
+        shutil.rmtree(self.home, ignore_errors=True)
 
 
 def confine(cmd: list[str], *, root: Path, env: dict, writable=(), readable=(), gpu=(), hidden=(), record_dir=None):
@@ -140,14 +145,16 @@ def confine(cmd: list[str], *, root: Path, env: dict, writable=(), readable=(), 
                   writable=[Path(w) for w in writable], framework=False, gpu=list(gpu), forward=sorted(ports),
                   record_dir=Path(record_dir) if record_dir else None, role="cap-harness")
     box.hide = [*box.hide, *(root / h for h in HIDDEN)]
-    held = _Confined(box, *([proxy] if proxy else []))
+    # HOME of its own: caches (Mesa's shaders, a library's) stay out of the run's output, which is delivered
+    home = Path(tempfile.mkdtemp(prefix="cap-harness-home-"))
+    held = _Confined(home, box, *([proxy] if proxy else []))
     try:
         # The run's own paths (the session's program) per call: the sandbox's own grants are trusted (a venv's
         # pyvenv.cfg there names an installation to show), and a program may be named pyvenv.cfg
         # Without a GPU, EGL must find Mesa's software renderer: an NVIDIA-only ICD selection would find no device
         drop = {"ASPIRE_SIM_URL", *([] if gpu else ["__EGL_VENDOR_LIBRARY_FILENAMES"])}
         args, env = box.wrap(list(cmd), env={k: v for k, v in env.items() if k not in drop}, chdir=root,
-                             env_ports=False, readable=[Path(r) for r in readable])
+                             env_ports=False, readable=[Path(r) for r in readable], writable=[home], home=home)
     except BaseException:
         held.close()
         raise
@@ -168,6 +175,7 @@ class Engine:
         self.workers, self.max_steps, self.timeout_s = int(workers), max_steps, float(timeout_s)
         self.gpu = gpus_of(os.environ.get("ASPIRE_SIM_GPU") if gpu is None else gpu)
         self.hidden = [Path(os.environ["ASPIRE_OUT"])] if os.environ.get("ASPIRE_OUT") else []   # the runs, Stage 2
+        self.records = Path(os.environ["ASPIRE_OUT"]) / "sandbox" if os.environ.get("ASPIRE_OUT") else None
 
     def _env(self) -> dict:
         env = scrubbed(os.environ)
@@ -178,7 +186,7 @@ class Engine:
     def validate(self, program: Path) -> str | None:
         """The sandbox's own static check of a program (ASPIRE's _ProgramValidator): None, or why it is refused."""
         box, args, env = confine([str(self.python), "-c", _VALIDATE, str(program)], root=self.root, env=self._env(),
-                                 readable=[Path(program).parent], gpu=[], hidden=self.hidden)
+                                 readable=[Path(program).parent], gpu=[], hidden=self.hidden, record_dir=self.records)
         try:
             done = subprocess.run(args, capture_output=True, text=True, cwd=self.root, env=env, timeout=300)
         except subprocess.TimeoutExpired:
@@ -206,7 +214,7 @@ class Engine:
         # run-batch's workers are its children: a timeout (or an interrupt) stops the whole process group, so no
         # simulator outlives its sweep
         box, args, env = confine(cmd, root=self.root, env=self._env(), writable=[out], readable=[Path(program).parent],
-                                 gpu=self.gpu, hidden=self.hidden)
+                                 gpu=self.gpu, hidden=self.hidden, record_dir=self.records)
         log_path = out.parent / f"{out.name}.run-batch.log"       # beside the run: no program's to replace
         try:
             with open(log_path, "w") as log:

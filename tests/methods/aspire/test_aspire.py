@@ -249,11 +249,7 @@ def test_a_failed_direct_task_keeps_what_it_spent(tmp_path, monkeypatch):
 
 
 def test_sim_compact_makes_traces_readable():
-    sys.path.insert(0, str(EXAMPLE / "agent"))
-    try:
-        import sim
-    finally:
-        sys.path.remove(str(EXAMPLE / "agent"))
+    sim = _sim_module()
     value = {"$type": "Pose", "position": {"$array_inline": [0.123456, 1.0, 2.0], "dtype": "float64", "shape": [3]},
              "obs": {"$type": "Observation", "cameras": {}}, "big": {"$array_inline": list(range(40)), "shape": [40]}}
     out = sim.compact(value)
@@ -262,11 +258,7 @@ def test_sim_compact_makes_traces_readable():
 
 
 def test_the_failure_keyframe_is_the_failing_calls_own(tmp_path):
-    sys.path.insert(0, str(EXAMPLE / "agent"))
-    try:
-        import sim
-    finally:
-        sys.path.remove(str(EXAMPLE / "agent"))
+    sim = _sim_module()
     run = tmp_path / "run"
     (run / "source").mkdir(parents=True)
     trace = [{"tool": "open_gripper", "ok": True}] + [{"tool": "move_to_pose", "ok": i != 2} for i in range(4)]
@@ -363,7 +355,8 @@ out = pathlib.Path(a.output_root)
 run = out / "run-1"
 run.mkdir(parents=True, exist_ok=True)
 (out / "run.json").write_text(json.dumps({{"program": a.program, "max_steps": a.max_steps, "code": code,
-                                          "env": sorted(os.environ), "tried": tried}}))
+                                          "env": sorted(os.environ), "home": os.environ.get("HOME"),
+                                          "tried": tried}}))
 (run / "outcome.json").write_text(json.dumps({{"task_success": True}}))
 rows = [{{"seed": int(s), "run_dir": str(run)}} for s in (a.seeds or [a.seed])]
 for line in code.splitlines():
@@ -382,6 +375,17 @@ for line in code.splitlines():
         os.chmod(out / name, int(mode, 8))
 print("ran", a.program, "into", out, "max_steps", a.max_steps)
 """
+
+
+def _bwrap_works() -> bool:
+    """A bubblewrap that can make its namespaces here: every simulator run is confined (sim.confine)."""
+    if not shutil.which("bwrap"):
+        return False
+    return subprocess.run(["bwrap", "--unshare-user", "--unshare-net", "--ro-bind", "/", "/", "true"],
+                          capture_output=True).returncode == 0
+
+
+needs_bwrap = pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap: simulator runs are confined")
 
 
 ROW = {"id": "robosuite-cube_lifting", "suite": "cube_lifting", "task_id": 0, "debug_seeds": "101-103",
@@ -513,6 +517,7 @@ def test_a_verifier_may_run_two_programs_and_sees_the_staged_proposals(tmp_path,
     assert codes[2].returncode == 2 and "attempt budget is 2 programs" in codes[2].stderr
 
 
+@needs_bwrap
 def test_the_service_follows_no_link_the_session_puts_in_its_workspace(tmp_path, service):
     """A run is written by the service into its own directory and moved into the workspace: a link the session put
     where the run's files go is replaced, not followed, and a program that is a link is not read."""
@@ -559,6 +564,7 @@ def test_bin_sim_quotes_the_interpreter(tmp_path, service, monkeypatch):
     assert "exec '/opt/hermit env/bin/python' " in (work / "bin" / "sim").read_text()
 
 
+@needs_bwrap
 def test_a_program_that_escaped_the_validator_still_cannot_reach_the_host(tmp_path, service):
     """cap-harness runs in a sandbox of its own (sim.confine): a program in it writes only its run's own output and
     reads ASPIRE's checkout, not the host's files, another session's workspace or the judge's runs."""
@@ -593,6 +599,7 @@ def test_a_program_that_escaped_the_validator_still_cannot_reach_the_host(tmp_pa
     assert tried[str(tmp_path / "ASPIRE" / "docs" / "api-reference.md")] == "done"      # the checkout it runs from
 
 
+@needs_bwrap
 def test_the_validator_runs_on_aspires_own_venv_inside_its_sandbox(tmp_path, monkeypatch):
     """ASPIRE's venv interpreter is a link to its base installation: confined, it keeps the venv (whose cap_harness
     the validator imports), for the service's `bin/sim validate` and the judge's Engine alike."""
@@ -620,11 +627,7 @@ def test_the_validator_runs_on_aspires_own_venv_inside_its_sandbox(tmp_path, mon
     bad = service.run({"workspace": str(work), "cmd": "validate", "program": "bad.py"})
     assert good["code"] == 0 and "program accepted" in good["stdout"], good
     assert bad["code"] != 0 and "only math" in bad["stderr"], bad
-    sys.path.insert(0, str(EXAMPLE / "agent"))
-    try:
-        import sim
-    finally:
-        sys.path.remove(str(EXAMPLE / "agent"))
+    sim = _sim_module()
     engine = sim.Engine(root)
     assert engine.validate(work / "good.py") is None and "only math" in engine.validate(work / "bad.py")
 
@@ -638,6 +641,7 @@ def _sim_module():
         sys.path.remove(str(EXAMPLE / "agent"))
 
 
+@needs_bwrap
 def test_the_engine_reads_no_link_and_no_run_dir_outside_its_run(tmp_path):
     """The judge's and the direct actor's Engine read what a confined program could write: once it has ended, links
     in its output are removed and a run_dir outside the run is not read, so neither a host file nor another run's
@@ -676,6 +680,7 @@ def _fake_gpu(tmp_path, monkeypatch) -> list[int]:
     return [8]
 
 
+@needs_bwrap
 def test_the_simulators_sandbox_shows_the_renderer_and_reaches_remote_services_by_proxy(tmp_path, monkeypatch):
     """An EGL vendor library extracted by hand (its ICD and its libraries, file by file, its library found as GLVND
     finds it) and ASPIRE_SIM_READ are shown; without a GPU an NVIDIA-only ICD selection is dropped; a service on
@@ -715,6 +720,7 @@ def test_the_simulators_sandbox_shows_the_renderer_and_reaches_remote_services_b
     assert "__EGL_VENDOR_LIBRARY_FILENAMES" not in inside
 
 
+@needs_bwrap
 def test_the_service_lets_a_run_write_only_its_output_and_delivers_no_replaced_output(tmp_path, service, monkeypatch):
     """The run's own directory (its program) is read-only to it and only its output writable; an output directory
     the program replaced (by a link to a host directory) is not delivered."""
@@ -742,6 +748,7 @@ def test_the_service_lets_a_run_write_only_its_output_and_delivers_no_replaced_o
     assert (host / "id_rsa").read_text() == "key" and not (work / "o2").exists()
 
 
+@needs_bwrap
 def test_a_program_named_pyvenv_cfg_grants_nothing(tmp_path, service):
     """A session names its program: one called pyvenv.cfg that says `home = <dir>` is the run's own file, not a venv
     of the sandbox's, so <dir> stays out of the simulator's sandbox."""
@@ -758,14 +765,21 @@ def test_a_program_named_pyvenv_cfg_grants_nothing(tmp_path, service):
     assert json.loads((work / "out" / "run.json").read_text())["tried"][str(operator / "credentials")] != "done"
 
 
+def test_the_service_refuses_to_start_on_a_gpu_the_machine_lacks(tmp_path):
+    """A wrong ASPIRE_SIM_GPU stops the service at its start, not each session's run after its budget is spent."""
+    (tmp_path / "tasks.jsonl").write_text(json.dumps(ROW) + "\n")
+    done = subprocess.run([sys.executable, str(EXAMPLE / "agent" / "sim_service.py"), "--aspire-root",
+                           str(fake_aspire(tmp_path)), "--tasks", str(tmp_path / "tasks.jsonl"), "--workspaces",
+                           str(tmp_path / "w"), "--state", str(tmp_path / "state"), "--gpu", "999", "--port", "0"],
+                          capture_output=True, text=True, timeout=60, env={**os.environ, "PYTHONPATH": str(ROOT)})
+    assert done.returncode != 0 and ("/dev/nvidia999" in done.stderr or "bubblewrap" in done.stderr)
+
+
+@needs_bwrap
 def test_the_simulators_sandbox_reaches_only_the_services_ports(tmp_path):
     """The judge runs sim.Engine in hermit's process, whose environment names its own loopback endpoints: only the
     services' ports (ASPIRE's, and a CAP_HARNESS_*_URL's) are forwarded into cap-harness's sandbox."""
-    sys.path.insert(0, str(EXAMPLE / "agent"))
-    try:
-        import sim
-    finally:
-        sys.path.remove(str(EXAMPLE / "agent"))
+    sim = _sim_module()
     root = fake_aspire(tmp_path)
     box, args, _ = sim.confine(["true"], root=root, env={
         "PATH": os.environ["PATH"], "HA_TOOL_URL": "http://127.0.0.1:4999/mcp",
@@ -779,8 +793,10 @@ def test_the_simulators_sandbox_reaches_only_the_services_ports(tmp_path):
             sim.confine(["true"], root=root, env={"PATH": os.environ["PATH"]}, **where)
 
 
+@needs_bwrap
 def test_a_run_takes_the_registrations_max_steps_and_stops_at_the_timeout(tmp_path, monkeypatch):
     monkeypatch.setenv("TEST_PROVIDER_API_KEY", "k")       # the host's secrets: not for a generated program
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "8")         # the host's numbering: the sandbox's GPUs count from 0
     svc = _Service(tmp_path, fake_aspire(tmp_path), run_timeout=2)
     try:
         work = _workspace(svc, ROW)
@@ -795,6 +811,9 @@ def test_a_run_takes_the_registrations_max_steps_and_stops_at_the_timeout(tmp_pa
         record = json.loads((work / "o" / "run.json").read_text())
         assert ran.returncode == 0 and record["max_steps"] == "300"
         assert "TEST_PROVIDER_API_KEY" not in record["env"] and "PATH" in record["env"]
+        assert "CUDA_VISIBLE_DEVICES" not in record["env"]
+        assert not Path(record["home"]).is_relative_to(work) and not Path(record["home"]).exists()   # its own, gone
+        assert list((tmp_path / "sandbox").glob("cap-harness-*.json"))      # the run's sandbox record
         (work / "slow.py").write_text("SLEEP\n")
         started = time.time()
         slow = sim("run", "--seed", "102", "--program", "slow.py", "--output-root", "s")

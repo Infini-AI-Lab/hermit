@@ -272,8 +272,8 @@ class Service:
         """cmd confined (sim.confine: it reads this run's own directory, the program, and writes only its output),
         in a process group of its own, stopped with its workers at the timeout or when the service stops."""
         box, args, env = sim.confine(cmd, root=self.root, env=env, readable=[own], writable=[out] if out else [],
-                                     gpu=gpu,
-                                     hidden=[self.ledger.path.parent, self.scratch, *self.workspaces])
+                                     gpu=gpu, hidden=[self.ledger.path.parent, self.scratch, *self.workspaces],
+                                     record_dir=self.ledger.path.parent / "sandbox")
         try:
             with self.lock:                                 # started and listed at once: stop() sees every run
                 if self.stopping:
@@ -353,6 +353,11 @@ def main() -> None:
                                               "none: software rendering")
     ap.add_argument("--nonce", default="", help="returned by /health: the launcher's check that it is this service")
     a = ap.parse_args()
+    # What every run needs, checked now rather than on a session's first run (which spends its budget first)
+    from hermit.sandbox import gpu_args
+    if not shutil.which("bwrap"):
+        sys.exit("sim_service: bubblewrap (bwrap) is not on PATH: every simulator run is confined (sim.confine)")
+    gpu_args(sim.gpus_of(a.gpu))                  # a GPU the machine lacks raises here
     a.state.mkdir(parents=True, exist_ok=True)
     tasks = {r["id"]: r for r in (json.loads(line) for line in a.tasks.read_text().splitlines() if line.strip())}
     service = Service(a.aspire_root.resolve(), tasks, a.workspaces, Ledger(a.state / "ledger.json"),
