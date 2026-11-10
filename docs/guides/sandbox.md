@@ -206,7 +206,7 @@ modes need the bubblewrap task sandbox. With an image, a Harbor task set or `run
 directory or a declared writable path. DeepSeek Harness's own sandbox (`workspace-write`, the default of
 `agent.dsh.permission_mode`) lets its commands and file tools write only the workspace and `/tmp`, so not a declared
 writable path elsewhere. Where it uses bubblewrap, each command gets an empty `/tmp` of its own, so it sees neither
-what another command or a file tool left there nor a path declared under `/tmp` outside the workspace: keep such a
-path elsewhere, or mount it inside the workspace
+what another command or a file tool left there nor a path declared under `/tmp` outside the workspace: to read such
+a path, keep it elsewhere or mount it inside the workspace
 (`agent.params.mounts: [{source: <the path>, at: <its path in the workspace>}]`).
 :::
