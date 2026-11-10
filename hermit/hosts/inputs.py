@@ -1,5 +1,5 @@
 """Inputs shared by the host deployers and by `convert`: rendered exports, names, roles, stale-role
-retirement, skills, the adapter's copy and its hooks."""
+retirement, skills and stale-skill retirement, the adapter's copy and its hooks."""
 import hashlib
 import json
 import os
@@ -63,18 +63,78 @@ def source_label(manifest):
     return context if isinstance(context, str) else (context or {}).get("entrypoint", "adapter")
 
 
-def copy_skills(adapter: Path, manifest: dict, target: Path) -> list[str]:
-    """Copy every skill directory (one containing SKILL.md) of the adapter's `skills` export into target."""
+def skill_sources(adapter: Path, manifest: dict) -> list[Path]:
+    """The skill directories (one containing SKILL.md) of the adapter's `skills` export."""
     if not manifest.get("skills"):
         return []
     source = (adapter / manifest["skills"]).resolve()
+    return [child for child in sorted(source.iterdir()) if (child / "SKILL.md").is_file()] if source.is_dir() else []
+
+
+def check_skills(adapter: Path, output: Path, manifest: dict, previous: dict, target: Path) -> None:
+    """A deployment's skills, checked before anything is written: the skills folder (`target`) and .retired-skills/
+    are reached with no link on the way (what a deployment replaces and moves stays in the workspace), the previous
+    record names plain skill directories, and no exported skill would replace one no deployment copied there (the
+    user's own)."""
+    for path in (target, output / ".retired-skills"):
+        if _link_on_way(output, path):
+            raise ValueError(f"{path.relative_to(output)} is a link or is reached through one; remove it, then deploy "
+                             "again")
+    owned = _recorded_skills(previous)
+    for child in skill_sources(adapter, manifest):
+        if os.path.lexists(target / child.name) and child.name not in owned:
+            raise ValueError(f"{(target / child.name).relative_to(output)} exists and was not written by a "
+                             "deployment; remove it, then deploy again")
+
+
+def copy_skills(adapter: Path, manifest: dict, target: Path) -> list[str]:
+    """Copy every skill directory of the adapter's `skills` export into target, in place of the copy an earlier
+    deployment left there (check_skills): no file the skill no longer has survives."""
     names = []
-    if source.is_dir():
-        for child in sorted(source.iterdir()):
-            if (child / "SKILL.md").is_file():
-                shutil.copytree(child, target / child.name, dirs_exist_ok=True, symlinks=True)
-                names.append(child.name)
+    for child in skill_sources(adapter, manifest):
+        _remove(target / child.name)
+        shutil.copytree(child, target / child.name, symlinks=True)
+        names.append(child.name)
     return names
+
+
+def retire_skills(output, previous, current, target):
+    """Move the skills an earlier deployment copied into `target` (its record's `skills`) that this one does not
+    (`current`) out of host discovery; keep their contents. A skill the user put there is never in the record."""
+    for name in _recorded_skills(previous):
+        path = target / name
+        if name in current or not os.path.lexists(path):
+            continue
+        archive = output / ".retired-skills" / uuid.uuid4().hex
+        archive.mkdir(parents=True)
+        path.rename(archive / name)
+
+
+def _recorded_skills(previous: dict) -> list[str]:
+    """The skills the previous deployment's record names, each a plain directory name."""
+    names = previous.get("skills") or []
+    if not isinstance(names, list) or any(not isinstance(name, str) or name in ("", ".", "..") or
+                                          Path(name).name != name for name in names):
+        raise ValueError("Previous skill metadata points outside the generated host workspace")
+    return names
+
+
+def _link_on_way(output: Path, path: Path) -> bool:
+    """Whether a link (or a file) stands on the way from the workspace to `path`, `path` included."""
+    here = output
+    for part in path.relative_to(output).parts:
+        here = here / part
+        if here.is_symlink() or (here.exists() and not here.is_dir()):
+            return True
+    return False
+
+
+def _remove(path: Path) -> None:
+    """`path` gone, whatever it is: a link is removed, never followed."""
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
 
 
 def _adapter_sandbox_env(python: str) -> dict:
