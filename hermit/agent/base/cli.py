@@ -1863,10 +1863,16 @@ class Dsh(CliAgent):
     @classmethod
     def outage(cls, raw: str) -> bool:
         """The provider could not serve the run: its `final` event ended it with one of dsh's codes for that
-        (DSH_OUTAGES). Only that event says so, not the stream's other lines: a deployed tool server writes on dsh's
-        own stderr, which the stream keeps, and a tool's words of an outage are the session's own work."""
+        (DSH_OUTAGES), or with pi-ai's own code for an error dsh could not classify (PI_AI_ERROR: an overload a
+        provider sends inside a 200 stream, such as the Messages API's `overloaded_error` event, has no status) whose
+        words are an outage's (UNAVAILABLE, as Pi's are read). Only that event says so, not the stream's other lines:
+        a deployed tool server writes on dsh's own stderr, which the stream keeps, and a tool's words of an outage are
+        the session's own work."""
         error = cls._reason(raw).get("error")          # dsh's only end with an error is `{"kind": "error", ...}`
-        return isinstance(error, dict) and error.get("code") in DSH_OUTAGES
+        if not isinstance(error, dict):
+            return False
+        code = error.get("code")
+        return code in DSH_OUTAGES or (code == "PI_AI_ERROR" and bool(UNAVAILABLE.search(str(error.get("message")))))
 
     def outcome(self, raw, stream, last_file):
         """dsh exits 0 for a run whose `final` event is `completed`, and 1 for any other end (an error, an abort, the

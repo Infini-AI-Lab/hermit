@@ -186,7 +186,9 @@ def test_an_effort_is_a_level_the_bound_model_lists_and_off_asks_it_for_none(fak
 def test_a_failed_run_is_an_error_and_only_an_outage_is_unavailable(fake, monkeypatch):
     """dsh exits 1 for a run that did not complete; its error code tells an outage (the codes it retries, and a
     stream the provider closed) from a refusal, and only an outage is `unavailable`: the acting agent runs the task
-    again only when the provider could not serve it."""
+    again only when the provider could not serve it. An overload a provider sends inside a 200 stream (recorded:
+    overloaded.jsonl, the Messages API's `overloaded_error` event) has no status, and dsh leaves it unclassified
+    (pi-ai's PI_AI_ERROR): it is told by its words, as Pi's are read, and pi-ai's own refusal so coded is no outage."""
     monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / "failure.jsonl"))
     monkeypatch.setenv("FAKE_DSH_EXIT", "1")
     work = fake / "work"
@@ -201,6 +203,13 @@ def test_a_failed_run_is_an_error_and_only_an_outage_is_unavailable(fake, monkey
     assert not base_cli.Dsh.outage(refused)                                   # a bad key is no outage
     for code in ("RATE_LIMIT", "SERVER", "TIMEOUT", "TRANSPORT", "EMPTY_RESPONSE", "STREAM_CLOSED"):
         assert base_cli.Dsh.outage((STREAMS / "failure.jsonl").read_text().replace("SERVER", code)), code
+    monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / "overloaded.jsonl"))
+    result = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+    assert result.extra["failed"] and result.extra["unavailable"] and "dsh: PI_AI_ERROR: " in result.extra["failure"]
+    [end] = [json.loads(line) for line in (STREAMS / "overloaded.jsonl").read_text().splitlines()
+             if line.startswith('{"type":"final"')]
+    no_key = {"kind": "error", "error": {"code": "PI_AI_ERROR", "message": "No API key for provider: hermit"}}
+    assert not base_cli.Dsh.outage(json.dumps({**end, "reason": no_key}))
 
 
 def test_a_tool_servers_words_of_an_outage_are_no_outage(fake, monkeypatch):
@@ -682,7 +691,7 @@ def test_a_step_counts_as_a_call_whenever_it_made_one(tmp_path):
     (no_usage.jsonl), and so is one dsh reports no usage for at all. A step dsh retried after the provider refused a
     request (retried.jsonl: a 503, then 1000 prompt tokens, 900 of them cached) reports its input and output but not
     its cache counts, which its total holds: those tokens count as input, and the call as one whose tokens are known.
-    parse_log reads a dsh stream as dsh's (it read every stream but Codex's as Claude Code's)."""
+    parse_log reads a dsh stream as dsh's (it read one as Claude Code's)."""
     from hermit.agent.base.records import parse_dsh, parse_log
     assert parse_dsh(STREAMS / "failure.jsonl", "m")[1] == []
     assert parse_dsh(without_usage("failure.jsonl", tmp_path), "m")[1] == []

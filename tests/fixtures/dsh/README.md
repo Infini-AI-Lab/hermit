@@ -2,8 +2,8 @@
 
 Recorded from DeepSeek Harness 0.2.2-rc.1 (`npm install -g @deepseek-ai/dsh@0.2.2-rc.1`, on Node 24.22.2, Linux) run
 by hermit's `dsh` Base Agent (`make("dsh").run`, isolation none), against a scripted chat-completions model on the
-loopback, bound as a `<backend>/<model>` reference with `effort: high`; the model streams a `reasoning_content`
-delta before each answer when it is asked for a reasoning effort.
+loopback (a Messages API one for `overloaded.jsonl`), bound as a `<backend>/<model>` reference with `effort: high`;
+the chat model streams a `reasoning_content` delta before each answer when it is asked for a reasoning effort.
 
 - `success.jsonl`: a bash call that exits 3, a bash call that exits 0, a call of the call's MCP tool `echo`
   (`hermit_tools`), a write, an edit, then the answer `the answer`; six requests of 1000 prompt tokens (400 cached)
@@ -16,6 +16,10 @@ delta before each answer when it is asked for a reasoning effort.
   dsh's default, true, so at its timeout dsh moves each command to a background job: the result is the output so
   far, then `[still running after <timeoutMs>ms; moved to background job <id>]` (the marker alone for `sleep 5`,
   which printed nothing), with no exit marker.
+- `overloaded.jsonl`: the backend serves only the Messages API, and its scripted model answers the request with
+  `message_start`, then the API's in-stream error event (`overloaded_error`, in a 200 stream): pi-ai throws the
+  event's data, which dsh does not classify (`PI_AI_ERROR`) and does not retry; it ends the run with that error,
+  writes `dsh: PI_AI_ERROR: ...` on stderr and exits 1.
 
 Recorded by running dsh directly (`dsh --profile headless --json --permission-mode danger-full-access`, with a patch
 layer like the Base Agent's) against a scripted chat-completions model:
