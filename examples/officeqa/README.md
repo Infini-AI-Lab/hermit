@@ -97,6 +97,9 @@ hermit train --config examples/officeqa/ahe_adapter/run_codex_luna.yaml         
 hermit eval  --config examples/officeqa/ahe_adapter/run_codex_luna.yaml --adapter final                  # the best-ever iteration
 hermit train --config examples/officeqa/opro/run_codex_luna.yaml                                         # OPRO: 3 steps of 4 instructions
 hermit eval  --config examples/officeqa/opro/run_codex_luna.yaml     --adapter final                     # the best validation of the top 3
+python examples/officeqa/coevoskills_adapter/prepare.py && python examples/officeqa/coevoskills_adapter/make_seed.py
+hermit train --config examples/officeqa/coevoskills_adapter/run_codex_luna.yaml                          # CoEvoSkills
+hermit eval  --config examples/officeqa/coevoskills_adapter/run_codex_luna.yaml --adapter final          # its packages
 ```
 
 Sessions on the login share its plan; the files under `~/.cache/hermit/codex-login/plan/` steer every running session:
@@ -148,6 +151,7 @@ Haiku 5.5 (effort medium) with Claude Code 2.1.318, one container per session. E
 <tr><td><b>ACE</b></td><td>not run</td><td>0.640</td><td>not run</td></tr>
 <tr><td><b>AHE Adapter</b></td><td>not run</td><td>0.616</td><td>not run</td></tr>
 <tr><td><b>OPRO</b></td><td>not run</td><td>0.436</td><td>not run</td></tr>
+<tr><td><b>CoEvoSkills Adapter</b></td><td>not run</td><td>not run</td><td>not run</td></tr>
 </tbody>
 </table>
 
@@ -178,6 +182,11 @@ Results use two settings:
   updating the adapter as they go, without a separate training split or access to judge verdicts. These
   scores measure performance during adaptation. See [`continual_harness/`](continual_harness/) and
   [`harness2_stream/`](harness2_stream/) for their protocols.
+
+**CoEvoSkills Adapter** ([`coevoskills_adapter/`](coevoskills_adapter/),
+[method](../../docs/methods/coevoskills_adapter.md)) runs the CoEvoSkills loop once per training question, keeps
+every exported Skill package and evaluates the frozen adapter once on the 172 test questions; the packages are the
+acting agent's native skills (Codex's own skill discovery). Not run with these configs yet.
 
 **ReHarness** ([`reharness/`](reharness/), [method](../../docs/methods/reharness.md)) keeps the initial skill as
 the harness's text and learns a bank of reflections below it, five retrieved per question by Qwen3-Embedding-8B and
@@ -273,4 +282,8 @@ rrsi_adapter/       RRSI Adapter on the GPT-5.6-Luna column: run_luna.yaml and s
 opro/               OPRO on the prompt-only template: run_codex_luna.yaml and smoke_codex_luna.yaml in the
                     GPT-5.6-Luna setting, starting from utils/seed_adapter/; adapter/ is the measured run's final
                     instruction, with its .hermit/CARD.md
+coevoskills_adapter/ CoEvoSkills Adapter: prepare.py writes the training questions as Harbor task packages,
+                    make_seed.py seed_adapter/ (the initial skill as the starting context), oracle_io.py the hand-over
+                    to the hidden test; run_codex.yaml and smoke_codex.yaml (GLM 5.3 Flash), run_codex_luna.yaml and
+                    smoke_codex_luna.yaml (GPT-5.6-Luna)
 ```

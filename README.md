@@ -58,6 +58,7 @@ Many harnesses are black boxes; even open-source ones have carefully designed co
 - [RRSI Adapter](https://infini-ai-lab.github.io/hermit/docs/methods/rrsi_adapter.html)
 - [EvoSafeHarness](https://infini-ai-lab.github.io/hermit/docs/methods/evosafe.html)
 - [OPRO](https://infini-ai-lab.github.io/hermit/docs/methods/opro.html)
+- [CoEvoSkills Adapter](https://infini-ai-lab.github.io/hermit/docs/methods/coevoskills_adapter.html)
 
 Hermit provides an RL-style training loop for evolving harness adapters:
 
@@ -116,7 +117,7 @@ python -m pip install -e . --group gepa
 python -m pip install -e . --group all
 ```
 
-Groups `gepa`, `skillopt`, and `harness2` pin their upstream packages to tested Git commits in
+Groups `gepa`, `skillopt`, `harness2`, `rrsi`, and `coevoskills` pin their upstream packages to tested Git commits in
 `pyproject.toml`. Repeat `--group` to combine methods. Groups are source-checkout configuration;
 `pip install hermit-harness` installs the core only. See [Installation](https://infini-ai-lab.github.io/hermit/docs/get-started/installation.html).
 
@@ -221,6 +222,10 @@ Train and evaluate harness adapters on benchmarks using different evolution meth
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/evosafe.html">EvoSafeHarness</a></td>
 <td><a href="examples/agentdyn/evosafe/">AgentDyn</a> (a defense bundle of a system prompt and tool-call hooks searched around a frozen victim, on fixed benign and injected cases)</td>
+</tr>
+<tr>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/coevoskills_adapter.html">CoEvoSkills Adapter</a></td>
+<td><a href="examples/officeqa/coevoskills_adapter/">OfficeQA</a> (executable Skill packages from the upstream Generator/Verifier loop, one per training question)</td>
 </tr>
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/prompt-only.html">Prompt-only</a></td>

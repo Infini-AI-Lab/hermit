@@ -28,6 +28,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- CoEvoSkills Adapter: the `coevoskills-adapter` template and the `coevoskills_adapter` Evolver, which runs the
+  pinned CoEvoSkills Generator/Verifier loop once per training question (its oracle the acting agent through
+  `run_agent`, its roles' model the run's `llm`) and keeps the executable Skill packages; an OfficeQA example.
 - Pi as a CLI Base Agent (`pi`): the acting agent `agent.base: pi` and the `pi` Evolver run Pi 1.5's `--mode json`
   in its own home, offline, with a model reference as Pi's `models.json` provider (the key as `$VARIABLE`); the
   call's tools are an MCP server offered directly; a failed request fails the session although Pi exits 0. Pi takes

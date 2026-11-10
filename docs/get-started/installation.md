@@ -55,14 +55,15 @@ python -m pip install -e . --group skillopt
 python -m pip install -e . --group harness2
 python -m pip install -e . --group ace
 python -m pip install -e . --group rrsi
+python -m pip install -e . --group coevoskills
 # Or all method dependencies:
 python -m pip install -e . --group all
 ```
 
 To combine methods, repeat the option, for example `--group skillopt --group gepa` for OfficeQA.
 uv reads the same groups: `uv pip install -e . --group gepa`.
-Each group but `ace` (`sentence-transformers` alone) retains its tested upstream Git commit. `all` includes the five
-method groups; it does not
+Each group but `ace` (`sentence-transformers` alone) retains its tested upstream Git commit. `all` includes every
+method group; it does not
 install host CLIs, datasets, or system tools. Groups are not published as package extras, so
 `pip install hermit-harness` still installs only the core; `hermit-harness[gepa]` is not supported.
 Without a checkout, install a method's pinned requirements from its group in `pyproject.toml` directly; the
@@ -110,6 +111,7 @@ python -m pip install "hermit-harness[mini-swe-agent]"
 | GEPA | `python -m pip install -e . --group gepa`, learner endpoint, validation split |
 | SkillOpt | `python -m pip install -e . --group skillopt`, learner endpoint, validation split |
 | Harness² | Python 3.12 or 3.13, `python -m pip install -e . --group harness2`, Claude Code, and the execution environment described in [Harness²](../methods/harness2.md) |
+| [CoEvoSkills Adapter](../methods/coevoskills_adapter.md) | The pinned CoEvoSkills checkout, its dependency group, Docker and a task with a private evaluator |
 | RRSI Adapter | `python -m pip install -e . --group rrsi`, a CLI for the proposer and its analyst, digesters and critic (Codex or Claude Code), a training split evaluated k times per task |
 | Codex / Claude learner | Selected authenticated CLI and supported program-execution environment |
 | MWM | Linux learner environment, Codex or Claude Code, evidence store, task deployment contract, model access |
