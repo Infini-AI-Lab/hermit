@@ -76,18 +76,18 @@ id>/`. Paths in the instructions below, and in the adapter's skills and roles, a
 command they give from there." Then each export `exports.yaml` declares is
 connected to the host's own place when the host has one, so that the host loads it; an export the host has no place
 for stays a file of the copy, and the context names it with what to do with it. The rule is the same for every
-host, and for the built-in `codex`, `claude-code`, `pi`, `mini-swe-agent` and `dsh` acting agents, which deploy as `hermit deploy` does: an adapter
+host, and for the built-in `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode` and `dsh` acting agents, which deploy as `hermit deploy` does: an adapter
 is deployed as far as the host can take it, and nothing it holds is out of the agent's reach.
 
-| Adapter source | Deployment operation | Codex output | Claude Code output | Pi output | mini-swe-agent output | DeepSeek Harness output |
-|---|---|---|---|---|---|---|
-| Every file but `.hermit/` and `.git/` | Copy it as it is. | `hermit/<id>/` | `hermit/<id>/` | `hermit/<id>/` | `hermit/<id>/` | `hermit/<id>/` |
-| `ADAPTER.md` (always exported) | Insert the line above and its text into a managed instruction block. | `AGENTS.md` | `CLAUDE.md` | `AGENTS.md` | the system template of `mini-swe-agent.yaml` | `AGENTS.md` |
-| `skills/verify-output/`, through `skills` in `exports.yaml` | Copy the skill directory. | `.codex/skills/verify-output/` | `.claude/skills/verify-output/` | `.pi/skills/verify-output/` | named in the system template (mini-swe-agent loads no skills): name, description, the path of its `SKILL.md` | `.dsh/skills/verify-output/` |
-| `agents/reviewer.md` (or `agents/reviewer/AGENT.md`), through `agents` in `exports.yaml` | Convert the subagent into native host files: frontmatter gives name and description, the body becomes its instructions. | `.codex/agents/reviewer.toml`, registered in `.codex/config.toml` | `.claude/agents/reviewer.md` | named in `AGENTS.md` (Pi has no subagents): name, description, the path of its instructions | named in the system template (no subagents) | named in `AGENTS.md` (DeepSeek Harness has no role file): name, description, the path of its instructions |
-| `tools.py`, through `tools` in `exports.yaml` | Configure a framework MCP server that loads the source adapter. | `.codex/config.toml` | `.mcp.json` | `.pi/mcp.json` | `environment` in `mini-swe-agent.yaml`: Hermit's environment class answers the `hermit-tool` command | `.dsh/hermit.patch.yml`, which a session loads with `--patch` |
-| a hooks file, through `hooks` in `exports.yaml` | Write the hooks the host runs, each command run from `hermit/<id>/`; name the others in the context (a command to run, a `prompt` hook's check to make at that moment); a hook of another type is refused. | `.codex/hooks.json` (command hooks; Codex runs no prompt or agent hooks) | `hooks` in `.claude/settings.json` (command and prompt hooks) | named in `AGENTS.md` (Pi reads no hook file) | named in the system template (mini-swe-agent runs no hooks) | named in `AGENTS.md` (DeepSeek Harness has no hook file of its own) |
-| every other file of the copy | Name it, with its frontmatter description or first line, under "Adapter resources" in the context (up to 60 files; the rest are counted). | `AGENTS.md` | `CLAUDE.md` | `AGENTS.md` | the system template | `AGENTS.md` |
+| Adapter source | Deployment operation | Codex output | Claude Code output | Pi output | mini-swe-agent output | OpenCode output | DeepSeek Harness output |
+|---|---|---|---|---|---|---|---|
+| Every file but `.hermit/` and `.git/` | Copy it as it is. | `hermit/<id>/` | `hermit/<id>/` | `hermit/<id>/` | `hermit/<id>/` | `hermit/<id>/` | `hermit/<id>/` |
+| `ADAPTER.md` (always exported) | Insert the line above and its text into a managed instruction block. | `AGENTS.md` | `CLAUDE.md` | `AGENTS.md` | the system template of `mini-swe-agent.yaml` | `AGENTS.md` | `AGENTS.md` |
+| `skills/verify-output/`, through `skills` in `exports.yaml` | Copy the skill directory. | `.codex/skills/verify-output/` | `.claude/skills/verify-output/` | `.pi/skills/verify-output/` | named in the system template (mini-swe-agent loads no skills): name, description, the path of its `SKILL.md` | `.opencode/skills/verify-output/` | `.dsh/skills/verify-output/` |
+| `agents/reviewer.md` (or `agents/reviewer/AGENT.md`), through `agents` in `exports.yaml` | Convert the subagent into native host files: frontmatter gives name and description, the body becomes its instructions. | `.codex/agents/reviewer.toml`, registered in `.codex/config.toml` | `.claude/agents/reviewer.md` | named in `AGENTS.md` (Pi has no subagents): name, description, the path of its instructions | named in the system template (no subagents) | named in `AGENTS.md`, as for Pi | named in `AGENTS.md` (DeepSeek Harness has no role file): name, description, the path of its instructions |
+| `tools.py`, through `tools` in `exports.yaml` | Configure a framework MCP server that loads the source adapter. | `.codex/config.toml` | `.mcp.json` | `.pi/mcp.json` | `environment` in `mini-swe-agent.yaml`: Hermit's environment class answers the `hermit-tool` command | `opencode.json` (`mcp.servers`, `codemode: false`) | `.dsh/hermit.patch.yml`, which a session loads with `--patch` |
+| a hooks file, through `hooks` in `exports.yaml` | Write the hooks the host runs, each command run from `hermit/<id>/`; name the others in the context (a command to run, a `prompt` hook's check to make at that moment); a hook of another type is refused. | `.codex/hooks.json` (command hooks; Codex runs no prompt or agent hooks) | `hooks` in `.claude/settings.json` (command and prompt hooks) | named in `AGENTS.md` (Pi reads no hook file) | named in the system template (mini-swe-agent runs no hooks) | named in `AGENTS.md` | named in `AGENTS.md` (DeepSeek Harness has no hook file of its own) |
+| every other file of the copy | Name it, with its frontmatter description or first line, under "Adapter resources" in the context (up to 60 files; the rest are counted). | `AGENTS.md` | `CLAUDE.md` | `AGENTS.md` | the system template | `AGENTS.md` | `AGENTS.md` |
 
 This is how the adapter reaches the acting system. The host reads the generated instruction, skill, role and hook
 files; tool configuration makes the declared tools available through its tool interface. What the adapter does not
@@ -151,6 +151,17 @@ mini-swe-agent-workspace/
 ```
 
 ```text
+opencode-workspace/      # roles stay files under hermit/<id>/, named in AGENTS.md
+  AGENTS.md
+  opencode.json
+  hermit/file-example/
+    ADAPTER.md  exports.yaml  tools.py  agents/  skills/  README.md
+  .opencode/
+    skills/verify-output/SKILL.md
+  .hermit-deploy.json
+```
+
+```text
 dsh-workspace/
   AGENTS.md
   hermit/file-example/
@@ -181,11 +192,16 @@ and preserves project text outside it. Existing adapter headings are nested unde
 
 The deployment command prepares a workspace; it does not launch the agent. Its output must be empty or a workspace
 previously generated for the same host. The source adapter and output workspace cannot contain one another.
-A redeployment replaces the copy under `hermit/<id>/`: files the new version no longer has are removed. It refuses,
+A redeployment replaces the copy under `hermit/<id>/`: files the new version no longer has are removed. It also
+replaces each exported skill's copy in the host's skills folder, and moves a skill the last deployment copied there
+that the new version no longer exports to `.retired-skills/` (a stale role goes to `.retired-roles/`), out of the
+host's discovery; a skill you put there yourself stays. It refuses,
 before writing anything, when a copied file was changed or replaced (by a directory or a link) since the last
-deployment or another file is in the way, and
+deployment or another file is in the way, when an exported skill would replace a skill folder no deployment wrote,
+or when the skills folder is a link (or reached through one), and
 names the file; an adapter link that leads outside the adapter is refused too.
-The generated `.codex/config.toml`, `.mcp.json`, `.pi/mcp.json` or `.dsh/hermit.patch.yml` is rewritten on deployment; it is not a general configuration
+The generated `.codex/config.toml`, `.mcp.json`, `.pi/mcp.json`, `mini-swe-agent.yaml`, `opencode.json` or
+`.dsh/hermit.patch.yml` is rewritten on deployment; it is not a general configuration
 merger. Global host configuration is not modified.
 
 ### Tools run from the adapter source

@@ -28,6 +28,7 @@ hermit train --config run.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8  
 | `agent.params.model` (or `agent.model`) with `agent.name: mini-swe-agent` | mini-swe-agent, through litellm | chat completions |
 | `evolver.params.model` of the `codex`, `claude` and `mwm` Evolvers | the learner's CLI session | Responses API / Messages API |
 | `agent.params.model` with `agent.name: pi`, `evolver.params.model` of the `pi` Evolver | Pi | chat completions, else the Messages API, else the Responses API: the first the backend serves |
+| `agent.params.model` with `agent.name: opencode`, `evolver.params.model` of the `opencode` Evolver | OpenCode | chat completions |
 | `agent.params.model` with `agent.name: dsh`, `evolver.params.model` of the `dsh` Evolver | DeepSeek Harness | chat completions, else the Messages API, else the Responses API: the first the backend serves |
 | `model` (top level) | the default for all of the above when they name none | |
 | the examples' task agents (`agent.params.model`, or the launchers' `MW_MODEL`) | CL-Bench's litellm host, ServeLearnBench's loop, the SkillOpt rollout | chat completions |
@@ -43,6 +44,9 @@ For Pi a reference becomes its `models.json` provider `hermit`: the backend's UR
 at each request, so no file holds the key) and the backend's price. The cost recorded follows the price (the agent's
 own `price`, else the backend's), not Pi's own figure. Pi sends such a model text only; for a model that takes images
 (a tool's result, such as a screenshot), set `image_input: true` in `agent.pi` or `evolver.pi`.
+For OpenCode a reference becomes its config's provider `hermit` (OpenCode's OpenAI-compatible package): the
+backend's chat-completions URL and the key as `{env:VARIABLE}` (so no config holds the key). OpenCode runs a
+reference only; the cost recorded follows the price, not OpenCode's own figure.
 
 For DeepSeek Harness a reference becomes a provider `hermit` of its `llm-pi-ai` model plugin, in the patch layer the
 session is started with (an overlay of settings, loaded with `--patch`): the backend's URL and the name of the key's
@@ -113,8 +117,9 @@ lab-sglang:                             # a new one, like the built-in sglang at
 ## Dialects: what Codex and Claude Code need
 
 The framework's own client, the react agent and the examples' task agents speak **chat completions**, and so do Pi and
-DeepSeek Harness where the backend serves them. Codex and Claude Code do not: **Codex speaks the OpenAI Responses API
-only** (`wire_api = "chat"` is rejected since Codex 0.95), and **Claude Code speaks the Anthropic Messages API only**. A
+DeepSeek Harness where the backend serves them, and OpenCode. Codex and Claude Code do not: **Codex speaks the OpenAI
+Responses API only** (`wire_api = "chat"` is rejected since Codex 0.95), and **Claude Code speaks the Anthropic Messages
+API only**. A
 backend's `apis` says what it serves, and the framework checks a model's dialect against its backend before a run
 starts: `hermit check` reports it, `train` refuses to start on a mismatch, and `hermit backends check <ref>` sends
 one short request in each dialect (and lists `GET /models`) so a wrong claim shows up before anything is spent.

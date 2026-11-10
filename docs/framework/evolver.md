@@ -130,7 +130,7 @@ For selection guidance, setup, and the complete parameter defaults, use [Choose 
 
 | `evolver.name` | Method | Needs |
 |---|---|---|
-| `codex`, `claude`, `pi`, `dsh` | A Codex, Claude Code, Pi or DeepSeek Harness agent edits the adapter from the learning material; `codex` on the `prompt-only@1.0` template is the [prompt-only](../methods/prompt-only.md) method. | The agent CLI |
+| `codex`, `claude`, `pi`, `opencode`, `dsh` | A Codex, Claude Code, Pi, OpenCode or DeepSeek Harness agent edits the adapter from the learning material; `codex` on the `prompt-only@1.0` template is the [prompt-only](../methods/prompt-only.md) method. | The agent CLI |
 | `gepa` | [GEPA](https://github.com/gepa-ai/gepa): one iteration per step. It reflects on the step's trajectories, keeps a child that does better on the same tasks, scores it on validation, and hands back the next parent from its Pareto front. | `llm`, `data.val`, `python -m pip install -e . --group gepa` |
 | `skillopt` | [SkillOpt](https://github.com/microsoft/SkillOpt): one SkillOpt step per training step. It turns the step's trajectories into a few bounded edits under its learning rate (decaying when `total_steps` is set) and keeps them only if the validation score improves; the slow update and meta skill run at each epoch's end. | `llm`, `data.val`, `python -m pip install -e . --group skillopt` |
 | `ace` | [ACE](https://github.com/ace-agent/ace): per rollout, a Reflector tags the playbook bullets the agent named and diagnoses the attempt (a wrong answer is run again with the reflection, up to `max_num_rounds`), and a Curator adds bullets; the playbook grows by deltas. See `docs/methods/ace.md`. | `llm`; `data.val` to keep the best validation playbook |

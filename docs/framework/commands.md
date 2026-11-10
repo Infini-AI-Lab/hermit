@@ -72,6 +72,7 @@ hermit deploy --adapter DIR --workspace WORKSPACE --host codex
 hermit deploy --adapter DIR --workspace WORKSPACE --host claude-code
 hermit deploy --adapter DIR --workspace WORKSPACE --host pi
 hermit deploy --adapter DIR --workspace WORKSPACE --host mini-swe-agent
+hermit deploy --adapter DIR --workspace WORKSPACE --host opencode
 hermit deploy --adapter DIR --workspace WORKSPACE --host dsh
 ```
 
@@ -81,11 +82,15 @@ instead; its `.pi/` files (tools, skills) load once the user trusts the project 
 trust. mini-swe-agent reads one config file, so `--host mini-swe-agent` writes `mini-swe-agent.yaml`: Hermit's
 prompts over mini-swe-agent's `mini` config, with the context, the names of the adapter's skills, roles, hooks and
 other files, and its tools as one bash command (`hermit-tool`) in the system template; run `mini -c
-mini-swe-agent.yaml` from the workspace ([tutorial](../tutorials/mini-swe-agent.md)). DeepSeek Harness has no file of
-its own for roles, hooks or a project's MCP servers, so `--host dsh` names an adapter's roles and hooks in `AGENTS.md`
-and writes its tools into a patch layer (an overlay of settings for a session), `.dsh/hermit.patch.yml`, which also
-names the folder of its skills (`.dsh/skills`). The layer loads only when named, while `AGENTS.md` needs no flag: run
-`dsh --profile headless --patch .dsh/hermit.patch.yml "TASK"` from the workspace.
+mini-swe-agent.yaml` from the workspace ([tutorial](../tutorials/mini-swe-agent.md)).
+`--host opencode` writes `AGENTS.md`, the project's `opencode.json` (the tools, offered directly) and
+`.opencode/skills`, which OpenCode loads with no trust step; it names roles and hooks in `AGENTS.md`, as for Pi.
+OpenCode 2.2 waits at most 2 s for the tools' server it starts, which takes about 3 s: an `opencode run` given its
+prompt at once may send the first request without the adapter's tools (the `opencode` acting agent serves them itself).
+DeepSeek Harness has no file of its own for roles, hooks or a project's MCP servers, so `--host dsh` names an adapter's
+roles and hooks in `AGENTS.md` and writes its tools into a patch layer (an overlay of settings for a session),
+`.dsh/hermit.patch.yml`, which also names the folder of its skills (`.dsh/skills`). The layer loads only when named,
+while `AGENTS.md` needs no flag: run `dsh --profile headless --patch .dsh/hermit.patch.yml "TASK"` from the workspace.
 `--context-limit BYTES` (Codex) is the `project_doc_max_bytes` your Codex configuration sets, 32768 (Codex's
 default) when not given: a longer `AGENTS.md` is refused, since Codex would cut it; `0` skips the check. It is the per-project way to use an adapter; the per-agent way, `convert`, and how the two compare are in
 [What is a harness adapter?](what-is-a-harness-adapter.md#two-ways-to-use-an-adapter). The workspace must be an empty directory or one previously generated for the same host, separate from
@@ -183,8 +188,8 @@ It is not an HTTP preview server or the proposed standalone-service launcher. `-
   `evolver_access.environment`) and that no declared path holds the data, the judge or the runs. It does not check
   the pipeline's host: adapters are meant to be usable by any acting agent, and each pipeline deploys the exports
   (context, tools, roles, skills) in its own way.
-- `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi|dsh` copies an adapter to
-  `hermit/<id>/` in a host workspace and connects its exports there (context block, MCP tools, native roles, skills,
-  hooks).
+- `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi|mini-swe-agent|opencode|dsh` copies an
+  adapter to `hermit/<id>/` in a host workspace and connects its exports there (context block, MCP tools, native roles,
+  skills, hooks).
 - `hermit convert --adapter DIR --output OUT --target ...` emits a plugin in the host's native format instead,
   and exits 2 naming every part the target's plugin cannot carry.

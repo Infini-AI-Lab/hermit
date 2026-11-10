@@ -13,7 +13,7 @@ described in the recipe; this file alone does not supply them.
 :caption: examples/officeqa/gepa/smoke.yaml
 ```
 
-`agent.name` names the acting agent: a built-in one (`react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `dsh`) or the task's own class or
+`agent.name` names the acting agent: a built-in one (`react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh`) or the task's own class or
 function. `judge.path` names its scoring module.
 `template` chooses the adapter's files and editing rules. `evolver.name` chooses the learning method.
 The `llm` section configures the run's model tool, which the GEPA learner uses.
@@ -50,7 +50,7 @@ Use the same run name for training and evaluation. Unknown configuration keys ar
 |---|---|
 | `data` | Task JSONL file, split files, tasks per step, whether to shuffle the train split (`shuffle`, default true), and shuffle seed. |
 | `task_info` | Directory explaining the task and objective to the learner. |
-| `agent.name` | A built-in agent (`react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `dsh`), `file.py:Class` for the task's own `Agent` subclass, or `file.py:function` for a plain `run(task, adapter)`. `pipeline.run` is the older spelling. |
+| `agent.name` | A built-in agent (`react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh`), `file.py:Class` for the task's own `Agent` subclass, or `file.py:function` for a plain `run(task, adapter)`. `pipeline.run` is the older spelling. |
 | `agent.concurrency` | Maximum concurrent task executions during rollout and evaluation. |
 | `agent.params` | The agent's settings: for a built-in agent its model, prompt and tools; for the task's own agent whatever it reads. |
 | `judge.path`, `judge.name` | Scoring module/file and function name; the default name is `score`. |

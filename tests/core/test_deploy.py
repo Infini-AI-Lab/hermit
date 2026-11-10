@@ -9,6 +9,7 @@ import pytest
 from hermit.hosts.claude_code import prepare as claude_prepare
 from hermit.hosts.codex import prepare as codex_prepare
 from hermit.hosts.dsh import prepare as dsh_prepare
+from hermit.hosts.opencode import prepare as opencode_prepare
 from hermit.hosts.pi import prepare as pi_prepare
 
 LEAN = Path(__file__).resolve().parents[2] / "hermit" / "adapter" / "templates" / "lean_collab"
@@ -272,6 +273,68 @@ def test_a_redeployment_replaces_the_copy(tmp_path):
     (a / "scripts/new.py").write_text("print(1)\n")
     codex_prepare(a, tmp_path / "w", sys.executable)
     assert not (copy / "notes.md").exists() and (copy / "scripts/new.py").is_file()
+
+
+@pytest.mark.parametrize("prepare,skills", [(codex_prepare, ".codex/skills"), (claude_prepare, ".claude/skills"),
+                                            (pi_prepare, ".pi/skills"), (opencode_prepare, ".opencode/skills")])
+def test_a_redeployment_retires_the_skills_and_drops_the_skill_files_the_adapter_no_longer_has(tmp_path, prepare,
+                                                                                               skills):
+    """A skill the new version no longer exports leaves the host's discovery (its contents kept in .retired-skills/),
+    a file a skill no longer has is gone, and a skill the user put there stays."""
+    a, w = tree_adapter(tmp_path, hooks=False), tmp_path / "w"
+    (a / ".agents/skills/old-trick").mkdir()
+    (a / ".agents/skills/old-trick/SKILL.md").write_text("---\ndescription: An old trick.\n---\nDo it.\n")
+    (a / ".agents/skills/unit-check/helper.py").write_text("print('help')\n")
+    assert prepare(a, w, sys.executable)["skills"] == ["old-trick", "unit-check"]
+    (w / skills / "mine").mkdir()
+    (w / skills / "mine" / "SKILL.md").write_text("---\ndescription: The user's own.\n---\nKeep it.\n")
+    (a / ".agents/skills/old-trick/SKILL.md").unlink()
+    (a / ".agents/skills/old-trick").rmdir()
+    (a / ".agents/skills/unit-check/helper.py").unlink()
+    assert prepare(a, w, sys.executable)["skills"] == ["unit-check"]
+    assert sorted(p.name for p in (w / skills).iterdir()) == ["mine", "unit-check"]
+    assert sorted(p.name for p in (w / skills / "unit-check").iterdir()) == ["SKILL.md"]
+    [retired] = (w / ".retired-skills").glob("*/old-trick/SKILL.md")
+    assert retired.read_text().endswith("Do it.\n")
+    (a / "exports.yaml").write_text("context: ADAPTER.md\n")            # no skills export at all
+    assert prepare(a, w, sys.executable)["skills"] == []
+    assert [p.name for p in (w / skills).iterdir()] == ["mine"]
+
+
+def test_a_redeployment_never_replaces_a_users_skill_or_writes_through_a_linked_skills_folder(tmp_path):
+    """A skill the user made that the adapter now exports too, and a skills folder linked elsewhere (a shared one),
+    stop the redeployment before anything is written: replacing or retiring there would delete the user's files."""
+    a, w = tree_adapter(tmp_path, hooks=False), tmp_path / "w"
+    codex_prepare(a, w, sys.executable)
+    (w / ".codex/skills/mine").mkdir()
+    (w / ".codex/skills/mine/helper.py").write_text("the user's\n")
+    (a / ".agents/skills/mine").mkdir()
+    (a / ".agents/skills/mine/SKILL.md").write_text("---\ndescription: The adapter's.\n---\nDo it.\n")
+    context = (w / "AGENTS.md").read_text()
+    (a / "ADAPTER.md").write_text("Changed.\n")
+    with pytest.raises(ValueError, match=r"\.codex/skills/mine exists and was not written by a deployment"):
+        codex_prepare(a, w, sys.executable)
+    assert (w / ".codex/skills/mine/helper.py").is_file() and (w / "AGENTS.md").read_text() == context
+    (a / ".agents/skills/mine/SKILL.md").unlink()
+    (a / ".agents/skills/mine").rmdir()
+    shared = tmp_path / "shared"
+    (w / ".codex/skills").rename(shared)
+    (w / ".codex/skills").symlink_to(shared)
+    (shared / "unit-check" / "notes.md").write_text("the team's\n")
+    with pytest.raises(ValueError, match=r"\.codex/skills is a link"):
+        codex_prepare(a, w, sys.executable)
+    assert (shared / "unit-check" / "notes.md").is_file()
+
+
+def test_a_skill_the_deployment_record_names_outside_the_skills_folder_is_refused(tmp_path):
+    a, w = tree_adapter(tmp_path), tmp_path / "w"
+    codex_prepare(a, w, sys.executable)
+    record = json.loads((w / ".hermit-deploy.json").read_text())
+    (w / ".codex/skills/old").mkdir()
+    (w / ".hermit-deploy.json").write_text(json.dumps({**record, "skills": ["unit-check", "old", "../agents"]}))
+    with pytest.raises(ValueError, match="Previous skill metadata"):
+        codex_prepare(a, w, sys.executable)
+    assert (w / ".codex/agents").is_dir() and (w / ".codex/skills/old").is_dir()     # nothing was moved
 
 
 def test_a_copied_file_replaced_by_a_directory_stops_the_redeployment(tmp_path):

@@ -138,6 +138,34 @@ def _mini_swe_agent_event(event: dict, usage: Usage, session):
     return session
 
 
+def _opencode_event(event: dict, usage: Usage, session):
+    """OpenCode: the session id every event carries, and each model request's usage as its `step_finish` keeps it.
+    OpenCode's `input` leaves the cache out and its `output` the reasoning, so the input counted is input, cache
+    reads and cache writes and the output is output and reasoning, as Codex and Claude Code count them; its cost is
+    OpenCode's own (for a bound model, OpenCode.adjust_usage leaves it to the price). A request that failed has no
+    `step_finish` (its retries are `retry` events) and counts as no call; nor has a compaction's (OpenCode.adjust_usage
+    counts those from the session's totals)."""
+    session = session or event.get("sessionID")
+    part = event.get("part") if isinstance(event.get("part"), dict) else {}
+    if event.get("type") != "step_finish" or not isinstance(part.get("tokens"), dict):
+        return session
+    t = part["tokens"]
+    cache = t.get("cache") if isinstance(t.get("cache"), dict) else {}
+    cached = int(cache.get("read") or 0)
+    usage.input_tokens += int(t.get("input") or 0) + cached + int(cache.get("write") or 0)
+    usage.cached_input_tokens += cached
+    usage.output_tokens += int(t.get("output") or 0) + int(t.get("reasoning") or 0)
+    usage.calls += 1
+    if isinstance(part.get("cost"), (int, float)):
+        usage.cost_usd = (usage.cost_usd or 0.0) + float(part["cost"])
+    return session
+
+
+def parse_opencode(log: Path, model: str) -> tuple[str | None, list[Usage]]:
+    """OpenCode's `run --format json` events: the session id, and every model request's usage and cost."""
+    return _parse(log, model, _opencode_event)
+
+
 def _dsh_reader():
     """DeepSeek Harness: the session id (its opening `session` event), and each model step's usage (`status` events
     of phase `step_end`): the sum of its attempts' (a request dsh retried is an attempt). dsh's `inputTokens` leaves
@@ -213,7 +241,7 @@ def parse_mini_swe_agent(log: Path, model: str) -> tuple[str | None, list[Usage]
 
 
 def parse_log(log: Path, backend: str, model: str) -> tuple[str | None, list[Usage]]:
-    """Session handle and usage from the agent's JSON event stream: Codex's, Pi's, mini-swe-agent's, dsh's, else
-    Claude Code's."""
-    return {"codex": parse_codex, "pi": parse_pi, "mini-swe-agent": parse_mini_swe_agent, "dsh": parse_dsh}.get(
-        backend, parse_claude)(log, model)
+    """Session handle and usage from the agent's JSON event stream: Codex's, Pi's, mini-swe-agent's, OpenCode's, dsh's,
+    else Claude Code's."""
+    return {"codex": parse_codex, "pi": parse_pi, "mini-swe-agent": parse_mini_swe_agent,
+            "opencode": parse_opencode, "dsh": parse_dsh}.get(backend, parse_claude)(log, model)

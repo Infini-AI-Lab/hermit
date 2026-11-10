@@ -10,9 +10,9 @@ logs, so that every Evolver reads the same steps:
 
 The streams read: Codex's `codex exec --json` events (`agent-codex.jsonl`), Claude Code's stream-json
 (`agent-claude.jsonl`), Pi's `--mode json` events (`agent-pi.jsonl`), mini-swe-agent's events
-(`agent-mini-swe-agent.jsonl`) and DeepSeek Harness's `--json` events (`agent-dsh.jsonl`), also under another name
-below a log directory (Harbor's `agent/codex.txt`). A normalised message list (`RunOutput.messages`) is the
-pipeline's own rendering and is left to each Evolver.
+(`agent-mini-swe-agent.jsonl`), OpenCode's `run --format json` events (`agent-opencode.jsonl`) and DeepSeek Harness's
+`--json` events (`agent-dsh.jsonl`), also under another name below a log directory (Harbor's `agent/codex.txt`). A
+normalised message list (`RunOutput.messages`) is the pipeline's own rendering and is left to each Evolver.
 """
 from __future__ import annotations
 
@@ -25,10 +25,11 @@ CODEX_STREAM = "agent-codex.jsonl"
 CLAUDE_STREAM = "agent-claude.jsonl"
 PI_STREAM = "agent-pi.jsonl"
 MINI_SWE_AGENT_STREAM = "agent-mini-swe-agent.jsonl"
+OPENCODE_STREAM = "agent-opencode.jsonl"
 DSH_STREAM = "agent-dsh.jsonl"
 # the file a host's log keeps its events under
 STREAM_HOSTS = {CODEX_STREAM: "codex", CLAUDE_STREAM: "claude", PI_STREAM: "pi",
-                MINI_SWE_AGENT_STREAM: "mini-swe-agent", DSH_STREAM: "dsh"}
+                MINI_SWE_AGENT_STREAM: "mini-swe-agent", OPENCODE_STREAM: "opencode", DSH_STREAM: "dsh"}
 STREAMS = tuple(STREAM_HOSTS)
 OTHER_STREAMS = ("agent/codex.txt", "codex.txt")   # a Harbor trial's Codex events: from the trial or its agent/
 
@@ -261,6 +262,51 @@ def mini_swe_agent_steps(stream: list[dict]) -> list[Step]:
     return steps
 
 
+OPENCODE_SHELL = ("shell", "bash")                         # 2.x names it shell, 1.x bash
+OPENCODE_FILE_TOOLS = ("edit", "write", "apply_patch", "patch", "multiedit")
+
+
+def opencode_steps(stream: list[dict]) -> list[Step]:
+    """OpenCode's `run --format json` events, each a finished part: text as a message, reasoning as reasoning, a tool
+    part (its call and its result together) as a command (the shell, with its exit code and output), a file change
+    (its tool and path) or a tool call (any other tool, an MCP server's included, named `<server>_<tool>`, with
+    its input and its result as `output`); an `error` event as an error. Step boundaries, retries and usage are left
+    out."""
+    steps = []
+    for event in stream:
+        kind = event.get("type")
+        part = event.get("part") if isinstance(event.get("part"), dict) else {}
+        if kind == "text" and str(part.get("text") or "").strip():
+            steps.append(Step("message", str(part["text"])))
+        elif kind == "reasoning" and str(part.get("text") or "").strip():
+            steps.append(Step("reasoning", str(part["text"])))
+        elif kind == "tool_use":
+            name = str(part.get("tool") or "")
+            state = part.get("state") if isinstance(part.get("state"), dict) else {}
+            args = state.get("input") if isinstance(state.get("input"), dict) else {}
+            failed = state.get("status") == "error"
+            output = str(state.get("error") if failed else state.get("output") or "")
+            if name in OPENCODE_SHELL:
+                meta = (state.get("metadata") or {}).get("metadata") if isinstance(state.get("metadata"), dict) \
+                    else None
+                code = meta.get("exit") if isinstance(meta, dict) else None
+                # a call refused or stopped before it ran has no exit code: unknown, as Codex reports it
+                steps.append(Step("command", command=str(args.get("command") or ""), output=output,
+                                  exit_code=code if isinstance(code, int) and not failed else None))
+            elif name in OPENCODE_FILE_TOOLS:
+                steps.append(Step("file_change", json.dumps({"tool": name, "path": args.get("path") or
+                                                             args.get("filePath")}, ensure_ascii=False, default=str),
+                                  output=output if failed else ""))
+            else:
+                steps.append(Step("tool_call", json.dumps({"tool": name, "input": args}, ensure_ascii=False,
+                                                          default=str), output=output))
+        elif kind == "error":
+            error = event.get("error") if isinstance(event.get("error"), dict) else {}
+            steps.append(Step("error", ": ".join(str(x) for x in (error.get("type"), error.get("message")) if x)
+                              or "the session failed"))
+    return steps
+
+
 DSH_FILE_TOOLS = ("write", "edit")
 # How dsh's bash tool ends a command's result (its own parseExitStatus reads it so, anchored at the very end, as
 # JavaScript's `$` is: \Z here): a nonzero exit or a signal is marked last, a clean exit is not; a command stopped by
@@ -340,11 +386,12 @@ def dsh_steps(stream: list[dict]) -> list[Step]:
 # Each host's stream: the reader of its events, and the event types that mark it (tried in this order when a stream
 # is found by its events). A host's stream is added here and in STREAM_HOSTS.
 READERS = {"codex": codex_steps, "claude": claude_steps, "pi": pi_steps, "mini-swe-agent": mini_swe_agent_steps,
-           "dsh": dsh_steps}
+           "opencode": opencode_steps, "dsh": dsh_steps}
 MARKS = (("codex", {"thread.started", "turn.started", "turn.completed", "turn.failed", "item.completed"}),
          ("mini-swe-agent", {"session.started"}),
          ("claude", {"system", "assistant", "user", "result"}),
          ("pi", {"agent_start", "agent_settled", "message_end", "tool_execution_end"}),
+         ("opencode", {"step_start", "step_finish", "tool_use"}),
          ("dsh", {"status", "tool_call", "tool_result", "final"}))
 
 

@@ -11,8 +11,8 @@ numbers alone may not distinguish unreleased changes.
 | Local deterministic Quick Start | No model account, GPU, external dataset, or host CLI |
 | Context-only workspace generation | macOS and Linux |
 | Sandboxed learner programs | Linux with bubblewrap and permitted namespaces |
-| Built-in methods | Prompt-only (the Codex learner on the prompt-only template), Codex, Claude, Pi, DeepSeek Harness, GEPA, SkillOpt, MWM, Harness², Continual Harness, ReHarness, Meta-Harness Adapter, ACE, AHE Adapter, RRSI Adapter, EvoSafeHarness, OPRO |
-| Workspace deployment | Codex, Claude Code, Pi, mini-swe-agent, and DeepSeek Harness |
+| Built-in methods | Prompt-only (the Codex learner on the prompt-only template), Codex, Claude, Pi, OpenCode, DeepSeek Harness, GEPA, SkillOpt, MWM, Harness², Continual Harness, ReHarness, Meta-Harness Adapter, ACE, AHE Adapter, RRSI Adapter, EvoSafeHarness, OPRO |
+| Workspace deployment | Codex, Claude Code, Pi, mini-swe-agent, OpenCode, and DeepSeek Harness |
 | A subscription instead of an API key | Codex (`login: chatgpt`) and Claude Code (`login: claude`, CLI 2.1.248 or later, tested on 2.1.318), acting and learning; see [Claude subscription](../guides/claude-subscription.md) |
 | Native plugin conversion | Claude Code, Codex, Pi, Hermes, with export restrictions |
 | Stdio tool server | `hermit serve DIR`; normally started by the host |
@@ -40,7 +40,7 @@ framework's stdio server. Neither command guarantees that arbitrary tool depende
 - DeepSeek Harness reports no cost: the cost recorded follows the price (the agent's own `price`, else the backend's). Web searches and the requests that summarize a long session's history are not counted, though the session's cost still reads as known, so `budget.usd` can undercount it.
 - Crash recovery restores the last completed framework step, not arbitrary external service state.
 - The evaluator's `solved_once` threshold is fixed at score 1.0.
-- Per-task adapter context comes only through `exports.yaml`'s `context_tool`, consumed by `Session`, the `react` agent and the `codex`, `claude-code`, `pi`, `mini-swe-agent` and `dsh` agents; its template must declare `plugin-portable: false`, and `deploy` and `convert` refuse such adapters.
+- Per-task adapter context comes only through `exports.yaml`'s `context_tool`, consumed by `Session`, the `react` agent and the `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode` and `dsh` agents; its template must declare `plugin-portable: false`, and `deploy` and `convert` refuse such adapters.
 - The proposed manifest `serve` section, health checks, standalone startup, and relay lifecycle are not supported.
 - A model reached through a CLI (`llm: {cli: ...}`, `agent.model: {cli: ...}`) takes text and gives text: tool calls, sampling and structured-output requests are refused ([the model contract](../guides/claude-subscription.md#the-model-contract)). A subscription has no per-token cost, so `budget.usd` bounds nothing on it.
 - Harness²'s editors are told of upstream's Codex surface (the `harness2-codex` template); a Claude Code acting agent runs the same tree in its own places, and its execution's stream reaches them rendered in upstream's grammar by `harness2_upstream/render.py`.

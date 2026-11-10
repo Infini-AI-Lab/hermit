@@ -1,0 +1,2 @@
+{"type":"step_start","timestamp":1794208875949,"sessionID":"ses_e40d13b27ffePQb0EflFCeLjWQ","part":{"id":"prt_1bf2ec5ad001YebBLLLCTTI8xn","sessionID":"ses_e40d13b27ffePQb0EflFCeLjWQ","messageID":"msg_1bf2ec596001qJrJXff8j21Gfd","type":"step-start"}}
+{"type":"error","timestamp":1794208875964,"sessionID":"ses_e40d13b27ffePQb0EflFCeLjWQ","error":{"type":"provider.auth","message":"the model is down","status":401,"response":{"body":"{\"error\": {\"message\": \"the model is down\", \"type\": \"server_error\"}}"}}}

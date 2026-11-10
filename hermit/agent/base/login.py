@@ -36,6 +36,8 @@ import threading
 import time
 
 LOGINS = {"chatgpt": "codex", "claude": "claude"}             # a `login`: the CLI it signs in
+# the CLIs that sign in only through a <backend>/<model> reference
+NO_LOGIN = ("pi", "mini-swe-agent", "opencode", "dsh")
 FILE = "auth.json"
 ROOT = Path.home() / ".cache" / "hermit" / "codex-login"      # the shared copy: ROOT/login/auth.json
 TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN"                         # the token of `claude setup-token`, the user's to export
@@ -617,7 +619,7 @@ def evolver_problems(params: dict | None) -> list[str]:
         return out
     own = LOGINS.get(login)
     backend = {"claude-code": "claude"}.get(params.get("backend"), params.get("backend"))
-    if backend in ("pi", "dsh"):
+    if backend in NO_LOGIN:
         out.append(f"login: {login} is a Codex or Claude Code sign-in; the {backend} Evolver signs in through its "
                    "model reference (evolver.model: <backend>/<model>)")
     if own is not None and backend in ("codex", "claude") and own != backend:

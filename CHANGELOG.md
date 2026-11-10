@@ -44,6 +44,16 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   agent's commands get only `env`. The call's tools are one bash command, `hermit-tool`. `hermit deploy --host
   mini-swe-agent` writes `mini-swe-agent.yaml`. Installed with the `mini-swe-agent` extra.
   [Tutorial](docs/tutorials/mini-swe-agent.md).
+- OpenCode as a CLI Base Agent (`opencode`): the acting agent `agent.base: opencode` and the `opencode` Evolver run
+  OpenCode 2.2's `run --format json --standalone` (a server of the session's own, never its shared background
+  service) in its own home and XDG folders, with no update, catalog or download requests. It runs a model reference
+  only, as OpenCode's provider `hermit` (the key as `{env:VARIABLE}`, chat completions); what the session must hold
+  (the provider, the permissions, no sharing) is its inline config, which outranks a workspace's `opencode.json`;
+  the call's tools are an MCP server offered directly (not through code mode). Whether its provider could not serve
+  is read from OpenCode's own error type (`provider.rate-limit`, `.internal`, `.transport`, `.timeout`), so the
+  acting agent runs such a task again. Its usage counts the model calls of its compactions, which its stream leaves
+  out, from its session's totals. OpenCode takes no roles and has no web search. `hermit deploy --host opencode`
+  writes `AGENTS.md`, the project's `opencode.json` and `.opencode/skills`.
 - DeepSeek Harness as a CLI Base Agent (`dsh`): the acting agent `agent.base: dsh` and the `dsh` Evolver run DeepSeek
   Harness 0.2.2-rc.1's `dsh --profile headless --json` in its own home, with a model reference as its `llm-pi-ai`
   provider (the key by its variable's name); the call's tools are an MCP server; a run with no completed end, or whose
@@ -186,6 +196,12 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
+- A redeployment (`hermit deploy` into the same workspace) left a skill the new adapter no longer exports in the
+  host's skills folder (`.codex/skills`, `.claude/skills`, `.pi/skills`, `.opencode/skills`), where the agent still
+  loaded it, and a file a skill no longer has inside its copy. Each exported skill's copy is now replaced, and a
+  skill the last deployment's record names that this one does not export is moved to `.retired-skills/` (as a
+  role is to `.retired-roles/`); a skill the user put there stays. A redeployment refuses, before writing anything,
+  when an exported skill would replace a skill folder no deployment wrote or the skills folder is a link (#96).
 - ASPIRE's generated programs ran unconfined on the host: cap-harness runs them, and ASPIRE's program validator is
   passed by a format string's attribute traversal, so a program could read and write the host's files (other
   sessions' workspaces, the judge's Stage 2 runs) and run held-out seeds itself. Every cap-harness process (the
