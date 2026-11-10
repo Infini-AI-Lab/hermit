@@ -334,11 +334,11 @@ def _usage_of(result) -> dict:
 
 
 def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = None):
-    """A chat-completions request answered by one session of a CLI Base Agent (`codex`, `claude`): a model reachable
-    only through the CLI (a subscription) for code that calls a chat API (an Evolver's `llm`, an acting pipeline's
-    model). The system messages are the session's instructions, the rest its prompt (split_messages), given on stdin;
-    the session works in an empty workspace of its own and only replies (`text_only`: Claude Code's session has no
-    tools; a Codex session's commands are held by its sandbox or container), and its reply is the content, with its
+    """A chat-completions request answered by one session of a CLI Base Agent (`codex`, `claude`, `pi`): a model reached
+    through the CLI (a subscription, or the Evolver's own agent) for code that calls a chat API (an Evolver's `llm`, an
+    acting pipeline's model). The system messages are the session's instructions, the rest its prompt (split_messages),
+    given on stdin; the session works in an empty workspace of its own and only replies (`text_only`: a Claude Code or
+    Pi session has no tools; a Codex session's commands are held by its sandbox or container), and its reply is the content, with its
     token usage. `reasoning_effort` is the session's effort; max_tokens is not applied and the reply says so
     (`unapplied`); what else a session cannot do is refused (contract_problems). A session that gave no reply is never
     an answer (_no_reply). The session sees no files: a caller that wants a session to read files runs one itself
@@ -416,16 +416,31 @@ def cli_problems(spec: dict) -> list[str]:
     its own (`isolation: container`, with container: {image, network, proxy}); a machine without bubblewrap runs it
     unconfined only as the run says (sandbox.enforce: best_effort, sandbox.enabled: false), which the run's records
     keep. Codex's model can run commands, and Codex's own read-only sandbox still reads the whole machine (the test
-    answers, the keys); Claude Code's has no tools at all (the Base Agent's `text_only`), and the sandbox holds what
-    the CLI might do besides. A login is the CLI's own: chatgpt for codex, claude for claude."""
+    answers, the keys); Claude Code's and Pi's have no tools at all (the Base Agent's `text_only`), and the sandbox holds
+    what the CLI might do besides. A login is the CLI's own: chatgpt for codex, claude for claude; Pi has none, and
+    reaches its model through a `<backend>/<model>` reference."""
     isolation = spec.get("isolation") or "sandbox"
     if spec.get("cli") == "codex":
         out = [] if isolation in ("sandbox", "container") else [CODEX_BOUNDARY]
         if spec.get("login") and spec["login"] != "chatgpt":
             out.append(f"cli: codex signs in with login: chatgpt (Codex's sign-in), not login: {spec['login']}")
         return out
+    if spec.get("cli") == "pi":
+        from hermit.agent.base.cli import Pi
+        out = [] if isolation == "sandbox" else ["cli: pi needs isolation: sandbox (the default: a bubblewrap sandbox of "
+                                                 "its own); without bubblewrap, sandbox.enforce: best_effort runs it "
+                                                 "unconfined and records that"]
+        if spec.get("login"):
+            out.append(f"cli: pi signs in through a <backend>/<model> reference, not login: {spec['login']}")
+        elif not spec.get("binding"):
+            out.append("cli: pi needs a <backend>/<model> reference: without one, Pi would pick a provider itself")
+        if spec.get("web_search") is True:
+            out.append("cli: pi: a text session has no tools, so web_search cannot be on")
+        if spec.get("effort") is not None and spec["effort"] not in Pi.efforts:    # the CLI would ignore it
+            out.append(f"cli: pi takes effort {', '.join(Pi.efforts)}, not {spec['effort']!r}")
+        return out
     if spec.get("cli") != "claude":
-        return [f"cli must be codex or claude, not {spec.get('cli')!r}"]
+        return [f"cli must be codex, claude or pi, not {spec.get('cli')!r}"]
     out = []
     if not spec.get("binding") and spec.get("login") != "claude":
         out.append("cli: claude needs login: claude (your subscription) or a <backend>/<model> reference (that "

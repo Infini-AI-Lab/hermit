@@ -27,7 +27,7 @@ hermit train --config run.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8  
 | `agent.params.model` (or `agent.model`) with `agent.name: codex` / `claude-code` | the CLI acting agent | Responses API / Messages API |
 | `agent.params.model` (or `agent.model`) with `agent.name: mini-swe-agent` | mini-swe-agent, through litellm | chat completions |
 | `evolver.params.model` of the `codex`, `claude` and `mwm` Evolvers | the learner's CLI session | Responses API / Messages API |
-| `agent.params.model` with `agent.name: pi`, `evolver.params.model` of the `pi` Evolver | Pi | chat completions, else the Messages API, else the Responses API: the first the backend serves |
+| `agent.params.model` with `agent.name: pi`, the model of any method on `evolver.base: pi` | Pi | chat completions, else the Messages API, else the Responses API: the first the backend serves |
 | `model` (top level) | the default for all of the above when they name none | |
 | the examples' task agents (`agent.params.model`, or the launchers' `MW_MODEL`) | CL-Bench's litellm host, ServeLearnBench's loop, the SkillOpt rollout | chat completions |
 

@@ -1,5 +1,5 @@
 description: >-
-  ASPIRE's coordinator (arXiv:2607.00272): a Codex or Claude Code session that updates the skill library from each
+  ASPIRE's coordinator (arXiv:2607.00272): a Codex, Claude Code or Pi session that updates the skill library from each
   finished robot task's findings and skill report, admits proposals only after a fresh verifier re-solves the task
   from the library and the proposals alone (run_agent on the task's verifier row), and chooses the next task.
 class: evolver.py:AspireEvolver

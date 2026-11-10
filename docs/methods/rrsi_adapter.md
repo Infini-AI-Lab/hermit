@@ -25,7 +25,7 @@ evolver:
   params:                        # Layer 3: the method
     domain: domain.py:MyDomain   # the benchmark's texts and rules (an AdapterDomain)
     rrsi: rrsi.json              # RRSI's hyperparameters (upstream's RRSIConfig fields)
-  base: codex                    # Layer 2: the proposer and the roles are Codex (or Claude Code) sessions
+  base: codex                    # Layer 2: the proposer and the roles are Codex (or Claude Code or Pi) sessions
   model: {name: gpt-5.6-luna, login: chatgpt, effort: medium}   # Layer 1: the proposer's model (and the roles')
 data:
   step_size: 178                 # the whole evolve set (k rows per task, `<task>#<k>`) per step
@@ -38,8 +38,8 @@ trainer:
 It needs the `rrsi` dependency group (`python -m pip install -e . --group rrsi`): upstream's package at a pinned
 commit, whose code runs unchanged for every rule and for the analyst and the critic. The analyst, its digesters and
 the critic are sessions of the proposer's CLI with the proposer's model, login and effort, or with
-`evolver.params.roles`'. On Claude Code the analyst and the critic have no tools and a digester only those that read
-(`Read`, `Grep`, `Glob`), as on Codex its read-only sandbox.
+`evolver.params.roles`'. On Claude Code and Pi the analyst and the critic have no tools and a digester only those
+that read (Claude Code's `Read`, `Grep`, `Glob`; Pi's `read`, `grep`, `find`, `ls`), as on Codex its read-only sandbox.
 
 ## The template
 
@@ -111,8 +111,8 @@ The method's roles on the [agent layers](../framework/agent-layers.md):
 | Role | Layer 3 | Layer 2 | Layer 1 |
 |---|---|---|---|
 | The acting agent | the benchmark's Acting Agent (OfficeQA: the framework's Codex agent with OfficeQA's task functions) | `codex` | the run's `agent.model` |
-| The proposer | this Evolver: its prompt, the variant's working directory and its view of the run's sandbox, `done.json` and the repairs (the session resumed) | `codex` or `claude`, `make(backend, settings).run(...)` | `evolver.model` |
-| The analyst, its digesters and the critic | upstream's code; its `generate` is one session of the proposer's CLI per call (`roles.py`), each in a view of the run's sandbox showing its own call directory, in an empty directory or, a digester's, in the round's rendered traces, read-only: on Codex its own read-only sandbox, on Claude Code no tools (the analyst, the critic) or only those that read (a digester: `Read`, `Grep`, `Glob`); the digesters' read-only shell under the run's sandbox | `codex` or `claude` (the proposer's), `make(backend, settings).instructed(...)`, then `run(...)` | `evolver.model`, or `roles` |
+| The proposer | this Evolver: its prompt, the variant's working directory and its view of the run's sandbox, `done.json` and the repairs (the session resumed) | `codex`, `claude` or `pi`, `make(backend, settings).run(...)` | `evolver.model` |
+| The analyst, its digesters and the critic | upstream's code; its `generate` is one session of the proposer's CLI per call (`roles.py`), each in a view of the run's sandbox showing its own call directory, in an empty directory or, a digester's, in the round's rendered traces, read-only: on Codex its own read-only sandbox, on Claude Code and Pi no tools (the analyst, the critic) or only those that read (a digester: `Read`, `Grep`, `Glob`; on Pi `read`, `grep`, `find`, `ls`); the digesters' read-only shell under the run's sandbox | `codex`, `claude` or `pi` (the proposer's), `make(backend, settings).instructed(...)`, then `run(...)` | `evolver.model`, or `roles` |
 | The smoke | the Trainer's `run_agent` tool | the acting agent's | the acting agent's |
 
 What the method reuses rather than writes: the sessions' settings are `AgentEvolver.settings` (the login, its plan
@@ -133,8 +133,8 @@ digesters' sessions in the traces, 17).
 |---|---|
 | `Evaluate(H', D_evolve, k)` | the next step's rollouts: the step's rows are the evolve set with k rows per task, credited to the candidate handed back last only when the working copy that ran is the stored candidate (its digest) |
 | baseline and delta (`baseline`, `calibrate(["base"])`) | step 1 evaluates H_0; delta is upstream's `calibrate` on that evaluation when the config gives none |
-| `analyze` (analyst and digesters) | upstream's code; its `generate` is one session of the `codex` or `claude` Base Agent per call, the digesters' sessions in the round's rendered traces |
-| proposer (a JSON-action Claude agent, `done()`) | a session of the `codex` or `claude` Base Agent on a copy of the incumbent adapter, writing `done.json`; upstream's `done()` contract is checked and every problem goes back to the same session |
+| `analyze` (analyst and digesters) | upstream's code; its `generate` is one session of the `codex`, `claude` or `pi` Base Agent per call, the digesters' sessions in the round's rendered traces |
+| proposer (a JSON-action Claude agent, `done()`) | a session of the `codex`, `claude` or `pi` Base Agent on a copy of the incumbent adapter, writing `done.json`; upstream's `done()` contract is checked and every problem goes back to the same session |
 | critic with five repairs, tag validation | upstream's `review` and `normalize`; each objection goes back to the same proposer session with upstream's repair text |
 | liveness smoke | `check_spec`, then `run_agent` on the domain's smoke tasks |
 | `select_round`, history, attribution, frontier | `select_round` and the history are upstream's code, unchanged; the attribution and the frontier are ported from upstream's driver (H_{t+1}, S* and the trajectory in `state/rrsi/frontier.json`) |
@@ -163,7 +163,7 @@ stop ends the run anyway.
 | Dimension | The paper | Here | Kind |
 |---|---|---|---|
 | What the proposer may change | The whole harness program | Every file of the adapter outside `.hermit/`; the acting agent, its loop and the host stay fixed | forced by the framework |
-| The proposer | Claude Opus 4.8 in upstream's JSON-action loop | A session of the `codex` or `claude` Base Agent with `evolver.model`, upstream's system text, context sections and done() contract | a setting |
+| The proposer | Claude Opus 4.8 in upstream's JSON-action loop | A session of the `codex`, `claude` or `pi` Base Agent with `evolver.model`, upstream's system text, context sections and done() contract | a setting |
 | The search roles | Claude Opus 4.8, one completion per call; the analyst and the critic answer from the text they are given | The proposer's model (or `roles`), one session of the proposer's CLI per call, read-only (Codex's own sandbox, or on Claude Code no tools or only those that read): the analyst and the critic in an empty directory, a digester in the round's rendered traces, which it may read with its own tools as well as through upstream's actions; none of them sees the run's records, the step's output, the proposers' directories or the other role calls' | a setting |
 | Component vocabulary | Signals in the Terminus-2 source | The same K, with signals for adapter files (`domain.ADAPTER_SIGNALS`) | forced by the framework |
 | delta | Measured from repeated base evaluations (coding: 0.017) | Upstream's `calibrate` on H_0's one evaluation unless the config gives one (its within-task bootstrap reads low by about sqrt(2) with two trials, as upstream's does; on OfficeQA the spread of H_0's own evaluations across the runs, sd 0.035, gives a band of about 0.10 for a difference, against a calibrated 0.045–0.061) | matched to upstream's driver |

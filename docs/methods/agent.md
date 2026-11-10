@@ -6,6 +6,19 @@ rewrite does not capture well. The `pi` learner signs in through a model referen
 `evolver.model: <backend>/<model>`, or `evolver.params.model`); it copies no login from `~/.pi/agent` (`home: []`).
 On the single-file prompt-only template, the Codex learner is the [prompt-only](prompt-only.md) method.
 
+## Every method on Pi
+
+`evolver.base: pi` with `evolver.model: <backend>/<model>` runs any method's learner on Pi, on that model:
+
+| Method | What runs on Pi |
+|---|---|
+| `pi`, Meta-Harness Adapter, ASPIRE, MWM, AHE Adapter, Harness², RRSI Adapter, EvoSafe | The method's own sessions, as on Codex or Claude Code |
+| GEPA, SkillOpt, ACE, OPRO, ReHarness, Continual Harness | They call the run's model, so that model becomes Pi: each call is one session with no tools (the same as `llm: {cli: pi, model: <backend>/<model>}`) |
+
+Pi signs in only through the model reference and has no web search. A session cannot apply a request's `temperature`,
+and a request that asks for one is refused: OPRO, whose default is `1.0`, needs `evolver.pi: {unapplied: [temperature]}`
+or `evolver.params.temperature: null`. Pi has no sub-agents: an adapter's sub-agents stay files its acting agent can read.
+
 ## Requirements and setup
 
 Install and authenticate the selected learner CLI in the environment where training runs. Sandboxed program

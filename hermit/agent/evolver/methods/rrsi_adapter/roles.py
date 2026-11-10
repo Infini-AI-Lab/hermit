@@ -2,12 +2,12 @@
 
 Upstream's analyst, digester and critic (rrsi.analyst, rrsi.digester, rrsi.critic) call `generate(prompt, system,
 json_only, ...)`, Claude Opus 4.8 on Vertex AI (rrsi.llm). Here `generate` is rebound in those three modules, for the
-duration of a call, to `Roles.generate`: one call of the `codex` or `claude` Base Agent the proposer runs on
+duration of a call, to `Roles.generate`: one call of the `codex`, `claude` or `pi` Base Agent the proposer runs on
 (`make(backend, settings).run`, docs/framework/agent-layers.md), the way the Evolver's proposer is one, with the role's
 system text as the session's instructions (`instructed`) and the prompt on stdin. The session runs in a view of the
 run's sandbox that shows its own call directory and nothing else the run keeps, in an empty directory, read-only
-(Codex's own sandbox mode; on Claude Code the analyst and the critic have no tools, `text_only`, and a digester only
-the tools that read), so a role answers from the text it is given, as upstream's do; a digester's session runs in the
+(Codex's own sandbox mode; on Claude Code and Pi the analyst and the critic have no tools, `text_only`, and a digester
+only the tools that read), so a role answers from the text it is given, as upstream's do; a digester's session runs in the
 round's rendered traces instead (shown read-only in its view), the directory upstream's digester reads with its
 read_file/grep/bash actions. The reply is the session's last message; with `json_only`, upstream's own
 `extract_json` cuts the JSON out of it, as upstream's `generate` does.
@@ -42,7 +42,8 @@ from hermit.agent.evolver.base import Usage
 
 ROLE_MODULES = ("rrsi.analyst", "rrsi.digester", "rrsi.critic")
 DIGESTER_TOOLS = ["Read", "Grep", "Glob"]   # Claude Code's tools that only read, as Codex's read-only sandbox allows
-LABELS = {"codex": "Codex", "claude": "Claude Code"}
+PI_DIGESTER_TOOLS = ["read", "grep", "find", "ls"]    # Pi's own
+LABELS = {"codex": "Codex", "claude": "Claude Code", "pi": "Pi"}
 
 
 class Stop(BaseException):
@@ -192,7 +193,8 @@ class Roles:
         cwd = self.traces if digester else work
         settings = {**self.settings, "home": call / "home", "log": rec / "events.jsonl", "stdin": True,
                     "cancel": self.ctx.cancel,
-                    **({"allowed_tools": DIGESTER_TOOLS} if digester else {"text_only": True})}
+                    **({"allowed_tools": PI_DIGESTER_TOOLS if self.backend == "pi" else DIGESTER_TOOLS}
+                       if digester else {"text_only": True})}
         # Each session sees only its own call directory and, a digester, the round's traces: not the run's records,
         # the other calls' homes or the records in progress.
         box = None

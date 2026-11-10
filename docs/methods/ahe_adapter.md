@@ -28,7 +28,7 @@ trainer: {epochs: 10, allow_early_stop: true}        # the paper's ten iteration
 sandbox: {enabled: true, evolver: {allowed_hosts: [chatgpt.com, auth.openai.com]}}   # the learners' ChatGPT login
 ```
 
-Both learners are sessions of the `codex` or `claude` Base Agent (`evolver.base`): the Agent Debugger one session per
+Both learners are sessions of the `codex`, `claude` or `pi` Base Agent (`evolver.base`): the Agent Debugger one session per
 task and attempt, the Evolve Agent one session per step with `check_spec` as its only tool. A task's k rollouts are k
 rows of the training split that share `task_field` (a row without it is grouped by its id without the `#n`); the
 example's `make_rows.py` writes them. The learners' CLI does not depend on the acting agent's. The acting agent must
@@ -102,7 +102,7 @@ Step N is AHE iteration N: step 1 scores the seed, and step N's edits are scored
 2. Stop when pass@1 reaches `target_pass_rate` (with `trainer.allow_early_stop`).
 3. `rollback: auto`: the files of every change judged HARMFUL are restored from before the change (the paper's
    Algorithm 1), undone again if `check_spec` then fails; `rollback: agent` only reports, as the released code.
-4. The Agent Debugger: one session of the Evolver's CLI (Codex or Claude Code) per task over its rollouts' trajectories,
+4. The Agent Debugger: one session of the Evolver's CLI (Codex, Claude Code or Pi) per task over its rollouts' trajectories,
    hook audits and the judge's verdicts, with upstream's query; a failed attempt is retried, and after `retries`
    upstream's fallback text stands in. The reports and an overview go to `state/analysis/step_N/`.
 5. The Evolve Agent: one session of the same CLI reads the overview, the verdicts and the history (`START.md` and the

@@ -94,7 +94,7 @@ only the stdlib: nothing else is installed where the agent runs.
   `nexau.txt`: a hook that never fires, always errors, or denies the wrong commands is visible there and nowhere
   else. `hook-state/<session_id>.json` beside it holds the final session states. (The runner writes both under
   `.hermit-hooks/` in the session's workspace; each rollout's trajectory carries them at its root, beside the
-  agent's event stream: `agent-codex.jsonl` from Codex, `agent-claude.jsonl` from Claude Code.)
+  agent's event stream: `agent-codex.jsonl` from Codex, `agent-claude.jsonl` from Claude Code, `agent-pi.jsonl` from Pi.)
 - A veto's reason is what the model reads: say what to do instead, not only what was blocked. The same holds for
   an `after_tool` note: one or two lines, specific to the command that just ran.
 

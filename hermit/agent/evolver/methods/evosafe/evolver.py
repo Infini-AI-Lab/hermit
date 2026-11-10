@@ -29,8 +29,8 @@ class EvoSafeEvolver(Evolver):
         if not ids or len(set(ids)) != len(ids):
             return StepResult("failed", "provide unique fixed eval_task_ids or a validation split")
         proposer = role_backend(ctx.params)
-        if proposer not in {"llm", "codex", "claude"}:
-            return StepResult("failed", "proposer must be llm, codex or claude")
+        if proposer not in {"llm", "codex", "claude", "pi"}:
+            return StepResult("failed", "proposer must be llm, codex, claude or pi")
         if proposer == "llm" and "llm" not in ctx.tools:
             return StepResult("failed", "configure the run's llm tool for defense proposals")
         search_mode = ctx.params.get("search_mode", "single")
@@ -59,11 +59,12 @@ class EvoSafeEvolver(Evolver):
                  (ws.adapter / ".hermit" / "EVOLVER.md").read_text()},
                 {"role": "user", "content": json.dumps({"files": files, "parent_metrics": parent,
                  "previous_trials": prior, "evidence": evidence})}]
-            if proposer in ("codex", "claude"):
-                from hermit.agent.evolver.methods.evosafe.claude_code import call_role as claude_call
+            if proposer in ("codex", "claude", "pi"):
+                from hermit.agent.evolver.methods.evosafe import claude_code, pi_agent
                 from hermit.agent.evolver.methods.evosafe.codex import proposal_schema
+                call = {"claude": claude_code.call_role, "pi": pi_agent.call_role}.get(proposer)
                 response, usage, error = (codex_propose(ctx, messages) if proposer == "codex"
-                                          else claude_call(ctx, messages, proposal_schema(), "proposal"))
+                                          else call(ctx, messages, proposal_schema(), "proposal"))
                 if error:
                     raise RuntimeError(error)
             else:

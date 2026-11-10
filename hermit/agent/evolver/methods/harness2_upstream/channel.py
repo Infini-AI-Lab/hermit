@@ -62,10 +62,13 @@ class FrameworkProposer(Proposer):
         """One upstream session as one call of a CLI Base Agent (docs/framework/agent-layers.md): `claude` by default,
         upstream's command (stdin mission, its system prompt, one JSON result, its tools, no session kept); `codex`
         with `params.backend: codex` (a model only Codex reaches: a ChatGPT login), the mission on stdin, the system
-        text as its developer instructions, its own sandbox off inside the run's. Either has its own config directory,
-        runs in the run's sandbox with the session directory writable, and is stopped at `wall` or by the Trainer."""
+        text as its developer instructions, its own sandbox off inside the run's; `pi` with `params.backend: pi`, on
+        the bound model. Each has its own config directory, runs in the run's sandbox with the session directory
+        writable, and is stopped at `wall` or by the Trainer."""
         if self.params.get("backend") == "codex":
             return self._codex_cli(cwd, mission, system, wall)
+        if self.params.get("backend") == "pi":
+            return self._pi_cli(cwd, mission, system, wall)
         home = Path(cwd) / ".claude-home"
         stdin = mission
         if system and len(system) > SYSTEM_ARG_MAX:
@@ -141,10 +144,34 @@ class FrameworkProposer(Proposer):
                     "writable": [Path(cwd)], "timeout_s": wall, "cancel": self.cancel}
         settings = {k: v for k, v in settings.items() if v is not None or k == "plan_max_wait_s" and k in self.params}
         result = make("codex", settings).run(mission, workspace=Path(cwd))     # plan_max_wait_s: null is no limit
+        return self._reply("codex", result, err, wall)
+
+    def _pi_cli(self, cwd: Path, mission: str, system: str, wall: int) -> tuple[str, float, str]:
+        """The session on Pi: the `pi` Base Agent on the bound model (its models.json provider), the mission on stdin,
+        upstream's system text appended to Pi's own, Pi's own tools (read, bash, edit, write) inside the run's sandbox,
+        no session kept."""
+        from hermit.agent.base.cli import EFFORTS
+        own = {k: str(v) for k, v in (self.params.get("env") or {}).items()}
+        err = Path(cwd) / ".session.err"
+        settings = {"web_search": False, "bin": self.params.get("claude_bin") or "pi", "stdin": True,
+                    "effort": EFFORTS.get(self.spec.effort, self.spec.effort),     # Claude Code's max is Pi's xhigh
+                    "model": self.params.get("model") or self.spec.model, "binding": self.params.get("binding"),
+                    "provider": self.params.get("provider"), "image_input": self.params.get("image_input"),
+                    "price": self.params.get("price"), "args": self.params.get("args"),
+                    "append_system_prompt": system or None, "persist_session": False,
+                    "home": Path(cwd) / ".pi-home", "home_files": [], "log": Path(cwd) / ".session.out",
+                    "stderr_log": err, "env": {**QUIET, **own}, "env_drop": sorted(_DROP_ENV),
+                    "isolation": "sandbox" if self.sandbox is not None else "none", "sandbox": self.sandbox,
+                    "writable": [Path(cwd)], "timeout_s": wall, "cancel": self.cancel}
+        result = make("pi", {k: v for k, v in settings.items() if v is not None}).run(mission, workspace=Path(cwd))
+        return self._reply("pi", result, err, wall)
+
+    def _reply(self, program: str, result, err: Path, wall: int) -> tuple[str, float, str]:
+        """(reply, cost, problem) of a Codex or Pi session, its usage kept for the step."""
         if result.extra["cancelled"]:
             raise RuntimeError("the session was stopped by the Trainer (budget or timeout)")
         if result.timed_out:
-            raise subprocess.TimeoutExpired(["codex"], wall)
+            raise subprocess.TimeoutExpired([program], wall)
         if not result.extra["served"] or not result.reply.strip():
             tail = (_read_own(err) or result.extra.get("output_tail", ""))[-300:]
             return "", 0.0, f"rc={result.exit_code}: {tail}"

@@ -54,14 +54,14 @@ reused, but the OpenAI SDK no longer sends requests. Bare native AgentDyn model 
 are no longer accepted: configure `agent.base: direct` and `agent.model: <backend>/<model>`.
 
 The Evolver keeps Designer/Criticizer/Analyzer orchestration and all selection gates in Layer 3. Each role calls
-`make("claude" | "codex", settings).run(...)` with read-only TRAIN archive tools and a fresh session. Base Agents
+`make("claude" | "codex" | "pi", settings).run(...)` with read-only TRAIN archive tools and a fresh session. Base Agents
 own process cleanup, cancellation, timeouts, configuration, login-plan scheduling and usage. The role's JSON schema
-is given to Codex as `--output-schema` and to Claude in the prompt, both through the Base Agent's existing settings,
+is given to Codex as `--output-schema` and to Claude and Pi in the prompt, all through the Base Agent's existing settings,
 and the reply is validated against it in Layer 3; a refusal is read from the reply and the trajectory's error
-steps. The normalized trajectory of each role is archived. Claude's built-in tools are disabled (`--tools ""`);
-Codex has web search disabled, a read-only sandbox by default, an ephemeral session, and instructions to use only the supplied TRAIN readers. Codex's read-only mode does not hide files; use the shared isolation settings for a filesystem boundary.
+steps. The normalized trajectory of each role is archived. Claude's built-in tools are disabled (`--tools ""`), and
+so are Pi's (`--no-builtin-tools`); Codex has web search disabled, a read-only sandbox by default, an ephemeral session, and instructions to use only the supplied TRAIN readers. Codex's read-only mode does not hide files; use the shared isolation settings for a filesystem boundary.
 
-`evolver.base`, `evolver.model` and `evolver.claude`/`evolver.codex` are the preferred configuration. Legacy
+`evolver.base`, `evolver.model` and `evolver.claude`/`evolver.codex`/`evolver.pi` are the preferred configuration. Legacy
 `proposer`, `claude_model`/`codex_model`, binary and timeout settings remain accepted when the corresponding
 shared setting is absent. For `proposer: llm`, the existing metered Trainer `llm` tool already calls `direct`.
 No extra usage is added for that path; CLI usage is returned once in `StepResult`.

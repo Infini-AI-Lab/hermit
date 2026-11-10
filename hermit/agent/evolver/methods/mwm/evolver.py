@@ -239,11 +239,12 @@ class MwmEvolver(Evolver):
         """The CLI Base Agent's settings for one learner session: the CLI as natively (Codex's own sandbox off, every
         variable for its commands, a fresh home, the session's clock), inside the native mounts, told /w as its
         working directory, the channels' JSON entrance as MW_TOOLSRV (the venue's shell client). `login` and `effort`
-        are the model's; a binding's Claude Code provider settings come in `env`."""
+        are the model's; a binding's Claude Code provider settings come in `env`, Pi's in `provider`."""
         params = ctx.params
         if not isinstance(params.get("web_search"), bool):
             raise ValueError("evolver.params.web_search must be set, true or false")
         return {**{k: params[k] for k in ("model", "binding", "args", "login", "login_root", "effort", "price",
+                                          "provider", "image_input",
                                           "plan_dir", "plan_max_wait_s", "plan_rerun", "usage_credits")
                    if params.get(k) is not None or (k == "plan_max_wait_s" and k in params)},   # None: no limit
                 "web_search": params["web_search"], "isolation": "sandbox", "sandbox": box,
@@ -456,9 +457,9 @@ class MwmEvolver(Evolver):
 
     # ------------------------------------------------------------------ steps
     def setup(self, ctx: Context) -> None:
-        if ctx.params.get("backend", "codex") not in ("codex", "claude"):   # its session settings carry no `provider`
-            raise ValueError("the mwm Evolver's learner is a Codex or Claude Code session: evolver.params.backend is "
-                             f"codex or claude, not {ctx.params.get('backend')!r}")
+        if ctx.params.get("backend", "codex") not in ("codex", "claude", "pi"):   # the CLIs its sessions are set up for
+            raise ValueError("the mwm Evolver's learner is a Codex, Claude Code or Pi session: evolver.params.backend "
+                             f"is codex, claude or pi, not {ctx.params.get('backend')!r}")
         if "network_isolation" in ctx.params:
             raise ValueError("evolver.params.network_isolation was removed: the learner runs in the run's evolver "
                              "sandbox, whose network reaches only its models, the tool endpoint and "

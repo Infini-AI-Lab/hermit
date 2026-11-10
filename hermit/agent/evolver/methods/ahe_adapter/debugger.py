@@ -1,4 +1,4 @@
-"""The Agent Debugger stage of the AHE Adapter (spec B.5): one CLI session (Codex or Claude Code) per task over the
+"""The Agent Debugger stage of the AHE Adapter (spec B.5): one CLI session (Codex, Claude Code or Pi) per task over the
 step's rollouts.
 
 Upstream (evolve.py:1216-1315, 1381-1543, 1722-1790) built one `TaskAnalysisJob` per task from the trial directories
@@ -181,7 +181,11 @@ STREAM_TEXTS = {"agent-claude.jsonl": (("agent-codex.jsonl", "agent-claude.jsonl
                                        ("the raw Codex event stream", "the raw Claude Code event stream"),
                                        ("the Codex event stream", "the Claude Code event stream"),
                                        ("`codex exec --json` event stream",
-                                        "`claude -p --output-format stream-json` event stream"))}
+                                        "`claude -p --output-format stream-json` event stream")),
+                "agent-pi.jsonl": (("agent-codex.jsonl", "agent-pi.jsonl"),
+                                   ("the raw Codex event stream", "the raw Pi event stream"),
+                                   ("the Codex event stream", "the Pi event stream"),
+                                   ("`codex exec --json` event stream", "`pi --mode json` event stream"))}
 
 
 def stream_of(logs) -> str:

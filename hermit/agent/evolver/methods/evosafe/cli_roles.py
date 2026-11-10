@@ -1,4 +1,4 @@
-"""EvoSafe's role orchestration over the shared CLI Base Agents (`codex`, `claude`).
+"""EvoSafe's role orchestration over the shared CLI Base Agents (`codex`, `claude`, `pi`).
 
 Each role is one fresh session of the configured CLI through `make(backend, settings).run(...)`; the Base Agent
 owns the process, the login plan, the timeout, cancellation and usage. The structured answer is checked here,
@@ -14,7 +14,8 @@ from .experience import role_tools
 # The Layer 1/2 settings a configuration may give the role CLI; the rest are set per call below.
 CLI_SETTINGS = ("model", "binding", "login", "login_root", "plan_dir", "plan_max_wait_s", "plan_rerun", "usage_credits",
                 "effort", "codex_sandbox", "permission_mode", "shell_env", "project_doc_max_bytes",
-                "home_files", "args", "env", "env_drop", "price", "timeout_s", "bin")
+                "home_files", "args", "env", "env_drop", "price", "timeout_s", "bin", "provider", "image_input")
+CLI_PROPOSERS = ("codex", "claude", "pi")
 
 # Provider messages that mean the role request itself was refused (stop, never retried).
 REFUSAL = ("usage policy", "content_policy_violation", "flagged for possible cybersecurity risk")
@@ -86,6 +87,10 @@ def call_role(ctx, messages, schema, name, backend):
     if backend == "claude":
         # No built-in tools (files, commands, browsing); TRAIN readers remain available over MCP.
         settings.update(args=args + ["--tools", ""], persist_session=False, append_system_prompt=system)
+        prompt = instructions + answer_format + user
+    elif backend == "pi":
+        # None of Pi's own tools (files, commands); TRAIN readers remain available over MCP.
+        settings.update(allowed_tools=[], persist_session=False, append_system_prompt=system)
         prompt = instructions + answer_format + user
     else:
         # Codex enforces the schema on its last message; the session is ephemeral and read-only.

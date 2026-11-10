@@ -34,8 +34,8 @@ Shared helpers: the repository root's `conftest.py` (the options and the groups)
 ChatGPT-login directory and Claude plan for every test, and no copy of the user's own sign-in), `fakes.py` (scripted
 models), `toy_task.py` (the toy task the Trainer tests run on), `claude_stand.py` (the stand-in `claude` that replays
 `fixtures/claude_streams/`, and the probe for a working bubblewrap, for core's and the methods' Claude tests),
-`fixtures/` (`pi/`: Pi's recorded streams, read by
-`core/test_pi_agent.py`).
+`pi_stand.py` (the stand-in `pi` that replays `fixtures/pi/`, for the methods' Pi tests),
+`fixtures/` (`pi/`: Pi's recorded streams, read by `core/test_pi_agent.py` and `pi_stand.py`).
 
 A new or changed test follows the [test checklist](../.agents/skills/prepare-pr/references/test-checklist.md): where it
 goes, how it is named and documented, what it asserts, and what it may touch.

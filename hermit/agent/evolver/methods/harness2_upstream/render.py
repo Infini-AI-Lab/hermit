@@ -147,3 +147,34 @@ def render_claude_events(path: Path, *, obs_trunc: int, max_chars: int, args_tru
     if len(rendered) > max_chars:
         rendered = rendered[:max_chars] + "\n" + TRUNCATED.format(n=len(rendered) - max_chars)
     return rendered
+
+
+def render_pi_events(path: Path, *, obs_trunc: int, max_chars: int, args_trunc: int = 2000) -> str:
+    """Render a Pi `--mode json` stream into upstream's shared grammar, from its standard steps."""
+    from hermit.agent.base.trajectory import events, pi_steps
+    try:
+        steps = pi_steps(events(path))
+    except OSError as exc:
+        return f"(failed to read trajectory: {exc})"
+    lines: list[str] = []
+    for step in steps:
+        if step.kind == "message":
+            lines.append(f"[ASSISTANT] {clip(step.text, obs_trunc)}")
+        elif step.kind == "reasoning":
+            lines.append(f"[REASONING] {clip(step.text, obs_trunc)}")
+        elif step.kind == "command":
+            lines.append(f"[ACTION] bash: {clip(step.command, args_trunc)}")
+            tag = "OBSERVATION" if step.exit_code == 0 else "OBSERVATION ERROR"
+            lines.append(f"[{tag}] {clip(step.output, obs_trunc)}")
+        elif step.kind == "error":
+            lines.append(f"[ERROR] {clip(step.text, 1000)}")
+        else:                                            # a file change or a tool call: its summary, then its result
+            lines.append(f"[ACTION] {clip(step.text, args_trunc)}")
+            if step.output:
+                lines.append(f"[OBSERVATION] {clip(step.output, obs_trunc)}")
+    rendered = "\n".join(lines).strip()
+    if not rendered:
+        return "(no parseable events in trajectory)"
+    if len(rendered) > max_chars:
+        rendered = rendered[:max_chars] + "\n" + TRUNCATED.format(n=len(rendered) - max_chars)
+    return rendered

@@ -491,8 +491,8 @@ def _cli_model(spec: dict, backends: dict[str, Backend], where: str) -> dict:
     """A model reached through a CLI: its `cli` the Base Agent's name, its model bound when it is a reference. It stays
     in this form and is never read as a chat endpoint's spec: the key or the login that pays is the session's."""
     cli = {"claude-code": "claude"}.get(spec["cli"], spec["cli"])
-    if cli not in ("codex", "claude"):
-        raise ValueError(f"{where}.cli must be codex or claude, not {spec['cli']!r}")
+    if cli not in ("codex", "claude", "pi"):
+        raise ValueError(f"{where}.cli must be codex, claude or pi, not {spec['cli']!r}")
     spec = {**spec, "cli": cli}
     return bind_agent_params(spec, cli, backends) if is_ref(spec.get("model"), backends) else spec
 
@@ -512,7 +512,8 @@ def bindings_of(data: dict, evolver_params: dict | None = None) -> list[tuple[st
     params = agent.get("params") or {}
     for who, spec in (("llm tool", data.get("llm")), (f"model of agent {agent.get('name')}", params.get("model"))):
         if isinstance(spec, dict) and spec.get("cli") and isinstance(spec.get("binding"), dict):
-            out.append((f"{who} through {spec['cli']}", Binding.from_spec(spec["binding"]), NEEDS[spec["cli"]]))
+            binding = Binding.from_spec(spec["binding"])
+            out.append((f"{who} through {spec['cli']}", binding, needs(spec["cli"], binding)))
     kind = _cli_kind(agent, params)
     if kind in CLI_KINDS and isinstance(params.get("binding"), dict):
         binding = Binding.from_spec(params["binding"])

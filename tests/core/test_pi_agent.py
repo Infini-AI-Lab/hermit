@@ -287,6 +287,92 @@ def test_a_model_that_takes_images_is_declared_so_to_pi(fake):
         [model] = json.loads(seen(fake)[-1]["files"]["models.json"])["providers"]["hermit"]["models"]
         assert model.get("input") == declared
 
+def test_a_session_that_only_replies_is_given_nothing_else_and_one_that_ran_a_tool_has_failed(fake, monkeypatch):
+    """`text_only`: a role that answers from its prompt, or a model behind a chat endpoint. The recorded stream ran three
+    tools, so that session is no reply; the one without tool calls is."""
+    work = fake / "work"
+    work.mkdir()
+    agent = make("pi", {**bound(), "web_search": False, "home": str(fake / "home"), "text_only": True, "stdin": True})
+    result = agent.run("go", workspace=work)
+    args = seen(fake)[0]["args"]
+    assert {"--no-tools", "--no-mcp", "--no-extensions", "--no-skills", "--no-prompt-templates",
+            "--no-context-files"} <= set(args)
+    assert result.extra["failed"] and not result.extra["served"] and "no tools" in result.extra["failure"]
+    monkeypatch.setenv("FAKE_PI_STREAM", str(STREAMS / "resume.jsonl"))
+    assert agent.run("go", workspace=work).extra["served"]
+
+
+def test_allowed_tools_are_pis_own_and_keep_the_calls_tools(fake):
+    work = fake / "work"
+    work.mkdir()
+    agent = make("pi", {**bound(), "web_search": False, "home": str(fake / "home"), "allowed_tools": ["read", "grep"]})
+    agent.run("go", workspace=work)
+    agent.run("go", workspace=work, tools=[echo()])
+    agent.configured(allowed_tools=[]).run("go", workspace=work, tools=[echo()])
+    alone, beside, none = [c["args"] for c in seen(fake)]
+    assert alone[alone.index("--tools") + 1] == "read,grep"
+    assert beside[beside.index("--tools") + 1] == "read,grep,mcp__hermit_tools__*"
+    assert "--no-builtin-tools" in none and "--tools" not in none
+
+
+def test_pi_refuses_an_effort_it_does_not_take_and_keeps_no_session_when_told(fake):
+    """Pi warns about an unknown --thinking level and goes on at its default: refused, as for Claude Code."""
+    work = fake / "work"
+    work.mkdir()
+    agent = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")})
+    with pytest.raises(Unsupported, match="Pi takes effort .*not 'max'"):
+        agent.configured(effort="max").run("go", workspace=work)
+    agent.configured(persist_session=False, effort="xhigh").run("go", workspace=work)
+    args = seen(fake)[0]["args"]
+    assert "--no-session" in args and args[args.index("--thinking") + 1] == "xhigh"
+
+
+def test_a_model_through_pi_answers_each_request_with_a_session_that_only_replies(fake, monkeypatch):
+    from hermit.agent.base.endpoint import cli_answer
+    monkeypatch.setenv("FAKE_PI_STREAM", str(STREAMS / "resume.jsonl"))
+    agent = make("pi", {**bound(), "web_search": False})
+    status, body, _ = cli_answer(agent, {"messages": [{"role": "system", "content": "Be exact."},
+                                                      {"role": "user", "content": "hello"}], "max_tokens": 10})
+    reply = json.loads(body)
+    [call] = seen(fake)
+    assert status == 200 and reply["choices"][0]["message"]["content"] == "the answer" and reply["unapplied"] == ["max_tokens"]
+    assert call["stdin"] == "hello" and "--no-tools" in call["args"]
+    assert call["args"][call["args"].index("--append-system-prompt") + 1] == "Be exact."
+
+
+@pytest.mark.parametrize("spec, match", [({}, "needs a <backend>/<model> reference"),
+                                         ({"login": "chatgpt"}, "not login: chatgpt"),
+                                         ({"binding": {"x": 1}, "isolation": "container"}, "needs isolation: sandbox"),
+                                         ({"binding": {"x": 1}, "web_search": True}, "web_search cannot be on"),
+                                         ({"binding": {"x": 1}, "effort": "max"}, "takes effort off")])
+def test_what_a_model_through_pi_cannot_be_is_said_before_any_session(spec, match):
+    from hermit.agent.base.endpoint import cli_problems
+    assert any(match in problem for problem in cli_problems({"cli": "pi", **spec}))
+
+
+def test_evolver_base_pi_is_the_run_model_of_a_method_that_calls_it_and_the_learner_of_one_that_has_a_cli():
+    """One setting for every method: GEPA, SkillOpt and the rest call the run's model, so on Pi that model is a Pi session
+    (`llm: {cli: pi}`); mwm, EvoSafe and the others run a CLI of their own, and Pi is that CLI."""
+    from hermit.agent.model.backends import bindings_of, normalize_config
+    from hermit.config import layered
+    fake_backend = {"base_url": "http://127.0.0.1:9/v1", "api_key_env": "FAKE_KEY", "apis": ["chat"]}
+    data = {"agent": {}, "llm": None, "backends": {"fake": fake_backend},
+            "evolver": {"name": "gepa", "base": "pi", "model": "fake/m-1", "pi": {"unapplied": ["temperature"]}, "params": {}}}
+    layered(data)
+    normalize_config(data)
+    assert data["llm"]["cli"] == "pi" and data["llm"]["provider"]["apiKey"] == "$FAKE_KEY"
+    assert data["llm"]["unapplied"] == ["temperature"] and data["llm"]["model"] == "m-1"
+    assert "backend" not in data["evolver"]["params"]
+    [(who, _, dialect)] = bindings_of(data)
+    assert who == "llm tool through pi" and dialect == "chat"
+    for name in ("mwm", "evosafe", "rrsi_adapter", "ahe_adapter", "harness2_upstream", "meta_harness_adapter", "aspire"):
+        data = {"agent": {}, "llm": None, "evolver": {"name": name, "base": "pi", "model": "fake/m-1", "params": {}}}
+        layered(data)
+        assert data["evolver"]["params"]["backend"] == "pi" and data["llm"] is None, name
+    with pytest.raises(ValueError, match="llm names it too"):
+        layered({"agent": {}, "llm": "fake/m-1", "evolver": {"name": "opro", "base": "pi", "model": "fake/m-1", "params": {}}})
+
+
 # ---------- the installed pi (integration) ----------
 
 def serve_chat(script):
@@ -373,3 +459,31 @@ def test_with_the_pi_cli_a_session_reaches_its_model_and_its_tools(tmp_path, mon
         data = json.loads(record.read_text())
         assert data["network"] == "isolated" and data["probe"]["passed"]
         assert {"PI_CODING_AGENT_DIR", "PI_OFFLINE", "MOCK_KEY"} <= set(data["environment"])
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not shutil.which("pi"), reason="needs the pi CLI")
+@pytest.mark.parametrize("limit, offered", [({"text_only": True, "stdin": True}, []),
+                                            ({"allowed_tools": []}, ["mcp__hermit_tools__echo"]),
+                                            ({"allowed_tools": ["read", "grep"]},
+                                             ["grep", "mcp__hermit_tools__echo", "read"])])
+def test_with_the_pi_cli_a_limited_session_is_offered_only_what_it_may_use(tmp_path, monkeypatch, limit, offered):
+    """The installed Pi, bound to a scripted model: what the model is offered is what a role or a text session can do.
+    A role's read-only tools keep the call's tools, and none of them is offered to a session that only replies."""
+    asked = []
+
+    def script(body):
+        asked.append(sorted(t["function"]["name"] for t in body.get("tools") or []))
+
+    server, url = serve_chat(script)
+    monkeypatch.setenv("MOCK_KEY", "sk-mock")
+    params = bind_agent_params({"model": "mock/m-1"}, "pi",
+                               registry({"mock": {"base_url": url, "api_key_env": "MOCK_KEY", "apis": ["chat"]}}))
+    work = tmp_path / "work"
+    work.mkdir()
+    settings = {**params, "web_search": False, "home": str(tmp_path / "home"), "timeout_s": 300, **limit}
+    try:
+        result = make("pi", settings).run("Do the task.", workspace=work, tools=[] if limit.get("text_only") else [echo()])
+    finally:
+        server.shutdown()
+    assert result.extra["served"] and result.reply == "the answer" and asked == [offered]

@@ -61,15 +61,18 @@ Settings (given once; `configured(...)` for a call's own):
                     caller that would rather start over from its own files
   text_only         a session that can only reply (a model behind a chat endpoint, a role that answers from its
                     prompt). Claude Code: `--restricted`, no tools, no MCP servers, no commands, no settings or
-                    memory files, `@` mentions left as text, and a session that reports otherwise has failed
+                    memory files, `@` mentions left as text, and a session that reports otherwise has failed. Pi: no
+                    tools, no MCP, no extensions, skills, prompt templates or context files, and a session that runs a
+                    tool has failed
   Claude Code only: output_format (stream-json, or json: one result object), allowed_tools (its --tools; empty: none),
   persist_session (false: --no-session-persistence), system_prompt (in place of its own; written to a file in the
   home), append_system_prompt (a long one goes the same way), effort, permission_mode, usage_credits (true: sessions on
   `login: claude` may draw the account's usage credits; default: a session that did holds the next ones back)
   Pi only: provider (its models.json entry for a bound model, from the binding: Binding.pi_provider),
   image_input (true: the bound model takes images, such as a tool's result; default: text only, Pi's default for a
-  model it does not know), append_system_prompt, effort (its --thinking level). Pi takes no roles, has no web search
-  and runs under isolation none or sandbox.
+  model it does not know), append_system_prompt, effort (its --thinking level), allowed_tools (Pi's own tools by name,
+  its --tools: read, grep, find, ls, bash, edit, write; the call's tools stay; empty: none of its own), persist_session
+  (false: --no-session). Pi takes no roles, has no web search and runs under isolation none or sandbox.
   mini-swe-agent only: model_class, config, step_limit (MiniSweAgent; hermit.agent.base.mini_swe_agent). It takes no
   roles, no session and no login, has no web search and runs under isolation none or sandbox.
 
@@ -1339,6 +1342,7 @@ class Pi(CliAgent):
     home_var, user_folder = "PI_CODING_AGENT_DIR", ".pi/agent"
     home_files = ("auth.json",)
     turn_done = "agent_settled"
+    efforts = ("off", "minimal", "low", "medium", "high", "xhigh")   # what --thinking takes; it warns and ignores others
 
     def home_env(self, home):
         """Every variable Pi reads goes here, so that it passes the sandbox's filter: its agent directory, its HOME
@@ -1417,9 +1421,12 @@ class Pi(CliAgent):
 
     def outcome(self, raw, stream, last_file):
         """Pi's JSON mode exits 0 however the session ended: one that did not settle, aborted, or whose last request
-        failed, was aborted or was cut at the output limit (Pi's text mode exits 1 for each) has failed."""
+        failed, was aborted or was cut at the output limit (Pi's text mode exits 1 for each) has failed, and so has a
+        session that was to have no tools and ran one."""
         notes, done = self.notices(raw), self.served(raw)
         cut = self._last_assistant(raw).get("stopReason") == "length"
+        if self.settings.get("text_only") and any(e.get("type") == "tool_execution_start" for e in _objects(raw)[0]):
+            notes, done = "the session was to have no tools, and it ran one", False
         return {"reply": self.last_message(stream, last_file), "served": done,
                 "unavailable": bool(UNAVAILABLE.search(notes)), "refused": False, "failed": not done or cut,
                 "failure": (notes or ("the reply was cut at its output limit" if cut else "the session did not settle")
@@ -1453,8 +1460,24 @@ class Pi(CliAgent):
     def steps(cls, stream):
         return pi_steps(stream)
 
+    def _access(self, tools_url) -> list[str]:
+        """What a limited session may use: with `text_only` nothing but its prompt; with `allowed_tools` those of Pi's
+        own tools and the call's, which an allow-list would otherwise drop."""
+        s = self.settings
+        if s.get("text_only"):
+            return ["--no-tools", "--no-mcp", "--no-extensions", "--no-skills", "--no-prompt-templates",
+                    "--no-context-files"]
+        names = s.get("allowed_tools")
+        if names is None:
+            return []
+        if not names:
+            return ["--no-builtin-tools"]
+        return ["--tools", ",".join([*names, *([f"mcp__{s.get('tools_name') or 'hermit_tools'}__*"] if tools_url else [])])]
+
     def command(self, prompt, workspace, last_file, *, session=None, roles=(), tools_url=None):
         s, home = self.settings, last_file.parent                      # the session's home
+        if s.get("effort") and s["effort"] not in self.efforts:        # the CLI would warn and go on at its default
+            raise Unsupported(f"Pi takes effort {', '.join(self.efforts)}, not {s['effort']!r}")
         system = s.get("append_system_prompt")
         if system and len(str(system).encode()) > ARG_MAX:               # too long for one argument
             _clear(home / "append_system.md")
@@ -1466,7 +1489,8 @@ class Pi(CliAgent):
                 *(["--model", s["model"]] if s.get("model") else []),
                 *(["--thinking", s["effort"]] if s.get("effort") else []),
                 *(["--append-system-prompt", system] if system else []),
-                *self.web_search_args(bool(s.get("web_search"))),
+                *self.web_search_args(bool(s.get("web_search"))), *self._access(tools_url),
+                *(["--no-session"] if s.get("persist_session") is False else []),
                 *(["--session", str(resume)] if resume else []), *(s.get("args") or []),
                 *([] if s.get("stdin") else ["--", prompt])]
 

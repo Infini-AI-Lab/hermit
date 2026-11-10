@@ -88,14 +88,14 @@ class Harness2UpstreamEvolver(Evolver):
 
     def setup(self, ctx) -> None:
         context = _upstream()[0]
-        if ctx.params.get("proposer") is None and ctx.params.get("backend") not in ("claude", "codex"):
-            raise ValueError("harness2_upstream runs its sessions as Claude Code or Codex: set params.backend: claude "
-                             "or codex")
+        if ctx.params.get("proposer") is None and ctx.params.get("backend") not in ("claude", "codex", "pi"):
+            raise ValueError("harness2_upstream runs its sessions as Claude Code, Codex or Pi: set params.backend: "
+                             "claude, codex or pi")
         login = ctx.params.get("login")
         if ctx.params.get("proposer") is None and login is not None:
             # refused here, not by every session: upstream turns a session's error into the starting harness
             backend = ctx.params.get("backend")
-            if login != {"claude": "claude", "codex": "chatgpt"}[backend]:
+            if login != {"claude": "claude", "codex": "chatgpt"}.get(backend):
                 raise ValueError(f"evolver.params.login: {login} is not the sign-in of backend {backend} "
                                  f"(claude: login claude; codex: login chatgpt)")
             model = str(ctx.params.get("model") or "")
@@ -223,14 +223,15 @@ class Harness2UpstreamEvolver(Evolver):
         return reason or "stopped"
 
     def _claude(self, ws, backend: str | None = None) -> str:
-        """The sessions' CLI binary (Claude Code, or Codex with `backend: codex`), pinned for the whole run (it updates
-        itself): `params.claude_bin` (a copy the launcher made), else its versioned path, kept in state."""
+        """The sessions' CLI binary (Claude Code, or Codex or Pi with `backend: codex` or `pi`), pinned for the whole
+        run (it updates itself): `params.claude_bin` (a copy the launcher made), else its versioned path, kept in
+        state."""
         if self._pinned_bin:
             return self._pinned_bin
         pin = ws.state / "claude_bin.txt"
         if pin.is_file() and Path(pin.read_text().strip()).is_file():
             return pin.read_text().strip()
-        program = "codex" if backend == "codex" else "claude"
+        program = backend if backend in ("codex", "pi") else "claude"
         found = shutil.which(program)
         path = os.path.realpath(found) if found else program
         pin.write_text(path + "\n")
@@ -321,7 +322,7 @@ class Harness2UpstreamEvolver(Evolver):
             if not (a and b and a.is_file() and b.is_file() and filecmp.cmp(a, b, shallow=False)):
                 differ.append(key)
         pin = run / "workspace" / "state" / "claude_bin.txt"
-        program = "codex" if params.get("backend") == "codex" else "claude"
+        program = params.get("backend") if params.get("backend") in ("codex", "pi") else "claude"
         found = shutil.which(program)                    # as _claude pins it: the bare name when it is not installed
         mine = params.get("claude_bin") or (os.path.realpath(found) if found else program)
         other = theirs.get("claude_bin") or (pin.read_text().strip() if pin.is_file() else "")
