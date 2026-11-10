@@ -190,7 +190,12 @@ STREAM_TEXTS = {"agent-pi.jsonl": (("agent-codex.jsonl", "agent-pi.jsonl"),
                                        ("the raw Codex event stream", "the raw Claude Code event stream"),
                                        ("the Codex event stream", "the Claude Code event stream"),
                                        ("`codex exec --json` event stream",
-                                        "`claude -p --output-format stream-json` event stream"))}
+                                        "`claude -p --output-format stream-json` event stream")),
+                "agent-opencode.jsonl": (("agent-codex.jsonl", "agent-opencode.jsonl"),
+                                         ("the raw Codex event stream", "the raw OpenCode event stream"),
+                                         ("the Codex event stream", "the OpenCode event stream"),
+                                         ("`codex exec --json` event stream",
+                                          "`opencode run --format json` event stream"))}
 
 
 def stream_of(logs) -> str:

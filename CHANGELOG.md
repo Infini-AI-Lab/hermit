@@ -44,6 +44,16 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   agent's commands get only `env`. The call's tools are one bash command, `hermit-tool`. `hermit deploy --host
   mini-swe-agent` writes `mini-swe-agent.yaml`. Installed with the `mini-swe-agent` extra.
   [Tutorial](docs/tutorials/mini-swe-agent.md).
+- OpenCode as a CLI Base Agent (`opencode`): the acting agent `agent.base: opencode` and the `opencode` Evolver run
+  OpenCode 2.2's `run --format json --standalone` (a server of the session's own, never its shared background
+  service) in its own home and XDG folders, with no update, catalog or download requests. It runs a model reference
+  only, as OpenCode's provider `hermit` (the key as `{env:VARIABLE}`, chat completions); what the session must hold
+  (the provider, the permissions, no sharing) is its inline config, which outranks a workspace's `opencode.json`;
+  the call's tools are an MCP server offered directly (not through code mode). Whether its provider could not serve
+  is read from OpenCode's own error type (`provider.rate-limit`, `.internal`, `.transport`, `.timeout`), so the
+  acting agent runs such a task again. Its usage counts the model calls of its compactions, which its stream leaves
+  out, from its session's totals. OpenCode takes no roles and has no web search. `hermit deploy --host opencode`
+  writes `AGENTS.md`, the project's `opencode.json` and `.opencode/skills`.
 - Models in sandboxes as Harbor's agents get theirs: each sandbox gets its models' key variables and provider hosts
   (an isolated network becomes an allowlist) and forwards a model meter on the loopback; what a run keeps (the
   learning material, the step records, the adapter) is scrubbed of key values (`hermit/redact.py`). The allowlist

@@ -1,9 +1,9 @@
-"""The `codex`, `claude-code`, `pi` and `mini-swe-agent` agents: one task run by the agent CLI in a workspace the
-adapter is deployed into. They are the framework's one way to act with a coding-agent CLI; a task adds only what is
-its own.
+"""The `codex`, `claude-code`, `pi`, `mini-swe-agent` and `opencode` agents: one task run by the agent CLI in a
+workspace the adapter is deployed into. They are the framework's one way to act with a coding-agent CLI; a task adds
+only what is its own.
 
     agent:
-      name: codex                            # or claude-code, pi or mini-swe-agent (`cli` with params.backend)
+      name: codex                            # or claude-code, pi, mini-swe-agent or opencode (`cli`: params.backend)
       params:
         model: gpt-5.4                       # optional: the CLI's default otherwise. A `<backend>/<model>` reference
                                              # (hermit.agent.model.backends) binds the CLI to that backend: its provider
@@ -69,10 +69,10 @@ import uuid
 from hermit.agent.acting.agent import Agent
 from hermit.agent.base import container
 from hermit.agent.base.interface import BaseAgent, Limits, LoginFailed, Mount, make
-from hermit.agent.base.login import LOGINS
+from hermit.agent.base.login import LOGINS, NO_LOGIN
 from hermit.task import RunOutput, load_callable
 
-BACKENDS = ("codex", "claude", "pi", "mini-swe-agent")
+BACKENDS = ("codex", "claude", "pi", "mini-swe-agent", "opencode")
 DEPLOYS = ("host",)
 ISOLATIONS = ("none", "container")
 INPUT_FIELDS = ("question", "prompt", "instruction", "input", "query")
@@ -150,6 +150,9 @@ def deploy(adapter: Path, workspace: Path, backend: str, *, context: str | None 
     if backend == "mini-swe-agent":
         from hermit.hosts.mini_swe_agent import prepare as prepare_mini
         return prepare_mini(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
+    if backend == "opencode":
+        from hermit.hosts.opencode import prepare as prepare_opencode
+        return prepare_opencode(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
     from hermit.hosts.claude_code import prepare
     return prepare(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
 
@@ -162,9 +165,11 @@ def _deploy(task: dict, adapter: Path | None, work: Path, backend: str, params: 
     from hermit.adapter.loader import agent_tools, load_manifest
     from hermit.adapter.manifest import PORTABLE
     manifest = load_manifest(adapter)
-    # A container session cannot start the tools' server on this machine, and mini-swe-agent reaches tools only
-    # through its Base Agent: the session's own tool server (the Base Agent's) serves them instead.
-    harness_tools = (params.get("isolation") == "container" or backend == "mini-swe-agent") and \
+    # A container session cannot start the tools' server on this machine, mini-swe-agent reaches tools only
+    # through its Base Agent, and OpenCode waits 2 s at most for a starting server (STARTUP_GRACE_MS in 2.2; the
+    # adapter's takes longer, so its first request would go without them): the session's own tool server (the Base
+    # Agent's, running before the session starts) serves them instead.
+    harness_tools = (params.get("isolation") == "container" or backend in ("mini-swe-agent", "opencode")) and \
         bool(agent_tools(manifest))
     # An adapter only hermit runs (not plugin-portable: a context tool's per-task context, say) has no installed
     # workspace, so `hermit deploy` refuses it; here the task is known, so its context is deployed.
@@ -177,9 +182,12 @@ def _deploy(task: dict, adapter: Path | None, work: Path, backend: str, params: 
 def _session_args(backend: str, deployed: dict, work: Path) -> list[str]:
     """What the session needs to use what the deployment connected: the workspace's own Codex configuration (its
     tools, roles and hooks) trusted, as a person trusts a deployed project, and its sub-agents enabled; Pi's project
-    configuration (.pi/mcp.json, .pi/skills) trusted for the session (--approve), without which Pi skips it."""
+    configuration (.pi/mcp.json, .pi/skills) trusted for the session (--approve), without which Pi skips it. OpenCode
+    loads its project's opencode.json and .opencode/skills with no trust step."""
     if backend == "pi":
         return ["--approve"]
+    if backend == "opencode":
+        return []
     if backend == "codex":
         return ["-c", f'projects={{"{work}" = {{ trust_level = "trusted" }} }}',
                 *(["--enable", "multi_agent"] if deployed.get("roles") else [])]
@@ -286,7 +294,7 @@ def _check(backend: str, params: dict) -> str:
     if not isinstance(params.get("web_search"), bool):
         raise ValueError("agent.params.web_search must be set, true or false: Codex's hosted search runs at the "
                          "provider, past any sandbox or proxy, so it is never left to a default")
-    if backend in ("pi", "mini-swe-agent"):         # they sign in through a model reference, and run on this machine
+    if backend in NO_LOGIN:                         # they sign in through a model reference, and run on this machine
         if params.get("login") is not None:
             raise ValueError(f"agent {backend} takes no login: its model is a <backend>/<model> reference")
         if params.get("isolation") == "container":
@@ -353,7 +361,9 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
         deployed, context_tool = _deploy(task, adapter, work, backend, params)
         session = agent.configured(args=[*(agent.settings.get("args") or []), *_session_args(backend, deployed, work)],
                                    **({"tools_name": deployed["harness_tools"].replace("-", "_")}
-                                      if deployed.get("harness_tools") else {}))
+                                      if deployed.get("harness_tools") else {}),
+                                   # OpenCode loads only the skills it is allowed: the deployment's
+                                   **({"skills": list(deployed.get("skills") or [])} if backend == "opencode" else {}))
         memory = _memory(work, deployed)
         for item in params.get("files") or []:
             source = Path(base) / item

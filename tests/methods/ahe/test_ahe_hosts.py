@@ -669,8 +669,9 @@ def test_a_state_with_an_unencodable_character_is_saved(tmp_path, capsys, monkey
 # --- the Evolver's texts -----------------------------------------------------------------------------------------
 
 def test_the_evolvers_texts_name_every_acting_agents_stream_it_reads():
-    """A Pi or mini-swe-agent acting agent's sessions keep their own stream (agent-pi.jsonl, agent-mini-swe-agent.jsonl),
-    which rollout_stream finds: the learners' texts name it, not Codex's file, which is not there."""
+    """A Pi, mini-swe-agent or OpenCode acting agent's sessions keep their own stream (agent-pi.jsonl,
+    agent-mini-swe-agent.jsonl, agent-opencode.jsonl), which rollout_stream finds: the learners' texts name it, not
+    Codex's file, which is not there."""
     from hermit.agent.base.trajectory import CODEX_STREAM, STREAMS
     from hermit.agent.evolver.methods.ahe_adapter import analysis as A, debugger as D
     import test_ahe_analysis as AN
@@ -685,7 +686,8 @@ def test_the_evolvers_texts_name_every_acting_agents_stream_it_reads():
             assert "codex exec --json" not in words, stream
         assert stream in D.for_stream(texts[0], stream)
     for stream, command in (("agent-pi.jsonl", "pi --mode json"),
-                            ("agent-mini-swe-agent.jsonl", "python -m hermit.agent.base.mini_swe_agent_run")):
+                            ("agent-mini-swe-agent.jsonl", "python -m hermit.agent.base.mini_swe_agent_run"),
+                            ("agent-opencode.jsonl", "opencode run --format json")):
         assert f"`{command}` event stream" in D.for_stream(texts[1], stream)
 
 

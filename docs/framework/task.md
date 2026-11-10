@@ -88,10 +88,11 @@ agent:
 | `react` | a chat-completions tool-calling loop over the task's tools and the adapter's tools | `model`, `prompt`, `tools`, `user`, `max_turns`, `max_output_tokens`, `max_tokens`, `temperature`, `answer_tag`, `tool_result_chars`, `logs` |
 | `codex`, `claude-code`, `pi` | Codex, Claude Code or Pi run in a fresh workspace the adapter is deployed into (Pi: no `login`, no roles; its project's `.pi/` is trusted for the session) | `model`, `login`, `effort`, `prompt`, `files`, `mounts`, `prepare`, `answer`, `collect`, `context_query`, `project_doc_max_bytes`, `args`, `env`, `price`, `timeout_s`, `retries`, `retry_wait_s`, `workspaces` |
 | `mini-swe-agent` | mini-swe-agent run in a fresh workspace the adapter is deployed into (no `login`, no roles; [tutorial](../tutorials/mini-swe-agent.md)) | `model`, `model_class`, `config`, `step_limit`, `effort`, `prompt`, `files`, `mounts`, `prepare`, `answer`, `collect`, `context_query`, `env`, `price`, `timeout_s`, `retries`, `retry_wait_s`, `workspaces` |
+| `opencode` | OpenCode run in a fresh workspace the adapter is deployed into (no `login`, no roles; a model reference only; the deployment's skills only) | `model`, `effort`, `prompt`, `files`, `mounts`, `prepare`, `answer`, `collect`, `context_query`, `args`, `env`, `price`, `timeout_s`, `retries`, `retry_wait_s`, `workspaces` |
 
 ### A coding-agent CLI as the acting agent
 
-`codex`, `claude-code`, `pi` and `mini-swe-agent` are the framework's one way to act with a coding-agent CLI: a task gives what is its own,
+`codex`, `claude-code`, `pi`, `mini-swe-agent` and `opencode` are the framework's one way to act with a coding-agent CLI: a task gives what is its own,
 in configuration and, where its workspace is built in code, in functions it names (`file.py:function`); the agent
 does the rest. OfficeQA's Codex runs are one such configuration (`examples/officeqa/utils/task.py`):
 
@@ -120,7 +121,8 @@ What the agent does for every task:
   the whole adapter under `hermit/<adapter id>/` but its [`internal`](adapter-manifest.md#internal) files, each
   export connected to the CLI's own place, and the context naming the rest. Its tools are served by an MCP server
   on this machine; a container session, which cannot start one, gets them from the session's own tool server, which
-  the container reaches. An adapter's [`context_tool`](adapter-manifest.md#per-task-context) is rendered for each
+  the container reaches, and so does an OpenCode session (OpenCode waits only 2 s for a server it starts). An
+  adapter's [`context_tool`](adapter-manifest.md#per-task-context) is rendered for each
   task (the field `context_query`, else the task's question or prompt), deployed into the context and recorded in
   `RunOutput.extra["context_tool"]`; so is the context of any adapter whose template is not
   [`plugin-portable`](adapter-manifest.md#plugin-portable), which `hermit deploy` alone refuses. The session
