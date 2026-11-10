@@ -140,9 +140,9 @@ def _move(src: Path, fd: int, swaps: dict) -> None:
 
 class Service:
     def __init__(self, root: Path, tasks: dict, workspaces: list[Path], ledger: Ledger, env: dict, workers: int,
-                 *, scratch: Path | None = None, run_timeout: float = 4 * 3600):
+                 *, scratch: Path | None = None, run_timeout: float = 4 * 3600, gpu=()):
         self.root, self.tasks, self.workspaces, self.ledger = root, tasks, [w.resolve() for w in workspaces], ledger
-        self.env, self.workers, self.run_timeout = env, workers, float(run_timeout)
+        self.env, self.workers, self.run_timeout, self.gpu = env, workers, float(run_timeout), list(gpu)
         self.scratch = Path(scratch or ledger.path.parent / "runs")      # this service's own: outside every sandbox
         self.scratch.mkdir(parents=True, exist_ok=True)
         self.nonce = ""
@@ -210,7 +210,8 @@ class Service:
         if body.get("cmd") == "validate":
             check = ("import ast,sys\nfrom cap_harness.runtime import _ProgramValidator\n"
                      "_ProgramValidator().visit(ast.parse(open(sys.argv[1]).read()))\nprint('program accepted')")
-            returncode, stdout, stderr = self._execute([str(self.python), "-c", check, str(program)], env, 300)
+            returncode, stdout, stderr = self._execute([str(self.python), "-c", check, str(program)], env, 300,
+                                                       program.parent, gpu=[])
             return {"ok": True, "code": returncode, "stdout": self._swap(stdout, swaps),
                     "stderr": self._swap(stderr, swaps)[-4000:]}
         seeds = [int(s) for s in (body.get("seeds") or [])]
@@ -245,7 +246,9 @@ class Service:
             cmd = [str(self.cli), "run-batch", *common, "--seeds", *map(str, seeds),
                    "--workers", str(min(self.workers, len(seeds))), "--results-jsonl", str(own_out / "results.jsonl"),
                    "--log-dir", str(own_out / "logs")]
-        returncode, stdout, stderr = self._execute(cmd, env, self.run_timeout)
+        returncode, stdout, stderr = self._execute(cmd, env, self.run_timeout, program.parent, own_out, gpu=self.gpu)
+        if own_out.is_symlink() or not own_out.is_dir():    # replaced by the program: nothing of it is delivered
+            return {"ok": False, "error": "the run's output directory was replaced while it ran"}
         try:
             fd = _descend(rollout, out.relative_to(rollout).parts, create=True)
             try:
@@ -264,14 +267,24 @@ class Service:
             text = text.replace(mine, theirs)
         return text
 
-    def _execute(self, cmd: list[str], env: dict, timeout: float) -> tuple[int, str, str]:
-        """cmd in a process group of its own, stopped with its workers at the timeout or when the service stops."""
-        with self.lock:                                     # started and listed at once: stop() sees every run
-            if self.stopping:
-                return 1, "", "bin/sim: the simulator service is stopping"
-            proc = subprocess.Popen(cmd, env=env, cwd=self.root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                    text=True, start_new_session=True)
-            self.running.add(proc)
+    def _execute(self, cmd: list[str], env: dict, timeout: float, own: Path, out: Path | None = None,
+                 gpu=()) -> tuple[int, str, str]:
+        """cmd confined (sim.confine: it reads this run's own directory, the program, and writes only its output),
+        in a process group of its own, stopped with its workers at the timeout or when the service stops."""
+        box, args, env = sim.confine(cmd, root=self.root, env=env, readable=[own], writable=[out] if out else [],
+                                     gpu=gpu,
+                                     hidden=[self.ledger.path.parent, self.scratch, *self.workspaces])
+        try:
+            with self.lock:                                 # started and listed at once: stop() sees every run
+                if self.stopping:
+                    box.close()
+                    return 1, "", "bin/sim: the simulator service is stopping"
+                proc = subprocess.Popen(args, env=env, cwd=self.root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        text=True, start_new_session=True)
+                self.running.add(proc)
+        except BaseException:
+            box.close()
+            raise
         try:
             stdout, stderr = proc.communicate(timeout=timeout)
             return proc.returncode, stdout, stderr
@@ -282,6 +295,7 @@ class Service:
         finally:
             with self.lock:
                 self.running.discard(proc)
+            box.close()
 
     @staticmethod
     def _kill(proc: subprocess.Popen, sig: int) -> None:
@@ -335,12 +349,14 @@ def main() -> None:
     ap.add_argument("--sim-env", default="{}", help="the simulator's environment, a JSON object")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--run-timeout", type=float, default=4 * 3600, help="seconds a run may take")
+    ap.add_argument("--gpu", default="", help="the GPUs the simulator renders on, the N of /dev/nvidia<N> (8,9); "
+                                              "none: software rendering")
     ap.add_argument("--nonce", default="", help="returned by /health: the launcher's check that it is this service")
     a = ap.parse_args()
     a.state.mkdir(parents=True, exist_ok=True)
     tasks = {r["id"]: r for r in (json.loads(line) for line in a.tasks.read_text().splitlines() if line.strip())}
     service = Service(a.aspire_root.resolve(), tasks, a.workspaces, Ledger(a.state / "ledger.json"),
-                      json.loads(a.sim_env), a.workers, run_timeout=a.run_timeout)
+                      json.loads(a.sim_env), a.workers, run_timeout=a.run_timeout, gpu=sim.gpus_of(a.gpu))
     service.nonce = a.nonce
 
     def _bye(sig, frame):                                   # launch.sh's trap: the runs go with the service

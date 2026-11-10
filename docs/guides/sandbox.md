@@ -78,6 +78,15 @@ The pieces, in the order they are applied:
    (`CLAUDE_CODE_OAUTH_TOKEN`) is none of these: it passes by name with the one call that runs a session on it.
 8. **Limits.** `memory_mb`, `file_mb` and `cpu_s` become `RLIMIT_AS`, `RLIMIT_FSIZE` and `RLIMIT_CPU`, set on the
    command by the relay.
+9. **GPUs.** `/dev` holds no GPU by default: CUDA finds no device, and EGL renders in software where the system
+   has Mesa's llvmpipe (none: no EGL device at all).
+   `environment.gpu: [8]` shows NVIDIA GPU 8 (the N of `/dev/nvidia<N>`, a GPU's Minor Number in `nvidia-smi -q`)
+   and nothing of the others: its device, the driver's `nvidiactl`, `nvidia-uvm` and, when present,
+   `nvidia-modeset` and `nvidia-caps` (MIG), and read-only what CUDA and EGL read to find it: `/sys/devices`,
+   `/sys/bus/pci`, `/sys/module/nvidia`, `/sys/module/nvidia_uvm`. Inside, the shown GPUs count from 0, so a
+   program selects them as `cuda:0` or `MUJOCO_EGL_DEVICE_ID=0`, not by their numbers on the host (and
+   `CUDA_VISIBLE_DEVICES` is left unset). A GPU the machine lacks refuses the call. NVIDIA only; not with
+   `environment.image`.
 
 ## Network
 

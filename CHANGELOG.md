@@ -28,6 +28,11 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- GPUs in the bubblewrap sandbox: `environment.gpu: [<N>, ...]` shows those NVIDIA GPUs (the N of `/dev/nvidia<N>`)
+  in the task sandbox and its tools' and judge's, with what CUDA and EGL read to find them (the driver's devices and,
+  read-only, `/sys/devices`, `/sys/bus/pci`, `/sys/module/nvidia(_uvm)`), and nothing of the other GPUs; inside they
+  count from 0. `Sandbox(gpu=...)` for a sandbox a task starts itself. Without it, as before, a sandbox has no GPU (EGL
+  renders in software where Mesa is installed).
 - Pi as a CLI Base Agent (`pi`): the acting agent `agent.base: pi` and the `pi` Evolver run Pi 1.5's `--mode json`
   in its own home, offline, with a model reference as Pi's `models.json` provider (the key as `$VARIABLE`); the
   call's tools are an MCP server offered directly; a failed request fails the session although Pi exits 0. Pi takes
@@ -171,6 +176,13 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
+- ASPIRE's generated programs ran unconfined on the host: cap-harness runs them, and ASPIRE's program validator is
+  passed by a format string's attribute traversal, so a program could read and write the host's files (other
+  sessions' workspaces, the judge's Stage 2 runs) and run held-out seeds itself. Every cap-harness process (the
+  simulator service's, the judge's, the direct actor's) now runs in a bubblewrap sandbox of its own
+  (`examples/aspire_robosuite/utils/agent/sim.py`: `confine`) that reads ASPIRE's checkout, writes only its run's
+  output, reaches only the providers' ports and renders on the GPUs `ASPIRE_SIM_GPU` names (Mesa's software
+  renderer without one).
 - A deployed workspace's tool server (`.codex/config.toml`, `.mcp.json`, `.pi/mcp.json`) in a task-sandboxed
   acting run crashed at startup, so the adapter's tools never loaded: its sandboxed Session loads no adapter in
   the server's process, and the server now reads the manifest from the Session.
