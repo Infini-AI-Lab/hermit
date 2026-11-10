@@ -177,15 +177,25 @@ def trace_source(log: Path | None) -> tuple[Path, str] | None:
 
 # The texts the learners read name the acting agent's event stream as the framework's Codex agent keeps it; with
 # another acting agent the same sentences name its own (the Debugger and the Evolve Agent run on the Evolver's CLI).
-STREAM_TEXTS = {"agent-claude.jsonl": (("agent-codex.jsonl", "agent-claude.jsonl"),
+STREAM_TEXTS = {"agent-pi.jsonl": (("agent-codex.jsonl", "agent-pi.jsonl"),
+                                   ("the raw Codex event stream", "the raw Pi event stream"),
+                                   ("the Codex event stream", "the Pi event stream"),
+                                   ("`codex exec --json` event stream", "`pi --mode json` event stream")),
+                "agent-mini-swe-agent.jsonl": (("agent-codex.jsonl", "agent-mini-swe-agent.jsonl"),
+                                               ("the raw Codex event stream", "the raw mini-swe-agent event stream"),
+                                               ("the Codex event stream", "the mini-swe-agent event stream"),
+                                               ("`codex exec --json` event stream",
+                                                "`python -m hermit.agent.base.mini_swe_agent_run` event stream")),
+                "agent-claude.jsonl": (("agent-codex.jsonl", "agent-claude.jsonl"),
                                        ("the raw Codex event stream", "the raw Claude Code event stream"),
                                        ("the Codex event stream", "the Claude Code event stream"),
                                        ("`codex exec --json` event stream",
                                         "`claude -p --output-format stream-json` event stream")),
-                "agent-pi.jsonl": (("agent-codex.jsonl", "agent-pi.jsonl"),
-                                   ("the raw Codex event stream", "the raw Pi event stream"),
-                                   ("the Codex event stream", "the Pi event stream"),
-                                   ("`codex exec --json` event stream", "`pi --mode json` event stream"))}
+                "agent-opencode.jsonl": (("agent-codex.jsonl", "agent-opencode.jsonl"),
+                                         ("the raw Codex event stream", "the raw OpenCode event stream"),
+                                         ("the Codex event stream", "the OpenCode event stream"),
+                                         ("`codex exec --json` event stream",
+                                          "`opencode run --format json` event stream"))}
 
 
 def stream_of(logs) -> str:

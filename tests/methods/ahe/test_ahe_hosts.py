@@ -668,6 +668,29 @@ def test_a_state_with_an_unencodable_character_is_saved(tmp_path, capsys, monkey
 
 # --- the Evolver's texts -----------------------------------------------------------------------------------------
 
+def test_the_evolvers_texts_name_every_acting_agents_stream_it_reads():
+    """A Pi, mini-swe-agent or OpenCode acting agent's sessions keep their own stream (agent-pi.jsonl,
+    agent-mini-swe-agent.jsonl, agent-opencode.jsonl), which rollout_stream finds: the learners' texts name it, not
+    Codex's file, which is not there."""
+    from hermit.agent.base.trajectory import CODEX_STREAM, STREAMS
+    from hermit.agent.evolver.methods.ahe_adapter import analysis as A, debugger as D
+    import test_ahe_analysis as AN
+    methods = T.ROOT / "hermit" / "agent" / "evolver" / "methods" / "ahe_adapter"
+    stats = A.compute_stats([AN.rec("a", 1, **AN.PASS), AN.rec("b", 1, **AN.FAIL)])
+    query = A.build_evolution_query({"learning_material": "lm", "state": "st", "adapter": "ad"}, stats, step=2)
+    texts = [(methods / name).read_text() for name in ("START.md", "DEBUGGER.md")] + [query]
+    for stream in set(STREAMS) - {CODEX_STREAM}:
+        for text in texts:
+            words = D.for_stream(text, stream)
+            assert "agent-codex.jsonl" not in words and "Codex event stream" not in words, stream
+            assert "codex exec --json" not in words, stream
+        assert stream in D.for_stream(texts[0], stream)
+    for stream, command in (("agent-pi.jsonl", "pi --mode json"),
+                            ("agent-mini-swe-agent.jsonl", "python -m hermit.agent.base.mini_swe_agent_run"),
+                            ("agent-opencode.jsonl", "opencode run --format json")):
+        assert f"`{command}` event stream" in D.for_stream(texts[1], stream)
+
+
 def test_the_evolvers_texts_name_the_acting_agents_stream(tmp_path):
     """START.md, the evolution query and the Debugger's question name Claude Code's stream when the rollouts are its
     sessions, and are the files' own for Codex's."""

@@ -362,7 +362,7 @@ def test_a_uv_alias_inside_a_granted_checkout_is_bound_once(tmp_path, monkeypatc
 
 @pytest.mark.integration                                          # the CLI installed on the machine
 @pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
-@pytest.mark.parametrize("cli", ["codex", "claude", "pi"])
+@pytest.mark.parametrize("cli", ["codex", "claude", "pi", "opencode"])
 def test_an_installed_cli_starts_with_only_its_own_paths(cli):
     """The built-in CLI agents: the CLI as installed (an nvm package, a ~/bin wrapper) starts inside, with no home."""
     from hermit.sandbox import program_paths

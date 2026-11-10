@@ -35,7 +35,8 @@ example's `make_rows.py` writes them. The learners' CLI does not depend on the a
 deploy the adapter as `hermit deploy` does for its host, so that the host's hooks run the middleware (Codex:
 `.codex/hooks.json`; Claude Code: `hooks` in `.claude/settings.json`). Pi runs no hooks: its deployment lists the hook
 commands for the agent to run by hand, and run so, without an event's payload, only `session_start` has something to do
-(it hands the memory over).
+(it hands the memory over). OpenCode is not one of the template's hosts: its middleware refuses a copy deployed into
+an OpenCode workspace.
 
 ## The template
 
@@ -154,7 +155,7 @@ this framework's own code.
 | Dimension | AHE (8b2a55d) | This Evolver | Why |
 |---|---|---|---|
 | When learning happens | Once per iteration, after k = 2 rollouts of every task; 10 iterations | The same: a step is every trial row, ten steps | Same |
-| What the learner sees | The Debugger: each task's NexAU traces (with a per-turn timing breakdown for a timed-out rollout) and verifier output; the Evolve Agent: the overview, per-task reports, verdicts, history | The same, with the acting agent's event stream (Codex's or Claude Code's; whole, and one file per standard step) and the hook audit as the traces and the judge's feedback as the verifier output; no timing breakdown, since the stream has no timestamps | Framework: the host's trace format |
+| What the learner sees | The Debugger: each task's NexAU traces (with a per-turn timing breakdown for a timed-out rollout) and verifier output; the Evolve Agent: the overview, per-task reports, verdicts, history | The same, with the acting agent's event stream (the one its CLI wrote; whole, and one file per standard step) and, on the hosts that run hooks (Codex, Claude Code), the hook audit as the traces, and the judge's feedback as the verifier output; no timing breakdown, which comes only from a Harbor trial's `agent/trajectory.json` | Framework: the host's trace format |
 | What is learned | NexAU's prompt, tool descriptions and implementations, middleware classes, skills, sub-agents, memory | The adapter's files (the table above), the same on either host; the host's loop and tools are fixed | Framework: the acting agent is fixed; the reason for the name |
 | The update | Edits plus a manifest of predictions, attributed at the next iteration; Algorithm 1 reverts HARMFUL changes, the released code leaves it to the agent | The same manifest and rules; `rollback: auto` (the paper) or `agent` (the code) | Decision: the paper by default |
 | Final harness | The best iteration by pass@1 | The best-ever commit, the harness its rollouts ran (Algorithm 1 line 15 names the harness after the next edit, which no rollout measured) | Decision |

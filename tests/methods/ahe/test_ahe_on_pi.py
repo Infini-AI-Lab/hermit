@@ -35,9 +35,3 @@ def test_an_effort_pi_does_not_take_is_refused_at_setup(tmp_path):
     with pytest.raises(ValueError, match="evolver.params.effort is one of off, minimal.*for Pi, not 'max'"):
         AHEAdapterEvolver().setup(roles_ctx(tmp_path, {"login": None, **bound_params(), "effort": "max"}))
 
-
-def test_the_learners_texts_name_a_pi_acting_agents_stream():
-    from hermit.agent.evolver.methods.ahe_adapter import debugger as D
-    text = "the Codex event stream, `agent-codex.jsonl` (the raw Codex event stream, `codex exec --json` event stream)"
-    assert D.for_stream(text, "agent-pi.jsonl") == ("the Pi event stream, `agent-pi.jsonl` (the raw Pi event stream, "
-                                                    "`pi --mode json` event stream)")

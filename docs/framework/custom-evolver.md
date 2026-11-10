@@ -75,7 +75,7 @@ You can reuse a launcher instead of implementing a new Python learning loop:
 | `hermit.agent.evolver.agent:AgentEvolver` | Backend, prompt files, model selection, and host arguments. | The learner agent edits the working directory. |
 | `hermit.agent.evolver.agent:CommandEvolver` | An external command and optional environment values. | The program edits the working directory and may write a result file. |
 
-`AgentEvolver` supports `codex`, `claude` and `pi`. Its parameters include `backend`, `prompt`, `resume_prompt`, `model`,
+`AgentEvolver` supports `codex`, `claude`, `pi` and `opencode`. Its parameters include `backend`, `prompt`, `resume_prompt`, `model`,
 `args`, and `home`. Prompt placeholders include the workspace paths, `message`, `epoch`, and `step`.
 The bundled definitions are under `hermit/agent/evolver/methods/`.
 
