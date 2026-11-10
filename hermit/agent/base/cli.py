@@ -1337,13 +1337,24 @@ def _final_turn(objects: list[dict]) -> str:
 PI_PROVIDER = "hermit"      # the models.json provider a bound model is given under
 PI_SETTINGS = {"cacheWarming": "off",                    # no provider requests besides the session's own
                "enableInstallTelemetry": False}
+PI_COMMAND_TIMEOUT_S = 600  # a bash command's limit when the model gives none (command_timeout_s; Pi's own: none)
+PI_COMMAND_LIMIT = """\
+// Hermit's: a bash command the model gave no time limit stops after {seconds} s (Pi's own default is none).
+export default function (pi) {{
+  pi.on("tool_call", async (event) => {{
+    if (event.toolName === "bash" && !(event.input.timeout > 0)) event.input.timeout = {seconds};
+  }});
+}}
+"""
 
 
 class Pi(CliAgent):
     """Pi (`pi --mode json`). Its home is its agent directory (PI_CODING_AGENT_DIR) and its HOME, offline (no catalog,
     update or download requests); a bound model is the models.json provider `hermit`, its key read by Pi from the
     backend's variable; the call's tools are an MCP server whose tools the model is offered directly. Pi reports a
-    failed request in its stream and exits 0: whether the session failed is read from the stream (`outcome`)."""
+    failed request in its stream and exits 0: whether the session failed is read from the stream (`outcome`). Pi's
+    bash has no time limit of its own: a command the model gives none stops after `command_timeout_s` (600 s; 0 for
+    none)."""
     name = backend = program = "pi"
     label = "Pi"
     home_var, user_folder = "PI_CODING_AGENT_DIR", ".pi/agent"
@@ -1372,8 +1383,8 @@ class Pi(CliAgent):
 
     def prepare_home(self, home, roles, tools_url, tools_name):
         """models.json (the bound model), mcp.json (the call's tools, offered directly rather than through Pi's code
-        mode) and settings.json. No host path is written in them: a sandbox translates only the command, the
-        environment and the prompt."""
+        mode), settings.json and the extension that limits a command's time. No host path is written in them: a
+        sandbox translates only the command, the environment and the prompt."""
         if roles:
             raise Unsupported("pi has no sub-agents: it takes no roles")
         s = self.settings
@@ -1396,6 +1407,17 @@ class Pi(CliAgent):
         for name, data in (("mcp.json", {"mcpServers": servers}), ("settings.json", PI_SETTINGS)):
             _clear(home / name)
             (home / name).write_text(json.dumps(data, indent=1))
+        # Pi's bash runs a command until it ends unless the model gives it a limit (Claude Code's Bash stops one
+        # after 2 minutes): an extension where Pi finds its own gives the others command_timeout_s, so one command
+        # that never ends (a search of the whole disk) costs that, not the caller's whole limit. The folder is
+        # Hermit's alone: what a session left in it is not loaded again.
+        limit = float(s.get("command_timeout_s", PI_COMMAND_TIMEOUT_S) or 0)      # 0 or None: no limit
+        folder = home / "extensions"
+        _clear(folder)                        # a directory or a link
+        folder.unlink(missing_ok=True)        # a file
+        if limit > 0:
+            folder.mkdir()
+            (folder / "hermit-command-limit.js").write_text(PI_COMMAND_LIMIT.format(seconds=format(limit, "g")))
 
     @classmethod
     def web_search_args(cls, enabled: bool) -> list[str]:

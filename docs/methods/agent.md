@@ -25,7 +25,9 @@ files its acting agent can read. Pi's `grep` and `find` tools run `rg` and `fd`,
 digesters get them only where the machine has them. Pi caps one reply at 16384 tokens unless the backend says otherwise:
 a reply cut there comes back with `finish_reason: length`, or fails the session that needed it whole. Where a long answer
 is due (EvoSafe's whole files) and the model reasons at length, give the backend a larger
-[`max_output_tokens`](../guides/model-backends.md).
+[`max_output_tokens`](../guides/model-backends.md). Pi's `bash` has no time limit of its own: a command the model
+gives none stops after 600 seconds (the Pi Base Agent's `command_timeout_s`; `0` for none), so one command that never
+ends costs that much of a step, not the whole call.
 
 ## Requirements and setup
 

@@ -34,6 +34,7 @@ home = Path(os.environ["PI_CODING_AGENT_DIR"])
 files = {{p.name: p.read_text() for p in sorted(home.glob("*.json*")) if p.is_file()}}
 names = ("PI_CODING_AGENT_DIR", "HOME", "PI_OFFLINE", "PI_TELEMETRY", "PI_CODING_AGENT_SESSION_DIR", "FAKE_KEY")
 seen = {{"args": sys.argv[1:], "env": {{k: os.environ.get(k) for k in names}}, "files": files,
+         "extensions": {{p.name: p.read_text() for p in sorted(home.glob("extensions/*")) if p.is_file()}},
          "stdin": sys.stdin.read()}}
 with open(os.environ["FAKE_PI_SEEN"], "a") as f:
     f.write(json.dumps(seen) + "\\n")
@@ -340,6 +341,29 @@ def test_pi_refuses_an_effort_it_does_not_take_and_keeps_no_session_when_told(fa
     assert "--no-session" in args and args[args.index("--thinking") + 1] == "max"
 
 
+def test_a_command_the_model_gives_no_time_limit_gets_the_sessions_and_only_hermits_extension_is_in_the_home(fake):
+    """Pi's bash runs a command until it ends unless the model gives it a limit: Hermit's extension in the session's
+    home gives the others `command_timeout_s` (600 s unless set; 0 for none). The home's extensions folder is
+    Hermit's alone, so what a session left there is gone before the next one."""
+    work, home = fake / "work", fake / "home"
+    work.mkdir()
+    (home / "extensions").mkdir(parents=True)
+    (home / "extensions" / "left.js").write_text("export default function () {}\n")
+    agent = make("pi", {**bound(), "web_search": False, "home": str(home)})
+    agent.run("go", workspace=work)
+    agent.configured(command_timeout_s=30).run("go", workspace=work)
+    agent.configured(command_timeout_s=0).run("go", workspace=work)
+    default, thirty, none = [c["extensions"] for c in seen(fake)]
+    assert list(default) == ["hermit-command-limit.js"]
+    assert 'event.toolName === "bash" && !(event.input.timeout > 0)) event.input.timeout = 600;' in \
+        default["hermit-command-limit.js"]
+    assert "event.input.timeout = 30;" in thirty["hermit-command-limit.js"]
+    assert none == {} and not (home / "extensions").exists()
+    (home / "extensions").write_text("a file, not a folder")
+    agent.run("go", workspace=work)
+    assert list(seen(fake)[-1]["extensions"]) == ["hermit-command-limit.js"]
+
+
 def test_a_model_through_pi_answers_each_request_with_a_session_that_only_replies(fake, monkeypatch):
     from hermit.agent.base.endpoint import cli_answer
     monkeypatch.setenv("FAKE_PI_STREAM", str(STREAMS / "resume.jsonl"))
@@ -586,6 +610,44 @@ def test_with_the_pi_cli_a_limited_session_is_offered_only_what_it_may_use(tmp_p
     finally:
         server.shutdown()
     assert result.extra["served"] and result.reply == "the answer" and asked == [offered]
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not shutil.which("pi"), reason="needs the pi CLI")
+@pytest.mark.parametrize("isolation", ["none", "sandbox"])
+def test_with_the_pi_cli_a_command_without_a_limit_stops_at_the_sessions_and_one_with_a_limit_keeps_it(
+        tmp_path, monkeypatch, isolation):
+    """The installed Pi, bound to a scripted model that runs two commands: one with a limit of its own, which it keeps,
+    and one without, which Hermit's extension stops after `command_timeout_s`; the session goes on to its answer."""
+    import time
+    from hermit.sandbox import Sandbox
+    if isolation == "sandbox" and not _bwrap_works():
+        pytest.skip("needs a working bubblewrap")
+
+    def script(body):
+        done = sum(1 for m in body.get("messages") or [] if m.get("role") == "tool")
+        plan = [("bash", {"command": "sleep 3; echo kept", "timeout": 30}), ("bash", {"command": "sleep 60; echo late"})]
+        return plan[done] if done < len(plan) else None
+
+    server, url = serve_chat(script)
+    monkeypatch.setenv("MOCK_KEY", "sk-mock")
+    params = bind_agent_params({"model": "mock/m-1"}, "pi",
+                               registry({"mock": {"base_url": url, "api_key_env": "MOCK_KEY", "apis": ["chat"]}}))
+    work = tmp_path / "work"
+    work.mkdir()
+    settings = {**params, "web_search": False, "home": str(tmp_path / "home"), "isolation": isolation,
+                "timeout_s": 300, "command_timeout_s": 2}
+    if isolation == "sandbox":
+        settings["sandbox"] = Sandbox(network="isolated", env_allow=[], writable=[work], role="agent",
+                                      record_dir=tmp_path / "records")
+    start = time.monotonic()
+    try:
+        result = make("pi", settings).run("Do the task.", workspace=work)
+    finally:
+        server.shutdown()
+    assert result.extra["served"] and result.reply == "the answer" and time.monotonic() - start < 45
+    kept, stopped = [s for s in result.trajectory if s.kind == "command"]
+    assert "kept" in kept.output and "late" not in stopped.output and "timed out" in stopped.output.lower()
 
 
 @pytest.mark.integration
