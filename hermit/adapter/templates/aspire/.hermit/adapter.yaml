@@ -1,0 +1,24 @@
+# The ASPIRE adapter (arXiv:2607.00272, §2.2): the skill library, Markdown files of entries that carry a validated
+# repair from one robot task to the next. The acting agent reads the whole library as its context (files as
+# context; the paper has no retrieval ranking); only the Evolver, the coordinator, writes it, and only entries a
+# fresh verifier reproduced.
+template:
+  id: aspire
+  version: "1.0"
+  contract: "2"
+  name: ASPIRE skill library
+structure:
+  learnable:
+    - path: ADAPTER.md                 # the actor's instructions above the library
+      format: {text: true, max_bytes: 8000}
+    - path: skills/README.md           # the library's index: one row per skill file
+      format: {text: true, max_bytes: 8000}
+    - path: skills/*.md                # the skill files: entries under `## <title>`
+      format: {text: true, max_bytes: 24000, max_files: 13}   # README.md and at most 12 skill files
+  fixed:
+    - exports.yaml                     # the reader's wiring: the context tool must stay
+    - interface.py
+    - README.md
+check: .hermit/check.py:check
+# The reader renders the library per task, before the actor's first model call; `hermit deploy` has no such moment.
+plugin-portable: false

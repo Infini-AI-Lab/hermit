@@ -75,6 +75,7 @@ methods/mwm
 methods/harness2
 methods/continual_harness
 methods/reharness
+methods/aspire
 methods/meta_harness_adapter
 methods/ace
 methods/ahe_adapter

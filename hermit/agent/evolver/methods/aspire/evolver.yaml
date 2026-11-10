@@ -1,0 +1,16 @@
+description: >-
+  ASPIRE's coordinator (arXiv:2607.00272): a Codex or Claude Code session that updates the skill library from each
+  finished robot task's findings and skill report, admits proposals only after a fresh verifier re-solves the task
+  from the library and the proposals alone (run_agent on the task's verifier row), and chooses the next task.
+class: evolver.py:AspireEvolver
+needs: [validation_data]       # the verifier's rows (verify-<task id>) are data.val
+params:
+  backend: codex
+  prompt: COORDINATOR.md
+  args: []
+  model: null                  # the session's model; evolver.model in the layered form
+  price: null
+  home: []                     # nothing of the user's agent home: the model comes from the binding
+  tools: [check_spec, run_agent]
+  web_search: false
+  hide: null

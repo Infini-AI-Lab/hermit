@@ -111,6 +111,14 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - The OPRO method (Yang et al., ICLR 2024, arXiv:2309.03409): the `opro` Evolver on the `prompt-only` template, one
   OPRO step per training step, with the authors' meta-prompt verbatim; the optimizer is the run's `llm`
   (`docs/methods/opro.md`). OPRO on OfficeQA: `examples/officeqa/opro/`, in the GPT-5.6-Luna setting.
+- ASPIRE (arXiv:2607.00272) as a method, with its three roles as Codex sessions given ASPIRE's own prompts: the
+  `aspire` template (a skill library of Markdown entries rendered whole as the actor's context, every snippet checked
+  under the CaP program rules, no privileged access) and the `aspire` Evolver (the coordinator: an agent Evolver with
+  ASPIRE's guide that repairs graded entries, verifies proposals with `run_agent` on the task's verifier row, and
+  chooses the next task through `StepResult.next_tasks`), with `examples/aspire_robosuite/`: the fix-loop subagent,
+  its evolutionary search and the verifier as the Codex acting agent in the task sandbox, which reaches ASPIRE's robot
+  execution engine through a simulator service on the host (the sandbox has no GPU) that holds its seed rules; the
+  judge runs Stage 2 on the host.
 
 ### Changed
 

@@ -1,0 +1,45 @@
+# The structured direct-chat actor (utils/agent/agent.py) in place of Codex: a comparison with ASPIRE's coding agent.
+# ASPIRE on Robosuite: the seven Robosuite tasks of ASPIRE's harness as one curriculum, one task per step; each
+# task's actor debugs its program on ASPIRE's development seeds (101-125) and is scored once on held-out seeds; after
+# every task the coordinator repairs and grows the skill library through the verifier gate. Started by launch.sh,
+# inside the host that runs ASPIRE's perception, IK and planning services (see ../README.md).
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/all.txt
+  val: ../utils/splits/verify.txt   # the verifier's rows: run only by the coordinator, through run_agent
+  test: ../utils/splits/rerun.txt   # every task again with the final library: ASPIRE's backward transfer
+  step_size: 1                      # one task per step: the coordinator acts on each task as it finishes
+  shuffle: false                    # the curriculum in the split's order
+task_info: ../utils/task-info
+agent:
+  name: ../utils/agent/agent.py:AspireActor
+  concurrency: 1                    # one simulator sweep at a time on the engine's GPU
+  params:
+    aspire_root: $ASPIRE_ROOT       # an ASPIRE checkout with .venv-robosuite (launch.sh)
+    sim_env: {}                     # the engine's environment; launch.sh fills it from ASPIRE_SIM_ENV
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash
+    effort: medium
+    max_versions: 8                 # ASPIRE: 8 versions in total
+    search: evo                     # the evolutionary search after the fix loop, for tasks below 90%
+    evo: {k: 8, rounds: 5, threshold: 0.8, qualify_below: 0.9, parents: 3}
+    workers: 4
+judge:
+  path: ../utils/judge.py
+template: aspire
+evolver:                            # the coordinator, as in run.yaml
+  name: aspire
+  base: codex
+  model: {ref: fireworks/accounts/fireworks/models/glm-5p3-flash, effort: medium}
+  codex: {web_search: false}
+environment:
+  runner: host                      # the direct actor starts the GPU simulator itself: on the host (a comparison)
+sandbox:
+  enabled: true
+  enforce: required
+trainer:
+  run_name: aspire-direct
+  epochs: 1
+  call_timeout_min: 720             # one task: up to 8 fix-loop sweeps and 40 search sweeps of 25 seeds
+  budget: {usd: 200, hours: 96}
+eval:
+  repeats: 1
