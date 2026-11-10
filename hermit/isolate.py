@@ -47,7 +47,7 @@ from hermit.agent.base.cli import CLIS
 from hermit.agent.base.endpoint import cli_endpoint, endpoint_spec
 from hermit.redact import redact_name, redact_tree
 from hermit.sandbox import (LIMITS, NETWORK_MODES, PACKAGE, AllowlistProxy, Bind, Sandbox, framework_env,
-                            hidden_paths, model_access, network_mode, owner_readable, package_closure,
+                            gpu_list, hidden_paths, model_access, network_mode, owner_readable, package_closure,
                             program_paths, sanitized_copy, set_hidden)
 from hermit.task import RunOutput, load_callable, output_record
 
@@ -110,6 +110,10 @@ def validate(config) -> None:
         raise ValueError(f"environment.network must be one of {list(NETWORK_MODES)}, not {env.get('network')!r}")
     if env.get("allowed_hosts") and env["network"] != "allowlist":
         raise ValueError("environment.allowed_hosts needs environment.network: allowlist")
+    try:
+        gpu_list(env.get("gpu"))
+    except ValueError as exc:
+        raise ValueError(f"environment.{exc}") from None
     hide = [] if s.get("hide") is None else s["hide"]
     if not isinstance(hide, list) or not all(isinstance(n, str) for n in hide):
         raise ValueError("sandbox.hide must be a list of module or package names")
@@ -192,6 +196,9 @@ def validate(config) -> None:
         if env.get("resources"):
             raise ValueError("environment.resources are the bubblewrap sandbox's limits; a container "
                              "(environment.image) keeps its own (hermit/agent/base/container.py)")
+        if env.get("gpu"):
+            raise ValueError("environment.gpu shows GPUs in the bubblewrap sandbox; a container (environment.image) "
+                             "has none")
     if not reason and kind and not params.get("binding") and codex_login.LOGINS.get(params.get("login")) != kind:
         raise ValueError("a CLI acting agent in the task sandbox signs in through a model reference (agent.params.model:"
                          " <backend>/<model>, its key variable passed in) or its CLI's login (login: chatgpt for "
@@ -509,7 +516,7 @@ class SandboxedAgent:
                                env_allow=[*(envc.get("env") or []), *model_keys], enforce=self.enforce,
                                packages=list(envc.get("packages") or []), framework=True, record_dir=records,
                                probe_absent=[*HOME_SECRETS, *run_secrets(config)],
-                               limits=dict(envc.get("resources") or {}), role=role)
+                               limits=dict(envc.get("resources") or {}), gpu=gpu_list(envc.get("gpu")), role=role)
         # What the config declares (not the CLI's installation), searched again for run records before calls.
         self._recheck = Recheck([*config_paths(config, "environment.read", envc.get("read")),
                                  *config_paths(config, "environment.write", envc.get("write"))])
@@ -824,7 +831,8 @@ class ToolRunner:
                                 proxy_url=self.allow_proxy.url if self.allow_proxy else None,
                                 env_allow=["PYTHONPATH", *(envc.get("env") or [])], enforce=enforce,
                                 packages=list(envc.get("packages") or []), record_dir=records, probe_absent=probe,
-                                limits=dict(envc.get("resources") or {}), role="task-tool")
+                                limits=dict(envc.get("resources") or {}), gpu=gpu_list(envc.get("gpu")),
+                                role="task-tool")
         self.timeout = float(d["trainer"].get("call_timeout_min") or 60) * 60
         self._recheck = Recheck([*readable, *writable])          # a task tool's grants, searched again
 

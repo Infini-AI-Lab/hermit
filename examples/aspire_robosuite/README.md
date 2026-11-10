@@ -45,14 +45,19 @@ only if a fresh verifier re-solves the task from the library and the proposals a
    server that speaks the SAM3 wire format (`POST /segment`, `POST /segment_point`, `GET /openapi.json`; point
    `CAP_HARNESS_SAM3_URL` at it): see [Segmentation without SAM3](#segmentation-without-sam3).
 
-3. **The simulator's render device.** MuJoCo renders offscreen with EGL, and EGL device enumeration ignores
-   `CUDA_VISIBLE_DEVICES`. Put the simulator's environment in a YAML map and pass it as `ASPIRE_SIM_ENV`:
+3. **The simulator's render device.** MuJoCo renders offscreen with EGL. Every cap-harness process runs in a
+   sandbox of its own (see [The actor's rules](#the-actors-rules)), which shows only the GPUs `ASPIRE_SIM_GPU`
+   names: the N of `/dev/nvidia<N>` (`nvidia-smi -q` shows it as a GPU's Minor Number), e.g. `ASPIRE_SIM_GPU=8`.
+   Without it the simulator renders in software (Mesa's llvmpipe, which the host must have), slowly. A hand-extracted
+   NVIDIA EGL library (`__EGL_VENDOR_LIBRARY_FILENAMES`) is shown to it; other paths it needs go in
+   `ASPIRE_SIM_READ` (`:`-separated). Put the rest of the simulator's environment in a YAML map and pass it as
+   `ASPIRE_SIM_ENV`:
 
    ```yaml
    MUJOCO_GL: egl
    PYOPENGL_PLATFORM: egl
    EGL_PLATFORM: device
-   MUJOCO_EGL_DEVICE_ID: "0"      # the EGL device of the GPU you render on; check it, see below
+   MUJOCO_EGL_DEVICE_ID: "0"      # inside the sandbox the GPUs ASPIRE_SIM_GPU names count from 0
    ```
 
 4. **Codex and the sandboxes.** The actor and the coordinator are Codex CLI sessions (`codex` on `PATH`; the configs
@@ -115,6 +120,22 @@ verifier's two programs, writing the runs into the workspace. The held-out seeds
 host (ASPIRE's Stage 2), on the program the session selected. The actor's Codex runs with its own sandbox off
 (`codex_sandbox: danger-full-access`), the task sandbox being the boundary.
 
+The programs the actor writes run inside cap-harness on the host, and ASPIRE's program validator is no boundary (a
+format string's attribute traversal passes it). So every cap-harness process, the service's, the judge's and the
+direct actor's, runs in a bubblewrap sandbox of its own (`utils/agent/sim.py`: `confine`): it reads ASPIRE's
+checkout but not its worked solutions, agents' skills or tests (`examples/`, `.claude/`, `.agents/`, `.codex/`,
+`tests/`) nor run storage inside it, writes only its run's own output, reaches only the providers (their loopback
+ports; one a `CAP_HARNESS_*_URL` puts on another host through an allowlist proxy for that host), and sees only the
+GPUs `ASPIRE_SIM_GPU` names (hermit's `Sandbox(gpu=...)`). A program that escapes the validator reaches no other
+session, none of the judge's runs and no host file, and what it leaves in its output is read without following a
+link. It still runs in cap-harness's own process, so it could write its own run's outcome: the score of such a
+program is not trustworthy, and the boundary is that it can affect nothing else. This sandbox is the example's own:
+it is on whatever the run's `sandbox.enabled` says, so the simulator always needs bubblewrap (the service refuses
+to start without it, or with an `ASPIRE_SIM_GPU` the machine lacks). Each run gets a HOME of its own, removed
+after it; the host's `CUDA_VISIBLE_DEVICES` is not passed in (inside, the GPUs count from 0); each confined run
+leaves its sandbox record under `$ASPIRE_OUT/sim-service/sandbox/` (the service's) or `$ASPIRE_OUT/sandbox/` (the
+judge's).
+
 ## Segmentation without SAM3
 
 ASPIRE's programs segment with SAM3 (`facebook/sam3`, gated). Any service with the SAM3 wire format can stand in.
@@ -132,9 +153,10 @@ downloaded on first start.
 
 ## Checking the render device
 
-EGL's device order need not match `nvidia-smi`'s. Query each EGL device's CUDA device with `EGL_CUDA_DEVICE_NV`
-(the NVIDIA EGL vendor library answers it) and confirm with `nvidia-smi` that the render process lands on the GPU
-you intended. A host whose libEGL finds only Mesa's driver (`failed to open /dev/dri/cardN`) needs NVIDIA's EGL
+Inside the simulator's sandbox EGL finds only the GPUs `ASPIRE_SIM_GPU` names, so `MUJOCO_EGL_DEVICE_ID: "0"` is the
+first of them. Confirm with `nvidia-smi` that the render process lands on the GPU you intended; a run whose
+keyframes take seconds each is rendering in software (no `ASPIRE_SIM_GPU`, or a GPU the sandbox could not
+use). A host whose libEGL finds only Mesa's driver (`failed to open /dev/dri/cardN`) needs NVIDIA's EGL
 vendor library (`libEGL_nvidia.so.0`, the driver's `libnvidia-gl` package) and
 `__EGL_VENDOR_LIBRARY_FILENAMES` naming its ICD file.
 

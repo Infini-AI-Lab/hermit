@@ -44,6 +44,8 @@ environment:                   # the task sandbox, where the acting agent runs (
   network: no-network          # no-network | allowlist | public; the agent's model and the tool endpoint stay reachable
   allowed_hosts: []            # allowlist: hosts reachable through the allowlist proxy
   resources: {}                # memory_mb, file_mb, cpu_s: per process
+  gpu: []                      # NVIDIA GPUs shown, by the N of /dev/nvidia<N> (CUDA and EGL; inside they count from 0);
+                               # none: no GPU (EGL renders in software where Mesa is installed)
 judge:
   path: null
   name: score

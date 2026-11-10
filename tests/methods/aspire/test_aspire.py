@@ -249,11 +249,7 @@ def test_a_failed_direct_task_keeps_what_it_spent(tmp_path, monkeypatch):
 
 
 def test_sim_compact_makes_traces_readable():
-    sys.path.insert(0, str(EXAMPLE / "agent"))
-    try:
-        import sim
-    finally:
-        sys.path.remove(str(EXAMPLE / "agent"))
+    sim = _sim_module()
     value = {"$type": "Pose", "position": {"$array_inline": [0.123456, 1.0, 2.0], "dtype": "float64", "shape": [3]},
              "obs": {"$type": "Observation", "cameras": {}}, "big": {"$array_inline": list(range(40)), "shape": [40]}}
     out = sim.compact(value)
@@ -262,11 +258,7 @@ def test_sim_compact_makes_traces_readable():
 
 
 def test_the_failure_keyframe_is_the_failing_calls_own(tmp_path):
-    sys.path.insert(0, str(EXAMPLE / "agent"))
-    try:
-        import sim
-    finally:
-        sys.path.remove(str(EXAMPLE / "agent"))
+    sim = _sim_module()
     run = tmp_path / "run"
     (run / "source").mkdir(parents=True)
     trace = [{"tool": "open_gripper", "ok": True}] + [{"tool": "move_to_pose", "ok": i != 2} for i in range(4)]
@@ -328,7 +320,10 @@ def fake_aspire(tmp: Path) -> Path:
 
 
 # cap-harness without a simulator: the run's files where ASPIRE writes them (run.json, results.jsonl naming the run's
-# directory, outcome.json), the program and settings it was given; a program saying SLEEP runs until stopped.
+# directory, outcome.json), the program and settings it was given; a program saying SLEEP runs until stopped, and its
+# `# WRITE <path>` / `# READ <path>` lines are tried as a program that escaped ASPIRE's validator would (in run.json),
+# and after the run `# LINK <file> <target>` leaves a link in its output, `# RUNDIR <dir>` names another run_dir and
+# `# CHMOD <path> <mode>` changes a mode (last).
 FAKE_HARNESS = """#!{python}
 import argparse, json, os, pathlib, sys, time
 ap = argparse.ArgumentParser()
@@ -343,15 +338,54 @@ a = ap.parse_args()
 code = pathlib.Path(a.program).read_text()
 if "SLEEP" in code:
     time.sleep(60)
+tried = {{}}
+for line in code.splitlines():
+    what, _, path = line.partition(" ")[2].partition(" ")
+    try:
+        if what == "WRITE":
+            pathlib.Path(path).write_text("escaped")
+        elif what == "READ":
+            pathlib.Path(path).read_text()
+        else:
+            continue
+        tried[path] = "done"
+    except OSError as exc:
+        tried[path] = type(exc).__name__
 out = pathlib.Path(a.output_root)
 run = out / "run-1"
 run.mkdir(parents=True, exist_ok=True)
 (out / "run.json").write_text(json.dumps({{"program": a.program, "max_steps": a.max_steps, "code": code,
-                                          "env": sorted(os.environ)}}))
+                                          "env": sorted(os.environ), "home": os.environ.get("HOME"),
+                                          "tried": tried}}))
 (run / "outcome.json").write_text(json.dumps({{"task_success": True}}))
-(out / "results.jsonl").write_text(json.dumps({{"run_dir": str(run)}}) + chr(10))
+rows = [{{"seed": int(s), "run_dir": str(run)}} for s in (a.seeds or [a.seed])]
+for line in code.splitlines():
+    what, _, rest = line.partition(" ")[2].partition(" ")
+    if what == "LINK":
+        name, target = rest.split()
+        (out / name).unlink(missing_ok=True)
+        (out / name).symlink_to(target)
+    elif what == "RUNDIR":
+        rows = [dict(r, run_dir=rest) for r in rows]
+pathlib.Path(a.results_jsonl or out / "results.jsonl").write_text("".join(json.dumps(r) + chr(10) for r in rows))
+for line in code.splitlines():
+    what, _, rest = line.partition(" ")[2].partition(" ")
+    if what == "CHMOD":
+        name, mode = rest.split()
+        os.chmod(out / name, int(mode, 8))
 print("ran", a.program, "into", out, "max_steps", a.max_steps)
 """
+
+
+def _bwrap_works() -> bool:
+    """A bubblewrap that can make its namespaces here: every simulator run is confined (sim.confine)."""
+    if not shutil.which("bwrap"):
+        return False
+    return subprocess.run(["bwrap", "--unshare-user", "--unshare-net", "--ro-bind", "/", "/", "true"],
+                          capture_output=True).returncode == 0
+
+
+needs_bwrap = pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap: simulator runs are confined")
 
 
 ROW = {"id": "robosuite-cube_lifting", "suite": "cube_lifting", "task_id": 0, "debug_seeds": "101-103",
@@ -483,6 +517,7 @@ def test_a_verifier_may_run_two_programs_and_sees_the_staged_proposals(tmp_path,
     assert codes[2].returncode == 2 and "attempt budget is 2 programs" in codes[2].stderr
 
 
+@needs_bwrap
 def test_the_service_follows_no_link_the_session_puts_in_its_workspace(tmp_path, service):
     """A run is written by the service into its own directory and moved into the workspace: a link the session put
     where the run's files go is replaced, not followed, and a program that is a link is not read."""
@@ -529,8 +564,239 @@ def test_bin_sim_quotes_the_interpreter(tmp_path, service, monkeypatch):
     assert "exec '/opt/hermit env/bin/python' " in (work / "bin" / "sim").read_text()
 
 
+@needs_bwrap
+def test_a_program_that_escaped_the_validator_still_cannot_reach_the_host(tmp_path, service):
+    """cap-harness runs in a sandbox of its own (sim.confine): a program in it writes only its run's own output and
+    reads ASPIRE's checkout, not the host's files, another session's workspace or the judge's runs."""
+    T = _task_module()
+    work = _workspace(service, ROW)
+    T.prepare(ROW, work, {"aspire_root": str(tmp_path / "ASPIRE")}, tmp_path)
+    secret, stage2 = tmp_path / "secret.txt", tmp_path / "out" / "stage2" / "robosuite-x" / "stage2.json"
+    secret.write_text("host secret\n")
+    stage2.parent.mkdir(parents=True)
+    stage2.write_text("{}")
+    other = _workspace(service, ROW, "0badc0de")
+    (other / "fix_code.py").write_text("result = {'theirs': 1}\n")
+    solution = tmp_path / "ASPIRE" / "examples" / "robosuite" / "cube_lifting_seed1.py"     # a worked solution
+    solution.parent.mkdir(parents=True)
+    solution.write_text("result = {'worked': 1}\n")
+    history = tmp_path / "ASPIRE" / ".git" / "HEAD"                                # the git history holds it too
+    history.parent.mkdir()
+    history.write_text("ref: refs/heads/main\n")
+    native = tmp_path / "ASPIRE" / "outputs" / "run-1" / "source" / "program.py"   # a run of ASPIRE's own CLI
+    native.parent.mkdir(parents=True)
+    native.write_text("result = {'native': 1}\n")
+    targets = {"WRITE": [tmp_path / "planted.txt", tmp_path / "ASPIRE" / "planted.py", work / "planted.txt"],
+               "READ": [secret, stage2, other / "fix_code.py", solution, history, native,
+                        tmp_path / "ASPIRE" / "docs" / "api-reference.md"]}
+    (work / "p.py").write_text("result = {}\n" + "".join(f"# {w} {p}\n" for w, ps in targets.items() for p in ps))
+    ran = _sim(work, "run", "--seed", "101", "--program", "p.py", "--output-root", "out")
+    tried = json.loads((work / "out" / "run.json").read_text())["tried"]
+    assert ran.returncode == 0, ran.stderr
+    assert not (tmp_path / "planted.txt").exists() and not (tmp_path / "ASPIRE" / "planted.py").exists()
+    assert tried[str(work / "planted.txt")] != "done" and not (work / "planted.txt").exists()   # its workspace too
+    assert all(tried[str(p)] != "done" for p in (secret, stage2, other / "fix_code.py", solution, history, native))
+    assert tried[str(tmp_path / "ASPIRE" / "docs" / "api-reference.md")] == "done"      # the checkout it runs from
+
+
+@needs_bwrap
+def test_the_validator_runs_on_aspires_own_venv_inside_its_sandbox(tmp_path, monkeypatch):
+    """ASPIRE's venv interpreter is a link to its base installation: confined, it keeps the venv (whose cap_harness
+    the validator imports), for the service's `bin/sim validate` and the judge's Engine alike."""
+    root = fake_aspire(tmp_path)
+    venv = root / ".venv-robosuite"
+    shutil.move(str(venv / "bin" / "cap-harness"), str(tmp_path / "cap-harness"))
+    shutil.rmtree(venv)
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], check=True)
+    shutil.move(str(tmp_path / "cap-harness"), str(venv / "bin" / "cap-harness"))
+    site = next(venv.glob("lib/python3*/site-packages"))
+    (site / "cap_harness").mkdir()
+    (site / "cap_harness" / "__init__.py").write_text("")
+    (site / "cap_harness" / "runtime.py").write_text(
+        "import ast\nclass _ProgramValidator(ast.NodeVisitor):\n    def visit_Import(self, node):\n"
+        "        if any(a.name != 'math' for a in node.names):\n            raise ValueError('only math')\n")
+    assert (venv / "bin" / "python").is_symlink()
+    S = _load("aspire_sim_service_venv", EXAMPLE / "agent" / "sim_service.py")
+    service = S.Service(root, {ROW["id"]: ROW}, [tmp_path / "sessions"], S.Ledger(tmp_path / "ledger.json"), {}, 2)
+    work = tmp_path / "sessions" / "rollout" / f"{ROW['id']}-1a2b" / "workspaces" / "w" / "work"
+    work.mkdir(parents=True)
+    assert service.register({"workspace": str(work), "task": ROW["id"]})["ok"]
+    (work / "good.py").write_text("import math\nresult = {}\n")
+    (work / "bad.py").write_text("import os\nresult = {}\n")
+    good = service.run({"workspace": str(work), "cmd": "validate", "program": "good.py"})
+    bad = service.run({"workspace": str(work), "cmd": "validate", "program": "bad.py"})
+    assert good["code"] == 0 and "program accepted" in good["stdout"], good
+    assert bad["code"] != 0 and "only math" in bad["stderr"], bad
+    sim = _sim_module()
+    engine = sim.Engine(root)
+    assert engine.validate(work / "good.py") is None and "only math" in engine.validate(work / "bad.py")
+
+
+def _sim_module():
+    sys.path.insert(0, str(EXAMPLE / "agent"))
+    try:
+        import sim
+        return sim
+    finally:
+        sys.path.remove(str(EXAMPLE / "agent"))
+
+
+@needs_bwrap
+def test_the_engine_reads_no_link_and_no_run_dir_outside_its_run(tmp_path):
+    """The judge's and the direct actor's Engine read what a confined program could write: once it has ended, links
+    in its output are removed and a run_dir outside the run is not read, so neither a host file nor another run's
+    success reaches the records."""
+    sim = _sim_module()
+    root = fake_aspire(tmp_path)
+    elsewhere = tmp_path / "another-run" / "seed_0001"
+    elsewhere.mkdir(parents=True)
+    (elsewhere / "outcome.json").write_text('{"task_success": true, "program_ok": true}')
+    secret = tmp_path / "secret.txt"
+    secret.write_text("host secret")
+    out = tmp_path / "stage2" / "runs"
+    program = tmp_path / "stage2" / "program.py"
+    program.parent.mkdir()
+    program.write_text(f"result = {{}}\n# FAIL\n# LINK records.json {secret}\n# RUNDIR {elsewhere}\n")
+    records = sim.Engine(root, gpu=[]).run(program, suite="cube_lifting", seeds=[1, 2], out=out)
+    assert [r["task_success"] for r in records] == [False, False] and "not in this run's output" in records[0]["error"]
+    assert secret.read_text() == "host secret" and not (out / "records.json").is_symlink()
+    program.write_text(f"result = {{}}\n# FAIL\n# LINK run-1/outcome.json {elsewhere / 'outcome.json'}\n")
+    records = sim.Engine(root, gpu=[]).run(program, suite="cube_lifting", seeds=[1], out=tmp_path / "again")
+    assert records[0]["task_success"] is False and not (tmp_path / "again" / "run-1" / "outcome.json").exists()
+    # a directory made unlistable keeps no link from being removed: it is made listable, or the run fails
+    program.write_text(f"result = {{}}\n# FAIL\n# LINK records.json {secret}\n# CHMOD . 0o111\n")
+    sim.Engine(root, gpu=[]).run(program, suite="cube_lifting", seeds=[1], out=tmp_path / "locked")
+    assert secret.read_text() == "host secret" and not (tmp_path / "locked" / "records.json").is_symlink()
+
+
+def _fake_gpu(tmp_path, monkeypatch) -> list[int]:
+    """GPU 8 as hermit's sandbox sees devices (sandbox.DEV): a machine without one can still build the command."""
+    import hermit.sandbox as sandbox_module
+    dev = tmp_path / "dev"
+    dev.mkdir(exist_ok=True)
+    for name in ("nvidiactl", "nvidia8"):
+        (dev / name).touch()
+    monkeypatch.setattr(sandbox_module, "DEV", str(dev))
+    return [8]
+
+
+@needs_bwrap
+def test_the_simulators_sandbox_shows_the_renderer_and_reaches_remote_services_by_proxy(tmp_path, monkeypatch):
+    """An EGL vendor library extracted by hand (its ICD and its libraries, file by file, its library found as GLVND
+    finds it) and ASPIRE_SIM_READ are shown; without a GPU an NVIDIA-only ICD selection is dropped; a service on
+    another host is reached through an allowlist proxy for that host only."""
+    sim = _sim_module()
+    home = tmp_path / "home"                       # the ICD and the libraries extracted where other files are too
+    (home / "lib").mkdir(parents=True)
+    (home / "credentials").write_text("key")
+    icd = home / "10_nvidia.json"
+    icd.write_text(json.dumps({"ICD": {"library_path": str(home / "lib" / "libEGL_nvidia.so.0")}}))
+    for name in ("libEGL_nvidia.so.0", "libnvidia-eglcore.so.580", "notes.txt"):
+        (home / "lib" / name).write_text("")
+    extra = tmp_path / "extra"
+    extra.mkdir()
+    env = {"PATH": os.environ["PATH"], "__EGL_VENDOR_LIBRARY_FILENAMES": str(icd),
+           "ASPIRE_SIM_READ": str(extra), "CAP_HARNESS_SAM3_URL": "http://provider.internal:9000"}
+    held, args, inside = sim.confine(["true"], root=fake_aspire(tmp_path), env=env,
+                                     gpu=_fake_gpu(tmp_path, monkeypatch))
+    try:
+        ro = set(args[i + 1] for i, a in enumerate(args) if a == "--ro-bind")
+        assert {str(icd), str(home / "lib" / "libEGL_nvidia.so.0"), str(home / "lib" / "libnvidia-eglcore.so.580"),
+                str(extra)} <= ro                  # the driver's files, file by file, and the explicit grant
+        assert not ro & {str(home), str(home / "lib"), str(home / "credentials"), str(home / "lib" / "notes.txt")}
+        assert inside["__EGL_VENDOR_LIBRARY_FILENAMES"] == str(icd)          # with a GPU (below: gpu=[8]) it stays
+        assert inside["HTTPS_PROXY"].startswith("http://127.0.0.1:") and held.held[0].allow == ["provider.internal"]
+    finally:
+        held.close()
+    # an ICD naming its library bare: GLVND finds it on LD_LIBRARY_PATH, and so is it shown
+    icd.write_text(json.dumps({"ICD": {"library_path": "libEGL_nvidia.so.0"}}))
+    held, args, inside = sim.confine(["true"], root=tmp_path / "ASPIRE", gpu=_fake_gpu(tmp_path, monkeypatch),
+                                     env={**env, "LD_LIBRARY_PATH": str(home / "lib")})
+    held.close()
+    assert str(home / "lib" / "libEGL_nvidia.so.0") in [args[i + 1] for i, a in enumerate(args) if a == "--ro-bind"]
+    # without a GPU an NVIDIA-only ICD selection is dropped, so EGL finds Mesa's software renderer
+    held, args, inside = sim.confine(["true"], root=tmp_path / "ASPIRE", env=env)
+    held.close()
+    assert "__EGL_VENDOR_LIBRARY_FILENAMES" not in inside
+
+
+@needs_bwrap
+def test_the_service_lets_a_run_write_only_its_output_and_delivers_no_replaced_output(tmp_path, service, monkeypatch):
+    """The run's own directory (its program) is read-only to it and only its output writable; an output directory
+    the program replaced (by a link to a host directory) is not delivered."""
+    T = _task_module()
+    work = _workspace(service, ROW)
+    T.prepare(ROW, work, {"aspire_root": str(tmp_path / "ASPIRE")}, tmp_path)
+    (work / "p.py").write_text("result = {}\n")
+    sim = type(service.service).run.__globals__["sim"]
+    grants, real = [], sim.confine
+    monkeypatch.setattr(sim, "confine", lambda cmd, **k: grants.append(k) or real(cmd, **k))
+    assert _sim(work, "run", "--seed", "101", "--program", "p.py", "--output-root", "o").returncode == 0
+    own = Path(grants[-1]["readable"][0])
+    assert grants[-1]["writable"] == [own / "out"]
+    host = tmp_path / "host-dir"
+    host.mkdir()
+    (host / "id_rsa").write_text("key")
+
+    def replaced(cmd, env, timeout, own, out=None, gpu=()):
+        shutil.rmtree(out)
+        out.symlink_to(host)
+        return 0, "", ""
+    monkeypatch.setattr(service.service, "_execute", replaced)
+    ran = _sim(work, "run", "--seed", "102", "--program", "p.py", "--output-root", "o2")
+    assert ran.returncode == 2 and "replaced while it ran" in ran.stderr
+    assert (host / "id_rsa").read_text() == "key" and not (work / "o2").exists()
+
+
+@needs_bwrap
+def test_a_program_named_pyvenv_cfg_grants_nothing(tmp_path, service):
+    """A session names its program: one called pyvenv.cfg that says `home = <dir>` is the run's own file, not a venv
+    of the sandbox's, so <dir> stays out of the simulator's sandbox."""
+    T = _task_module()
+    work = _workspace(service, ROW)
+    T.prepare(ROW, work, {"aspire_root": str(tmp_path / "ASPIRE")}, tmp_path)
+    operator = tmp_path / "operator"
+    operator.mkdir()
+    (operator / "credentials").write_text("key")
+    (work / "pyvenv.cfg").write_text(f'marker = """\nhome = {operator}\n"""\nresult = {{}}\n'
+                                     f"# READ {operator / 'credentials'}\n")
+    ran = _sim(work, "run", "--seed", "101", "--program", "pyvenv.cfg", "--output-root", "out")
+    assert ran.returncode == 0, ran.stderr
+    assert json.loads((work / "out" / "run.json").read_text())["tried"][str(operator / "credentials")] != "done"
+
+
+def test_the_service_refuses_to_start_on_a_gpu_the_machine_lacks(tmp_path):
+    """A wrong ASPIRE_SIM_GPU stops the service at its start, not each session's run after its budget is spent."""
+    (tmp_path / "tasks.jsonl").write_text(json.dumps(ROW) + "\n")
+    done = subprocess.run([sys.executable, str(EXAMPLE / "agent" / "sim_service.py"), "--aspire-root",
+                           str(fake_aspire(tmp_path)), "--tasks", str(tmp_path / "tasks.jsonl"), "--workspaces",
+                           str(tmp_path / "w"), "--state", str(tmp_path / "state"), "--gpu", "999", "--port", "0"],
+                          capture_output=True, text=True, timeout=60, env={**os.environ, "PYTHONPATH": str(ROOT)})
+    assert done.returncode != 0 and ("/dev/nvidia999" in done.stderr or "bubblewrap" in done.stderr)
+
+
+@needs_bwrap
+def test_the_simulators_sandbox_reaches_only_the_services_ports(tmp_path):
+    """The judge runs sim.Engine in hermit's process, whose environment names its own loopback endpoints: only the
+    services' ports (ASPIRE's, and a CAP_HARNESS_*_URL's) are forwarded into cap-harness's sandbox."""
+    sim = _sim_module()
+    root = fake_aspire(tmp_path)
+    box, args, _ = sim.confine(["true"], root=root, env={
+        "PATH": os.environ["PATH"], "HA_TOOL_URL": "http://127.0.0.1:4999/mcp",
+        "ASPIRE_SIM_URL": "http://127.0.0.1:8120", "CAP_HARNESS_SAM3_URL": "http://127.0.0.1:9114",
+        "CAP_HARNESS_CUROBO_URL": "http://localhost"})                           # no port: its scheme's
+    box.close()
+    forwarded = sorted(int(args[i + 1].split("=")[0]) for i, a in enumerate(args) if a == "--forward")
+    assert forwarded == [80, 8114, 8115, 8116, 8118, 9114]
+    for where in ({"hidden": [root / "runs"]}, {"writable": [root / "scratch" / "run"]}):    # runs stay outside it
+        with pytest.raises(ValueError, match="inside ASPIRE's checkout"):
+            sim.confine(["true"], root=root, env={"PATH": os.environ["PATH"]}, **where)
+
+
+@needs_bwrap
 def test_a_run_takes_the_registrations_max_steps_and_stops_at_the_timeout(tmp_path, monkeypatch):
     monkeypatch.setenv("TEST_PROVIDER_API_KEY", "k")       # the host's secrets: not for a generated program
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "8")         # the host's numbering: the sandbox's GPUs count from 0
     svc = _Service(tmp_path, fake_aspire(tmp_path), run_timeout=2)
     try:
         work = _workspace(svc, ROW)
@@ -545,6 +811,9 @@ def test_a_run_takes_the_registrations_max_steps_and_stops_at_the_timeout(tmp_pa
         record = json.loads((work / "o" / "run.json").read_text())
         assert ran.returncode == 0 and record["max_steps"] == "300"
         assert "TEST_PROVIDER_API_KEY" not in record["env"] and "PATH" in record["env"]
+        assert "CUDA_VISIBLE_DEVICES" not in record["env"]
+        assert not Path(record["home"]).is_relative_to(work) and not Path(record["home"]).exists()   # its own, gone
+        assert list((tmp_path / "sandbox").glob("cap-harness-*.json"))      # the run's sandbox record
         (work / "slow.py").write_text("SLEEP\n")
         started = time.time()
         slow = sim("run", "--seed", "102", "--program", "slow.py", "--output-root", "s")

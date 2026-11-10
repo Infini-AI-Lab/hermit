@@ -6,10 +6,12 @@ program runs as `cap-harness run-batch` over a list of seeds, and each seed leav
 and media/keyframes/ (lossless RGB before and after every motion call). `digest` reads those back as the per-primitive
 trace the actor diagnoses from.
 
-Where the engine runs is the host's business, not this file's: the perception, IK and planning services must be up
-on the ports ASPIRE expects (or the URLs in CAP_HARNESS_SAM3_URL / CAP_HARNESS_CUROBO_URL), and the simulator's
-render device is set by the environment the config gives (`agent.params.sim_env`, e.g. MUJOCO_GL=egl and
-MUJOCO_EGL_DEVICE_ID). See the example's README.
+A generated program runs inside cap-harness, and ASPIRE's validator is no boundary: every cap-harness process (and the
+validator's) runs in a bubblewrap sandbox of its own (`confine`), which reads ASPIRE's checkout, writes only the run's
+own output, reaches only the perception, IK and planning services' loopback ports (ASPIRE's, or the URLs in
+CAP_HARNESS_SAM3_URL / CAP_HARNESS_CUROBO_URL), and renders on the GPUs ASPIRE_SIM_GPU names (the N of
+/dev/nvidia<N>; inside they count from 0, so MUJOCO_EGL_DEVICE_ID stays 0), in software without one. The rest of
+the render environment is the config's (`agent.params.sim_env`, e.g. MUJOCO_GL=egl). See the example's README.
 """
 from __future__ import annotations
 
@@ -18,10 +20,14 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
+import stat
 import subprocess
 import sys
+import tempfile
 import time
+from urllib.parse import urlsplit
 
 # The motion tools around which ASPIRE records before/after keyframes (cap_harness/runtime.py).
 MOTION_TOOLS = ("step", "execute_trajectory", "set_gripper", "set_grippers", "move_to_joints", "move_to_pose",
@@ -45,15 +51,121 @@ SECRET = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH", re.I)
 
 
 def scrubbed(environ) -> dict:
-    """environ without its secrets, for the simulator's processes."""
-    return {k: v for k, v in environ.items() if not SECRET.search(k)}
+    """environ without its secrets, for the simulator's processes, nor the host's GPU numbering
+    (CUDA_VISIBLE_DEVICES): inside the simulator's sandbox its GPUs count from 0 (the config's sim_env may set it)."""
+    return {k: v for k, v in environ.items() if not SECRET.search(k) and k != "CUDA_VISIBLE_DEVICES"}
+
+
+# The services' loopback ports a program reaches from its sandbox, ASPIRE's own (cap_harness/providers/*/client.py):
+# segmentation, Contact-GraspNet, PyRoki and cuRobo. A CAP_HARNESS_*_URL in the environment that moves one is
+# forwarded as well; one on another host goes through an allowlist proxy that reaches only it.
+PROVIDER_PORTS = (8114, 8115, 8116, 8118)
+# What of ASPIRE's checkout a program never sees: its worked solutions, its agents' skills and prompts, its tests,
+# the runs ASPIRE's own CLI leaves (outputs/, their programs' sources), and its git history, which holds them all
+# (cap-harness runs from src/, third_party/, assets/, configs/ and the venvs; without git it records no commit in a
+# run's provenance)
+HIDDEN = ("examples", ".claude", ".agents", ".codex", "tests", "outputs", ".git")
+
+
+def gpus_of(value) -> list[int]:
+    """`"8,9"`, `[8, 9]` or None -> the GPUs the simulator renders on (the N of /dev/nvidia<N>)."""
+    if value is None or value == "":
+        return []
+    if isinstance(value, (list, tuple)):
+        return [int(v) for v in value]
+    return [int(v) for v in str(value).replace(",", " ").split()]
+
+
+def render_paths(env: dict) -> list[Path]:
+    """What the renderer reads from outside the system's directories, file by file: an NVIDIA EGL vendor library
+    extracted by hand (the ICD files __EGL_VENDOR_LIBRARY_FILENAMES names, the library each names, as GLVND finds
+    it: absolute, beside the ICD when it has a slash, else on LD_LIBRARY_PATH, and the NVIDIA libraries beside it,
+    which it loads), not the directories they lie in; and what ASPIRE_SIM_READ lists (paths separated by `:`, the
+    operator's explicit grants)."""
+    out = []
+    search = [Path(d) for d in str(env.get("LD_LIBRARY_PATH") or "").split(":") if d]
+    for icd in filter(None, str(env.get("__EGL_VENDOR_LIBRARY_FILENAMES") or "").split(":")):
+        out.append(Path(icd))
+        try:
+            name = str(json.loads(Path(icd).read_text())["ICD"]["library_path"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        candidates = [Path(name)] if name.startswith("/") else [Path(icd).parent / name] if "/" in name \
+            else [d / name for d in search]
+        library = next((c for c in candidates if c.is_file()), None)
+        if library is not None:                 # a bare name not on LD_LIBRARY_PATH is the system's (/usr)
+            out += [library, *sorted(library.parent.glob("libnvidia-*.so*")),
+                    *sorted(library.parent.glob("libEGL_nvidia*"))]
+    out += [Path(p) for p in str(env.get("ASPIRE_SIM_READ") or "").split(":") if p]
+    return [p for p in dict.fromkeys(out) if p.exists()]
+
+
+class _Confined:
+    """What a confined command holds open: its sandbox, its HOME (a directory of its own, removed after) and, for a
+    provider on another host, the allowlist proxy."""
+
+    def __init__(self, home: Path, *held):
+        self.home, self.held = home, held
+
+    def close(self) -> None:
+        for item in self.held:
+            item.close()
+        shutil.rmtree(self.home, ignore_errors=True)
+
+
+def confine(cmd: list[str], *, root: Path, env: dict, writable=(), readable=(), gpu=(), hidden=(), record_dir=None):
+    """`cmd` in a bubblewrap sandbox of its own: (what to close once the command ended; its command line; its
+    environment). It reads ASPIRE's checkout at `root` (less HIDDEN; `hidden`, the run storage, and `writable` must
+    lie outside it) and `readable` (the run's own, untrusted: nothing in it widens the sandbox), writes only
+    `writable`, reaches only the services, and sees only the GPUs `gpu` names."""
+    from hermit.sandbox import AllowlistProxy, Sandbox
+    root = Path(root)
+    first = Path(cmd[0])
+    if (first.parent.parent / "pyvenv.cfg").is_file():
+        # A venv's interpreter (the validator's `python -c`): the sandbox runs a command by its real path, and the
+        # venv's python is a link to its base installation, which would run without the venv's packages; run by its
+        # own name through a shell, the venv (granted, so its base installation is shown too) is kept.
+        trusted = [first.parent.parent]
+        cmd = ["/bin/sh", "-c", 'exec "$0" "$@"', *cmd]
+    else:
+        trusted = []
+    # Only the services: not every loopback URL in the environment (the judge runs in hermit's own process, whose
+    # tool endpoint and model meter are on the loopback too)
+    urls = [urlsplit(str(v)) for k, v in env.items() if k.startswith("CAP_HARNESS_") and k.endswith("_URL") and v]
+    loopback = [u for u in urls if u.hostname in ("127.0.0.1", "localhost")]
+    ports = {*PROVIDER_PORTS, *(u.port or (443 if u.scheme == "https" else 80) for u in loopback)}
+    remote = sorted({u.hostname for u in urls if u.hostname and u not in loopback})
+    inside = [str(p) for p in [*hidden, *writable] if Path(p).resolve().is_relative_to(root.resolve())]
+    if inside:      # covering run storage there would cover the run's own program and output too
+        raise ValueError(f"{', '.join(inside)} lies inside ASPIRE's checkout {root}, which the simulator reads: "
+                         "keep the runs elsewhere (ASPIRE_OUT, the direct actor's scratch)")
+    proxy = AllowlistProxy(remote) if remote else None
+    box = Sandbox(enabled=True, network="allowlist" if remote else "no-network", allow=remote,
+                  proxy_url=proxy.url if proxy else None, readable=[root, *render_paths(env), *trusted],
+                  writable=[Path(w) for w in writable], framework=False, gpu=list(gpu), forward=sorted(ports),
+                  record_dir=Path(record_dir) if record_dir else None, role="cap-harness")
+    box.hide = [*box.hide, *(root / h for h in HIDDEN)]
+    # HOME of its own: caches (Mesa's shaders, a library's) stay out of the run's output, which is delivered
+    home = Path(tempfile.mkdtemp(prefix="cap-harness-home-"))
+    held = _Confined(home, box, *([proxy] if proxy else []))
+    try:
+        # The run's own paths (the session's program) per call: the sandbox's own grants are trusted (a venv's
+        # pyvenv.cfg there names an installation to show), and a program may be named pyvenv.cfg
+        # Without a GPU, EGL must find Mesa's software renderer: an NVIDIA-only ICD selection would find no device
+        drop = {"ASPIRE_SIM_URL", *([] if gpu else ["__EGL_VENDOR_LIBRARY_FILENAMES"])}
+        args, env = box.wrap(list(cmd), env={k: v for k, v in env.items() if k not in drop}, chdir=root,
+                             env_ports=False, readable=[Path(r) for r in readable], writable=[home], home=home)
+    except BaseException:
+        held.close()
+        raise
+    return held, args, env
 
 
 class Engine:
     """ASPIRE's harness at `root` (a checkout with `.venv-robosuite` bootstrapped)."""
 
     def __init__(self, root: Path | str, *, env: dict | None = None, workers: int = 4, max_steps: int | None = None,
-                 timeout_s: float = 3600.0):
+                 timeout_s: float = 3600.0, gpu=None):
         self.root = Path(root).expanduser().resolve()
         self.cli = self.root / ".venv-robosuite" / "bin" / "cap-harness"
         self.python = self.root / ".venv-robosuite" / "bin" / "python"
@@ -61,6 +173,9 @@ class Engine:
             raise FileNotFoundError(f"{self.cli}: bootstrap ASPIRE's Robosuite venv (scripts/bootstrap_robosuite.sh)")
         self.env = {k: str(v) for k, v in (env or {}).items()}
         self.workers, self.max_steps, self.timeout_s = int(workers), max_steps, float(timeout_s)
+        self.gpu = gpus_of(os.environ.get("ASPIRE_SIM_GPU") if gpu is None else gpu)
+        self.hidden = [Path(os.environ["ASPIRE_OUT"])] if os.environ.get("ASPIRE_OUT") else []   # the runs, Stage 2
+        self.records = Path(os.environ["ASPIRE_OUT"]) / "sandbox" if os.environ.get("ASPIRE_OUT") else None
 
     def _env(self) -> dict:
         env = scrubbed(os.environ)
@@ -70,11 +185,14 @@ class Engine:
 
     def validate(self, program: Path) -> str | None:
         """The sandbox's own static check of a program (ASPIRE's _ProgramValidator): None, or why it is refused."""
+        box, args, env = confine([str(self.python), "-c", _VALIDATE, str(program)], root=self.root, env=self._env(),
+                                 readable=[Path(program).parent], gpu=[], hidden=self.hidden, record_dir=self.records)
         try:
-            done = subprocess.run([str(self.python), "-c", _VALIDATE, str(program)], capture_output=True, text=True,
-                                  cwd=self.root, env=self._env(), timeout=300)
+            done = subprocess.run(args, capture_output=True, text=True, cwd=self.root, env=env, timeout=300)
         except subprocess.TimeoutExpired:
             return None   # the check could not run in time: the sweep's own validation still refuses a bad program
+        finally:
+            box.close()
         return None if done.returncode == 0 else (done.stdout.strip() or done.stderr.strip()[-2000:])
 
     def run(self, program: Path, *, suite: str, seeds: list[int], out: Path, task_id: int = 0,
@@ -95,20 +213,29 @@ class Engine:
         started = time.time()
         # run-batch's workers are its children: a timeout (or an interrupt) stops the whole process group, so no
         # simulator outlives its sweep
-        with open(out / "run-batch.log", "w") as log:
-            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=log, cwd=self.root, env=self._env(),
-                                    start_new_session=True)
-            try:
-                proc.wait(timeout=self.timeout_s)
-            except BaseException:
-                _stop(proc)
-                if not isinstance(sys.exc_info()[1], subprocess.TimeoutExpired):
-                    raise
-                log.write(f"\nrun-batch timed out after {self.timeout_s:.0f} s\n")
-        tail = (out / "run-batch.log").read_text(errors="replace")[-4000:]
+        box, args, env = confine(cmd, root=self.root, env=self._env(), writable=[out], readable=[Path(program).parent],
+                                 gpu=self.gpu, hidden=self.hidden, record_dir=self.records)
+        log_path = out.parent / f"{out.name}.run-batch.log"       # beside the run: no program's to replace
+        try:
+            with open(log_path, "w") as log:
+                proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=log, cwd=self.root, env=env,
+                                        start_new_session=True)
+                try:
+                    proc.wait(timeout=self.timeout_s)
+                except BaseException:
+                    _stop(proc)
+                    if not isinstance(sys.exc_info()[1], subprocess.TimeoutExpired):
+                        raise
+                    log.write(f"\nrun-batch timed out after {self.timeout_s:.0f} s\n")
+        finally:
+            box.close()
+        # The program could write anything under `out` while it ran: what is read here is a regular file inside it,
+        # never through a link it left (it has ended, and its sandbox with it)
+        _sanitize(out)
+        tail = log_path.read_text(errors="replace")[-4000:]
         rows = {}
         if results.is_file():
-            for line in results.read_text().splitlines():
+            for line in results.read_text(errors="replace").splitlines():
                 try:
                     row = json.loads(line)
                     rows[int(row["seed"])] = row
@@ -122,9 +249,11 @@ class Engine:
             if row is None:
                 record["error"] = f"no result for seed {seed}: {tail[-600:]}"
             else:
-                record["run_dir"] = row.get("run_dir")
-                record["error"] = row.get("error")
-                outcome = _read_json(Path(row["run_dir"]) / "outcome.json") if row.get("run_dir") else None
+                inside = row.get("run_dir") and Path(str(row["run_dir"])).resolve().is_relative_to(out.resolve())
+                record["run_dir"] = row.get("run_dir") if inside else None
+                record["error"] = row.get("error") if inside or not row.get("run_dir") else \
+                    f"run_dir {row['run_dir']} is not in this run's output"
+                outcome = _read_json(Path(row["run_dir"]) / "outcome.json") if inside else None
                 if outcome:
                     record.update(task_success=bool(outcome.get("task_success")),
                                   program_ok=bool(outcome.get("program_ok")),
@@ -160,6 +289,23 @@ def _stop(proc: subprocess.Popen) -> None:
         proc.wait()
     except ProcessLookupError:
         pass
+
+
+def _sanitize(root: Path) -> None:
+    """Every link, pipe or device under `root` removed: what a confined program left there is read as files. Each
+    directory is made listable first (a program could make one unlistable to keep a link in it), and a directory
+    that still cannot be listed fails the run rather than being passed over."""
+    from hermit.sandbox import owner_readable
+    owner_readable(root)
+
+    def fail(error):
+        raise error
+    for where, dirs, files in os.walk(root, topdown=False, onerror=fail):
+        for name in [*dirs, *files]:
+            path = os.path.join(where, name)
+            mode = os.lstat(path).st_mode
+            if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+                os.unlink(path)
 
 
 def _read_json(path: Path):

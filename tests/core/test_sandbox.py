@@ -466,6 +466,74 @@ def test_limits_go_to_the_relay(tmp_path, monkeypatch):
         Sandbox(limits={"processes": 4})
 
 
+def test_gpus_shown_are_the_named_ones_with_what_cuda_and_egl_read(tmp_path, monkeypatch):
+    """`gpu` binds the named /dev/nvidia<N> (not the others), the driver's devices present and, read-only, GPU_SYS;
+    a GPU the machine lacks refuses the call; without `gpu` no device is bound."""
+    fake_bwrap(monkeypatch)
+    dev = tmp_path / "dev"
+    dev.mkdir()
+    for name in ("nvidiactl", "nvidia-uvm", "nvidia3", "nvidia4"):              # no nvidia-modeset here
+        (dev / name).touch()
+    monkeypatch.setattr(sandbox_module, "DEV", str(dev))
+    args, _ = Sandbox(network="isolated", gpu=[3], framework=False, record_dir=tmp_path / "rec").wrap(["true"])
+    pairs = [(args[i + 1], args[i + 2]) for i, a in enumerate(args) if a == "--dev-bind"]
+    assert pairs == [(str(dev / n), f"/dev/{n}") for n in ("nvidiactl", "nvidia-uvm", "nvidia3")]
+    assert args.index("--dev-bind") > args.index("--dev")                     # into the sandbox's own /dev
+    assert [p for p in sandbox_module.GPU_SYS if os.path.exists(p)] == \
+        [p for p in binds(args, "--ro-bind") if p in sandbox_module.GPU_SYS]
+    record = json.loads(sorted((tmp_path / "rec").glob("*.json"))[-1].read_text())
+    assert record["gpu"] == [3]
+    with pytest.raises(RuntimeError, match="/dev/nvidia5 not on this machine"):
+        Sandbox(network="isolated", gpu=[5]).wrap(["true"])
+    (dev / "nvidia-uvm").unlink()                                                # a graphics-only host: no UVM
+    args, _ = Sandbox(network="isolated", gpu=[4], framework=False).wrap(["true"])
+    assert [args[i + 2] for i, a in enumerate(args) if a == "--dev-bind"] == ["/dev/nvidiactl", "/dev/nvidia4"]
+    assert "--dev-bind" not in Sandbox(network="isolated").wrap(["true"])[0]
+    assert Sandbox(gpu=[4, 3, 3]).gpu == [3, 4]
+    for bad in (["0"], [True], [-1], "0"):
+        with pytest.raises(ValueError, match="a list of NVIDIA GPU numbers"):
+            Sandbox(gpu=bad)
+
+
+def _gpus() -> list[int]:
+    return sorted(int(p.name[6:]) for p in Path("/dev").glob("nvidia[0-9]*") if p.name[6:].isdigit())
+
+
+@pytest.mark.skipif(not _bwrap_works() or not _gpus() or not os.path.exists("/dev/nvidiactl"),
+                    reason="needs a working bubblewrap and an NVIDIA GPU")
+def test_cuda_sees_only_the_gpus_a_sandbox_shows(tmp_path):
+    """On a machine with an NVIDIA GPU and torch built with CUDA: CUDA finds the GPU named and no other (its UUID is
+    that GPU's, as nvidia-smi gives it for the Minor Number; a GPU split by MIG shows its instances) and computes on
+    it, and a sandbox without `gpu` finds none. The last GPU is named, so a sandbox showing GPU 0 would not pass."""
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("torch has no CUDA here")
+    probe = ("import torch; ok = torch.cuda.is_available(); n = torch.cuda.device_count() if ok else 0; "
+             "print(n, (torch.ones(4, device='cuda') * 2).sum().item() if ok else None, "
+             "','.join(str(torch.cuda.get_device_properties(i).uuid) for i in range(n)) or '-')")
+    named = _gpus()[-1]
+    import xml.etree.ElementTree as ET
+    query = subprocess.run(["nvidia-smi", "-q", "-x"], capture_output=True, text=True).stdout \
+        if shutil.which("nvidia-smi") else ""
+    shown = {}                                          # the named GPU's UUID and whether MIG splits it
+    for node in (ET.fromstring(query).findall("gpu") if query.strip() else []):
+        if node.findtext("minor_number") == str(named):
+            shown = {"uuid": (node.findtext("uuid") or "").removeprefix("GPU-"),
+                     "mig": node.findtext("mig_mode/current_mig") == "Enabled"}
+    for gpu in ([named], []):
+        box = Sandbox(network="no-network", gpu=gpu, framework=False)
+        args, env = box.wrap([sys.executable, "-c", probe], env={"PATH": os.environ["PATH"]})
+        done = subprocess.run(args, env=env, capture_output=True, text=True, timeout=300)
+        box.close()
+        count, total, uuids = done.stdout.strip().splitlines()[-1].split()
+        if not gpu:
+            assert (count, total) == ("0", "None"), done.stderr[-2000:]
+            continue
+        assert int(count) >= 1 and total == "8.0", done.stderr[-2000:]
+        if shown.get("uuid") and not shown.get("mig"):  # an ordinary GPU: exactly it, no other (MIG: its instances)
+            assert uuids.split(",") == [shown["uuid"]]
+
+
 def test_without_the_framework_only_the_relay_of_the_package_is_shown(tmp_path, monkeypatch):
     """The hermit package is not shown, its relay is; the framework's dependencies are the environment's, shown with
     it whatever `framework` says."""
