@@ -185,7 +185,12 @@ STREAM_TEXTS = {"agent-claude.jsonl": (("agent-codex.jsonl", "agent-claude.jsonl
                 "agent-pi.jsonl": (("agent-codex.jsonl", "agent-pi.jsonl"),
                                    ("the raw Codex event stream", "the raw Pi event stream"),
                                    ("the Codex event stream", "the Pi event stream"),
-                                   ("`codex exec --json` event stream", "`pi --mode json` event stream"))}
+                                   ("`codex exec --json` event stream", "`pi --mode json` event stream")),
+                "agent-mini-swe-agent.jsonl": (("agent-codex.jsonl", "agent-mini-swe-agent.jsonl"),
+                                               ("the raw Codex event stream", "the raw mini-swe-agent event stream"),
+                                               ("the Codex event stream", "the mini-swe-agent event stream"),
+                                               ("`codex exec --json` event stream",
+                                                "`python -m hermit.agent.base.mini_swe_agent_run` event stream"))}
 
 
 def stream_of(logs) -> str:
