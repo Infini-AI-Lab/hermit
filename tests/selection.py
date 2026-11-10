@@ -30,6 +30,8 @@ METHODS = {
     "ahe": ["hermit/agent/evolver/methods/ahe_adapter/*", "hermit/adapter/templates/ahe/*",
             "examples/*/ahe_adapter/*", "tests/fixtures/ahe_hosts/*",
             "docs/methods/ahe_adapter.md"],                    # its capability table, which the hosts' tests hold
+    "coevoskills_adapter": ["hermit/agent/evolver/methods/coevoskills_adapter/*",
+                           "hermit/adapter/templates/coevoskills_adapter/*", "examples/*/coevoskills_adapter/*"],
     "continual_harness": ["hermit/agent/evolver/methods/continual_harness/*",
                           "hermit/adapter/templates/continual_harness/*", "examples/*/continual_harness/*"],
     "evosafe": ["hermit/agent/evolver/methods/evosafe/*", "hermit/adapter/templates/evosafe/*",

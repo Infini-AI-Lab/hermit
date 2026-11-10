@@ -235,6 +235,7 @@ accepted; a key given in two layers is refused. On the command line a layer's se
 | CL-Bench, ServeLearnBench | Acting Agent running the benchmark's loop | `direct`, per call, through the local endpoint |
 | MWM | Evolver Agent | `codex` or `claude`, in a view of the run's sandbox with MWM's native mounts (`/w`, `/evidence`, ...) |
 | Harness² | Evolver Agent: upstream's proposer | `claude`, one call per upstream session (or `codex`) |
+| CoEvoSkills Adapter | Evolver Agent: upstream's Generator and Verifier; the oracle is the Acting Agent through `run_agent` | `direct` over the run's `llm`, through the `llm` tool (one call per upstream completion) |
 
 ## Outside the layers
 

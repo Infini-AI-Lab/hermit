@@ -1,0 +1,12 @@
+template:
+  id: coevoskills-adapter
+  version: '1.0'
+  contract: '2'
+  name: CoEvoSkills Adapter (executable Skill packages for a fixed acting agent)
+structure:
+  learnable:
+    - path: ADAPTER.md
+      format: {text: true}
+    - path: skills/**
+  fixed: [exports.yaml, README.md]
+check: .hermit/check.py:check

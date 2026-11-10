@@ -10,7 +10,7 @@ python -m pytest --integration ...  # also the tests that run an agent CLI insta
 | Group | What it covers |
 |---|---|
 | `core/` | the framework: the Trainer, templates and `check_spec`, deployment and host exporters, the agent layers (Base Agents, CLI agents, model bindings), the sandbox and isolation, the generic AgentEvolvers |
-| `methods/<name>/` | one method: its Evolver, its template and its examples (`ace`, `ahe`, `continual_harness`, `evosafe`, `harness2`, `meta_harness_adapter`, `mwm`, `opro`, `optimizers` for GEPA and SkillOpt, `reharness`, `rrsi_adapter`) |
+| `methods/<name>/` | one method: its Evolver, its template and its examples (`ace`, `ahe`, `coevoskills_adapter`, `continual_harness`, `evosafe`, `harness2`, `meta_harness_adapter`, `mwm`, `opro`, `optimizers` for GEPA and SkillOpt, `reharness`, `rrsi_adapter`) |
 
 `--changed` reads `selection.py`: `core/` runs for every change but documentation (its tests also read every
 method's template, manifest and packaging); a method's own files (its Evolver, its template, its examples, its tests)
@@ -24,7 +24,7 @@ framework module a shared layer or a method's tests import is not shared.
 A test marked `integration` runs an agent CLI installed on the machine (`codex`, `claude`) and holds what a release
 of it does; it is skipped unless `--integration` is given (those that run Claude Code in its container also skip
 without Docker and the image `docker/claude/` builds, named by HERMIT_CLAUDE_IMAGE and HERMIT_CLAUDE_NETWORK). Some
-methods' tests (`gepa`, `skillopt`, `harness2`, `rrsi`) skip themselves without the method's dependency group; the
+methods' tests (`gepa`, `skillopt`, `harness2`, `rrsi`, `coevoskills`) skip themselves without the method's dependency group; the
 sandbox and MWM tests need Linux and a working bubblewrap, and some do not yet skip without it (CONTRIBUTING.md).
 
 CI (`.github/workflows/tests.yml`) runs `--changed` on a pull request and the whole suite on main, daily and on

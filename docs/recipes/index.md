@@ -5,7 +5,7 @@ Pick a recipe by the task and evaluation protocol. Recipes specify actual integr
 
 | Recipe | What you need | Methods | What it demonstrates |
 |---|---|---|---|
-| [OfficeQA](officeqa.md) | Gated dataset, parsed source pages, SkillOpt acting dependencies, model access | GEPA, SkillOpt, Harness², Continual Harness, ReHarness, Meta-Harness Adapter, ACE, AHE Adapter, RRSI Adapter, OPRO; direct chat or Codex harness | Skill optimization for a document agent in the SkillOpt paper's split, seed skill, and scoring |
+| [OfficeQA](officeqa.md) | Gated dataset, parsed source pages, SkillOpt acting dependencies, model access | GEPA, SkillOpt, Harness², Continual Harness, ReHarness, Meta-Harness Adapter, ACE, AHE Adapter, RRSI Adapter, OPRO, CoEvoSkills Adapter; direct chat or Codex harness | Skill optimization for a document agent in the SkillOpt paper's split, seed skill, and scoring |
 | [AgentDyn](agentdyn.md) | Pinned AgentDyn checkout, prepared frozen cases, model access | EvoSafeHarness | Defense bundle search with separate utility and ASR denominators |
 | [ServeLearnBench](servelearnbench.md) | Benchmark package, Linux learner environment, model access | MWM; prompt-only comparison configs | Ordered serving episodes and per-window held-out tests |
 | [CL-Bench](clbench.md) | CL-Bench and MetaWorld checkouts, venue environments, Linux, model access | MWM, ReHarness; prompt-only comparison configs | Persistent environment learning over ordered database/poker streams |

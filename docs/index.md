@@ -81,6 +81,7 @@ methods/ahe_adapter
 methods/rrsi_adapter
 methods/evosafe
 methods/opro
+methods/coevoskills_adapter
 ```
 
 ```{toctree}

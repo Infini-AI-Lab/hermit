@@ -1,0 +1,62 @@
+# OfficeQA with the CoEvoSkills Adapter in the GPT-5.6-Luna column: run_codex.yaml's protocol with GPT-5.6-Luna at
+# medium effort acting and learning on the machine's ChatGPT login, the column's harness (Codex 0.164.0 in a container
+# per session behind the egress proxy to chatgpt.com and auth.openai.com). The upstream roles' completions are the
+# run's `llm`: one Codex session per call (hermit.agent.base.endpoint), in a container of its own.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/train.txt
+  test: ../utils/splits/test.txt
+  step_size: 16                        # questions per step = evolver.params.workers
+  shuffle: false
+task_info: ../utils/task-info/
+agent:
+  base: codex                          # Layer 2: Codex as a Base Agent (hermit/agent/base/cli.py)
+  concurrency: 16
+  params:                              # Layer 3: the Acting Agent with OfficeQA's task functions
+    prompt: ../utils/prompt.md
+    prepare: ../utils/task.py:prepare  # task.md and the corpus under docs/
+    answer: ../utils/task.py:answer    # the last <answer>...</answer>
+    collect: oracle_io.py:collect      # OfficeQA log and deployed skill check
+    workspaces: ~/.cache/hermit/officeqa-coevoskills-adapter-luna
+  model:                               # Layer 1
+    name: gpt-5.6-luna                 # a Codex model on the machine's ChatGPT login
+    login: chatgpt
+    effort: medium
+  codex:                               # Layer 2: how Codex runs
+    web_search: false                  # set explicitly: Codex's hosted search runs past the container
+    timeout_s: 3600
+    project_doc_max_bytes: 65536
+judge:
+  path: ../utils/judge.py
+template: coevoskills-adapter@1.0
+start_from: seed_adapter               # make_seed.py: SkillOpt's initial OfficeQA skill as the starting context
+evolver:
+  name: coevoskills_adapter
+  params:
+    workers: 16
+    deliver: oracle_io.py:deliver      # the acting agent's answer where the hidden test reads it
+    path_map: {/root/docs: docs, /root/answer.txt: skill-answer.txt}   # the package container's paths, in the workspace
+llm:                                   # every upstream role: GPT-5.6-Luna at medium effort, the acting model
+  unapplied: [temperature]             # Codex sessions use the model's own sampling
+  cli: codex                           # only Codex reaches the model: one session per chat call (base/endpoint.py)
+  model: gpt-5.6-luna
+  login: chatgpt
+  effort: medium
+  web_search: false
+  isolation: container
+  container: {image: "officeqa-codex:0.164.0", network: oq-sandbox, proxy: "http://oq-egress-login:3128"}
+  timeout: 3600
+environment:
+  image: "officeqa-codex:0.164.0"
+  container: {network: oq-sandbox, proxy: "http://oq-egress-login:3128"}
+sandbox:
+  enabled: true
+trainer:
+  run_name: luna-coevoskills-adapter
+  output_dir: runs
+  tree_dir: runs/trees/luna-coevoskills-adapter
+  epochs: 1
+  budget: {usd: null, hours: 72}
+  call_timeout_min: 240      # one question's loop (7,200 s, its oracle checks included), all of a step's at once
+eval:
+  repeats: 1
