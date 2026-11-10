@@ -363,7 +363,7 @@ def test_the_sessions_effort_is_sent_as_named_and_over_the_backends_extra_body(f
     assert plain["samplingParams"] == {"reasoning_effort": "low", "top_k": 20} and "thinkingLevelMap" not in plain
     assert high["samplingParams"] == off["samplingParams"] == {"top_k": 20} and "thinkingLevelMap" not in high
     assert xhigh["thinkingLevelMap"] == {"xhigh": "xhigh"} and top["thinkingLevelMap"] == {"max": "max"}
-    responses = bound(apis=["responses"], extra_body={"reasoning_effort": "low"})
+    responses = bound(apis=["responses"], extra_body={"reasoning_effort": "low", "top_k": 20})
     make("pi", {**responses, "web_search": False, "home": str(fake / "home"), "effort": "max"}).run("go", workspace=work)
     model = model_of(seen(fake)[-1])
     assert "samplingParams" not in model and model["thinkingLevelMap"] == {"max": "max"}
