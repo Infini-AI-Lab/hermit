@@ -119,8 +119,6 @@ UNAVAILABLE = re.compile(r"unexpected status (?:429|5\d\d)|exceeded retry limit|
                          r"error sending request|too many requests|service unavailable|bad gateway|overloaded|"
                          r"model is at capacity|"
                          r"^(?:429|5\d\d): |"                     # Pi's report of a provider's status
-                         # dsh's, by its codes: those it retries itself, and a stream the provider closed
-                         r"^dsh: (?:RATE_LIMIT|SERVER|TIMEOUT|TRANSPORT|EMPTY_RESPONSE|STREAM_CLOSED): |"
                          r"error response from daemon|cannot connect to the docker daemon|"
                          + re.escape(container.MISSING), re.I | re.M)
 CODEX_HOME_SETTINGS = ["features.shell_snapshot = false",          # a snapshot would bring back the whole environment
@@ -1500,6 +1498,9 @@ DSH_INSTRUCTION_BYTES = 65536
 DSH_INSTRUCTION_FRAME = 304
 # dsh's report of an MCP row that did not start (`<id> (<package>): <error>`): the session then runs without its tools
 DSH_TOOLS_DOWN = re.compile(r"^(mcp-[A-Za-z0-9_-]{1,32}) \(@deepseek-ai/dsh-mcp-client\): (.*)$", re.M)
+# The error codes of a run's end for a provider that could not serve it: those dsh retries itself, and a stream the
+# provider closed
+DSH_OUTAGES = ("RATE_LIMIT", "SERVER", "TIMEOUT", "TRANSPORT", "EMPTY_RESPONSE", "STREAM_CLOSED")
 # The session's transcripts as plain JSON lines (dsh compresses them with zstd), so that hermit.redact scrubs a key a
 # session wrote from its home as from every record; the row's root is dsh's own, an expression (`!!js`) of the home
 # as dsh sees it, which a sandbox shows at another path than this process's
@@ -1679,11 +1680,20 @@ class Dsh(CliAgent):
         """The run's last turn completed (its `final` reason)."""
         return cls._reason(raw).get("kind") == "completed"
 
+    @classmethod
+    def outage(cls, raw: str) -> bool:
+        """The provider could not serve the run: its `final` event ended it with one of dsh's codes for that
+        (DSH_OUTAGES). Only that event says so, not the stream's other lines: a deployed tool server writes on dsh's
+        own stderr, which the stream keeps, and a tool's words of an outage are the session's own work."""
+        error = cls._reason(raw).get("error")          # dsh's only end with an error is `{"kind": "error", ...}`
+        return isinstance(error, dict) and error.get("code") in DSH_OUTAGES
+
     def outcome(self, raw, stream, last_file):
         """dsh exits 0 for a run whose `final` event is `completed`, and 1 for any other end (an error, an abort, the
         token limit, ...), but also 0 when SIGTERM stops it: a run without a completed end has failed, whatever its
         exit code. So has one whose tools did not start (an MCP row dsh reports inactive): it ran without them. The
-        session started once dsh wrote its `session` event (a usage error is an `error` event before any session)."""
+        run is `unavailable` only by its end's error code (outage). The session started once dsh wrote its `session`
+        event (a usage error is an `error` event before any session)."""
         notes, done = self.notices(raw), self.served(raw)
         down = DSH_TOOLS_DOWN.findall(notes)
         failure = f"{down[0][0]} did not start, so the session ran without its tools: {down[0][1]}" if down else \
@@ -1696,13 +1706,13 @@ class Dsh(CliAgent):
             said = next(line for line in notes.splitlines() if "CONTEXT_WINDOW_EXCEEDED" in line)
             failure = said[:600 - len(hint)] + hint
         return {"reply": self.last_message(stream, last_file), "served": done,
-                "unavailable": bool(UNAVAILABLE.search(notes)), "refused": False, "failed": not done or bool(down),
+                "unavailable": self.outage(raw), "refused": False, "failed": not done or bool(down),
                 "failure": failure[-600:], "started": any(e.get("type") == "session" for e in _objects(raw)[0])}
 
     @classmethod
     def errors(cls, event):
         """A run that did not complete: an error, as dsh writes it on stderr (`dsh: <code>: <message>`: the code is
-        how a provider that could not serve is told, UNAVAILABLE), or any other end (aborted, max-tokens, blocked,
+        how a provider that could not serve is told, DSH_OUTAGES), or any other end (aborted, max-tokens, blocked,
         interrupted, ...); a failure outside a turn."""
         kind = event.get("type")
         reason = event.get("reason") if isinstance(event.get("reason"), dict) else {}

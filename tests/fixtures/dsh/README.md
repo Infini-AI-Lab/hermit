@@ -33,8 +33,9 @@ layer like the Base Agent's) against a scripted chat-completions model:
 - `background.jsonl`: bash with `run_in_background: true` returns `started background job <id>`, no exit marker.
 - `fake_marker.jsonl`: bash prints `built` and a line `[exit code: 7]` of its own, then exits 0.
 - `no_usage.jsonl`: the model sends no usage; dsh reports the step's usage as zeros.
-- `tools_down.jsonl`: the session's MCP row (`failOnStartupError: true`) points at a port nothing listens on: dsh
-  writes `warning: 1 entry did not activate` and the row's error on stderr, then completes the run and exits 0.
+- `tools_down.jsonl`: the session's MCP row (`failOnStartupError: true`) points at port 9 of the loopback, which
+  Node's fetch refuses (`bad port`): dsh writes `warning: 1 entry did not activate` and the row's error on stderr,
+  then completes the run and exits 0.
 - `bad_option.jsonl`: an unknown option after `--json`: one `error` event, no session, exit 1.
 - `dotenv.jsonl`: the working directory's `.env` sets `PYTHONPATH`: dsh stops before it writes an event (its
   error on stderr) and exits 1.
@@ -49,6 +50,8 @@ layer like the Base Agent's) against a scripted chat-completions model:
   cached) and 10 output tokens: dsh sums the two attempts' usage into the step's, and leaves out the cache count the
   refused attempt did not report (its zeros), so the step reports `inputTokens` 100 and `totalTokens` 1010.
 
-The streams are dsh's stdout unchanged, followed by its stderr's lines where it wrote any, as the Base Agent keeps
-them in one stream; the run's directory was `/run` (`/run/<name>` for the streams recorded directly, `/tmp/rec3` for
+The streams are dsh's stdout unchanged, followed by its stderr's lines where it wrote any. The Base Agent keeps both
+in one stream in the order dsh writes them, which is this order in every stream but `tools_down.jsonl`: dsh writes its
+warning at startup, before the `session` event, so the Base Agent's stream has those lines first (no test reads where
+they are). The run's directory was `/run` (`/run/<name>` for the streams recorded directly, `/tmp/rec3` for
 `stopped.jsonl`, `/tmp/r4` for `context_window.jsonl`, `/tmp/r5` for `retried.jsonl`).

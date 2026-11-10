@@ -198,10 +198,30 @@ def test_a_failed_run_is_an_error_and_only_an_outage_is_unavailable(fake, monkey
     assert [s.kind for s in result.trajectory] == ["error"] and result.trajectory[0].text.startswith("503: ")
     refused = (STREAMS / "failure.jsonl").read_text().replace('"SERVER"', '"AUTH"').replace("dsh: SERVER:",
                                                                                          "dsh: AUTH:")
-    assert not base_cli.UNAVAILABLE.search(base_cli.notices("dsh", refused))   # a bad key is no outage
+    assert not base_cli.Dsh.outage(refused)                                   # a bad key is no outage
     for code in ("RATE_LIMIT", "SERVER", "TIMEOUT", "TRANSPORT", "EMPTY_RESPONSE", "STREAM_CLOSED"):
-        outage = (STREAMS / "failure.jsonl").read_text().replace("SERVER", code)
-        assert base_cli.UNAVAILABLE.search(base_cli.notices("dsh", outage)), code
+        assert base_cli.Dsh.outage((STREAMS / "failure.jsonl").read_text().replace("SERVER", code)), code
+
+
+def test_a_tool_servers_words_of_an_outage_are_no_outage(fake, monkeypatch):
+    """dsh starts a deployed stdio tool server on its own stderr, which the Base Agent keeps in the stream: a tool's
+    line with an outage's words (written here by hand into the recorded stream of a run that ended at the token
+    limit) is the session's own work, not the provider's end. The acting agent runs the task once and records the
+    session's failure, not an outage it would run `retries` times and then leave at an unknown cost."""
+    from hermit.agent.acting import workspace as acting
+    lines = (STREAMS / "max_tokens.jsonl").read_text().splitlines(keepends=True)
+    tool = "requests.exceptions.HTTPError: 503 Server Error: Service Unavailable for url: https://example.com/v1\n"
+    stream = fake / "tool_stderr.jsonl"
+    stream.write_text("".join(lines[:3]) + tool + "".join(lines[3:]))
+    monkeypatch.setenv("FAKE_DSH_STREAM", str(stream))
+    monkeypatch.setenv("FAKE_DSH_EXIT", "1")
+    work = fake / "work"
+    work.mkdir()
+    result = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+    assert result.extra["failed"] and not result.extra["served"] and not result.extra["unavailable"]
+    out = acting.run({"id": "q1"}, None, params={**bound(), "backend": "dsh", "web_search": False, "prompt": "go",
+                                                 "workspaces": "ws", "retries": 3, "retry_wait_s": 0}, base=fake)
+    assert out.extra["attempts"] == 1 and "run max-tokens" in out.extra["session_failed"]
 
 
 def test_a_run_dsh_was_stopped_in_is_no_success_although_dsh_exits_0(fake, monkeypatch, tmp_path):
@@ -272,13 +292,14 @@ def test_dsh_refuses_roles_and_a_container_and_searches_only_on_deepseeks_own_pr
     agent.configured(web_search=True).run("go", workspace=work)
     assert row(rows(seen(fake)[-1], fake / "home"), "tool-web") == {"id": "tool-web", "config": {"search": False,
                                                                                                "fetch": True}}
-    deepseek = bind_agent_params({"model": "deepseek/deepseek-v4-flash"}, "dsh", registry({}))
-    named = bind_agent_params({"model": "ds/deepseek-v4-flash"}, "dsh", registry({"ds": {"from": "deepseek"}}))
+    own = dict(user_file=None, environ={})              # the built-ins alone: not the developer's own backends
+    deepseek = bind_agent_params({"model": "deepseek/deepseek-v4-flash"}, "dsh", registry({}, **own))
+    named = bind_agent_params({"model": "ds/deepseek-v4-flash"}, "dsh", registry({"ds": {"from": "deepseek"}}, **own))
     for params in (deepseek, named, {}):                  # DeepSeek's API on its key, under any name; dsh's own
         make("dsh", {**params, "web_search": True, "home": str(fake / "home")}).run("go", workspace=work)
         assert all(r.get("id") != "tool-web" for r in rows(seen(fake)[-1], fake / "home"))
     relayed = bind_agent_params({"model": "deepseek/deepseek-v4-flash"}, "dsh", registry(
-        {}, environ={"DEEPSEEK_BASE_URL": "http://127.0.0.1:9/v1"}))      # DEEPSEEK_BASE_URL moves the backend
+        {}, user_file=None, environ={"DEEPSEEK_BASE_URL": "http://127.0.0.1:9/v1"}))   # the variable moves the backend
     make("dsh", {**relayed, "web_search": True, "home": str(fake / "home")}).run("go", workspace=work)
     assert row(rows(seen(fake)[-1], fake / "home"), "tool-web")["config"] == {"search": False, "fetch": True}
 
@@ -769,7 +790,7 @@ def test_a_run_that_ends_at_the_token_limit_is_an_error_the_learner_can_read():
     outage, and its end is a step of the trajectory and a notice (only errors and aborts were, before)."""
     raw = (STREAMS / "max_tokens.jsonl").read_text()
     assert not base_cli.served("dsh", raw) and base_cli.notices("dsh", raw) == "run max-tokens"
-    assert not base_cli.UNAVAILABLE.search(base_cli.notices("dsh", raw))
+    assert not base_cli.Dsh.outage(raw)
     steps = trajectory.dsh_steps([json.loads(line) for line in raw.splitlines()])
     assert [(s.kind, s.text) for s in steps] == [("message", "partial answ"), ("error", "run max-tokens")]
 
