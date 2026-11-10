@@ -86,6 +86,7 @@ Limits are enforced by the isolation, or the call is refused (Unsupported):
 """
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import json
 import os
@@ -1725,7 +1726,9 @@ class OpenCode(CliAgent):
         if s.get("effort") and s["effort"] != "off":
             for entry in (provider.get("models") or {}).values():
                 if isinstance(entry, dict):
-                    entry.setdefault("options", {})["reasoningEffort"] = s["effort"]
+                    options = entry.setdefault("options", {})
+                    options.pop("reasoning_effort", None)              # the effort setting outranks extra_body's
+                    options["reasoningEffort"] = s["effort"]
         ref = f"{OPENCODE_PROVIDER}/{s.get('model') or ''}"
         permission = {"*": "allow", "external_directory": "allow", "doom_loop": "allow",
                       **{tool: "deny" for tool in OPENCODE_DENIED},
@@ -1762,7 +1765,7 @@ class OpenCode(CliAgent):
         return {"append_system_prompt": system}, prompt
 
     def on_stdin(self):
-        return False                   # the prompt is an argument, after `--`
+        return True                    # read to its end (no argument limit), as `opencode run` reads a piped message
 
     @classmethod
     def _finish(cls, objects) -> str | None:
@@ -1803,9 +1806,23 @@ class OpenCode(CliAgent):
                                                       "the session ended without an answer"))[-600:]}
 
     def adjust_usage(self, home, handle, usage, resumed):
-        """A bound model's cost is left to its price (price_usage): OpenCode counts a model whose config gives no
-        cost as free."""
-        if self.settings.get("binding") or self.settings.get("provider"):
+        """With what the stream leaves out: the model calls of OpenCode's compactions (and of the summaries it writes
+        ahead of one), in its session's totals (its database) but in no `step_finish`. This call's share of those
+        totals (_this_call: a resumed session's earlier calls taken off) is counted where it is more than the
+        stream's; a compaction counts as one call (its retries only in its tokens). A bound model's cost is left to
+        its price (price_usage): OpenCode counts a model whose config gives no cost as free."""
+        s = self.settings
+        totals = _opencode_totals(home, str(handle), (s.get("binding") or {}).get("ref") or s.get("model") or
+                                  self.backend) if handle else None
+        if totals is not None:
+            share = _this_call(home, str(handle), totals, resumed=resumed,
+                               fields=("input_tokens", "cached_input_tokens", "output_tokens", "calls"))
+            counted = usage[0] if usage else type(share)(share.model)
+            for f in ("input_tokens", "cached_input_tokens", "output_tokens"):
+                setattr(counted, f, max(getattr(counted, f), getattr(share, f)))
+            counted.calls += share.calls
+            usage = [counted] if counted.calls or counted.input_tokens or counted.output_tokens else []
+        if s.get("binding") or s.get("provider"):
             for u in usage:
                 u.cost_usd = None
         return usage
@@ -1834,13 +1851,44 @@ class OpenCode(CliAgent):
         """`--standalone`: a server of the session's own, never OpenCode's background service, which other sessions
         (other homes, other workspaces) would share. `--title` names the session, so no request is spent on a title;
         `--thinking` keeps the model's reasoning in the stream. A session handle that is no OpenCode session id
-        starts a new session."""
+        starts a new session. The prompt is its stdin (on_stdin), never an argument."""
         s = self.settings
         resume = str(session) if session and re.fullmatch(r"ses_[A-Za-z0-9]+", str(session)) else None
         return [str(s.get("bin") or self.program), "run", "--standalone", "--format", "json",
                 "-m", f"{OPENCODE_PROVIDER}/{s.get('model') or ''}", "--title", "hermit", "--thinking",
                 *self.web_search_args(bool(s.get("web_search"))),
-                *(["--session", resume] if resume else []), *(s.get("args") or []), "--", prompt]
+                *(["--session", resume] if resume else []), *(s.get("args") or [])]
+
+
+def _opencode_totals(home: Path, session: str, model: str):
+    """An OpenCode session's running totals as its database (in its home) keeps them: its tokens, counted as
+    records._opencode_event counts a request's, and its compactions as `calls`. None where there is none to read
+    (no database, no such session, or one OpenCode no longer keeps this way, which is said once). The session could
+    write its home: nothing is followed out of it, and the database is read as an immutable file, so SQLite neither
+    writes nor opens its -wal and -shm files (OpenCode leaves none when it exits: a session cut off may leave its
+    last totals there, and then counts as no more than its stream)."""
+    import sqlite3
+    from hermit.agent.model.usage import Usage
+    db = Path(os.path.abspath(home)) / "data" / "opencode" / "opencode.db"
+    if not _regular(db) or not Path(os.path.realpath(db)).is_relative_to(os.path.realpath(home)):
+        return None
+    try:
+        with contextlib.closing(sqlite3.connect(f"{db.as_uri()}?mode=ro&immutable=1", uri=True)) as c:
+            row = c.execute("SELECT tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, "
+                            "tokens_cache_write FROM session_v2 WHERE id = ?", (session,)).fetchone()
+            compactions = c.execute("SELECT count(*) FROM session_message WHERE session_id = ? AND "
+                                    "type = 'compaction'", (session,)).fetchone()[0]
+        if row is None:
+            return None
+        fresh, output, reasoning, read, write = (int(x or 0) for x in row)
+        return Usage(model, input_tokens=fresh + read + write, cached_input_tokens=read,
+                     output_tokens=output + reasoning, calls=int(compactions))
+    except (sqlite3.Error, OSError, ValueError, TypeError, OverflowError) as e:
+        if "opencode_db" not in _WARNED:
+            _WARNED.add("opencode_db")
+            print(f"hermit: OpenCode's session database could not be read ({e}): the model calls of its compactions "
+                  "are not counted in the usage", file=sys.stderr, flush=True)
+        return None
 
 
 # Every CLI Base Agent, by each name make() takes for it.
@@ -1848,11 +1896,12 @@ CLIS: dict[str, type[CliAgent]] = {n: c for c in (Codex, Claude, Pi, MiniSweAgen
                                    for n in (c.backend, *c.aliases)}
 
 
-def _this_call(home: Path, handle: str, reported, resumed: bool):
+def _this_call(home: Path, handle: str, reported, resumed: bool,
+               fields=("input_tokens", "cached_input_tokens", "output_tokens")):
     """This call's usage: Codex reports a thread's running total, so a resumed thread's report counts its earlier
-    calls again. The last total of each thread is kept in the home (`usage/<thread>.json`) and taken off."""
+    calls again. The last total of each thread is kept in the home (`usage/<thread>.json`) and taken off. `fields`:
+    the running totals (OpenCode's session totals count its compactions too)."""
     from hermit.agent.model.usage import Usage
-    fields = ("input_tokens", "cached_input_tokens", "output_tokens")
     ledger = home / "usage" / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', handle)}.json"
     # The session could write its home: a link it left there (the ledger's directory or the ledger) is removed,
     # never followed, and the ledger is written without following one.
@@ -1868,8 +1917,9 @@ def _this_call(home: Path, handle: str, reported, resumed: bool):
     fd = os.open(ledger, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
     with os.fdopen(fd, "w") as f:
         f.write(json.dumps({f_: getattr(reported, f_) for f_ in fields}))
-    return Usage(reported.model, **{f: max(0, getattr(reported, f) - int(before.get(f, 0))) for f in fields},
-                 calls=reported.calls, cost_usd=None if before else reported.cost_usd)
+    return Usage(reported.model, **{"calls": reported.calls,
+                                    **{f: max(0, getattr(reported, f) - int(before.get(f, 0))) for f in fields}},
+                 cost_usd=None if before else reported.cost_usd)
 
 
 def _overlap(a: Path, b: Path) -> bool:

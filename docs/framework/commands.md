@@ -84,6 +84,8 @@ other files, and its tools as one bash command (`hermit-tool`) in the system tem
 mini-swe-agent.yaml` from the workspace ([tutorial](../tutorials/mini-swe-agent.md)).
 `--host opencode` writes `AGENTS.md`, the project's `opencode.json` (the tools, offered directly) and
 `.opencode/skills`, which OpenCode loads with no trust step; it names roles and hooks in `AGENTS.md`, as for Pi.
+OpenCode 2.2 waits at most 2 s for the tools' server it starts, which takes about 3 s: an `opencode run` given its
+prompt at once may send the first request without the adapter's tools (the `opencode` acting agent serves them itself).
 `--context-limit BYTES` (Codex) is the `project_doc_max_bytes` your Codex configuration sets, 32768 (Codex's
 default) when not given: a longer `AGENTS.md` is refused, since Codex would cut it; `0` skips the check. It is the per-project way to use an adapter; the per-agent way, `convert`, and how the two compare are in
 [What is a harness adapter?](what-is-a-harness-adapter.md#two-ways-to-use-an-adapter). The workspace must be an empty directory or one previously generated for the same host, separate from

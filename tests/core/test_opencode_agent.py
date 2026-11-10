@@ -95,6 +95,31 @@ def test_a_bound_model_is_opencodes_provider_with_its_key_as_a_variable():
     assert free["options"]["apiKey"] == "local"           # a server that needs no key gets the placeholder
 
 
+def test_the_bindings_extra_body_is_the_models_options_and_the_effort_outranks_it(fake):
+    """`extra_body` (fields for every chat request) becomes the model's options, which OpenCode adds to each request
+    body; the effort setting replaces an extra_body `reasoning_effort`."""
+    params = bound(extra_body={"chat_template_kwargs": {"enable_thinking": False}, "reasoning_effort": "low"})
+    assert params["provider"]["models"]["m-1"]["options"] == {"chat_template_kwargs": {"enable_thinking": False},
+                                                              "reasoning_effort": "low"}
+    work = fake / "work"
+    work.mkdir()
+    make("opencode", {**params, "web_search": False, "home": str(fake / "home"), "effort": "high"}).run(
+        "go", workspace=work)
+    held = json.loads(seen(fake)[0]["env"]["OPENCODE_CONFIG_CONTENT"])
+    assert held["provider"]["hermit"]["models"]["m-1"]["options"] == {
+        "chat_template_kwargs": {"enable_thinking": False}, "reasoningEffort": "high"}
+
+
+def test_a_prompt_past_the_argument_limit_reaches_opencode_on_stdin(fake):
+    """A prompt longer than one argument may be (E2BIG) still starts the session: it is OpenCode's stdin."""
+    work = fake / "work"
+    work.mkdir()
+    prompt = "x" * (base_cli.ARG_MAX + 80_000)
+    result = agent(fake).run(prompt, workspace=work)
+    [call] = seen(fake)
+    assert result.extra["served"] and call["stdin"] == prompt and prompt not in call["args"]
+
+
 def test_opencode_runs_in_its_home_with_its_model_held_and_the_tools_offered_directly(fake, monkeypatch):
     """What the session must hold (the provider, the permissions, no sharing) is the inline config, which outranks a
     workspace's opencode.json; the call's tools are the home's config, offered directly; the caller's own OpenCode
@@ -108,7 +133,8 @@ def test_opencode_runs_in_its_home_with_its_model_held_and_the_tools_offered_dir
     [call] = seen(fake)
     # a server of its own (never OpenCode's background service, which other sessions would share)
     assert call["args"][:7] == ["run", "--standalone", "--format", "json", "-m", "hermit/m-1", "--title"]
-    assert "--thinking" in call["args"] and call["args"][-2:] == ["--", "-a prompt that starts with a dash"]
+    assert "--thinking" in call["args"] and "--" not in call["args"]
+    assert call["stdin"] == "-a prompt that starts with a dash"       # the prompt is stdin, never an argument
     env = call["env"]
     assert env["HOME"] == str(home) and env["XDG_DATA_HOME"] == str(home / "data")
     assert env["OPENCODE_CONFIG"] == str(home / "opencode.json") and env["OPENCODE_DISABLE_AUTOUPDATE"] == "1"
@@ -188,6 +214,51 @@ def test_a_resumed_session_is_continued_by_its_id_and_counts_only_its_new_usage(
     assert "--session" not in seen(fake)[1]["args"]
 
 
+def keep_totals(home: Path, compactions: int, **tokens) -> None:
+    """OpenCode's database in its home, as 2.2.6 keeps a session's totals (its tables' columns that are read): the
+    recorded session's `tokens` (input, output, reasoning, cache_read, cache_write) and its `compactions`."""
+    import sqlite3
+    db = home / "data" / "opencode" / "opencode.db"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db) as c:
+        c.execute("CREATE TABLE IF NOT EXISTS session_v2 (id text PRIMARY KEY, tokens_input integer, tokens_output "
+                  "integer, tokens_reasoning integer, tokens_cache_read integer, tokens_cache_write integer)")
+        c.execute("CREATE TABLE IF NOT EXISTS session_message (id text PRIMARY KEY, session_id text, type text)")
+        c.execute("INSERT OR REPLACE INTO session_v2 VALUES (?, ?, ?, ?, ?, ?)",
+                  (SESSION, *(tokens.get(k, 0) for k in ("input", "output", "reasoning", "cache_read", "cache_write"))))
+        c.execute("DELETE FROM session_message")
+        c.executemany("INSERT INTO session_message VALUES (?, ?, 'compaction')",
+                      [(f"msg_{i}", SESSION) for i in range(compactions)])
+
+
+def test_a_compactions_model_calls_are_counted_from_the_sessions_totals(fake, monkeypatch, capsys):
+    """OpenCode streams no usage for a compaction's model calls; its session's totals (its database) count them. A
+    resumed session's earlier totals are taken off; a database OpenCode no longer keeps this way leaves the stream's
+    usage, said once."""
+    work = fake / "work"
+    work.mkdir()
+    opencode = agent(fake)
+    # the stream's four requests (600 + 400 cached in, 15 + 5 reasoning out each) and a compaction of 2000 + 1000
+    keep_totals(fake / "home", 1, input=4400, cache_read=2600, output=90, reasoning=30)
+    [usage] = opencode.run("go", workspace=work).usage
+    assert (usage.input_tokens, usage.cached_input_tokens, usage.output_tokens, usage.calls) == (7000, 2600, 120, 5)
+    assert usage.cost_usd == pytest.approx((4400 * 1.0 + 2600 * 0.1 + 120 * 2.0) / 1e6)
+    replay(monkeypatch, "resume.jsonl")                  # one request more, and a compaction like the first
+    keep_totals(fake / "home", 2, input=7000, cache_read=4000, output=135, reasoning=45)
+    [usage] = opencode.run("again", workspace=work, session=SESSION).usage
+    assert (usage.input_tokens, usage.cached_input_tokens, usage.output_tokens, usage.calls) == (4000, 1400, 60, 2)
+    monkeypatch.setattr(base_cli, "_WARNED", set())
+    (fake / "home" / "data" / "opencode" / "opencode.db").unlink()
+    keep_totals(fake / "home", 0)
+    import sqlite3
+    with sqlite3.connect(fake / "home" / "data" / "opencode" / "opencode.db") as c:
+        c.execute("ALTER TABLE session_v2 RENAME COLUMN tokens_input TO input")
+    replay(monkeypatch, "success.jsonl")
+    [usage] = agent(fake).run("go", workspace=work).usage
+    assert (usage.input_tokens, usage.calls) == (4000, 4)
+    assert "OpenCode's session database could not be read" in capsys.readouterr().err
+
+
 def test_opencode_runs_only_a_model_reference_and_refuses_roles_web_search_a_login_and_a_container(fake):
     """Each is refused before OpenCode starts, never ignored: no sign-in of the user's is ever copied."""
     work = fake / "work"
@@ -238,11 +309,15 @@ def test_an_opencode_stream_is_read_back_by_its_name_or_by_its_events(tmp_path):
     assert base_cli.served("opencode", (STREAMS / "success.jsonl").read_text())
     raw = (STREAMS / "failure_500.jsonl").read_text()
     assert not base_cli.served("opencode", raw) and base_cli.notices("opencode", raw).startswith("provider.internal")
+    from hermit.agent.base.records import parse_log
+    session, [usage] = parse_log(STREAMS / "success.jsonl", "opencode", "m")    # the generic reader, by its name
+    assert session == SESSION and (usage.input_tokens, usage.calls) == (4000, 4)
 
 
 def test_the_opencode_acting_agent_deploys_the_adapter_where_opencode_reads_it(fake):
-    """The adapter's tools are the project's opencode.json, offered directly; its skills are .opencode/skills; its
-    roles stay files AGENTS.md names, as OpenCode takes none."""
+    """The adapter's skills are .opencode/skills; its roles stay files AGENTS.md names, as OpenCode takes none; its
+    tools are the session's own tool server (the home's opencode.json, running before OpenCode starts), not a server
+    the project's opencode.json would have OpenCode start: OpenCode waits 2 s at most for one, less than it takes."""
     from hermit.agent.acting import workspace as acting
     params = {**bound(), "backend": "opencode", "web_search": False, "prompt": "go", "workspaces": "ws"}
     out = acting.run({"id": "q1"}, FILE_ADAPTER, params=params, base=fake)
@@ -251,9 +326,10 @@ def test_the_opencode_acting_agent_deploys_the_adapter_where_opencode_reads_it(f
     assert out.output == "the answer" and out.extra["backend"] == "opencode" and "--approve" not in call["args"]
     held = json.loads(call["env"]["OPENCODE_CONFIG_CONTENT"])
     assert held["permission"]["skill"] == {"*": "deny", "verify-output": "allow"}     # the deployment's skills only
-    [server] = json.loads((work / "opencode.json").read_text())["mcp"]["servers"].values()
-    assert server["type"] == "local" and server["codemode"] is False
-    assert "hermit.runtime.mcp_server" in server["command"]
+    assert json.loads((work / "opencode.json").read_text())["mcp"]["servers"] == {}
+    [(name, server)] = json.loads(call["files"]["opencode.json"])["mcp"]["servers"].items()
+    assert name == "file_example" and server["type"] == "remote" and server["codemode"] is False
+    assert out.extra["deployed"]["harness_tools"] == "file-example"
     assert (work / ".opencode" / "skills" / "verify-output" / "SKILL.md").is_file()
     assert "do it yourself" in (work / "AGENTS.md").read_text()
     assert (out.log / "agent-opencode.jsonl").is_file()
@@ -289,11 +365,12 @@ def test_opencode_is_a_base_of_the_config_and_the_opencode_evolver_binds_its_mod
 
 # ---------- the installed opencode (integration) ----------
 
-def serve_chat(script, status: int | None = None, seen: list | None = None):
-    """A chat-completions model on the loopback: `script(request body) -> (tool call (name, arguments) | None)`;
-    None answers `the answer`, with a reasoning text first. Every response is streamed, with usage (1000 prompt
-    tokens, 400 of them cached; 20 completion tokens, 5 of them reasoning). With `status`, every request is answered
-    that error. `seen` gets each request's body and Authorization header."""
+def serve_chat(script, status: int | None = None, seen: list | None = None, prompt_tokens=lambda body: 1000):
+    """A chat-completions model on the loopback: `script(request body) -> (tool call (name, arguments) | text |
+    None)`; None answers `the answer`, with a reasoning text first. Every response is streamed, with usage
+    (`prompt_tokens(body)` prompt tokens, 1000 by default, 400 of them cached; 20 completion tokens, 5 of them
+    reasoning). With `status`, every request is answered that error. `seen` gets each request's body and
+    Authorization header."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     def chunk(body):
@@ -320,12 +397,13 @@ def serve_chat(script, status: int | None = None, seen: list | None = None):
                                                             "type": "function",
                                                             "function": {"name": call[0],
                                                                          "arguments": json.dumps(call[1])}}]}] \
-                if call else [{"role": "assistant", "reasoning_content": "The work is done."},
-                              {"content": "the answer"}]
+                if isinstance(call, tuple) else [{"role": "assistant", "content": call}] if call else \
+                [{"role": "assistant", "reasoning_content": "The work is done."}, {"content": "the answer"}]
             data = b"".join([*(chunk({"choices": [{"index": 0, "delta": d, "finish_reason": None}]}) for d in deltas),
                              chunk({"choices": [{"index": 0, "delta": {}, "finish_reason":
-                                                 "tool_calls" if call else "stop"}]}),
-                             chunk({"choices": [], "usage": {"prompt_tokens": 1000, "completion_tokens": 20,
+                                                 "tool_calls" if isinstance(call, tuple) else "stop"}]}),
+                             chunk({"choices": [], "usage": {"prompt_tokens": prompt_tokens(body),
+                                                             "completion_tokens": 20,
                                                              "prompt_tokens_details": {"cached_tokens": 400},
                                                              "completion_tokens_details": {"reasoning_tokens": 5}}}),
                              b"data: [DONE]\n\n"])
@@ -412,8 +490,8 @@ def test_with_the_opencode_cli_a_session_reaches_its_model_and_its_tools(tmp_pat
 @pytest.mark.integration
 @pytest.mark.skipif(not shutil.which("opencode"), reason="needs the opencode CLI")
 def test_with_the_opencode_cli_the_acting_agent_uses_the_deployed_adapters_tools(tmp_path, monkeypatch):
-    """The deployment as OpenCode reads it: the project's opencode.json starts the adapter's tool server, whose tool
-    the model is offered directly and calls."""
+    """The deployment as OpenCode reads it, the adapter's tools from the session's own tool server: the model is
+    offered them directly from its first request on, and calls one."""
     from hermit.agent.acting import workspace as acting
     calls, bodies = [], []
 
@@ -432,7 +510,53 @@ def test_with_the_opencode_cli_the_acting_agent_uses_the_deployed_adapters_tools
                                  "workspaces": "ws", "timeout_s": 300, "retries": 1})
     finally:
         server.shutdown()
+    # offered from the first request on (a server OpenCode started itself was often not ready for it)
     assert out.output == "the answer" and "file_example_count_words" in calls[0]
     assert "verify-output" in json.dumps(bodies[0])          # the deployment's skill, the one the session may load
-    audit = Path(out.extra["workspace"]) / "tool-calls.jsonl"
-    assert '"count_words"' in audit.read_text()
+    [result] = [m for m in bodies[-1]["messages"] if m.get("role") == "tool"]
+    assert json.loads(result["content"]) == {"count": 3}
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not shutil.which("opencode"), reason="needs the opencode CLI")
+def test_with_the_opencode_cli_a_compactions_model_calls_are_counted(tmp_path, monkeypatch):
+    """OpenCode compacts a session that nears its context window, with model calls its stream never reports: they
+    are counted from its session's totals, each request's tokens once, also when the session is resumed (its earlier
+    calls not counted again)."""
+    requests, steps = [], []
+
+    def compacting(body):
+        return "Return only the structured summary" in json.dumps(body["messages"][-1])
+
+    def script(body):
+        if compacting(body):
+            return "## Objective\n- Read a.txt.\n\n## Next Move\n1. Answer."
+        steps.append(body)
+        return ("read", {"filePath": str(work / "a.txt")}) if len(steps) % 5 else None
+
+    def tokens(body):
+        return 1000 * len(body["messages"])               # the conversation grows to the window: OpenCode compacts
+
+    def counted(served):
+        return (sum(tokens(r["body"]) for r in served), 400 * len(served), 20 * len(served), len(served))
+
+    server, url = serve_chat(script, seen=requests, prompt_tokens=tokens)
+    monkeypatch.setenv("MOCK_KEY", "sk-mock")
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "a.txt").write_text("hello\n")
+    params = mock_params(url)
+    params["provider"]["models"]["m-1"]["limit"] = {"context": 8000, "output": 100}
+    opencode = make("opencode", {**params, "web_search": False, "home": str(tmp_path / "home"), "timeout_s": 300})
+    try:
+        first = opencode.run("Read a.txt, then answer.", workspace=work)
+        before = len(requests)
+        second = opencode.run("Again.", workspace=work, session=first.session)
+    finally:
+        server.shutdown()
+    assert first.reply == "the answer" and sum(map(compacting, (r["body"] for r in requests[:before]))) == 1
+    u = first.usage[0]
+    assert (u.input_tokens, u.cached_input_tokens, u.output_tokens, u.calls) == counted(requests[:before])
+    assert second.session == first.session and second.reply == "the answer"
+    u = second.usage[0]
+    assert (u.input_tokens, u.cached_input_tokens, u.output_tokens, u.calls) == counted(requests[before:])

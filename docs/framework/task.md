@@ -121,7 +121,8 @@ What the agent does for every task:
   the whole adapter under `hermit/<adapter id>/` but its [`internal`](adapter-manifest.md#internal) files, each
   export connected to the CLI's own place, and the context naming the rest. Its tools are served by an MCP server
   on this machine; a container session, which cannot start one, gets them from the session's own tool server, which
-  the container reaches. An adapter's [`context_tool`](adapter-manifest.md#per-task-context) is rendered for each
+  the container reaches, and so does an OpenCode session (OpenCode waits only 2 s for a server it starts). An
+  adapter's [`context_tool`](adapter-manifest.md#per-task-context) is rendered for each
   task (the field `context_query`, else the task's question or prompt), deployed into the context and recorded in
   `RunOutput.extra["context_tool"]`; so is the context of any adapter whose template is not
   [`plugin-portable`](adapter-manifest.md#plugin-portable), which `hermit deploy` alone refuses. The session

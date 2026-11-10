@@ -332,11 +332,14 @@ class Binding:
         """OpenCode's provider entry for this model (a `provider` value of its config): the backend's chat-completions
         URL through OpenCode's OpenAI-compatible package, the key as `{env:VARIABLE}`, which OpenCode reads when it
         starts, so no config holds the key (a placeholder for a server that needs none), and the model with its
-        context window. The cost hermit records follows the price (OpenCode.adjust_usage)."""
+        context window and `extra_body` (a model's options, which OpenCode adds to every request). The cost hermit
+        records follows the price (OpenCode.adjust_usage)."""
         key_env = self.key_env_if_set()
         model: dict = {"name": self.model}
         if self.backend.context_window:
             model["limit"] = {"context": int(self.backend.context_window)}
+        if self.extra_body:
+            model["options"] = json.loads(json.dumps(self.extra_body))
         return {"npm": OPENCODE_PACKAGE, "name": "hermit",
                 "options": {"baseURL": self.base_url.rstrip("/"),
                             "apiKey": f"{{env:{key_env}}}" if key_env else PLACEHOLDER_KEY},

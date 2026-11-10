@@ -141,7 +141,8 @@ def _opencode_event(event: dict, usage: Usage, session):
     OpenCode's `input` leaves the cache out and its `output` the reasoning, so the input counted is input, cache
     reads and cache writes and the output is output and reasoning, as Codex and Claude Code count them; its cost is
     OpenCode's own (for a bound model, OpenCode.adjust_usage leaves it to the price). A request that failed has no
-    `step_finish` (its retries are `retry` events) and counts as no call."""
+    `step_finish` (its retries are `retry` events) and counts as no call; nor has a compaction's (OpenCode.adjust_usage
+    counts those from the session's totals)."""
     session = session or event.get("sessionID")
     part = event.get("part") if isinstance(event.get("part"), dict) else {}
     if event.get("type") != "step_finish" or not isinstance(part.get("tokens"), dict):
@@ -180,7 +181,7 @@ def parse_mini_swe_agent(log: Path, model: str) -> tuple[str | None, list[Usage]
 
 
 def parse_log(log: Path, backend: str, model: str) -> tuple[str | None, list[Usage]]:
-    """Session handle and usage from the agent's JSON event stream: Codex's, Pi's, mini-swe-agent's, else Claude
-    Code's."""
-    return {"codex": parse_codex, "pi": parse_pi, "mini-swe-agent": parse_mini_swe_agent}.get(backend, parse_claude)(
-        log, model)
+    """Session handle and usage from the agent's JSON event stream: Codex's, Pi's, mini-swe-agent's, OpenCode's, else
+    Claude Code's."""
+    return {"codex": parse_codex, "pi": parse_pi, "mini-swe-agent": parse_mini_swe_agent,
+            "opencode": parse_opencode}.get(backend, parse_claude)(log, model)

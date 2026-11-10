@@ -152,7 +152,7 @@ def deploy(adapter: Path, workspace: Path, backend: str, *, context: str | None 
         return prepare_mini(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
     if backend == "opencode":
         from hermit.hosts.opencode import prepare as prepare_opencode
-        return prepare_opencode(adapter, workspace, sys.executable, context=context)
+        return prepare_opencode(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
     from hermit.hosts.claude_code import prepare
     return prepare(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
 
@@ -165,9 +165,11 @@ def _deploy(task: dict, adapter: Path | None, work: Path, backend: str, params: 
     from hermit.adapter.loader import agent_tools, load_manifest
     from hermit.adapter.manifest import PORTABLE
     manifest = load_manifest(adapter)
-    # A container session cannot start the tools' server on this machine, and mini-swe-agent reaches tools only
-    # through its Base Agent: the session's own tool server (the Base Agent's) serves them instead.
-    harness_tools = (params.get("isolation") == "container" or backend == "mini-swe-agent") and \
+    # A container session cannot start the tools' server on this machine, mini-swe-agent reaches tools only
+    # through its Base Agent, and OpenCode waits 2 s at most for a starting server (STARTUP_GRACE_MS in 2.2; the
+    # adapter's takes longer, so its first request would go without them): the session's own tool server (the Base
+    # Agent's, running before the session starts) serves them instead.
+    harness_tools = (params.get("isolation") == "container" or backend in ("mini-swe-agent", "opencode")) and \
         bool(agent_tools(manifest))
     # An adapter only hermit runs (not plugin-portable: a context tool's per-task context, say) has no installed
     # workspace, so `hermit deploy` refuses it; here the task is known, so its context is deployed.

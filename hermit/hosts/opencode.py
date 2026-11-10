@@ -2,9 +2,10 @@
 """Deploy an adapter into an OpenCode workspace: the whole adapter under hermit/<id>/, and its exports connected to
 OpenCode's own places: AGENTS.md context, opencode.json tools, .opencode/skills.
 
-OpenCode reads AGENTS.md from the working directory (and its parents, up to a Git repository's root) and the
-project's opencode.json and .opencode/ with no trust step. The tools are a local MCP server declared with `codemode:
-false`, so the model is offered them as tools, not only through OpenCode's code mode (its default). OpenCode takes no
+OpenCode reads AGENTS.md from the working directory and its parents (up to the home directory for a workspace below
+it, else up to the project's root, a Git repository's), and the project's opencode.json and .opencode/ with no trust
+step. The tools are a local MCP server declared with `codemode: false`, so the model is offered them as tools, not
+only through OpenCode's code mode (its default). OpenCode takes no
 roles here and reads no hook file: an adapter's roles and hooks stay files of its copy, which AGENTS.md names with
 what to do with them (hermit.hosts.inputs.resources), as it names the other files. Global OpenCode settings
 (~/.config/opencode) are never changed.
@@ -25,9 +26,10 @@ TOOL_TIMEOUT_MS = 120 * 1000          # Codex's tool_timeout_sec, not OpenCode's
 
 
 def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path | None = None,
-            context: str | None = None) -> dict:
+            context: str | None = None, serve_tools: bool = True) -> dict:
     """`context`: the adapter's context for one task, which the harness computed, in place of the one rendered
-    here; an adapter whose context is per task deploys only so."""
+    here; an adapter whose context is per task deploys only so. `serve_tools`: false when the caller serves the
+    adapter's tools to the session itself (the `opencode` acting agent): opencode.json then names no server."""
     adapter, output = adapter.resolve(), output.resolve()
     refused = not_portable(load_manifest(adapter), "An OpenCode workspace")   # before anything is written
     if refused and context is None:
@@ -37,7 +39,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     files = adapter_files(adapter, output, manifest, previous)
     exports = render_exports(adapter, python)
     listed, placed = resources(adapter, output, manifest, exports, hook_definitions(adapter, manifest), NATIVE)
-    has_tools = bool(agent_tools(manifest))     # the context tool is the harness's, not served
+    has_tools = bool(agent_tools(manifest)) and serve_tools     # the context tool is the harness's, not served
     if has_tools:
         subprocess.run([python, "-c", "import mcp.server"], check=True, capture_output=True)
     output.mkdir(parents=True, exist_ok=True)

@@ -51,7 +51,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   (the provider, the permissions, no sharing) is its inline config, which outranks a workspace's `opencode.json`;
   the call's tools are an MCP server offered directly (not through code mode). Whether its provider could not serve
   is read from OpenCode's own error type (`provider.rate-limit`, `.internal`, `.transport`, `.timeout`), so the
-  acting agent runs such a task again. OpenCode takes no roles and has no web search. `hermit deploy --host opencode`
+  acting agent runs such a task again. Its usage counts the model calls of its compactions, which its stream leaves
+  out, from its session's totals. OpenCode takes no roles and has no web search. `hermit deploy --host opencode`
   writes `AGENTS.md`, the project's `opencode.json` and `.opencode/skills`.
 - Models in sandboxes as Harbor's agents get theirs: each sandbox gets its models' key variables and provider hosts
   (an isolated network becomes an allowlist) and forwards a model meter on the loopback; what a run keeps (the
