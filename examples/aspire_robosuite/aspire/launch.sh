@@ -6,6 +6,7 @@
 #   ./launch.sh eval --adapter final                              # the reruns with the final library (test split)
 #   ./launch.sh eval --adapter root                               # the same with the empty library
 #   ASPIRE_SIM_ENV=/path/to/sim_env.yaml ./launch.sh              # the simulator's render environment (a YAML map)
+#   ASPIRE_SIM_GPU=8 ./launch.sh                                  # its GPUs, the N of /dev/nvidia<N> (none: software)
 #   ASPIRE_OUT=/big/disk/aspire ./launch.sh                       # the runs, the sessions, Stage 2 (default ../runs)
 #   ASPIRE_EVAL_SEEDS=1-50 ./launch.sh                            # held-out seeds other than ASPIRE's 1-100
 #
@@ -56,15 +57,21 @@ esac
 # Where the runs go (ASPIRE_OUT): the trainer's records, the actors' sessions (their simulator runs' records and
 # traces; their images are pruned after scoring), the judge's Stage 2. Put it on a large disk.
 OUT="${ASPIRE_OUT:-$HERE/../runs}"
+case "$(cd "$OUT" 2>/dev/null && pwd -P || echo "$OUT")/" in          # the simulator reads the checkout, not the runs
+  "$(cd "$ASPIRE_ROOT" && pwd -P)"/*) echo "ASPIRE_OUT ($OUT) lies inside ASPIRE_ROOT: keep the runs elsewhere" >&2
+                                      exit 2 ;;
+esac
 mkdir -p "$OUT"
-export ASPIRE_ROOT ASPIRE_OUT="$OUT" ASPIRE_SIM_ENV="$SIM_ENV_JSON"      # for the judge, on the host
+export ASPIRE_ROOT ASPIRE_OUT="$OUT" ASPIRE_SIM_ENV="$SIM_ENV_JSON" ASPIRE_SIM_GPU="${ASPIRE_SIM_GPU:-}"   # the judge's
 
-# The simulator service: the actors' engine, on the host (the task sandbox has no GPU).
+# The simulator service: the actors' engine, on the host; each cap-harness it starts (and the judge's) runs in a
+# sandbox of its own with the GPUs ASPIRE_SIM_GPU names (utils/agent/sim.py: confine).
+[[ -n "${ASPIRE_SIM_GPU:-}" ]] || echo "note: ASPIRE_SIM_GPU names no GPU: the simulator renders in software" >&2
 PORT="${ASPIRE_SIM_PORT:-8120}"
 NONCE="$$-$RANDOM-$(date +%s%N)"                  # this launch's service answers /health with it, another run's not
 "$HERMIT" ../utils/agent/sim_service.py --port "$PORT" --aspire-root "$ASPIRE_ROOT" --tasks ../utils/tasks.jsonl \
   --workspaces "$OUT/actor-logs" --state "$OUT/sim-service" --sim-env "$SIM_ENV_JSON" --nonce "$NONCE" \
-  > "$OUT/sim-service.log" 2>&1 &
+  --gpu "${ASPIRE_SIM_GPU:-}" > "$OUT/sim-service.log" 2>&1 &
 SERVICE=$!
 trap 'kill "$SERVICE" 2>/dev/null || true' EXIT
 ours() { curl -sf "http://127.0.0.1:$PORT/health" 2>/dev/null | grep -qF "\"nonce\": \"$NONCE\""; }

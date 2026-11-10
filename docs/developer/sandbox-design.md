@@ -82,15 +82,15 @@ use), a `separate` judge in a sanitized copy of the collected paths, so the orig
 
 ## Task sandbox
 
-`hermit/isolate.py` runs the acting agent in a worker (`hermit/worker.py`) inside the task sandbox, one call per
-task, and only the worker can hand a result back. The sandbox is built from the run config's `environment` section:
-`read` and `write` (task paths), `packages`, `env`, `network` with `allowed_hosts`, `resources`. The call's own work
-directory is writable; the `.logs` beside a task's agent file is a fresh directory each call. A declared path that
-holds or lies inside a run secret (the data and split files, the judge and its tests, the runs and trees) refuses
-the config; the isolation check proves the secrets absent at every start. A CLI agent on a login (`login: chatgpt`,
-`login: claude`) also gets the login's plan directory writable, which every session on the machine shares (its
-pause, its limits and its slots); the judge's sandbox does not, and a Claude Code session's own commands see an empty
-directory in its place (a nested bubblewrap; where it cannot nest, a required sandbox runs no such session).
+`hermit/isolate.py` runs the acting agent in a worker (`hermit/worker.py`) inside the task sandbox, one call per task,
+and only the worker can hand a result back. The sandbox is built from the run config's `environment` section: `read` and
+`write` (task paths), `packages`, `env`, `network` with `allowed_hosts`, `resources`, `gpu`. The call's own work
+directory is writable; the `.logs` beside a task's agent file is a fresh directory each call. A declared path that holds
+or lies inside a run secret (the data and split files, the judge and its tests, the runs and trees) refuses the config;
+the isolation check proves the secrets absent at every start. A CLI agent on a login (`login: chatgpt`, `login: claude`)
+also gets the login's plan directory writable, which every session on the machine shares (its pause, its limits and its
+slots); the judge's sandbox does not, and a Claude Code session's own commands see an empty directory in its place (a
+nested bubblewrap; where it cannot nest, a required sandbox runs no such session).
 
 With `environment.image` a Codex or Claude Code acting agent runs in a container of its own (the Base Agent's container
 isolation; `docker/codex/` and `docker/claude/` build the images), started from a worker on the host, one per call; the
