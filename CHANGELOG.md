@@ -186,6 +186,13 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
+- `Sandbox.wrap` ran a virtual environment's interpreter (`<venv>/bin/python`, a link to its base interpreter) by
+  its real path, so it started without the environment and its packages failed to import. An interpreter whose
+  environment is granted (the sandbox's `readable` or `writable`, the call's, or `interpreters`) now runs by its own
+  name, with the links on its way to its installation shown; its `pyvenv.cfg` names no installation to show from a
+  call's grant, as before. An ungranted one runs as before, and so do one beneath a layout's root (`/w`), one
+  reached from its grant through a link to a place nothing shows, and one whose links lead to its installation
+  through a linked directory other than the system's (uv's version alias) (#95).
 - A redeployment (`hermit deploy` into the same workspace) left a skill the new adapter no longer exports in the
   host's skills folder (`.codex/skills`, `.claude/skills`, `.pi/skills`, `.opencode/skills`), where the agent still
   loaded it, and a file a skill no longer has inside its copy. Each exported skill's copy is now replaced, and a

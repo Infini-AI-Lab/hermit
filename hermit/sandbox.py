@@ -437,6 +437,75 @@ def _names(path) -> list[str]:
     return [given] if real == given else [given, real]
 
 
+def _venv_root(found: str) -> str | None:
+    """The virtual environment `found` is the interpreter of (a pyvenv.cfg beside it or one directory up), by the
+    name it is run by; else None."""
+    where = os.path.dirname(os.path.abspath(found))
+    return next((d for d in (where, os.path.dirname(where)) if os.path.isfile(os.path.join(d, "pyvenv.cfg"))), None)
+
+
+def _granted_venv(found: str, granted) -> bool:
+    """Whether `found` is a virtual environment's interpreter whose environment exists inside under the name it is
+    run by, as is the folder of `found` (_reachable from the places `granted` shows), and whose links lead to its
+    installation through no linked directory outside it but the system's (a venv made through uv's version alias
+    names the alias as its `home`, which nothing shows).
+    Its pyvenv.cfg is not read: the installation is shown, as for any program, by following the interpreter's links
+    (program_paths, and its links made again as links: _link_hops), never by a `home` a granted place could name."""
+    venv = _venv_root(found)
+    if venv is None:
+        return False
+    places = {n.rstrip("/") or "/" for g in granted for n in _names(g)}     # a grant shown under both its names
+    if not any(_beneath(venv, w) for w in places):
+        return False                                  # granted: shown is not enough (an ungranted one beneath /usr)
+    places |= set(ALWAYS_SHOWN)          # shown whole as it is outside: a grant beneath it is that tree's, not bound
+    real = os.path.realpath(venv)
+    return _reachable(venv, places) and _reachable(os.path.dirname(os.path.abspath(found)), places) and not any(
+        os.path.realpath(h.parent) != str(h.parent) for h in _link_hops(found)
+        if not _beneath(str(h), venv) and not _beneath(os.path.realpath(h), real)
+        and not str(h).startswith(SYSTEM_LINKED))
+
+
+# Shown inside as they are outside: /usr whole, and /lib, /lib64, /bin, /sbin as the same links (or directories).
+SYSTEM_LINKED = ("/usr/", "/lib/", "/lib64/", "/bin/", "/sbin/")
+ALWAYS_SHOWN = ("/usr",)
+
+
+def _beneath(path: str, root: str) -> bool:
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
+def _reachable(path: str, places) -> bool:
+    """Whether `path` exists inside: beneath a place shown at its own name, following the links below that place
+    (whose targets must be beneath a shown place too). A link above the place does not matter: the place is shown at
+    the name it was given. The outermost place is the one followed: a grant inside a bound one is that one's tree
+    inside (a linked grant there is not bound on its own)."""
+    current = os.path.abspath(path)
+    for _ in range(40):
+        place = min((w for w in places if _beneath(current, w)), key=len, default=None)
+        if place is None:
+            return False
+        rest, here = Path(current).relative_to(place).parts, Path(place)
+        for i, part in enumerate(rest):
+            here = here / part
+            if here.is_symlink():
+                current = os.path.normpath(os.path.join(here.parent, os.readlink(here), *rest[i + 1:]))
+                break
+        else:
+            return True
+    return False
+
+
+def _link_hops(path: str) -> list[Path]:
+    """The names on the way from `path`'s link to the file it leads to (a venv's bin/python -> an alias -> the
+    interpreter), each but `path` and the file itself, that lie outside `path`'s environment (shown with it): each
+    must exist inside for the first to start."""
+    venv = _venv_root(path)
+    hops = [Path(os.path.abspath(path))]
+    while hops[-1].is_symlink() and len(hops) < 20:
+        hops.append(Path(os.path.normpath(hops[-1].parent / os.readlink(hops[-1]))))
+    return [h for h in hops[1:] if str(h) != os.path.realpath(h) and not (venv and _beneath(str(h), venv))]
+
+
 def _venv_paths() -> list[Path]:
     """The virtual environment's interpreter links and pyvenv.cfg. They are bound at their own path, unresolved: a
     Python started as the link finds pyvenv.cfg beside it and so its environment; started as the file the link leads
@@ -1128,7 +1197,18 @@ class Sandbox:
                    for first in (shutil.which(name, path=env["PATH"]) for name in ("python3", "python"))):
                 env["PATH"] = os.pathsep.join([own, *(p for p in env["PATH"].split(os.pathsep) if p and p != own)])
         found = shutil.which(command[0]) if command else None
-        if found:      # run the program by its real path: PATH entries outside the sandbox do not exist inside
+        # Not beneath a layout's root, where grants are shown under other names (a call's) or at their own (the
+        # sandbox's), and a link there may lead to where nothing is shown: such a venv runs as before.
+        moved = [p for p in [*readable, *writable] if self.layout and self._in_layout(p)
+                 and self.translate(str(p), binds) != str(p)]           # a call's grant shown under /w, not its name
+        by_name = bool(found) and not (self.layout and self._in_layout(os.path.dirname(os.path.abspath(found)))) \
+            and _granted_venv(found, [*self.readable, *self.writable, *interpreters,
+                                      *(p for p in [*readable, *writable] if p not in moved)])
+        if by_name:
+            # a granted virtual environment's interpreter, run by its own name: its real file is the base
+            # installation's, which, run as itself, finds no pyvenv.cfg and so not the environment's packages
+            command = [os.path.abspath(found), *command[1:]]
+        elif found:    # run the program by its real path: PATH entries outside the sandbox do not exist inside
             real = Path(found).resolve()     # ... except this Python, which must keep its environment's path
             command = [sys.executable if real == Path(sys.executable).resolve() else str(real), *command[1:]]
         # A path given for this call at its own location but lying under the layout's root is shown where the
@@ -1167,7 +1247,7 @@ class Sandbox:
                 if flag == "--bind" and not os.path.lexists(path):     # a writable file stays a file
                     Path(path).mkdir(parents=True, exist_ok=True)
                 for name in _names(path):
-                    if not os.path.exists(name) or (name.startswith("/usr") and not system):
+                    if not os.path.exists(name) or (_beneath(name, "/usr") and not system):    # not /usr2
                         continue
                     # A link under a directory bound already (uv's version alias of an interpreter kept inside a
                     # granted checkout) is there through that directory; binding it again fails on a link.
@@ -1196,7 +1276,15 @@ class Sandbox:
                       and not any(os.path.realpath(p).startswith(m.rstrip("/") + "/") for m in mine)]
         sites = list(dict.fromkeys(sites))
         visible = self.visible(command, writable)
-        bind([p for p in [*visible, *interpreters, *trusted] if not any(_under(p, s) for s in sites)], "--ro-bind", ro)
+        hops = [h for h in (_link_hops(command[0]) if by_name else []) if not str(h).startswith(SYSTEM_LINKED)]
+        bind([p for p in [*visible, *interpreters, *trusted] if not any(_under(p, s) for s in sites)
+              and str(p) not in {str(h) for h in hops}], "--ro-bind", ro)
+        # A granted venv's interpreter reached through links elsewhere: each made again as the link it is, not bound
+        # (a copy of the interpreter there would take that folder for its $ORIGIN: a Python that loads ../lib's
+        # libpython would not find it), unless it is there through a directory bound already.
+        for hop in hops:
+            if hop.is_symlink() and not any(_beneath(str(hop), b) for b in (*ro, *rw)):
+                args.extend(["--symlink", os.readlink(hop), str(hop)])
         # The interpreter's site directories hold every installed package: each is replaced by an empty directory,
         # and the distributions this sandbox shows are bound back into it.
         # A site directory is shown when it lies in a bound path or under /usr (bound whole above: a system Python).

@@ -1772,3 +1772,274 @@ def test_bubblewrap_is_started_by_its_path(tmp_path, monkeypatch):
                         str(tmp_path / "bin" / "bwrap") if name == "bwrap" else REAL_WHICH(name, *a, **k))
     args, _ = Sandbox(network="open").wrap(["true"])
     assert args[0] == str(tmp_path / "bin" / "bwrap")
+
+
+def test_a_granted_venvs_interpreter_is_run_by_its_own_name_and_an_ungranted_one_as_before(tmp_path, monkeypatch):
+    """A venv's bin/python is a link to its base interpreter, which, run by its real path, finds no pyvenv.cfg and so
+    none of the venv's packages (#95). Granted (for the sandbox or for one call), it is run by its own name; granted
+    for one call, its pyvenv.cfg still names no installation to show. Not granted, it runs by its real path, as
+    before."""
+    fake_bwrap(monkeypatch)
+    secret = tmp_path / "secret"
+    (secret / "bin").mkdir(parents=True)
+    venv = tmp_path / "venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text(f"home = {secret / 'bin'}\n")
+    (venv / "bin" / "python").symlink_to(sys.executable)
+    command = [str(venv / "bin" / "python"), "-c", "pass"]
+    args, _ = Sandbox(network="isolated", readable=[venv]).wrap(command)       # the sandbox's own, trusted grant
+    assert args[-3:] == command
+    args, _ = Sandbox(network="isolated").wrap(command, readable=[venv])       # one call's, which shows no home
+    assert args[-3:] == command and not any(a.startswith(str(secret)) for a in args)
+    args, _ = Sandbox(network="isolated").wrap(command)
+    assert args[-3:] == [sys.executable, "-c", "pass"]
+
+
+def test_a_granted_venv_beneath_a_layout_root_or_reached_by_an_ungranted_spelling_runs_as_before(tmp_path,
+                                                                                                  monkeypatch):
+    """Beneath a layout's root a call's grant is shown at /w/..., the sandbox's at its own path, and a link there may
+    lead where nothing is shown: such a venv's interpreter runs as before, whichever way it is granted. Run through a
+    link to its folder that no grant names, it is not there under that name inside: run as before too."""
+    fake_bwrap(monkeypatch)
+    ws = tmp_path / "ws"
+    venv = ws / "tool" / ".venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text("home = /usr/bin\n")
+    (venv / "bin" / "python").symlink_to(sys.executable)
+    command = [str(venv / "bin" / "python"), "-c", "pass"]
+    for box, call in ((Sandbox(network="isolated", layout=(ws, "/w")), {"readable": [venv]}),
+                      (Sandbox(network="isolated", layout=(ws, "/w"), readable=[venv]), {}),
+                      (Sandbox(network="isolated", layout=(ws, "/w"), writable=[venv]), {}),
+                      (Sandbox(network="isolated", layout=(ws, "/w")), {"interpreters": [venv]})):
+        args, _ = box.wrap(command, **call)
+        assert args[-3:] == [sys.executable, "-c", "pass"]
+    # a call's grant beneath the root is shown under /w only: it shows no venv run by its own name elsewhere
+    env = tmp_path / "cache" / "env"
+    (env / "bin").mkdir(parents=True)
+    (env / "pyvenv.cfg").write_text("home = /usr/bin\n")
+    (env / "bin" / "python").symlink_to(sys.executable)
+    (ws / ".venv").symlink_to(env)
+    for call in ({"readable": [ws / ".venv"]}, {"writable": [ws / ".venv"]}):
+        args, _ = Sandbox(network="isolated", layout=(ws, "/w")).wrap([str(env / "bin" / "python"), "-c", "pass"],
+                                                                     **call)
+        assert args[-3:] == [sys.executable, "-c", "pass"]
+    (tmp_path / "linked").symlink_to(ws)
+    aliased = tmp_path / "linked" / "tool" / ".venv" / "bin" / "python"
+    args, _ = Sandbox(network="isolated").wrap([str(aliased), "-c", "pass"], readable=[venv])
+    assert args[-3:] == [sys.executable, "-c", "pass"]
+
+
+def test_only_a_granted_venvs_interpreter_is_renamed_and_only_where_it_is_shown(tmp_path, monkeypatch):
+    """An ordinary command under a layout with a named bind keeps its name (no venv: nothing to rename). A venv whose
+    folder is a link out of the grant (a .venv linked to a cache) is not there inside: it runs as before."""
+    fake_bwrap(monkeypatch)
+    box = Sandbox(network="isolated", layout=(Path(sys.prefix), "/w"), binds=[Bind(tmp_path, "/w/hosts")])
+    args, _ = box.wrap([sys.executable, "-c", "pass"])
+    assert args[-3:] == [sys.executable, "-c", "pass"]
+    cache = tmp_path / "cache" / "venv"
+    (cache / "bin").mkdir(parents=True)
+    (cache / "pyvenv.cfg").write_text("home = /usr/bin\n")
+    (cache / "bin" / "python").symlink_to(sys.executable)
+    (tmp_path / "project").mkdir()
+    (tmp_path / "project" / ".venv").symlink_to(cache)
+    command = [str(tmp_path / "project" / ".venv" / "bin" / "python"), "-c", "pass"]
+    args, _ = Sandbox(network="isolated").wrap(command, readable=[tmp_path / "project"])
+    assert args[-3:] == [sys.executable, "-c", "pass"]
+
+
+def test_a_venv_reached_through_a_linked_directory_outside_it_runs_as_before(tmp_path, monkeypatch):
+    """A venv made through a linked installation (uv's version alias) names that link as its home, which nothing
+    shows; one whose folder is reached through two links (.venv -> /cache/env, /cache -> /mnt/cache) has a name on
+    the way that nothing shows. Each runs as before, and nothing more is shown for it."""
+    fake_bwrap(monkeypatch)
+    install = tmp_path / "cpython-3.12.4"
+    (install / "bin").mkdir(parents=True)
+    (install / "bin" / "python3.12").symlink_to(sys.executable)
+    alias = tmp_path / "cpython-3.12"
+    alias.symlink_to(install)
+    venv = tmp_path / "venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text(f"home = {alias / 'bin'}\n")
+    (venv / "bin" / "python").symlink_to(alias / "bin" / "python3.12")
+    args, _ = Sandbox(network="isolated").wrap([str(venv / "bin" / "python"), "-c", "pass"], readable=[venv])
+    assert args[-3] == sys.executable and not any(a.startswith(str(alias)) for a in args)
+    env = tmp_path / "mnt" / "cache" / "env"
+    (env / "bin").mkdir(parents=True)
+    (env / "pyvenv.cfg").write_text("home = /usr/bin\n")
+    (env / "bin" / "python").symlink_to(sys.executable)
+    (tmp_path / "cache").symlink_to(tmp_path / "mnt" / "cache")
+    (tmp_path / "project").mkdir()
+    (tmp_path / "project" / ".venv").symlink_to(tmp_path / "cache" / "env")
+    args, _ = Sandbox(network="isolated").wrap([str(tmp_path / "project" / ".venv" / "bin" / "python"), "-c", "pass"],
+                                               readable=[tmp_path / "project", tmp_path / "mnt" / "cache"])
+    assert args[-3] == sys.executable
+
+
+def test_a_linked_venv_granted_inside_another_grant_is_judged_as_the_outer_grant_shows_it(tmp_path, monkeypatch):
+    """/project and its .venv (a link to /cache/env, /cache a link to /storage/cache) both granted: the link is not
+    bound on its own inside the bound project, so .venv leads to /cache, which nothing shows. It runs as before,
+    whatever order the grants are looked at in."""
+    fake_bwrap(monkeypatch)
+    env = tmp_path / "storage" / "cache" / "env"
+    (env / "bin").mkdir(parents=True)
+    (env / "pyvenv.cfg").write_text("home = /usr/bin\n")
+    (env / "bin" / "python").symlink_to(sys.executable)
+    (tmp_path / "cache").symlink_to(tmp_path / "storage" / "cache")
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".venv").symlink_to(tmp_path / "cache" / "env")
+    for grants in ([project, project / ".venv"], [project / ".venv", project]):
+        args, _ = Sandbox(network="isolated").wrap([str(project / ".venv" / "bin" / "python"), "-c", "pass"],
+                                                   readable=grants)
+        assert args[-3] == sys.executable
+
+
+def test_a_venv_whose_bin_folder_links_out_of_the_grant_runs_as_before_and_a_system_link_is_no_obstacle(
+        tmp_path, monkeypatch):
+    """bin/ a link to a folder nothing shows: the interpreter's name would not exist inside, so it runs as before.
+    Links through /bin (on a merged /usr, a link the sandbox makes too) lead to a shown installation."""
+    fake_bwrap(monkeypatch)
+    shared = tmp_path / "shared" / "bin"
+    shared.mkdir(parents=True)
+    (shared / "python").symlink_to(sys.executable)
+    env = tmp_path / "env"
+    env.mkdir()
+    (env / "pyvenv.cfg").write_text("home = /usr/bin\n")
+    (env / "bin").symlink_to(shared)
+    args, _ = Sandbox(network="isolated").wrap([str(env / "bin" / "python"), "-c", "pass"], readable=[env])
+    assert args[-3] == sys.executable
+    system = next((p for p in ("/bin/python3", "/bin/sh") if os.path.islink("/bin") and os.path.exists(p)), None)
+    if system is None:
+        return                                                     # no merged /usr here
+    venv = tmp_path / "venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text("home = /bin\n")
+    (venv / "bin" / "python").symlink_to(system)
+    args, _ = Sandbox(network="isolated").wrap([str(venv / "bin" / "python"), "-c", "pass"], readable=[venv])
+    assert args[-3] == str(venv / "bin" / "python")
+
+
+def test_a_venv_interpreters_link_elsewhere_is_made_again_as_a_link_not_bound(tmp_path, monkeypatch):
+    """bin/python -> /alias/python -> the interpreter: bound, the alias would be a copy of the interpreter, whose
+    $ORIGIN (where a shared Python looks for ../lib's libpython) would be /alias; made again as a link, it is not."""
+    fake_bwrap(monkeypatch)
+    (tmp_path / "alias").mkdir()
+    (tmp_path / "alias" / "python").symlink_to(os.path.realpath(sys.executable))
+    venv = tmp_path / "venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text("home = /usr/bin\n")
+    (venv / "bin" / "python").symlink_to(tmp_path / "alias" / "python")
+    args, _ = Sandbox(network="isolated").wrap([str(venv / "bin" / "python"), "-c", "pass"], readable=[venv])
+    alias = str(tmp_path / "alias" / "python")
+    assert args[-3] == str(venv / "bin" / "python") and alias not in binds(args, "--ro-bind")
+    i = args.index(alias)
+    assert args[i - 2:i] == ["--symlink", os.path.realpath(sys.executable)]
+
+
+def test_a_venv_beneath_usr_is_judged_by_the_usr_tree_shown_inside(tmp_path, monkeypatch):
+    """/usr is shown whole, as it is outside, and a grant beneath it is not bound on its own: a venv there linked to
+    /cache/env (/cache a link nothing shows) leads nowhere inside. It runs as before."""
+    fake_bwrap(monkeypatch)
+    usr = tmp_path / "usr"
+    monkeypatch.setattr(sandbox_module, "ALWAYS_SHOWN", (str(usr),))
+    env = tmp_path / "storage" / "cache" / "env"
+    (env / "bin").mkdir(parents=True)
+    (env / "pyvenv.cfg").write_text("home = /usr/bin\n")
+    (env / "bin" / "python").symlink_to(sys.executable)
+    (tmp_path / "cache").symlink_to(tmp_path / "storage" / "cache")
+    (usr / "local").mkdir(parents=True)
+    (usr / "local" / "env").symlink_to(tmp_path / "cache" / "env")
+    args, _ = Sandbox(network="isolated").wrap([str(usr / "local" / "env" / "bin" / "python"), "-c", "pass"],
+                                               readable=[usr / "local" / "env"])
+    assert args[-3] == sys.executable
+    venv = usr / "local" / "venv"                    # shown with /usr but granted by nobody: as before too
+    (venv / "bin").mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text("home = /usr/bin\n")
+    (venv / "bin" / "python").symlink_to(sys.executable)
+    args, _ = Sandbox(network="isolated").wrap([str(venv / "bin" / "python"), "-c", "pass"])
+    assert args[-3] == sys.executable
+
+
+def test_a_grant_whose_path_only_begins_like_usr_is_bound(tmp_path, monkeypatch):
+    """/usr is shown whole and a grant beneath it is not bound again; a path that only begins with the same letters
+    (a /usr2 storage mount) is not beneath it and is bound, so a venv granted there exists inside."""
+    fake_bwrap(monkeypatch)
+    real_exists = os.path.exists
+    monkeypatch.setattr(sandbox_module.os.path, "exists",
+                        lambda p: True if str(p) == "/usr2/project" else real_exists(p))
+    args, _ = Sandbox(network="isolated").wrap(["true"], readable=[Path("/usr2/project")])
+    assert "/usr2/project" in binds(args, "--ro-bind")
+
+
+def test_a_venv_under_a_sandbox_that_shows_the_whole_filesystem_runs_by_its_own_name(tmp_path, monkeypatch):
+    """`readable=[/]` (network isolation alone): the venv is shown, under its own name."""
+    fake_bwrap(monkeypatch)
+    venv = tmp_path / "venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text("home = /usr/bin\n")
+    (venv / "bin" / "python").symlink_to(sys.executable)
+    args, _ = Sandbox(network="isolated", readable=[Path("/")]).wrap([str(venv / "bin" / "python"), "-c", "pass"])
+    assert args[-3] == str(venv / "bin" / "python")
+
+
+def test_a_linked_venv_runs_by_its_own_name_with_its_own_packages(tmp_path, monkeypatch):
+    """A venv granted under a linked name (/cache/env -> /storage/env) whose bin/python goes through its own python3:
+    it runs by its own name, and its site directory is not emptied as a base installation's."""
+    fake_bwrap(monkeypatch)
+    storage = tmp_path / "storage" / "env"
+    site = storage / "lib" / "python3.12" / "site-packages"
+    site.mkdir(parents=True)
+    (storage / "bin").mkdir()
+    (storage / "pyvenv.cfg").write_text("home = /usr/bin\n")
+    (storage / "bin" / "python3").symlink_to(sys.executable)
+    (storage / "bin" / "python").symlink_to("python3")
+    (tmp_path / "cache").mkdir()
+    (tmp_path / "cache" / "env").symlink_to(storage)
+    venv = tmp_path / "cache" / "env"
+    args, _ = Sandbox(network="isolated", readable=[venv]).wrap([str(venv / "bin" / "python"), "-c", "pass"])
+    assert args[-3] == str(venv / "bin" / "python")
+    assert not any(a.endswith("site-packages") and "env" in a for a in binds(args, "--tmpfs"))
+
+
+@pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
+def test_a_granted_venvs_interpreter_reached_through_another_link_starts_inside(tmp_path):
+    """bin/python -> a link of its own elsewhere -> this interpreter: that link must exist inside too."""
+    venv = tmp_path / "venv"
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], check=True, capture_output=True)
+    [site] = venv.glob("lib/python3*/site-packages")
+    (site / "marker95.py").write_text("WHERE = 'the venv'\n")
+    (tmp_path / "alias").mkdir()
+    (tmp_path / "alias" / "python").symlink_to(os.path.realpath(sys.executable))
+    (venv / "bin" / "python").unlink()
+    (venv / "bin" / "python").symlink_to(tmp_path / "alias" / "python")
+    box = Sandbox(network="isolated")
+    try:
+        args, env = box.wrap([str(venv / "bin" / "python"), "-c", "import marker95; print(marker95.WHERE)"],
+                             readable=[venv])
+        out = subprocess.run(args, env=env, capture_output=True, text=True, timeout=120)
+    finally:
+        box.close()
+    assert out.returncode == 0 and out.stdout.strip() == "the venv", out.stderr[-600:]
+
+
+@pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
+@pytest.mark.parametrize("base", [sys.executable, "/usr/bin/python3"],
+                         ids=["this-interpreter", "usr-bin-python3"])
+def test_a_granted_venvs_python_imports_the_venvs_packages_inside(tmp_path, base):
+    """End to end, for a venv made from this interpreter and one made from another: the module installed in the venv
+    imports inside the sandbox."""
+    if not os.path.exists(base) or (base != sys.executable and
+                                    Path(base).resolve() == Path(sys.executable).resolve()):
+        pytest.skip(f"no other interpreter at {base}")
+    venv = tmp_path / "venv"
+    subprocess.run([base, "-m", "venv", "--without-pip", str(venv)], check=True, capture_output=True)
+    [site] = venv.glob("lib/python3*/site-packages")
+    (site / "marker95.py").write_text("WHERE = 'the venv'\n")
+    box = Sandbox(network="isolated")
+    try:
+        args, env = box.wrap([str(venv / "bin" / "python"), "-c", "import marker95; print(marker95.WHERE)"],
+                             readable=[venv])
+        out = subprocess.run(args, env=env, capture_output=True, text=True, timeout=120)
+    finally:
+        box.close()
+    assert out.returncode == 0 and out.stdout.strip() == "the venv", out.stderr[-600:]

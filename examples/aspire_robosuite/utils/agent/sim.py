@@ -122,9 +122,9 @@ def confine(cmd: list[str], *, root: Path, env: dict, writable=(), readable=(), 
     root = Path(root)
     first = Path(cmd[0])
     if (first.parent.parent / "pyvenv.cfg").is_file():
-        # A venv's interpreter (the validator's `python -c`): the sandbox runs a command by its real path, and the
-        # venv's python is a link to its base installation, which would run without the venv's packages; run by its
-        # own name through a shell, the venv (granted, so its base installation is shown too) is kept.
+        # A venv's interpreter (the validator's `python -c`), granted so its base installation is shown too. The
+        # sandbox runs a granted venv's interpreter by its own name (#95); the shell, which runs it by that name
+        # too, dates from before and is kept.
         trusted = [first.parent.parent]
         cmd = ["/bin/sh", "-c", 'exec "$0" "$@"', *cmd]
     else:
