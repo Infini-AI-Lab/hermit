@@ -544,7 +544,7 @@ def test_the_task_sandbox_is_shown_the_staged_docs_and_never_a_page_that_lost_it
     # No Codex config of either example grants a page of the checkout's own docs, and each loads
     from hermit.config import Config
     configs = [p for folder in (EXAMPLE.parent, LIBERO) for p in sorted((folder / "aspire").glob("*.yaml"))]
-    assert len(configs) == 7
+    assert len(configs) == 8
     for path in configs:
         data = Config.load(path).data
         read = [str(p) for p in (data.get("environment") or {}).get("read") or []]

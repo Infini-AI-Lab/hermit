@@ -11,7 +11,7 @@ is LIBERO's:
 |---|---|
 | `utils/prepare.py` | The 130 tasks (a suite and a task id each) with their seeds; the verifier's rows; the reruns |
 | `utils/task-info/` | What a task and its record are, for the coordinator |
-| `aspire/` | `run.yaml` (Object, Spatial, Goal, Long: 40 tasks), `run_90.yaml` (LIBERO-90), `smoke.yaml`, `launch.sh` |
+| `aspire/` | `run.yaml` (Object, Spatial, Goal, Long: 40 tasks), `run_90.yaml` (LIBERO-90), `smoke.yaml`, `smoke_luna.yaml` (the smoke with GPT-5.6-Luna on the machine's ChatGPT login), `launch.sh` |
 
 The engine (`../aspire_robosuite/utils/agent/`, `../aspire_robosuite/utils/judge.py`) takes the benchmark from the
 task row (`"benchmark": "libero-pro"`) and with it ASPIRE's settings for LIBERO (its fix-loop template's Benchmark

@@ -26,7 +26,6 @@ EXAMPLE="$(cd "${ASPIRE_EXAMPLE:-$HERE/..}" && pwd)"              # the folder w
 # Absolute, from where the launcher was called: the service, the judge and the sandboxed workers each start elsewhere
 ASPIRE_ROOT="$(cd "$ASPIRE_ROOT" && pwd)"
 [[ -z "${ASPIRE_OUT:-}" ]] || { mkdir -p "$ASPIRE_OUT" && ASPIRE_OUT="$(cd "$ASPIRE_OUT" && pwd)"; }
-: "${FIREWORKS_API_KEY:?set FIREWORKS_API_KEY}"
 CONFIG="${ASPIRE_CONFIG:-run.yaml}"
 HERMIT="${HERMIT_PYTHON:-python}"
 [[ "$HERMIT" != */* || "$HERMIT" == /* ]] || HERMIT="$PWD/$HERMIT"          # a relative path: from here, as given
@@ -48,6 +47,8 @@ PINNED=fa00f0ef2bc1d91d594b9aa502c22133c9f538f7
 ACTUAL="$(git -C "$ASPIRE_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
 [[ "$ACTUAL" == "$PINNED" ]] || echo "note: ASPIRE_ROOT is at $ACTUAL, not the pinned $PINNED" >&2
 cd "$EXAMPLE/aspire"
+# The model key, for a config whose models are Fireworks' (one on the machine's ChatGPT login needs none)
+! grep -q "ref: fireworks/" "$CONFIG" || : "${FIREWORKS_API_KEY:?set FIREWORKS_API_KEY}"
 
 # The seeds, in the task rows: the simulator service and the judge read them there. The example's prepare.py holds
 # its benchmark's (ASPIRE's defaults and the smoke's).
