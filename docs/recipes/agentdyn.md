@@ -12,4 +12,6 @@ groups; the adapter is frozen before testing.
 ## Results
 
 See the [No-defense and EvoSafeHarness comparison](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/agentdyn/evosafe/README.md#results).
-The comparison covers fixed cases and indirect injections.
+The Lightning comparison covers 186 fixed TEST cases and indirect injections, with runtime errors reported
+separately. Both Codex and Claude recipes use the same victim and keep `max_iters: 25`; the measured
+comparison uses Codex roles.

@@ -433,3 +433,36 @@ def test_all_groups_needs_a_positive_goal_count(tmp_path, goals):
     spec.loader.exec_module(module)
     with pytest.raises(ValueError, match="positive"):
         module.prepare(tmp_path / "inventory", tmp_path / "base", tmp_path / "out", goals=goals)
+
+
+def test_full_test_keeps_search_cases_and_only_adds_test_owned_variants(tmp_path):
+    path = ROOT / "examples/agentdyn/utils/prepare_all_groups.py"
+    spec = importlib.util.spec_from_file_location("prepare_groups", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    inventory, base = tmp_path / "inventory", tmp_path / "base"
+    (inventory / "full").mkdir(parents=True)
+    base.mkdir()
+    rows, groups = [], []
+    for split in module.SPLITS:
+        groups.append({"suite": "github", "user_task_id": split, "split": split})
+        members = [dict(id=f"{split}-{n}", suite="github", user_task_id=split,
+                        injection_task_id=f"injection_task_{n}" if n else None,
+                        injections={"vector": f"frozen-{n}"} if n else {}) for n in range(4)]
+        rows.extend(members)
+        (base / f"{split}.txt").write_text("".join(r["id"] + "\n" for r in members[:3]))
+    (inventory / "full/tasks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    (inventory / "full/manifest.json").write_text(json.dumps({"groups": groups}))
+
+    original, expanded = tmp_path / "original", tmp_path / "expanded"
+    module.prepare(inventory, base, original)
+    report = module.prepare(inventory, base, expanded, full_test=True)
+    assert report["counts"] == {"train": 3, "val": 3, "test": 4}
+    for split in ("train", "val"):
+        assert (expanded / f"{split}.txt").read_bytes() == (original / f"{split}.txt").read_bytes()
+    assert (expanded / "test.txt").read_text() == (original / "test.txt").read_text() + "test-3\n"
+    old_rows = {r["id"]: r for r in map(json.loads, (original / "tasks.jsonl").read_text().splitlines())}
+    new_rows = {r["id"]: r for r in map(json.loads, (expanded / "tasks.jsonl").read_text().splitlines())}
+    assert {i: new_rows[i] for i in old_rows} == old_rows
+    assert new_rows.keys() - old_rows.keys() == {"test-3"}
+    assert new_rows["test-3"]["injections"] == {"vector": "frozen-3"}

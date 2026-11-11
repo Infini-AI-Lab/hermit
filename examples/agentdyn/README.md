@@ -20,10 +20,14 @@ Use a separate Python 3.12 environment. AgentDyn installs as `agentdojo`; pin th
 
 ```bash
 git -C ../AgentDyn checkout 5353cf7615b135cace8d07c8f12dac53a16b6db3
+git -C ../AgentDyn apply "$PWD/examples/agentdyn/patches/persist-dynamic-webpages.patch"
 uv venv .venv-agentdyn
 uv pip install --python .venv-agentdyn/bin/python -e '.[test]' -e ../AgentDyn
 source .venv-agentdyn/bin/activate
 ```
+
+The patch persists newly created pages and validates their action handlers, fixing GitHub invitation URLs
+that otherwise return 404. Native task requests, judges and frozen injection payloads are unchanged.
 
 Install both projects in one resolver invocation, so AgentDyn's dependencies cannot change Hermit's pinned packages.
 
@@ -34,18 +38,20 @@ cd examples/agentdyn/utils
 python prepare_expanded.py /path/to/AgentDyn/runs/google_gemini-2.5-flash data/expanded-v2
 python prepare_thirty.py data/expanded-v2 data/thirty-v1
 python prepare_all_groups.py data/expanded-v2 data/thirty-v1 data/all-groups-v1
+python prepare_all_groups.py data/expanded-v2 data/thirty-v1 data/full-test-v1 --full-test
 ```
 
 The importer keeps only suite, user task, injection task and frozen payloads; old traces and scores are discarded.
-The result has 57 train, 54 validation and 54 test cases: every eligible user group with its clean case and two
-existing injection goals, each group in one split. See [DATA.md](utils/DATA.md).
+`full-test-v1` has 57 train, 54 validation and 186 test cases. `--full-test` includes every frozen variant in the
+18 TEST-owned groups; TRAIN and validation retain their clean case and two injection goals per group.
+Both EvoSafe recipes use `full-test-v1`. See [DATA.md](utils/DATA.md) for split ownership and preparation details.
 
 ## The bridge and the hooks
 
 `utils/bridge.py:run` runs one case: a fresh environment, AgentDyn's native agent loop, and the defense bundle's
 hooks around every tool call.
 - The victim is any OpenAI-compatible model, named by an `agent.model` with `agent.base: direct` backend reference such as
-  `vllm/nvidia/llama-3.3-nemotron-super-49b-v1.5`. Endpoint and key settings come from Hermit's
+  `vllm/nvidia/nvidia/nemotron-3.5-lightning`. Endpoint and key settings come from Hermit's
   [model backends](../../docs/guides/model-backends.md), just as for the other task integrations. Legacy
   `base_url`/`api_key_env` settings remain supported. Requests retry on timeouts and server errors (`max_retries`).
 - Every model call goes through the shared `direct` Base Agent and `ChatClient`, including the optional classifier.

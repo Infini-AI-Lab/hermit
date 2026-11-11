@@ -70,3 +70,16 @@ The two injection goals per group are chosen by a fixed seed from the goals that
 `all-groups-v1/tasks.jsonl` is `2f5d3943caf7d56d0d50c1998c6a2154f524fb2178ca4119fe89d7b2846d69f4`.
 Validation cases serve only to confirm a candidate. Test cases are used only by `hermit eval` and are never shown
 to the roles.
+
+## Full TEST variants
+
+Add `--full-test` to `prepare_all_groups.py`, writing to `data/full-test-v1`, to include every frozen case
+owned by the existing TEST groups.
+This produces 186 TEST cases: 18 clean and 168 injected across the same 18 groups, including the original
+54 cases plus 132 additional injected variants. TRAIN (57 cases), validation (54 cases), split ownership and
+injection payloads are unchanged. Unselected variants in TRAIN and validation groups remain excluded.
+Selection does not use model outcomes. The SHA-256 of `full-test-v1/tasks.jsonl` is
+`b529dfa72103fe8c55972e1960dcf492adda2be7dfdd6b1c0a87433007e043fb`.
+
+The Codex EvoSafe recipe uses TRAIN for search and TEST for frozen evaluation, with no validation gate.
+The Claude recipe uses the same expanded TEST set and retains its disjoint validation gate.
