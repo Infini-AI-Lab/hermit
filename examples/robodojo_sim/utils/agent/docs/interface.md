@@ -4,8 +4,8 @@ Your program is one Python file. RoboDojo-Sim runs the task; at every control st
 observation and executes the actions your program returns.
 
 ```python
-def reset():            # optional: called before every episode (a new layout of the same task)
-    ...
+def reset():            # optional: called before every episode (a new layout of the same task), possibly
+    ...                 # more than once before the episode's first step
 
 def act(obs):           # required: the next actions, a list of 1 to 100 action dicts (a chunk)
     return [action, ...]
@@ -36,6 +36,9 @@ action is one step of 0.04 s. An episode ends when the task's success condition 
 | `obs["state"]["left_ee_joint_state"]`, `["right_ee_joint_state"]` | the gripper, one number in 0..1 (the last commanded value) |
 | `obs["additional_info"]["frequency"]` | 25 |
 
+The dict has a few more entries that carry nothing about the scene (`env_idx`, `data_format_version`, an image's
+`shape`, and `action`, the previous command).
+
 Arrays are read-only numpy arrays. There is no depth image and no camera calibration in the observation, and no
 object poses: what the scene holds is what the three cameras show.
 
@@ -49,5 +52,6 @@ A dict with the arm targets of **one** mode and, if you want to move them, the g
 | end effector | `left_ee_pose`, `right_ee_pose` | an absolute pose each, `[x, y, z, qw, qx, qy, qz]`, in the frame of the observation's poses; solved by inverse kinematics, and an unreachable pose is silently not executed |
 | both | `left_ee_joint_state`, `right_ee_joint_state` | the gripper, one number in 0..1; which end is open is the robot's convention: find it from an observation after commanding it |
 
-A key you leave out is not commanded in that step. Values are lists of plain numbers (or numpy arrays). Joint and
-end-effector keys must not be mixed in one action.
+A key you leave out keeps its value from the observation you were given (the arm stays where it is, the gripper as
+it was commanded). Values are lists of plain numbers (or numpy arrays), finite and within 1000 in magnitude. Joint
+and end-effector keys must not be mixed in one action.

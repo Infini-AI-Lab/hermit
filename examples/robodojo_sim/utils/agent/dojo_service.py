@@ -35,6 +35,11 @@ class Service(base.Service):
     def __init__(self, engine: dojo.Engine, tasks: dict, workspaces: list[Path], ledger: base.Ledger, **options):
         super().__init__(engine.root, tasks, workspaces, ledger, {}, 1, **options)
         self.engine = engine
+        self.private = ledger.path.parent / "private"        # RoboDojo's logs and the sandbox records: the host's
+
+    def stop(self) -> None:                                  # the simulators go with the service
+        super().stop()
+        self.engine.stop()
 
     def _check_row(self, row: dict) -> None:
         if row.get("benchmark") != "robodojo":
@@ -53,7 +58,8 @@ class Service(base.Service):
                 return 1, "", "bin/sim: the simulator service is stopping\n"
         try:
             records = self.engine.run(program, task=row["suite"], layout_seed=int(row["layout_set"]),
-                                      layouts=len(seeds), out=own_out)
+                                      layouts=len(seeds), out=own_out,
+                                      private=self.private / own_out.parent.name)
         except ValueError as exc:                          # the program was refused before a simulator started
             return 1, "", f"bin/sim: {exc}\n"
         passed = sum(r["task_success"] for r in records)
@@ -63,8 +69,7 @@ class Service(base.Service):
         if failed:
             lines.append(f"the program failed in {len(failed)} episode(s); the first: {failed[0].get('error')}")
         if len(records) < len(seeds):
-            lines.append(f"{len(seeds) - len(records)} layout(s) have no result (skipped by RoboDojo as unstable, or "
-                         "the evaluation ended early: robodojo.log)")
+            lines.append(f"{len(seeds) - len(records)} layout(s) have no result (the evaluation ended early)")
         lines.append(f"{passed}/{len(records)} layouts succeeded")
         return 0, "\n".join(lines) + "\n", ""
 

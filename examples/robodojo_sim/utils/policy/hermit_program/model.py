@@ -8,13 +8,13 @@ the worker's pipes:
                      their bytes, dtype and shape (`packed`), so the two sides need not share a numpy version
     from the worker  JSON: {"ok": true, "actions": [...]} or {"ok": false, "error": "..."}; never unpickled
 
-A chunk is checked here before it reaches the simulator (the keys RoboDojo executes, their sizes, finite numbers).
+A chunk is checked and completed here before it reaches the simulator (`checked`: every action whole, the keys
+RoboDojo executes, their sizes, bounded numbers).
 A program that fails, answers late or answers with something else is not an error of the evaluation: the robot
 holds its joints for that chunk, the failure is written to HERMIT_PROGRAM_LOG, and the episode goes on to its
 horizon, where it fails on its own.
 """
 import json
-import math
 import os
 import pickle
 import select
@@ -42,28 +42,38 @@ class ProgramError(Exception):
     pass
 
 
-def checked(actions) -> list[dict]:
-    """The program's chunk as RoboDojo takes it: a non-empty list of at most MAX_CHUNK actions, each with the arm
-    keys of one mode (any of them) and the grippers, finite numbers of the right count."""
+LIMIT = 1.0e3                             # no joint angle, position or gripper value is near it
+
+
+def checked(actions, state: dict | None = None) -> list[dict]:
+    """The program's chunk as RoboDojo takes it: a non-empty list of at most MAX_CHUNK actions. Every action that
+    reaches the simulator is whole: both arms in one mode and both grippers, each the right count of float32
+    numbers within LIMIT. What the program left out is filled from `state`, the observation it answered (the
+    joints, poses and grippers as they are), so an omitted key holds its value. RoboDojo raises on an action
+    with a key missing and then drops the layout unscored, and a program must not be able to drop a layout."""
     if not isinstance(actions, list) or not 0 < len(actions) <= MAX_CHUNK:
         raise ProgramError(f"act() must return a list of 1 to {MAX_CHUNK} actions")
+    state = state or {}
     out = []
     for action in actions:
-        if not isinstance(action, dict) or not action:
-            raise ProgramError("an action is a non-empty dict")
+        if not isinstance(action, dict):
+            raise ProgramError("an action is a dict")
         modes = {mode for mode, keys in ARM.items() if any(k in action for k in keys)}
         if len(modes) > 1:
             raise ProgramError("an action mixes joint and end-effector arm keys")
-        sizes = {**(ARM[modes.pop()] if modes else {}), **GRIPPER}
+        sizes = {**ARM[modes.pop() if modes else "joint"], **GRIPPER}
         unknown = sorted(set(action) - set(sizes))
         if unknown:
             raise ProgramError(f"unknown action keys {unknown}")
         one = {}
-        for key, value in action.items():
-            values = [float(v) for v in (value if isinstance(value, (list, tuple)) else [value])]
-            if len(values) != sizes[key] or not all(math.isfinite(v) for v in values):
-                raise ProgramError(f"{key} must be {sizes[key]} finite numbers")
-            one[key] = np.asarray(values, dtype=np.float32)
+        for key, size in sizes.items():
+            value = action[key] if key in action else state.get(key)
+            if value is None:
+                raise ProgramError(f"{key} is neither in the action nor in the observation's state")
+            array = np.asarray(value, dtype=np.float64).reshape(-1)
+            if array.shape != (size,) or not np.all(np.isfinite(array)) or np.any(np.abs(array) > LIMIT):
+                raise ProgramError(f"{key} must be {size} finite numbers within {LIMIT:g}")
+            one[key] = array.astype(np.float32)
         out.append(one)
     return out
 
@@ -169,7 +179,7 @@ class Model(ModelTemplate):
                 answer = self.worker.call({"op": "act", "obs": packed(self.obs)}, STEP_TIMEOUT_S)
                 if not answer.get("ok"):
                     raise ProgramError(answer.get("error") or "act failed")
-                return checked(answer.get("actions"))
+                return checked(answer.get("actions"), (self.obs or {}).get("state"))
             except Exception as exc:      # noqa: BLE001
                 self._fail(exc)
         return [self._hold()]
@@ -177,10 +187,7 @@ class Model(ModelTemplate):
     def _hold(self) -> dict:
         """The joints where they are: what the robot does for a chunk its program did not give."""
         state = (self.obs or {}).get("state") or {}
-        hold = {}
-        for key in (*ARM["joint"], *GRIPPER):
-            if state.get(key) is not None:
-                hold[key] = np.asarray(state[key], dtype=np.float32).reshape(-1)
-        if not hold:
-            hold = {key: np.zeros(1, dtype=np.float32) for key in GRIPPER}
-        return hold
+        try:
+            return checked([{}], state)[0]
+        except Exception:                 # noqa: BLE001 - an observation without the state: a whole action still
+            return {key: np.zeros(size, dtype=np.float32) for key, size in {**ARM["joint"], **GRIPPER}.items()}

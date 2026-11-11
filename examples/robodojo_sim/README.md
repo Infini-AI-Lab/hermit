@@ -29,8 +29,9 @@ been made; what a run may still show is listed under [Not verified](#not-verifie
 
 RoboDojo's saved layouts come in sets (`--seed` 0, 1, 2) and an evaluation runs a set's first N. A task's row
 keeps development and scoring apart by set: a session develops on set 2 (its first 10 layouts), and the judge
-scores on sets 0 and 1 (their first 25 layouts each). The score is the fraction of the layouts RoboDojo scored that
-succeeded. **This is not RoboDojo's leaderboard protocol**, which scores all three sets with fifty layouts each: a
+scores on sets 0 and 1 (their first 25 layouts each). The score is the fraction of those fifty layouts that
+succeeded; a layout with no result counts as failed (RoboDojo drops a layout whose episode raised or whose scene
+went unstable and scores a later one instead, which a program must not gain by, so the later one is not counted). **This is not RoboDojo's leaderboard protocol**, which scores all three sets with fifty layouts each: a
 number from here is on two sets, at half their layouts, with the third developed on.
 
 The observation is RoboDojo's default for `arx_x5`: three RGB cameras, the arms' joints and end-effector poses,
@@ -43,14 +44,19 @@ RoboDojo's success check reads privileged simulator state, and its checkout hold
 the success conditions and the results, beside which XPolicyLab's policy server runs. So:
 
 - The program is never imported by the policy server. It runs as a worker in a bubblewrap sandbox with no network
-  that reads the program's directory and the worker, and nothing of the checkout (`dojo.Engine._worker`). It
-  receives RoboDojo's observation and returns an action chunk, which the server checks (keys, sizes, finite
-  numbers) before the simulator sees it.
+  that reads the worker and a directory holding the program alone: not the checkout, and not the run's output,
+  where the held-out results are written while it runs (`dojo.Engine._worker`; the sandbox's own check finds both
+  missing inside). It receives RoboDojo's observation and returns an action chunk.
+- Every action that reaches the simulator is whole and bounded (`model.py`: `checked`): both arms in one mode and
+  both grippers, what the program left out filled from the observation, numbers within 1000 after the cast to
+  float32. RoboDojo raises on a partial action and drops the layout unscored; with whole actions and the fixed
+  denominator above, a program cannot remove a failing layout from its score.
 - The episode loop that runs inside the simulator's process (`deploy.py`) is the harness's and fixed; the engine
   refuses to run when the installed policy differs from the one here.
 - A session reaches the simulator only through `bin/sim`, and the service runs only its task's development set;
   the held-out sets are run by the judge. The task sandbox is shown the actor's code and the interface page, and
-  nothing of RoboDojo.
+  nothing of RoboDojo; a run's files in the workspace are the result, the videos and the program's own log
+  (RoboDojo's log and the sandbox's record, which name host paths, stay with the service).
 - A program that fails, answers late or answers with an invalid chunk holds the robot's joints to the horizon; the
   episode fails on its own.
 

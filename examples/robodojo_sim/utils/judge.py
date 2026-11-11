@@ -1,8 +1,10 @@
 """The score of a session, on the host: its program (`policy.py`, as utils/agent/task.py:collect read it) evaluated
 once in RoboDojo-Sim on the task row's held-out layout sets, which no session can run (the simulator service runs
-only the development set). The score is the fraction of the layouts RoboDojo scored that succeeded (its own success
-check); a layout RoboDojo skipped as unstable is not counted, and a held-out set with no result at all counts as
-failed layouts.
+only the development set). The score is the fraction of the held-out layouts (the first `eval_layouts` of each
+set, a fixed number) that succeeded by RoboDojo's own success check. A layout with no result counts as failed,
+whatever the reason: RoboDojo drops a layout whose episode raised or whose scene went unstable and scores a later
+one in its place, and a program that could make that happen must not gain by it. So a later layout's result is
+not counted either.
 
 The engine's settings come from the launcher's environment: ROBODOJO_ROOT (the checkout), ROBODOJO_OUT (where the
 runs go), ROBODOJO_GPU, ROBODOJO_POLICY_ENV and ROBODOJO_EVAL_ENV (the conda environments), ROBODOJO_ENV_CFG,
@@ -38,16 +40,18 @@ def score(task: dict, output) -> dict:
     engine = dojo.Engine(env["ROBODOJO_ROOT"], policy_env=env.get("ROBODOJO_POLICY_ENV", "RoboDojo"),
                          eval_env=env.get("ROBODOJO_EVAL_ENV", "RoboDojo"), env_cfg=env.get("ROBODOJO_ENV_CFG", "arx_x5"),
                          action_type=env.get("ROBODOJO_ACTION_TYPE", "joint"), gpu=env.get("ROBODOJO_GPU", "0"))
-    passed = scored = 0
+    passed = missing = 0
     per_set = {}
     for layout_set in sets:
         records = engine.run(out / "policy.py", task=task["suite"], layout_seed=layout_set, layouts=count,
                              out=out / f"set-{layout_set}")
-        good = sum(r["task_success"] for r in records)
-        per_set[layout_set] = {"passed": good, "scored": len(records)}
+        mine = {r["layout_id"]: r for r in records if 0 <= r["layout_id"] < count}    # the set's first `count`
+        good = sum(bool(r["task_success"]) for r in mine.values())
+        per_set[layout_set] = {"passed": good, "no_result": count - len(mine)}
         passed += good
-        scored += len(records) if records else count          # no result at all: the set's layouts failed
-    (out / "held-out.json").write_text(json.dumps({"sets": per_set, "passed": passed, "scored": scored}, indent=1))
-    return {"score": passed / scored if scored else 0.0,
-            "feedback": f"{passed}/{scored} held-out layouts (sets {', '.join(map(str, sets))})",
-            "passed": passed, "layouts": scored}
+        missing += count - len(mine)
+    (out / "held-out.json").write_text(json.dumps({"sets": per_set, "passed": passed, "layouts": total}, indent=1))
+    return {"score": passed / total,
+            "feedback": f"{passed}/{total} held-out layouts (sets {', '.join(map(str, sets))})"
+                        + (f"; {missing} with no result, counted as failed" if missing else ""),
+            "passed": passed, "layouts": total}

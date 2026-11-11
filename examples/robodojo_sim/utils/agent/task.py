@@ -74,14 +74,15 @@ def collect(task: dict, workspace: Path, log: Path, params: dict) -> dict:
 
 
 def _development(work: Path) -> list[dict]:
-    """The session's own evaluations, newest last: where, how many layouts, how many succeeded."""
+    """The session's own evaluations as its workspace states them (for the learner, not for the score: a session
+    can write these files itself): where, how many layouts, how many succeeded."""
     runs = []
-    for path in sorted(work.rglob("records.json"), key=lambda p: p.stat().st_mtime):
-        try:
-            data = json.loads(path.read_text())
-            records = data.get("records") or []
-            runs.append({"dir": str(path.parent.relative_to(work)), "layouts": data.get("layouts"),
+    for path in sorted(p for p in work.rglob("records.json") if p.is_file() and not p.is_symlink()):
+        try:                                # the session's own files: read as data, whatever they hold
+            data = json.loads(path.read_text(errors="replace"))
+            records = [r for r in data["records"] if isinstance(r, dict)]
+            runs.append({"dir": str(path.parent.relative_to(work)), "layouts": int(data["layouts"]),
                          "passed": sum(bool(r.get("task_success")) for r in records), "scored": len(records)})
-        except (OSError, ValueError):
+        except Exception:                   # noqa: BLE001 - not one of bin/sim's records
             continue
     return runs[-20:]

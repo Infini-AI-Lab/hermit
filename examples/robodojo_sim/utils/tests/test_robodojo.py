@@ -84,6 +84,10 @@ class Env:
     def take_action(self, action):
         self.step += 1
         assert all(isinstance(v, np.ndarray) and v.dtype == np.float32 for v in action.values()), action
+        # RoboDojo indexes both arms and both grippers of every action, and a NaN breaks its physics: an episode
+        # that raises is dropped unscored (main.py), which a program must not be able to cause
+        assert set(action) == {"left_arm_joint_state", "right_arm_joint_state", "left_ee_joint_state",
+                               "right_ee_joint_state"} and all(np.all(np.isfinite(v)) for v in action.values())
         if float(action.get("left_ee_joint_state", [0])[0]) == 1.0:
             self.success = True
 details = {}
@@ -122,13 +126,26 @@ def test_the_program_check_wants_one_act_and_a_chunk_is_checked_before_the_simul
     assert "SyntaxError" in dojo.check_program("def act(obs:\n")
     assert "one argument" in dojo.check_program("def act(obs, extra):\n    return []\n")
     model = _load("hermit_program_model", UTILS / "policy" / "hermit_program" / "model.py")
-    chunk = model.checked([{"left_arm_joint_state": [0] * 6, "left_ee_joint_state": 1}])
-    assert chunk[0]["left_arm_joint_state"].shape == (6,) and chunk[0]["left_ee_joint_state"].tolist() == [1.0]
-    for bad in ([], "x", [{}], [{"left_arm_joint_state": [0] * 5}], [{"left_ee_joint_state": [float("nan")]}],
+    state = {"left_arm_joint_state": [1] * 6, "right_arm_joint_state": [2] * 6, "left_ee_pose": [0] * 7,
+             "right_ee_pose": [0] * 7, "left_ee_joint_state": [0.25], "right_ee_joint_state": [0.5]}
+    # What the program leaves out is held, so the action the simulator gets is whole (RoboDojo drops a layout
+    # whose action lacks a key, unscored)
+    chunk = model.checked([{"left_arm_joint_state": [0] * 6, "left_ee_joint_state": 1}], state)
+    assert sorted(chunk[0]) == ["left_arm_joint_state", "left_ee_joint_state", "right_arm_joint_state",
+                                "right_ee_joint_state"]
+    assert chunk[0]["right_arm_joint_state"].tolist() == [2.0] * 6 and chunk[0]["left_ee_joint_state"].tolist() == [1.0]
+    assert chunk[0]["right_ee_joint_state"].tolist() == [0.5] and chunk[0]["left_arm_joint_state"].dtype.name == "float32"
+    assert sorted(model.checked([{"left_ee_pose": [0] * 7}], state)[0]) == [
+        "left_ee_joint_state", "left_ee_pose", "right_ee_joint_state", "right_ee_pose"]
+    assert sorted(model.checked([{}], state)[0]) == sorted(chunk[0])           # nothing commanded: a whole hold
+    for bad in ([], "x", ["x"], [{"left_arm_joint_state": [0] * 5}], [{"left_ee_joint_state": [float("nan")]}],
+                [{"left_ee_joint_state": [1e39]}],                         # finite, but inf once cast to float32
                 [{"left_arm_joint_state": [0] * 6, "right_ee_pose": [0] * 7}], [{"torque": [1]}],
                 [{"left_ee_joint_state": [1]}] * (model.MAX_CHUNK + 1)):
         with pytest.raises(model.ProgramError):
-            model.checked(bad)
+            model.checked(bad, state)
+    with pytest.raises(model.ProgramError):
+        model.checked([{"left_ee_joint_state": [1]}], {})                  # nothing to complete the action from
 
 
 def test_the_worker_gives_the_program_numpy_arrays_and_its_error_is_an_answer_not_a_crash(tmp_path):
@@ -173,10 +190,10 @@ def test_the_engine_refuses_a_policy_that_is_not_the_harnesss_and_a_program_insi
     with pytest.raises(RuntimeError, match="not the harness's policy"):     # an episode loop that grants success
         engine.run(program, task="stack_bowls", layout_seed=2, layouts=1, out=tmp_path / "out")
     dojo.install(root)
-    inside = root / "policy.py"
-    inside.write_text(GOOD)
-    with pytest.raises(ValueError, match="inside RoboDojo's checkout"):
-        engine.run(inside, task="stack_bowls", layout_seed=2, layouts=1, out=tmp_path / "out")
+    with pytest.raises(ValueError, match="inside RoboDojo's checkout"):     # a run's files beside the layouts
+        engine.run(program, task="stack_bowls", layout_seed=2, layouts=1, out=root / "out")
+    assert "NUL" in dojo.check_program("def act(obs):\n    return []\n\x00") or \
+        dojo.check_program("def act(obs):\n    return []\n\x00")
 
 
 @needs_bwrap
@@ -195,10 +212,13 @@ def test_a_program_is_scored_by_what_it_does_and_reads_nothing_of_robodojos_chec
     assert [(r["layout_id"], r["task_success"]) for r in records] == [(0, True), (1, True), (2, True)]
     assert (tmp_path / "good" / "robodojo" / "_result.json").is_file()
     assert not list((root / "eval_result").rglob("_result.json"))          # nothing of a run stays in the checkout
-    assert sorted(p.name for p in (tmp_path / "good" / "sandbox").iterdir())  # the worker's sandbox record
+    assert sorted(p.name for p in (tmp_path / "good.private" / "sandbox").iterdir())   # the worker's sandbox record
+    assert (tmp_path / "good.private" / "robodojo.log").is_file()         # host paths: not in what a session gets
+    assert not (tmp_path / "good" / "robodojo.log").exists() and not (tmp_path / "good" / "sandbox").exists()
+    assert not list(tmp_path.glob(".good.program-*"))                     # the staged copy is gone
     secret = root / "Assets" / "Eval_Layout" / "stack_bowls_0.json"
     (work / "peek.py").write_text(
-        "import socket\n"
+        "import os, socket, sys\n"
         "def act(obs):\n"
         f"    try:\n        open({str(secret)!r}).read(); found = 1.0\n"
         "    except OSError:\n        found = 0.0\n"
@@ -206,10 +226,18 @@ def test_a_program_is_scored_by_what_it_does_and_reads_nothing_of_robodojos_chec
         "    except OSError:\n        pass\n"
         "    try:\n        socket.create_connection(('1.1.1.1', 53), timeout=2); found = 1.0\n"
         "    except OSError:\n        pass\n"
+        # the run's own output, where a held-out evaluation's results are written while the program runs
+        f"    for where in ({str(tmp_path / 'peek')!r}, {str(tmp_path / 'peek.private')!r}, {str(work)!r}):\n"
+        "        if os.path.exists(where):\n            found = 1.0\n"
+        "    if os.listdir(os.path.dirname(os.path.abspath(sys.argv[1]))) != ['policy.py']:\n        found = 1.0\n"
         "    return [{'left_ee_joint_state': [found]}]\n")
     records = engine.run(work / "peek.py", task="stack_bowls", layout_seed=2, layouts=2, out=tmp_path / "peek")
     assert [r["task_success"] for r in records] == [False, False]
-    assert not (root / "eval_result" / "x").exists()
+    assert not (root / "eval_result" / "x").exists() and not dojo.failures(tmp_path / "peek")   # it ran, and saw nothing
+    # A chunk that would break the simulator never reaches it: the robot holds, and the layout is scored as failed
+    (work / "overflow.py").write_text("def act(obs):\n    return [{'left_arm_joint_state': [1e39] * 6}]\n")
+    records = engine.run(work / "overflow.py", task="stack_bowls", layout_seed=2, layouts=2, out=tmp_path / "of")
+    assert [(r["layout_id"], r["task_success"]) for r in records] == [(0, False), (1, False)]
     (work / "crash.py").write_text("def act(obs):\n    raise RuntimeError('no plan')\n")
     records = engine.run(work / "crash.py", task="stack_bowls", layout_seed=2, layouts=2, out=tmp_path / "crash")
     assert [r["task_success"] for r in records] == [False, False]          # held its joints to the horizon
@@ -245,7 +273,8 @@ def test_the_service_runs_only_the_sessions_development_layouts_from_the_first(t
         def validate(self, program):
             return None
 
-        def run(self, program, *, task, layout_seed, layouts, out):
+        def run(self, program, *, task, layout_seed, layouts, out, private=None):
+            assert not Path(private).is_relative_to(sessions)     # RoboDojo's log stays out of the workspace
             ran.append((task, layout_seed, layouts))
             return [{"layout_id": n, "task_success": n == 0, "score": float(n == 0)} for n in range(layouts)]
     sessions = tmp_path / "sessions"
@@ -278,8 +307,9 @@ def test_the_judge_scores_the_program_on_the_held_out_sets_only(tmp_path, monkey
 
         def run(self, program, *, task, layout_seed, layouts, out):
             ran.append((layout_seed, layouts))
-            return [] if layout_seed == 1 else [{"layout_id": n, "task_success": n < 3, "score": 0.0}
-                                                for n in range(layouts - 1)]     # one layout skipped as unstable
+            # Set 0: layout 3 was dropped (its episode raised) and RoboDojo scored layout 5 in its place
+            return [] if layout_seed == 1 else [{"layout_id": n, "task_success": n != 4, "score": 0.0}
+                                                for n in (0, 1, 2, 4, 5)]
     monkeypatch.setattr(J.dojo, "Engine", Engine)
     monkeypatch.setenv("ROBODOJO_ROOT", str(tmp_path))
     monkeypatch.setenv("ROBODOJO_OUT", str(tmp_path / "out"))
@@ -288,7 +318,9 @@ def test_the_judge_scores_the_program_on_the_held_out_sets_only(tmp_path, monkey
     out = lambda facts: SimpleNamespace(extra={"task": facts}, output=None)
     scored = J.score(row, out({"program": GOOD}))
     assert ran == [(0, 5), (1, 5)]                           # never the development set
-    assert scored["passed"] == 3 and scored["layouts"] == 9 and scored["score"] == 3 / 9   # set 1 gave no result
+    # A fixed denominator: the dropped layout and the set without a result are failures, the replacement uncounted
+    assert scored["passed"] == 3 and scored["layouts"] == 10 and scored["score"] == 0.3
+    assert "6 with no result" in scored["feedback"]
     assert J.score(row, out({}))["score"] == 0.0 and J.score(row, out({"program": "x = 1\n"}))["score"] == 0.0
     assert len(ran) == 2                                     # neither started a simulator
 

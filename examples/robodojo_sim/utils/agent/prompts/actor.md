@@ -24,7 +24,7 @@ Evaluate your program in the simulator from this workspace:
 `bin/sim run` runs the first N of your {dev} development layouts and prints each layout's result. It writes into
 `<dir>`: `records.json` (success and score per layout), `robodojo/` (RoboDojo's `_result.json` and a video per
 camera and episode, named with `success` or `fail`), `program.jsonl` and `program.stderr.log` (your program's
-failures and what it printed). An evaluation takes minutes per layout: start with one layout, look at what the
+failures and what it printed). A layout with no result counts as failed when you are scored. An evaluation takes minutes per layout: start with one layout, look at what the
 robot did, and widen once it works. The observation has no depth and no object poses, so a program has to work
 from the three camera images and the robot's own state; you can print from your program to see what it receives.
 
