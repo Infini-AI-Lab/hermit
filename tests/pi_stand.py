@@ -39,19 +39,19 @@ class Stand:
         self.folder = folder
 
     def play(self, stream: str = "resume", reply: str | None = None, edits: dict | None = None, cut: bool = False,
-             declined: str | None = None) -> None:
+             stopped: str | None = None) -> None:
         """The next calls replay `stream` (a file of tests/fixtures/pi), `reply` as the final answer, and make `edits`;
-        with `cut`, the last reply ends at its output limit; with `declined`, the provider stopped it with that finish
-        reason (`content_filter`), which Pi 1.5.0 reports as an error. `resume` has no tool calls, `success` has
-        three."""
+        with `cut`, the last reply ends at its output limit; with `stopped`, the provider stopped it after its text with
+        that finish reason (`content_filter`, a refusal, or `insufficient_system_resource`), which Pi 1.5.0 reports as
+        an error, sent once. `resume` has no tool calls, `success` has three."""
         lines = (STREAMS / f"{stream}.jsonl").read_text().splitlines(keepends=True)
         last = max(i for i, line in enumerate(lines) if '"type":"message_end"' in line and '"assistant"' in line)
         if cut:
             lines[last] = lines[last].replace('"stopReason":"stop"', '"stopReason":"length"')
-        if declined:
+        if stopped:
             event = json.loads(lines[last])
-            event["message"].update(stopReason="error", rawStopReason=declined,
-                                    errorMessage=f"Provider finish_reason: {declined}")
+            event["message"].update(stopReason="error", rawStopReason=stopped,
+                                    errorMessage=f"Provider finish_reason: {stopped}")
             lines[last] = json.dumps(event, separators=(",", ":")) + "\n"
         text = "".join(lines)
         (self.folder / "stream.jsonl").write_text(

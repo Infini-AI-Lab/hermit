@@ -112,7 +112,9 @@ def call_role(ctx, messages, schema, name, backend):
         return None, result.usage, f"{backend} role cancelled"
     if result.timed_out:
         return None, result.usage, f"{backend} role timed out"
-    answer = parse_answer(result.reply, schema) if result.exit_code == 0 else None
+    # Pi exits 0 however a session ended: one that failed (a declined answer, a reply cut at its output limit, a last
+    # request that failed) is no answer, whatever its text says
+    answer = parse_answer(result.reply, schema) if result.exit_code == 0 and not result.extra.get("failed") else None
     if answer is None:
         # Only a failed answer is read for login errors: a valid one may quote such text.
         if authentication_failed(result):

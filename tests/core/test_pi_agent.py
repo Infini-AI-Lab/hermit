@@ -402,6 +402,12 @@ def once(fake, error: str) -> str:
     return ended(fake, "once.jsonl", stopReason="error", errorMessage=error, rawStopReason=None, content=[])
 
 
+def stopped(fake, error: str) -> str:
+    """A finish reason Pi does not retry and that is no refusal (DeepSeek's `insufficient_system_resource`): the resume
+    stream's one request stopped with it, sent once, with no status."""
+    return ended(fake, "stopped.jsonl", stopReason="error", errorMessage=error, rawStopReason=error.split(": ")[-1])
+
+
 def given_up(fake, error: str, raw: str | None = None) -> str:
     """Outages, then an error Pi does not retry: the recorded failure stream to its third request, which failed with
     `error` (and `raw`, the provider's stop reason, for an answer it declined), the two 503s before it retried
@@ -432,24 +438,25 @@ def given_up(fake, error: str, raw: str | None = None) -> str:
     (once, '400: {"message":"no such field"}', False, True), (once, '401 {"error":{"message":"bad key"}}', False, True),
     (once, 'hermit API error (404): {"error":{"message":"no such model"}}', False, True),
     (once, '408: {"message":"too slow"}', False, False), (once, '409: {"message":"conflict"}', False, False),
+    (stopped, "Provider finish_reason: insufficient_system_resource", False, False),
     (given_up, '400: {"message":"no such field"}', False, True)],
     ids=["outage", "outage, no body", "outage, a proxy's page", "outage, Messages API", "outage, Responses API",
          "server error", "overloaded, Messages API", "rate limit, Messages API", "no connection, retries given up",
          "bad request", "bad key, Messages API", "no such model, Responses API", "request timeout", "conflict",
-         "outages, then a bad request"])
+         "stopped by the provider, no status", "outages, then a bad request"])
 def test_a_failed_requests_status_says_whether_a_retry_can_help(fake, monkeypatch, sent, error, unavailable, rejected):
     """Pi reports a provider's status in its own forms (those Pi 1.5.0 printed): `503: {...}` or `503 status code (no
     body)` from chat completions, `503 {...}` from the Messages API, `<provider> API error (503): ...` from the
     Responses API; it retries a 429, a 500 to 504, an overload and a lost connection, and sends a 4xx once. An outage
     (any 5xx) or a rate limit is `unavailable` (retried; the chat endpoint's 503), and so is an error with no status
-    that Pi retried until it gave up (a dropped connection); a status no retry can help is `rejected` (the chat
-    endpoint's 400, which a client does not retry); a timeout or a conflict is neither. The last request's status
-    decides: outages that ended in a bad request are rejected."""
+    that Pi retried until it gave up (a dropped connection), but not one it sent once (a finish reason); a status no
+    retry can help is `rejected` (the chat endpoint's 400, which a client does not retry); a timeout or a conflict is
+    neither. The last request's status decides: outages that ended in a bad request are rejected."""
     from hermit.agent.base.endpoint import _no_reply
     monkeypatch.setenv("FAKE_PI_STREAM", sent(fake, error))
     raw = Path(os.environ["FAKE_PI_STREAM"]).read_text()
     assert base_cli.Pi._last_assistant(raw)["errorMessage"] == error
-    assert ('"auto_retry_start"' in raw) == (sent is not once)
+    assert ('"auto_retry_start"' in raw) == (sent in (retried, given_up))
     work = fake / "work"
     work.mkdir()
     agent = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")})
@@ -460,7 +467,7 @@ def test_a_failed_requests_status_says_whether_a_retry_can_help(fake, monkeypatc
 
 
 @pytest.mark.parametrize("error, raw", [("The model refused to complete the request", "refusal"),
-                                        ("500 words of the answer are withheld by the usage policy", "refusal"),
+                                        ("501 words of the answer are withheld by the usage policy", "refusal"),
                                         ("Provider stopped with: sensitive", "sensitive"),
                                         ("Provider finish_reason: content_filter", "content_filter"),
                                         ("Response incomplete: content_filter", "incomplete.content_filter")],
