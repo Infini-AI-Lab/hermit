@@ -2,9 +2,11 @@
 
 A rollout is the learning material's record (`tasks/<row>.json`: input, output, judge, status, error, tokens, wall
 time) and its trajectory directory (`trajectories/<row>/`, the host's log copied unchanged). Its steps are read with
-the framework's one reader of those logs (hermit.agent.base.trajectory): Codex's `codex exec --json` events
-(`agent-codex.jsonl`) or Claude Code's stream; a log that holds Codex's events under another name (Harbor's Codex:
-`agent/codex.txt`) is found by name below the directory. The trace is
+the framework's one reader of those logs (hermit.agent.base.trajectory): any CLI's stream (`agent-<backend>.jsonl`;
+a Harbor trial's under `agent/`, as the HermitXXX that ran the CLI wrote it), Harbor's own output of a CLI in a trial
+recorded before that (Codex's `agent/codex.txt`, Claude Code's `agent/claude-code.txt`), or Harbor's ATIF trajectory
+(`agent/trajectory.json`); a log that keeps one of those streams deeper is found by its name below the directory and
+read by its name or its events. The trace is
 
     === TASK <task> (trial <k>, row <row>) ===            the task as the agent got it
     [step N] AGENT / REASONING / COMMAND (exit) / OUTPUT / FILES / TOOL / ERROR    one block per step, in order
@@ -19,13 +21,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from hermit.agent.base.trajectory import READERS, STREAM_HOSTS, STREAMS, Step, codex_steps, events, log_steps
+from hermit.agent.base.trajectory import HARBOR_OUTPUTS, STREAMS, Step, codex_steps, events, log_steps
 
 TASK_CAP = 6000
 OUTPUT_CAP = 2500
 OUTPUT_CAP_DETAIL = 12000
 MESSAGE_CAP = 4000
-OTHER_LOGS = ("codex.txt", "agent-codex.txt")      # Codex's events under another name (Harbor's agent/codex.txt)
+# a CLI's events under another name: Harbor's output of Codex (agent/codex.txt) or of Claude Code
+# (agent/claude-code.txt), and Codex's under an older name
+OTHER_LOGS = (*HARBOR_OUTPUTS, "agent-codex.txt")
 
 
 def _cut(text: str, cap: int) -> str:
@@ -37,8 +41,8 @@ def _cut(text: str, cap: int) -> str:
 
 
 def _steps(trajectory: Path | None) -> list[Step]:
-    """The steps of a rollout's trajectory (a directory or one log): its host stream's, else the first log found by
-    name below it."""
+    """The steps of a rollout's trajectory (a directory or one log): its host stream's (a Harbor trial's included),
+    else those of the first log found by name below it that holds a CLI's events, read by the common reader."""
     if trajectory is None or not trajectory.exists():
         return []
     found = log_steps(trajectory)
@@ -47,10 +51,10 @@ def _steps(trajectory: Path | None) -> list[Step]:
     if trajectory.is_file():
         return codex_steps(events(trajectory))
     for name in (*STREAMS, *OTHER_LOGS):
-        hits = sorted(trajectory.rglob(name))
-        if hits:
-            stream = events(hits[0])
-            return READERS[STREAM_HOSTS[name]](stream) if name in STREAM_HOSTS else codex_steps(stream)
+        for hit in sorted(trajectory.rglob(name)):
+            found = log_steps(hit)              # by its name (Hermit's, Harbor's output of a CLI), else its events
+            if found is not None:
+                return found
     return []
 
 
@@ -70,7 +74,7 @@ def _task_text(record: dict, trajectory: Path | None) -> str:
 def _files(text: str) -> str:
     try:
         changes = json.loads(text)
-    except ValueError:
+    except (ValueError, RecursionError):            # no JSON, or nested past the parser's depth
         return _cut(text, 600)
     if isinstance(changes, list):
         return ", ".join(f"{c.get('kind')} {c.get('path')}" for c in changes if isinstance(c, dict))

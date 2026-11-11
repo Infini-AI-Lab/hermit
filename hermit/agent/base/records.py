@@ -31,14 +31,16 @@ def price_usage(usage: list[Usage], params: dict) -> None:
 def _parse(log: Path, model: str, read) -> tuple[str | None, list[Usage]]:
     """Session handle and usage from a JSON event stream, each event given to `read(event, usage, session)`, which
     adds the event's usage and returns the session handle. The stream also carries the CLI's own messages; a line
-    that is not a JSON object (one that does not parse, or a quoted word or a number that does) is no event."""
+    that is not a JSON object (one that does not parse, nested past the parser's depth included, or a quoted word or a
+    number that does) is no event. U+0085, U+2028 and U+2029 end no line: an event's strings may hold them unescaped
+    (JSON need not escape them, and serde_json and JSON.stringify do not), where str.splitlines() would end one."""
     session, usage = None, Usage(model=model)
     if not log.exists():
         return None, []
-    for line in log.read_text(errors="replace").splitlines():
+    for line in log.read_text(errors="replace").split("\n"):
         try:
             event = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError):        # no JSON, or nested past the parser's depth
             continue
         if not isinstance(event, dict):
             continue

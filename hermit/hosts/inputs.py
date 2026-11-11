@@ -149,6 +149,25 @@ def _adapter_sandbox_env(python: str) -> dict:
             **({ENV_HIDE: os.environ[ENV_HIDE]} if os.environ.get(ENV_HIDE) else {})}
 
 
+def add_session_flags(parser) -> None:
+    """The flags every host's command line takes for a session its caller runs (hermit.harbor.staging, for a task's
+    container): `--no-serve-tools`, the caller serves the adapter's tools itself, so the workspace names no server for
+    them (one that would start here fails there); `--context-file`, the adapter's context for one task, which the
+    harness computed, in place of the one rendered here (`prepare`'s `context`: an adapter whose context is per task
+    deploys only so)."""
+    parser.add_argument("--no-serve-tools", dest="serve_tools", action="store_false",
+                        help="name no server for the adapter's tools: the caller serves them (a container session, "
+                             "hermit.harbor.staging)")
+    parser.add_argument("--context-file", type=Path, default=None,
+                        help="the adapter's context for one task (UTF-8 text the harness computed), in place of the "
+                             "one rendered here")
+
+
+def context_of(path) -> str | None:
+    """The text of a host's --context-file, read as UTF-8 (None without one)."""
+    return None if path is None else Path(path).read_text(encoding="utf-8")
+
+
 def check_workspace(adapter: Path, output: Path, host: str) -> dict:
     if output == adapter or adapter in output.parents or output in adapter.parents:
         raise ValueError("The host workspace must be separate from the adapter")

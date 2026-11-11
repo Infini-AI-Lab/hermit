@@ -9,7 +9,9 @@ did before: every field of the request body (the model, the sampling, the tools,
 on as it is, and so is its Authorization header; the reply is the upstream's response body. An upstream error comes
 back with its status, its whole body and its Retry-After; an upstream that gave no answer (no connection, a reply cut
 off) leaves the client's connection closed without one, as the upstream left the relay's; the endpoint retries
-nothing (the client does, as it did). A client that hangs up has its call given up upstream too.
+nothing (the client does, as it did). A client that hangs up has its call given up upstream too. A caller in this
+process that gives a relayed request a record for its session's waits (`note`) has the record's name sent with it
+(NOTE_HEADER), which only a CLI endpoint of this process reads.
 
 A request that asks for a stream (ServeLearnBench's client streams) is sent upstream whole (`stream` and
 `stream_options` dropped: the one difference from the client's own request). The status is held back while the
@@ -43,6 +45,17 @@ HEADER_WAIT_S = 120.0
 KEEPALIVE_S = 15.0
 _DROP = object()                                  # no answer: close the client's connection without one
 UNAPPLIED = ("max_tokens", "max_completion_tokens")   # a cap, no requirement on the answer: accepted, said not applied
+# The error code of a request a session cannot take (cli_answer's 400, contract_problems): the caller's settings,
+# which no retry or other input changes (a Harbor trial's verdict reads it as a refused configuration)
+UNSUPPORTED = "unsupported_request"
+# A caller in this process gives a request a record for the waits of the session that answers it (the session's
+# `plan_note`, hermit.agent.base.cli), through a relay of this process too: the relay keeps the record under a name of
+# its own while it relays the request and sends that name in this header, by which the CLI endpoint of this process
+# the request reaches finds it. The caller reads the record however the request ended, given up included, when no
+# reply says it (hermit.harbor.tools.ModelEndpoint: whether a trial's request waited for its login's plan).
+NOTE_HEADER = "X-Hermit-Plan-Note"
+_notes: dict[str, dict] = {}
+_notes_lock = threading.Lock()
 
 
 class ChatEndpoint:
@@ -106,8 +119,10 @@ class ChatEndpoint:
                 include_usage = bool((request.pop("stream_options", None) or {}).get("include_usage")) \
                     if stream else False
                 abort, box = threading.Event(), {}
+                with _notes_lock:                        # the record a caller of this process gave it (NOTE_HEADER)
+                    note = _notes.get(self.headers.get(NOTE_HEADER) or "")
                 worker = threading.Thread(target=lambda: box.update(
-                    reply=endpoint.answer(request, self.headers.get("Authorization"), abort)), daemon=True)
+                    reply=endpoint.answer(request, self.headers.get("Authorization"), abort, note)), daemon=True)
                 worker.start()
                 self.close_connection = True
                 if not self._wait(worker, abort, HEADER_WAIT_S if stream else float("inf")):
@@ -152,26 +167,36 @@ class ChatEndpoint:
         self._thread: threading.Thread | None = None
         self.closing: list = []                         # what goes with it (a session sandbox and its proxy)
 
-    def answer(self, request: dict, authorization: str | None, abort: threading.Event | None = None):
+    def answer(self, request: dict, authorization: str | None, abort: threading.Event | None = None,
+               note: dict | None = None):
         """One request (its JSON body, not streamed): (status, response body, headers to pass on), or _DROP when the
-        upstream gave no answer."""
+        upstream gave no answer. `note`: a record for the waits of the session that answers it (a CLI Base Agent's,
+        here or at the CLI endpoint of this process the relayed request reaches: NOTE_HEADER)."""
         from hermit.agent.base.cli import CliAgent
         if isinstance(self.agent, CliAgent):
             from hermit.agent.base.interface import Unsupported
             try:
-                return cli_answer(self.agent, request, abort)
-            except (ValueError, Unsupported) as exc:            # the session's settings: the client reads why
-                return 400, json.dumps({"error": {"message": f"{type(exc).__name__}: {exc}"}}).encode(), {}
+                return cli_answer(self.agent, request, abort, note)
+            except (ValueError, Unsupported) as exc:            # the session's settings: the client reads why, and
+                # by the code (first: a client's error text keeps only the start of the body) that no retry helps
+                return 400, json.dumps({"error": {"code": UNSUPPORTED,
+                                                  "message": f"{type(exc).__name__}: {exc}"}}).encode(), {}
             except Exception as exc:                            # noqa: BLE001 - the session failed to run
                 return 502, json.dumps({"error": {"message": f"{type(exc).__name__}: {exc}"}}).encode(), {}
         from hermit.agent.model.llm import ChatAborted, ChatHTTPError
+        name = None
         try:
             request = dict(request)
             messages = request.pop("messages")
             tools = request.pop("tools", None) or ()
             choice = request.pop("tool_choice", None)
-            fields = {**request, "return_response": True,
-                      **({"extra_headers": {"Authorization": authorization}} if authorization else {}),
+            headers = {"Authorization": authorization} if authorization else {}
+            if note is not None:                            # for the CLI endpoint of this process it reaches
+                name = secrets.token_hex(16)
+                with _notes_lock:
+                    _notes[name] = note
+                headers[NOTE_HEADER] = name
+            fields = {**request, "return_response": True, **({"extra_headers": headers} if headers else {}),
                       **({"abort": abort} if abort is not None else {})}
             agent = self.agent.configured(request=fields)
             agent.settings["tool_choice"] = choice          # as the request had it: none when it gave none
@@ -188,6 +213,10 @@ class ChatEndpoint:
             return 502, json.dumps({"error": {"message": str(exc)}}).encode(), {}
         except Exception as exc:                            # noqa: BLE001 - the client reads an error, as from a server
             return 400, json.dumps({"error": {"message": f"{type(exc).__name__}: {exc}"}}).encode(), {}
+        finally:
+            if name is not None:
+                with _notes_lock:
+                    _notes.pop(name, None)
 
     def start(self) -> "ChatEndpoint":
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True, name="hermit-chat-endpoint")
@@ -334,25 +363,27 @@ def _usage_of(result) -> dict:
                       "prompt_tokens_details": {"cached_tokens": u.cached_input_tokens if u else 0}}}
 
 
-def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = None):
+def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = None, note: dict | None = None):
     """A chat-completions request answered by one session of a CLI Base Agent (`codex`, `claude`, `pi`): a model reached
     through the CLI (a subscription, or the Evolver's own agent) for code that calls a chat API (an Evolver's `llm`, an
     acting pipeline's model). The system messages are the session's instructions, the rest its prompt (split_messages),
     given on stdin; the session works in an empty workspace of its own and only replies (`text_only`: a Claude Code or
     Pi session has no tools; a Codex session's commands are held by its sandbox or container), and its reply is the content, with its
     token usage. `reasoning_effort` is the session's effort; max_tokens is not applied and the reply says so
-    (`unapplied`); what else a session cannot do is refused (contract_problems). A session that gave no reply is never
-    an answer (_no_reply). The session sees no files: a caller that wants a session to read files runs one itself
-    (`make(...).run`). Its event stream is kept under the agent's `log_dir` setting when there is one (the Trainer
-    gives the run's `llm_sessions/`), and is removed after the call otherwise."""
+    (`unapplied`); what else a session cannot do is refused, a 400 whose code is UNSUPPORTED (contract_problems). A
+    session that gave no reply is never an answer (_no_reply). The session sees no files: a caller that wants a session
+    to read files runs one itself (`make(...).run`). Its event stream is kept under the agent's `log_dir` setting when
+    there is one (the Trainer gives the run's `llm_sessions/`), and is removed after the call otherwise. `note`: the
+    caller's record of the session's waits for its login's plan (its `plan_note`), filled as the session waits."""
     import shutil
     import tempfile
     from pathlib import Path
     problems, unapplied = contract_problems(agent, request)
-    if problems:
-        return 400, json.dumps({"error": {"message": "; ".join(problems)}}).encode(), {}
+    if problems:                         # the code first: a client's error text keeps only the start of the body
+        return 400, json.dumps({"error": {"code": UNSUPPORTED, "message": "; ".join(problems)}}).encode(), {}
     system, prompt = split_messages(request["messages"])
-    own = {"stdin": True, "text_only": True, **({"cancel": abort} if abort is not None else {})}
+    own = {"stdin": True, "text_only": True, **({"cancel": abort} if abort is not None else {}),
+           **({"plan_note": note} if note is not None else {})}
     sampling = {k: request[k] for k in (agent.applied_fields() if hasattr(agent, "applied_fields") else ())
                 if request.get(k) is not None}
     if sampling:                                              # Pi's: sent with the request, as an API would

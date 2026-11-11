@@ -58,12 +58,13 @@ def source() -> Path:
 
 
 def _last_refresh(path: Path):
-    """When the login in `path` was refreshed, or None for a file that is no login: not a JSON object, or a
-    last_refresh that does not parse or lies ahead (a session that could write the file must not pin the copy)."""
+    """When the login in `path` was refreshed, or None for a file that is no login: not a JSON object (nor one nested
+    past the parser's depth), or a last_refresh that does not parse or lies ahead (a session that could write the file
+    must not pin the copy)."""
     try:
         data = json.loads(Path(path).read_text())
         when = datetime.fromisoformat(str(data["last_refresh"]).replace("Z", "+00:00"))
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError):
         return None
     if when.tzinfo is None:
         when = when.replace(tzinfo=timezone.utc)
@@ -150,11 +151,12 @@ def remove(path: Path, within: Path) -> None:
 
 
 def _account(path: Path):
-    """The ChatGPT account a login file is for (`tokens.account_id`), or None."""
+    """The ChatGPT account a login file is for (`tokens.account_id`), or None (none named, or no JSON object, nested
+    past the parser's depth included)."""
     try:
         tokens = json.loads(Path(path).read_text()).get("tokens")
         return tokens.get("account_id") if isinstance(tokens, dict) else None
-    except (OSError, ValueError, AttributeError):
+    except (OSError, ValueError, AttributeError, RecursionError):
         return None
 
 
@@ -261,20 +263,27 @@ def _read_own(path: Path, limit: int = 1 << 20) -> str | None:
 
 
 def _report(d: Path) -> dict:
-    """plan.json as a mapping ({} when missing or not one)."""
+    """plan.json as a mapping ({} when missing or not one, nested past the parser's depth included)."""
     try:
         report = json.loads(_read_own(d / "plan.json") or "{}")
-    except ValueError:
+    except (ValueError, RecursionError):
         return {}
     return report if isinstance(report, dict) else {}
 
 
 def _write_report(d: Path, report: dict) -> None:
-    """plan.json replaced whole (a reader without the lock never sees half of it), by a file of its own."""
+    """plan.json replaced whole (a reader without the lock never sees half of it), by a file of its own. A report
+    nested deeper than this encoder writes (about 1000 levels; the parser reads deeper, so a report read from a
+    session's log or from plan.json can be) cannot be written, as on a full disk: an OSError, raised before any file
+    is made."""
+    try:
+        text = json.dumps(report, indent=1)
+    except RecursionError:
+        raise OSError(errno.EINVAL, "the plan's report is nested past the JSON encoder's depth") from None
     tmp = d / f"plan.{os.getpid()}.{threading.get_ident()}.tmp"
     fd = _own_fd(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
     try:
-        os.write(fd, json.dumps(report, indent=1).encode())
+        os.write(fd, text.encode())
     finally:
         os.close(fd)
     if os.path.isdir(d / "plan.json") and not os.path.islink(d / "plan.json"):
@@ -370,11 +379,15 @@ def _held(d: Path, credits: bool) -> str:
 
 
 def wait(plan: Path | str | None = None, cancel=None, log=None, max_s: float | None = MAX_WAIT_S,
-         credits: bool = False) -> str:
+         credits: bool = False, note: dict | None = None) -> str:
     """Block while `held` (`credits` as there); "" once a session may start, "cancelled" when `cancel` was set,
-    "timeout" past `max_s` seconds (None: no limit). Says why at the start and every half hour."""
+    "timeout" past `max_s` seconds (None: no limit). Says why at the start and every half hour. `note` (a caller's
+    record of the session's wait) gets why the plan held it back as `waited`, kept, and as `waiting` while it waits,
+    "" once the session may start: a wait cancelled or timed out leaves it set."""
     started, told = time.time(), 0.0
     while (reason := held(plan, credits)):
+        if note is not None:
+            note["waited"] = note["waiting"] = reason
         if log is not None and time.time() - told >= 1800:
             log(f"sessions on the login held back: {reason} (waiting {(time.time() - started) / 3600:.1f} h)")
             told = time.time()
@@ -385,6 +398,8 @@ def wait(plan: Path | str | None = None, cancel=None, log=None, max_s: float | N
             return "cancelled"
         if cancel is None:
             time.sleep(poll)
+    if note is not None:
+        note["waiting"] = ""
     return ""
 
 
@@ -437,12 +452,14 @@ def usage_of(home: Path) -> dict | None:
                   key=lambda p: p.stat().st_mtime)
     for log in reversed(logs):
         last = None
-        for line in log.read_text(errors="replace").splitlines():
+        for line in log.read_text(errors="replace").split("\n"):  # U+0085, U+2028, U+2029 end no line (cli._objects)
             if '"rate_limits"' not in line:
                 continue
             try:
                 event = json.loads(line)
-            except ValueError:
+            except (ValueError, RecursionError):    # no JSON, or nested past the parser's depth
+                continue
+            if not isinstance(event, dict):         # a line that is JSON but no event (a list, a string)
                 continue
             payload = event.get("payload") or {}
             if isinstance(payload, dict) and isinstance(payload.get("rate_limits"), dict):
@@ -476,8 +493,8 @@ def claude_report(events: list[dict]) -> dict | None:
         try:
             windows[str(name)] = {"used_percent": float(window["utilization"]) * 100,
                                   "resets_at": window.get("resetsAt")}
-        except (KeyError, TypeError, ValueError):       # a window that says nothing of its use: no limit to hold at
-            continue
+        except (KeyError, TypeError, ValueError, OverflowError):   # a window that says nothing of its use (or an
+            continue                                               # integer past a float's range): no limit to hold at
     return {"time": datetime.now(timezone.utc).isoformat(), "windows": windows, "status": info.get("status"),
             "resets_at": info.get("resetsAt"), "using_credits": credits is not None,
             **({"credits_resets_at": credits.get("resetsAt")} if credits is not None else {})}
@@ -486,7 +503,8 @@ def claude_report(events: list[dict]) -> dict | None:
 def note_usage(plan: Path | str | None, home: Path | None, seen: dict | None = None) -> dict | None:
     """Keep a session's report of the plan's usage as plan.json when it is newer, and append it to plan.jsonl. The
     report is `seen` (one the caller read from the session's stream), else the one in the Codex home's session logs. A
-    record that cannot be written (a full disk) is skipped: it never fails the session."""
+    record that cannot be written (a full disk, a report nested too deep to write: _write_report) is skipped: it never
+    fails the session."""
     try:
         return _note_usage(plan, home, seen)
     except OSError:
@@ -516,7 +534,7 @@ def _note_usage(plan: Path | str | None, home: Path | None, seen: dict | None = 
             report = dict(seen)
             try:
                 in_force = float(current.get("held_until") or 0) > time.time()
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):  # OverflowError: an integer past a float's range
                 in_force = False
             if in_force:
                 # A hold lasts to its end: a later report comes from a session that started before it (none starts
@@ -537,8 +555,9 @@ def hold(plan: Path | str | None = None, until: float | None = None, why: str = 
     """A session was refused for the plan's limit: hold every session back until `until` (a reset time the refusal
     named), else until a report says otherwise, or for an hour when no report says when the window resets. `why` is the
     hold's reason when the plan names none yet: usage_credits (a session drew the account's usage credits) holds only
-    the sessions that may not draw them. If the hold cannot be written, this session waits five minutes itself rather
-    than ask again at once (at most `max_s`, until `cancel` is set)."""
+    the sessions that may not draw them. If the hold cannot be written (a full disk, a plan report nested too deep to
+    write: _write_report), this session waits five minutes itself rather than ask again at once (at most `max_s`, until
+    `cancel` is set)."""
     try:
         _hold(plan, until, why)
     except OSError:
@@ -561,7 +580,7 @@ def _hold(plan: Path | str | None = None, until: float | None = None, why: str =
             full = []
         try:
             until = min(float(until), now + LONGEST_HOLD_S) if until and float(until) > now else None
-        except (TypeError, ValueError):             # read from a stream: not a time
+        except (TypeError, ValueError, OverflowError):      # read from a stream: not a time
             until = None
         # A refusal outranks a credits hold: the credits hold lets the sessions that may draw credits through, a refusal
         # holds every session (a session allowed credits refused while a credits hold stands must wait, not rerun).
@@ -572,7 +591,7 @@ def _hold(plan: Path | str | None = None, until: float | None = None, why: str =
         # session that started before a long hold may end on a short window's refusal).
         try:
             in_force = float(current.get("held_until") or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             in_force = 0.0
         in_force = min(in_force, now + LONGEST_HOLD_S) if math.isfinite(in_force) else 0.0
         current["held_until"] = max(until or (max(full) if full else now + 3600), in_force)
@@ -584,12 +603,21 @@ def _hold(plan: Path | str | None = None, until: float | None = None, why: str =
 def logins_of(data: dict, evolver_params: dict | None = None) -> list[tuple[str, str, str | None, bool, str | None]]:
     """Every subscription a run signs in to, from the normalized config: (who, login, the CLI's program if named,
     whether its sessions run in a container, with the image's CLI: the acting agent's with environment.image and the
-    sandbox on, a model's through a CLI with isolation: container; never the learner's or its roles' (RRSI's, on the
-    learner's CLI), which run in the evolver sandbox on this machine's CLI; the Codex login's shared copy if named,
-    `login_root`). The program and the copy are the ones the sessions use: `bin`, or Harness²'s `claude_bin`."""
+    sandbox on, or a Harbor task set's (`agent.name: harbor`, `agent.params.login`: the CLI in the task's container)
+    unless `claude_bin` mounts this machine's Claude Code there, a model's through a CLI with isolation: container;
+    never the learner's or its roles' (RRSI's, on the learner's CLI), which run in the evolver sandbox on this machine's
+    CLI; the Codex login's shared copy if named, `login_root`). The program and the copy are the ones the sessions use:
+    `bin` or `claude_bin` (Harness²'s, a Harbor task set's), and `login_root`; a Harbor task set's with `~` expanded,
+    made absolute, as the runner reads them (its benchmark file's among them, read in by backends.normalize_config)."""
     params = (data.get("agent") or {}).get("params") or {}
+    harbor = str((data.get("agent") or {}).get("name")) == "harbor"
     image = bool((data.get("environment") or {}).get("image")) and \
         bool((data.get("sandbox") or {}).get("enabled", True))          # agent_pipeline's container (ContainerAgent)
+    # the CLI Harbor runs in the task's container: the image's, unless claude_bin is this machine's, mounted there
+    image = image or (harbor and not params.get("claude_bin"))
+    if harbor:                                      # where the runner finds them (HarborAgent.bin, .login_root)
+        params = {**params, **{key: str(Path(os.path.expanduser(str(params[key]))).resolve())
+                               for key in ("claude_bin", "login_root") if params.get(key)}}
     learner = evolver_params or {}
     roles = learner.get("roles") if isinstance(learner.get("roles"), dict) else {}
     out = []

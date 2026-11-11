@@ -244,6 +244,135 @@ def test_the_log_is_read_as_the_codex_agent_keeps_it_then_as_harbor_kept_it(tmp_
     assert D.verifier_tail({"judge": {"feedback": ""}}, harbor, 4000) == "ok"
 
 
+def test_a_harbor_trial_of_any_cli_is_read_from_the_stream_its_hermit_agent_wrote(tmp_path):
+    """A Harbor trial of a HermitXXX keeps the stream of the CLI it ran under agent/ (agent/agent-<backend>.jsonl,
+    whichever CLI): that is the trial's trace, ahead of an ATIF trajectory, exploded into the common steps as a
+    record's own is, and the question names that CLI's stream; Harbor's own output of Claude Code
+    (agent/claude-code.txt, a trial recorded before) is a trace too."""
+    from hermit.agent.base.trajectory import STREAMS, log_steps
+    for name in STREAMS:
+        log = harbor_log(tmp_path, f"h-{name}", verifier="1 failed")
+        (log / "agent" / name).write_text("")
+        assert D.trace_source(log) == (log / "agent" / name, "events.jsonl"), name
+    log = harbor_log(tmp_path, "pi", trajectory=False, verifier="1 failed")
+    shutil.copy(ROOT / "tests" / "fixtures" / "pi" / "success.jsonl", log / "agent" / "agent-pi.jsonl")
+    job = D.Job(task="t", trials=[D.Trial(id="t#1", verdict="fail", reward=0.0, log=log, verifier_output="1 failed")],
+                n_fail=1)
+    job_dir = D.prepare_job_dir(job, tmp_path / "scratch", D.settings({}), texts=Q)
+    assert (job_dir / "trace01.events.jsonl").read_text() == (log / "agent" / "agent-pi.jsonl").read_text()
+    kinds = [s.kind for s in log_steps(log)]
+    assert kinds and [p.name.split("-", 1)[1] for p in sorted((job_dir / "trace01").iterdir())] == \
+        [f"{kind}.md" for kind in kinds]
+    question = (job_dir / "question.md").read_text()
+    assert "`pi --mode json` event stream" in question and "codex exec --json" not in question
+    assert (job_dir / "hooks01.jsonl").is_file() and (job_dir / "verifier_01.txt").read_text() == "1 failed"
+    legacy = harbor_log(tmp_path, "legacy", trajectory=False)
+    (legacy / "agent" / "claude-code.txt").write_text('{"type": "result", "result": "done"}\n')
+    assert D.trace_source(legacy) == (legacy / "agent" / "claude-code.txt", "events.jsonl")
+
+
+def test_a_log_that_is_a_harbor_trials_agent_folder_itself_gives_harbors_output_of_its_cli_as_the_trace(tmp_path):
+    """A rollout's log may be a Harbor trial's agent/ itself, Harbor's output of the CLI at its top (codex.txt,
+    claude-code.txt): that file is the trial's trace wherever hermit.agent.base.trajectory reads a stream from it, so
+    a trial of Claude Code is debugged as one of Codex is."""
+    from hermit.agent.base.trajectory import log_steps
+    for name, event in (("codex.txt", {"type": "item.completed", "item": {"type": "agent_message", "text": "done"}}),
+                        ("claude-code.txt", {"type": "assistant", "message": {"content": [{"type": "text",
+                                                                                         "text": "done"}]}})):
+        log = tmp_path / name.partition(".")[0] / "agent"
+        log.mkdir(parents=True)
+        (log / name).write_text(json.dumps(event) + "\n")
+        assert log_steps(log), name                                   # a stream the trajectory reads
+        assert D.trace_source(log) == (log / name, "events.jsonl"), name
+
+
+def test_a_log_that_is_a_claude_code_trials_agent_folder_itself_is_named_claude_codes_stream_never_codexs(tmp_path):
+    """A rollout's log that is a Harbor trial's agent/ itself, Harbor's output of Claude Code at its top
+    (claude-code.txt, Claude Code's stream-json): the Debugger's question calls the trace that CLI's event stream,
+    and the Evolve Agent's texts name that file, never Codex's `codex exec --json` stream, which the trial lacks."""
+    step = tmp_path / "material" / "step_0002"
+    log = step / "trajectories" / "t_1"                              # the material's copy of the trial's agent/
+    log.mkdir(parents=True)
+    (log / "claude-code.txt").write_text(json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "done"}]}}) + "\n")
+    trial = record("t", 1, "fail", log, step, feedback="1 failed", harbor=True)
+    assert D.rollout_stream([trial]) == "claude-code.txt"
+    [job] = D.build_jobs([trial], {"task_field": "uid"})
+    job_dir = D.prepare_job_dir(job, tmp_path / "scratch", D.settings({}), texts=Q)
+    assert (job_dir / "trace01.events.jsonl").read_text() == (log / "claude-code.txt").read_text()
+    question = (job_dir / "question.md").read_text()
+    assert "rollout i: the agent's `claude -p --output-format stream-json` event stream" in question
+    assert "codex exec --json" not in question
+    start = D.for_stream((ROOT / "hermit/agent/evolver/methods/ahe_adapter/START.md").read_text(), "claude-code.txt")
+    assert "`claude-code.txt`" in start and "the Claude Code event stream" in start and "agent-codex" not in start
+
+
+def test_a_log_that_is_a_claude_code_trials_agent_folder_itself_is_told_as_a_trials_log_with_no_prompt_or_answer_file(
+        tmp_path):
+    """The Evolve Agent's texts tell a rollout's log that is a Harbor trial's agent/ itself (Harbor's claude-code.txt
+    at its top, the hook audit, its state and the ATIF trajectory beside it) as the trial's log they tell under agent/:
+    START.md's tree lists no prompt.txt and no last_message.txt the answer is read from, which the log lacks, and the
+    hook audit at the log's top; the evolution query names the trial's ATIF steps and the task's instruction in the
+    record, never a prompt file or a verifier's output the log lacks."""
+    from hermit.agent.evolver.methods.ahe_adapter import analysis as A
+    import test_ahe_analysis as AN
+    step = tmp_path / "material" / "step_0002"
+    log = step / "trajectories" / "t_1"                              # the material's copy of the trial's agent/
+    (log / "hook-state").mkdir(parents=True)
+    (log / "claude-code.txt").write_text(json.dumps({"type": "result", "result": "done"}) + "\n")
+    (log / "hook-calls.jsonl").write_text('{"event":"SessionStart","decision":null}\n')
+    (log / "trajectory.json").write_text(json.dumps(TRAJECTORY), encoding="utf-8")
+    stream = D.rollout_stream([record("t", 1, "fail", log, step, harbor=True)])
+    assert stream == "claude-code.txt"
+    start = D.for_stream((ROOT / "hermit/agent/evolver/methods/ahe_adapter/START.md").read_text(), stream)
+    assert "prompt.txt" not in start and "last_message.txt" not in start and "the answer is read from it" not in start
+    tree = [line for line in start.splitlines() if line.startswith("│   │       ")]
+    assert [line.split("←")[0].split()[-1] for line in tree] == ["claude-code.txt", "hook-calls.jsonl", "hook-state/"]
+    assert "agent/hook-calls.jsonl" not in start
+    stats = A.compute_stats([AN.rec("a", 1, **AN.PASS), AN.rec("b", 1, **AN.FAIL)])
+    query = D.for_stream(A.build_evolution_query({"learning_material": "lm", "state": "st", "adapter": "ad"}, stats,
+                                                 step=2), stream)
+    assert ("the trajectory of rollout `<id>` is `trajectories/<id>/claude-code.txt`" in query
+            and "the Claude Code event stream (`trajectory.json` holds its steps in ATIF), with `hook-calls.jsonl` and "
+                "`hook-state/` beside it; the task's instruction is the record's `input.instruction`)" in query)
+    assert "`prompt.txt`" not in query and "test-stdout.txt" not in query and "agent-codex" not in query
+
+
+def test_a_harbor_trial_with_an_atif_trajectory_and_its_clis_output_is_debugged_from_the_trajectory_as_the_rules_say(
+        tmp_path):
+    """A trial of one of Harbor's own agents keeps its ATIF trajectory and Harbor's output of the CLI (agent/codex.txt,
+    Codex's event stream) side by side: the Debugger is given the trajectory (trace01.json), not the stream, and its
+    rules say that a rollout Harbor recorded with an ATIF trajectory gets trace0i.json even when Harbor kept the agent's
+    event stream too."""
+    log = harbor_log(tmp_path, "builtin", codex=True, verifier="1 failed")
+    job = D.Job(task="t", trials=[D.Trial(id="t#1", verdict="fail", reward=0.0, log=log, verifier_output="1 failed")],
+                n_fail=1)
+    job_dir = D.prepare_job_dir(job, tmp_path / "scratch", D.settings({}), texts=Q)
+    assert (job_dir / "trace01.json").is_file() and not (job_dir / "trace01.events.jsonl").exists()
+    flat = " ".join((job_dir / "question.md").read_text().split())
+    assert ("- `trace0i.json` — instead of the event stream, for a rollout Harbor recorded with an ATIF trajectory "
+            "(even when it kept the agent's event stream too): the trajectory, `steps[]` with `step_id`") in flat
+
+
+def test_a_harbor_trials_task_instruction_reaches_the_debugger_as_its_task_file(tmp_path):
+    """A HermitXXX trial's stream carries no user prompt (Codex's --json, Claude Code's, OpenCode's, dsh's) and its log
+    keeps no prompt or task file: the task's instruction, the record's input, is the rollout's task file in the job
+    directory, which the question names; a rollout whose log keeps its own (the framework's agents') keeps those."""
+    step = tmp_path / "material" / "step_0002"
+    log = harbor_log(step / "trajectories", "fix-git_1", trajectory=False, verifier=VERIFIER_FAIL)
+    (log / "agent" / "agent-codex.jsonl").write_text("".join(json.dumps(e) + "\n" for e in STREAM), encoding="utf-8")
+    trial = record("fix-git", 1, "fail", log, step, feedback="", harbor=True)
+    trial["input"]["instruction"] = "I just made some changes to my personal site and checked out master."
+    own = record("fix-git", 2, "pass", codex_log(step / "trajectories", "fix-git_2"), step)
+    own["input"]["instruction"] = "not this: the log's own prompt and task file"
+    [job] = D.build_jobs([trial, own], {"task_field": "uid"})
+    job_dir = D.prepare_job_dir(job, tmp_path / "scratch", D.settings({}), texts=Q)
+    assert (job_dir / "task01.md").read_text() == trial["input"]["instruction"] + "\n"
+    assert not (job_dir / "prompt01.txt").exists()
+    assert (job_dir / "prompt02.txt").read_text() == PROMPT and (job_dir / "task02.md").read_text() == TASK_MD
+    assert "- `task01.md`" in (job_dir / "question.md").read_text()
+
+
 def test_prepare_job_dir_contents(tmp_path):
     step, recs = material(tmp_path)
     by = {j.task: j for j in D.build_jobs(recs, {"task_field": "uid"})}

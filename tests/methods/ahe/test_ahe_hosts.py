@@ -694,6 +694,119 @@ def test_the_evolvers_texts_name_every_acting_agents_stream_it_reads():
         assert f"`{command}` event stream" in D.for_stream(texts[1], stream)
 
 
+def test_with_claude_code_in_harbor_trials_the_texts_name_the_trials_own_files(tmp_path):
+    """Rollouts that are Harbor trials of Claude Code (harborside.claude): the evolution query and START.md name the
+    trial's stream, ATIF steps, hook audit and verifier output under the trial's log, never a Codex stream it lacks."""
+    from hermit.agent.evolver.methods.ahe_adapter import analysis as A, debugger as D
+    methods = T.ROOT / "hermit" / "agent" / "evolver" / "methods" / "ahe_adapter"
+    step = tmp_path / "current"
+    (step / "trajectories" / "t_1" / "agent").mkdir(parents=True)
+    (step / "trajectories" / "t_1" / "agent" / "claude-code.txt").write_text("")
+    harbor = [{"trajectory": "trajectories/t_1", "_dir": str(step)}]
+    assert D.rollout_stream(harbor) == "agent/claude-code.txt"
+    import test_ahe_analysis as AN
+    stats = A.compute_stats([AN.rec("a", 1, **AN.PASS), AN.rec("b", 1, **AN.FAIL)])
+    query = D.for_stream(A.build_evolution_query({"learning_material": "lm", "state": "st", "adapter": "ad"}, stats,
+                                                 step=2), "agent/claude-code.txt")
+    assert "agent-codex.jsonl" not in query and "agent/claude-code.txt" in query and "Codex event stream" not in query
+    assert "agent/hook-calls.jsonl" in query and "verifier/test-stdout.txt" in query and "input.instruction" in query
+    start = D.for_stream((methods / "START.md").read_text(), "agent/claude-code.txt")
+    assert "agent-codex.jsonl" not in start
+
+
+def test_with_a_hermit_agent_in_harbor_trials_the_texts_name_its_stream_under_agent(tmp_path):
+    """Rollouts that are Harbor trials of a HermitXXX, whichever CLI it ran: rollout_stream finds that CLI's stream
+    under the trial's agent/ (agent/agent-<backend>.jsonl), and the evolution query, START.md and the Debugger's rules
+    name it, the trial's hook audit and verifier output beside it and the task's instruction in the record, never the
+    stream at the log's top that the trial lacks."""
+    from hermit.agent.evolver.methods.ahe_adapter import analysis as A, debugger as D
+    import test_ahe_analysis as AN
+    methods = T.ROOT / "hermit" / "agent" / "evolver" / "methods" / "ahe_adapter"
+    stats = A.compute_stats([AN.rec("a", 1, **AN.PASS), AN.rec("b", 1, **AN.FAIL)])
+    query = A.build_evolution_query({"learning_material": "lm", "state": "st", "adapter": "ad"}, stats, step=2)
+    start, rules = ((methods / name).read_text() for name in ("START.md", "DEBUGGER.md"))
+    for name, (label, command) in D.STREAM_NAMES.items():
+        step = tmp_path / name / "current"
+        (step / "trajectories" / "t_1" / "agent").mkdir(parents=True)
+        (step / "trajectories" / "t_1" / "agent" / name).write_text("")
+        stream = D.rollout_stream([{"trajectory": "trajectories/t_1", "_dir": str(step)}])
+        assert stream == f"agent/{name}"
+        words = D.for_stream(query, stream)
+        assert f"`trajectories/<id>/agent/{name}`" in words and "trajectories/<id>/agent-" not in words, name
+        assert f"the {label} event stream, with `agent/hook-calls.jsonl`, `agent/hook-state/`" in words
+        assert "`verifier/test-stdout.txt`" in words and "`input.instruction`" in words
+        assert "`agent/hook-calls.jsonl` beside it" in words and "`prompt.txt`" not in words
+        started = D.for_stream(start, stream)
+        assert f"`agent/{name}`" in started and "`agent-codex.jsonl`" not in started
+        assert f"`{command}` event stream" in D.for_stream(rules, stream)
+        # START.md's tree of a trial's log: the hook audit under agent/, the last message where the trial keeps one
+        # (Codex's, mini-swe-agent's, brought out to agent/hermit-collect/), no prompt.txt
+        assert f"├── agent/{name} " in started and "├── prompt.txt" not in started
+        assert "├── agent/hook-calls.jsonl ←" in started and "└── agent/hook-state/ " in started
+        collected = "├── agent/hermit-collect/last_message.txt ←" in started
+        assert collected is (name in ("agent-codex.jsonl", "agent-mini-swe-agent.jsonl")), name
+        assert "├── last_message.txt " not in started
+
+
+def test_with_a_hermit_agent_in_harbor_trials_no_text_names_a_file_the_trial_lacks(tmp_path):
+    """Past START.md's tree too, the texts name a Harbor trial's own files: its hook audit is agent/hook-calls.jsonl,
+    never one at the log's top (where the middleware's errors land, what to read after changing the middleware), and
+    the Debugger's rules say that a rollout Harbor recorded has no prompt file, its task file the task's instruction,
+    and its ATIF trajectory, when it has one, in place of an event stream; Hermit's own Codex rollouts read START.md
+    as written."""
+    from hermit.agent.evolver.methods.ahe_adapter import debugger as D
+    methods = T.ROOT / "hermit" / "agent" / "evolver" / "methods" / "ahe_adapter"
+    start, rules = ((methods / name).read_text() for name in ("START.md", "DEBUGGER.md"))
+    for name in D.STREAM_NAMES:
+        started = D.for_stream(start, f"agent/{name}")
+        assert "`hook-calls.jsonl`" not in started, name
+        assert "`agent/hook-calls.jsonl` in every trajectory" in started
+        assert "the error lands in `agent/hook-calls.jsonl` of the trajectory" in started
+        assert f"read at least one `agent/hook-calls.jsonl` and `agent/{name}` from a failed task" in started
+        flat = " ".join(D.for_stream(rules, f"agent/{name}").split())
+        assert ("A rollout Harbor recorded has no `prompt0i.txt`: its `task0i.md` is the task's instruction" in flat
+                and "`trace0i.json` — instead of the event stream, for a rollout Harbor recorded with an ATIF "
+                    "trajectory (even when it kept the agent's event stream too)" in flat)
+    assert D.for_stream(start, "agent-codex.jsonl") == start
+
+
+def test_in_a_harbor_trial_start_md_says_the_last_message_is_the_final_message_not_where_the_answer_is_read():
+    """A Harbor trial of Codex or mini-swe-agent keeps the CLI's last message (agent/hermit-collect/last_message.txt),
+    but the trial's reward is the verifier's: START.md's tree says what the file is, the agent's final message, and
+    not that the answer is read from it, as Hermit's own rollouts are still told."""
+    from hermit.agent.evolver.methods.ahe_adapter import debugger as D
+    start = (T.ROOT / "hermit" / "agent" / "evolver" / "methods" / "ahe_adapter" / "START.md").read_text()
+    for name in D.LAST_COLLECTED:
+        started = D.for_stream(start, f"agent/{name}")
+        assert "│   │       ├── agent/hermit-collect/last_message.txt ← The agent's final message\n" in started, name
+        assert "the answer is read from it" not in started, name
+    assert "├── last_message.txt       ← The agent's final message (the answer is read from it)\n" in start
+
+
+def test_in_harbor_trials_the_adapters_guide_names_the_hook_audit_and_state_where_the_trial_keeps_them(tmp_path):
+    """START.md sends the Evolve Agent to the adapter's guide (.hermit/EVOLVER.md) before it touches the middleware. A
+    Harbor trial's log keeps the hook audit and the middleware's state under agent/ (the hook runner writes them to
+    Harbor's agent log directory): the guide names them there, each a file of a curated trial's log, beside the root
+    of a Hermit rollout's log."""
+    from hermit.agent.evolver.methods.ahe_adapter import debugger as D
+    from hermit.harbor import curate
+    start = (T.ROOT / "hermit" / "agent" / "evolver" / "methods" / "ahe_adapter" / "START.md").read_text()
+    assert "`adapter/.hermit/EVOLVER.md` is the authoritative guide" in D.for_stream(start, "agent/agent-codex.jsonl")
+    trial = tmp_path / "job" / "t__abc1234"
+    (trial / "agent" / "hook-state").mkdir(parents=True)
+    (trial / "agent" / "agent-codex.jsonl").write_text('{"type":"thread.started"}\n')
+    (trial / "agent" / "hook-calls.jsonl").write_text('{"event":"SessionStart","decision":null}\n')
+    (trial / "agent" / "hook-state" / "s-1.json").write_text("{}")
+    log = curate.curate(trial, tmp_path / "job", {})
+    guide = " ".join((TEMPLATE / ".hermit" / "EVOLVER.md").read_text().split())
+    assert "the trial's trajectory carries them under `agent/`, as `agent/hook-calls.jsonl` and `agent/hook-state/`" \
+        in guide and "beside the CLI's stream there: `agent/agent-codex.jsonl` from Codex" in guide
+    assert (log / "agent" / "hook-calls.jsonl").is_file() and (log / "agent" / "hook-state" / "s-1.json").is_file()
+    assert (log / "agent" / "agent-codex.jsonl").is_file()
+    assert D.log_file(log, "hooks") == log / "agent" / "hook-calls.jsonl"         # where the Debugger reads it
+    assert "each rollout's trajectory carries them at its root" in guide        # a Hermit rollout's log, as before
+
+
 def test_the_evolvers_texts_name_the_acting_agents_stream(tmp_path):
     """START.md, the evolution query and the Debugger's question name Claude Code's stream when the rollouts are its
     sessions, and are the files' own for Codex's."""

@@ -456,3 +456,97 @@ def test_a_task_agent_on_a_cli_base_is_bound_and_checked_like_the_cli():
     params = data["agent"]["params"]
     assert params["model"] == "accounts/fireworks/models/glm-5p3-flash" and params["binding"]
     assert [(who, api) for who, _, api in bindings_of(data)] == [("agent (trials.py:TrialCodexAgent)", "responses")]
+
+
+# ---- a Harbor task set's acting agent -------------------------------------------------------------------------------
+
+def _harbor(acting: dict, model, **params) -> dict:
+    """A loaded config of a Harbor task set (agent.name: harbor) whose acting agent is `acting`, normalized."""
+    data = {"model": None, "backends": {}, "llm": None,
+            "agent": {"name": "harbor", "params": {"tasks_dir": "tasks", "acting_agent": acting, "model": model,
+                                                   **params}}}
+    normalize_config(data)
+    return data
+
+
+def test_a_harbor_acting_agents_model_is_bound_for_the_cli_it_runs_in_the_tasks_container(monkeypatch, tmp_path):
+    """agent.name: harbor runs a HermitXXX (one CLI Base Agent) in each task's container: its model is checked in the
+    dialect of the CLI it runs (Claude Code the Messages API, Codex the Responses API, Pi and dsh their pi-ai dialect,
+    OpenCode, mini-swe-agent and the answer-only agent chat completions), which its `cli` or its table import path
+    names (Codex when it names neither), and the params keep the whole binding (its developer_role too), which makes
+    the same binding again for the runner to give the CLI its provider settings; the model is the endpoint's id, and
+    no CLI's settings land among the runner's own. Normalized again, the params stay as they are."""
+    import copy
+    monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
+    monkeypatch.delenv("VLLM_BASE_URL", raising=False)
+    r = reg()
+    cases = [({"cli": "claude"}, "anthropic/claude-haiku-5-5", "claude", "messages"),
+             ({"import_path": "harborside.claude:HermitClaude", "kwargs": {}}, "anthropic/claude-haiku-5-5", "claude",
+              "messages"),
+             ({}, f"fireworks/{GLM}", "codex", "responses"),
+             ({"import_path": "harborside.codex:HermitCodex"}, f"fireworks/{GLM}", "codex", "responses"),
+             ({"cli": "pi"}, "anthropic/claude-haiku-5-5", "pi", "messages"),
+             ({"cli": "dsh"}, f"fireworks/{GLM}", "dsh", "chat"),
+             ({"cli": "opencode"}, "vllm/q", "opencode", "chat"),
+             ({"import_path": "harborside.mini_swe_agent:HermitMiniSweAgent"}, "vllm/openai/gpt-oss-120b",
+              "mini-swe-agent", "chat"),
+             ({"cli": "answer"}, "vllm/q", "answer", "chat")]
+    for acting, ref, cli, api in cases:
+        data = _harbor(acting, ref)
+        params, binding = data["agent"]["params"], resolve(ref, r)
+        assert backends.harbor_cli(params) == cli and params["acting_agent"] == acting
+        assert params["model"] == binding.model and params["binding"] == binding.spec()
+        assert params["price"] == binding.price and not {"args", "env", "provider"} & set(params)
+        [(who, bound, dialect)] = bindings_of(data)
+        assert (who, bound.ref, dialect) == (f"agent (harbor, {cli})", ref, api)
+        assert not [p for p in problems_of(bound, dialect) if " serves " in p], (cli, problems_of(bound, dialect))
+        again = copy.deepcopy(data)
+        normalize_config(again)
+        assert again["agent"] == data["agent"], cli          # the id (openai/gpt-oss-120b) is not bound again
+        assert Binding.from_spec(params["binding"]).spec() == params["binding"]
+    assert _harbor({}, f"fireworks/{GLM}")["agent"]["params"]["binding"]["developer_role"] == "system"
+
+
+def test_harbors_own_agents_and_a_clis_own_model_name_keep_their_forms(monkeypatch, tmp_path):
+    """One of Harbor's own agents (by name, or a class outside harborside) keeps the endpoint form Harbor is given
+    ({model, base_url, api_key_env} among the spec) and is checked as chat completions; a CLI's own model name (with
+    its login) is no reference and stays as given, with no binding to check; an acting CLI the table has not is
+    refused when the config loads."""
+    monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
+    monkeypatch.delenv("VLLM_BASE_URL", raising=False)
+    for acting in ({"name": "terminus-2"}, {"import_path": "examples.x.agents:MyAgent"},
+                   {"import_path": "x:HermitCodex"}):
+        data = _harbor(acting, "vllm/q")
+        params = data["agent"]["params"]
+        assert backends.harbor_cli(params) is None and "binding" not in params
+        assert params["model"]["model"] == "q" and params["model"]["base_url"] == "http://127.0.0.1:8000/v1"
+        assert [(who, api) for who, _, api in bindings_of(data)] == [("agent (harbor)", "chat")]
+    data = _harbor({"cli": "claude"}, "claude-haiku-5-5", login="claude")
+    assert data["agent"]["params"]["model"] == "claude-haiku-5-5" and "binding" not in data["agent"]["params"]
+    assert bindings_of(data) == []
+    with pytest.raises(ValueError, match="acting_agent.cli must be one of codex, claude, pi"):
+        _harbor({"cli": "claude-code"}, "vllm/q")
+
+
+def test_a_binding_keeps_its_developer_role_through_its_plain_form():
+    """A run records a binding in its plain form (Binding.spec), which Harbor's runner, an Evolver's sessions and the
+    run's checks make a binding again (Binding.from_spec): a backend that refuses the developer role still says so,
+    which Pi's and dsh's provider entries follow; the older endpoint form keeps the role; a spec naming another role
+    is refused."""
+    fw = resolve(f"fireworks/{GLM}", reg())
+    again = Binding.from_spec(fw.spec())
+    assert fw.spec()["developer_role"] == "system" and again.spec() == fw.spec()
+    assert again.pi_provider()["compat"] == {"supportsDeveloperRole": False} == again.dsh_provider()["compat"]
+    assert Binding.from_spec({"base_url": "http://x/v1", "model": "m"}).backend.developer_role == "keep"
+    with pytest.raises(ValueError, match="developer_role must be one of"):
+        Binding.from_spec({**fw.spec(), "developer_role": "user"})
+
+
+def test_the_harbor_acting_agents_this_layer_names_are_the_runners_table():
+    """The model layer names a Harbor task set's acting agents by a copy of hermit.harbor.clis's table (it imports no
+    layer above it): every entry's import path names that entry's CLI, and the copy names every entry."""
+    from hermit.harbor.clis import HARBOR_CLIS
+    assert sorted(HARBOR_CLIS) == sorted(backends.HARBOR_ACTING.values())
+    for cli, entry in HARBOR_CLIS.items():
+        assert backends.harbor_cli({"acting_agent": {"import_path": entry["import_path"]}}) == cli
+        assert backends.harbor_cli({"acting_agent": {"cli": cli}}) == cli

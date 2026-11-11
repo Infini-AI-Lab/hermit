@@ -140,14 +140,15 @@ def deploy(adapter: Path, workspace: Path, backend: str, *, context: str | None 
            context_limit: int | None = None, approve_tools: bool = False, serve_tools: bool = True) -> dict:
     """`hermit deploy`'s deployment into a workspace; `context` is this task's, for an adapter whose context is per
     task, `context_limit` Codex's project_doc_max_bytes for the session (None: Codex's default), `approve_tools` the
-    adapter's tools called without asking."""
+    adapter's tools called without asking, `serve_tools` false when the caller serves the adapter's tools to the
+    session itself, whichever the backend (the workspace's configuration then leaves them out)."""
     if backend == "codex":
         from hermit.hosts.codex import DOC_BYTES, prepare
         return prepare(adapter, workspace, sys.executable, context=context, context_limit=context_limit or DOC_BYTES,
                        approve_tools=approve_tools, serve_tools=serve_tools)
     if backend == "pi":
         from hermit.hosts.pi import prepare as prepare_pi
-        return prepare_pi(adapter, workspace, sys.executable, context=context)
+        return prepare_pi(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
     if backend == "mini-swe-agent":
         from hermit.hosts.mini_swe_agent import prepare as prepare_mini
         return prepare_mini(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
@@ -156,7 +157,7 @@ def deploy(adapter: Path, workspace: Path, backend: str, *, context: str | None 
         return prepare_opencode(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
     if backend == "dsh":
         from hermit.hosts.dsh import prepare as prepare_dsh
-        return prepare_dsh(adapter, workspace, sys.executable, context=context)
+        return prepare_dsh(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
     from hermit.hosts.claude_code import prepare
     return prepare(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
 
