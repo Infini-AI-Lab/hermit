@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 STREAMS = ROOT / "tests" / "fixtures" / "pi"
 FILE_ADAPTER = ROOT / "docs" / "_examples" / "file_adapter"
 SESSION = "01a1b44b-6699-759a-a7f2-22c02fcee4c5"          # the recorded success stream's session
+FAILED = '503: {"message":"mock: service unavailable"}'    # the recorded failure stream's error, each request's
 
 FAKE_PI = f'''#!{sys.executable}
 """A stand-in for `pi --mode json ...`: records its arguments, Pi's variables, its home's files and its stdin, then
@@ -375,37 +376,112 @@ def test_the_sessions_effort_is_sent_as_named_and_over_the_backends_extra_body(f
     assert "thinkingLevelMap" not in model_of(seen(fake)[-1])
 
 
-@pytest.mark.parametrize("error, unavailable, rejected", [
-    ('503: {"message":"busy"}', True, False), ("503 status code (no body)", True, False),
-    ("503 <html><body>Service Unavailable</body></html>", True, False),
-    ('503 {"error":{"message":"busy"}}', True, False),
-    ('hermit API error (503): {"error":{"message":"busy"}}', True, False),
-    ('429 {"error":{"message":"slow down"}}', True, False), ("Connection error.", True, False),
-    ('400: {"message":"no such field"}', False, True), ('401 {"error":{"message":"bad key"}}', False, True),
-    ('hermit API error (404): {"error":{"message":"no such model"}}', False, True),
-    ('408: {"message":"too slow"}', False, False)],
+def ended(fake, name: str, **message) -> str:
+    """The recorded resume stream (one request) with these fields of the request's message (its `message_end`), one
+    given as None removed."""
+    lines = (STREAMS / "resume.jsonl").read_text().splitlines(keepends=True)
+    last = max(i for i, line in enumerate(lines) if '"type":"message_end"' in line and '"assistant"' in line)
+    event = json.loads(lines[last])
+    event["message"] = {k: v for k, v in {**event["message"], **message}.items() if v is not None}
+    lines[last] = json.dumps(event, separators=(",", ":")) + "\n"
+    (fake / name).write_text("".join(lines))
+    return str(fake / name)
+
+
+def retried(fake, error: str) -> str:
+    """An error Pi retries (a 429, a 5xx, a lost connection): the recorded failure stream with `error` for its 503,
+    each of its four requests failed, retried three times (`auto_retry_start`), then given up (`auto_retry_end`)."""
+    (fake / "retried.jsonl").write_text((STREAMS / "failure.jsonl").read_text().replace(
+        json.dumps(FAILED)[1:-1], json.dumps(error)[1:-1]))
+    return str(fake / "retried.jsonl")
+
+
+def once(fake, error: str) -> str:
+    """An error Pi sends once (a 4xx but a 429): the resume stream's one request failed with `error`, with no retry
+    event and, no answer having come, no stop reason of the provider's."""
+    return ended(fake, "once.jsonl", stopReason="error", errorMessage=error, rawStopReason=None, content=[])
+
+
+def given_up(fake, error: str, raw: str | None = None) -> str:
+    """Outages, then an error Pi does not retry: the recorded failure stream to its third request, which failed with
+    `error` (and `raw`, the provider's stop reason, for an answer it declined), the two 503s before it retried
+    (`auto_retry_start`), then given up (`auto_retry_end` with `error`)."""
+    lines = (STREAMS / "failure.jsonl").read_text().splitlines(keepends=True)
+    second, third = [i for i, line in enumerate(lines) if '"type":"auto_retry_start"' in line][1:]
+    events = [json.loads(line) for line in lines[second + 1:third]]
+    for event in events:
+        for message in [event.get("message"), *event.get("messages", [])]:
+            if isinstance(message, dict) and message.get("role") == "assistant":
+                message.update(errorMessage=error, **({"rawStopReason": raw} if raw else {}))
+        if event["type"] == "agent_end":
+            event["willRetry"] = False
+    events.append({"type": "auto_retry_end", "success": False, "attempt": 2, "finalError": error})
+    (fake / "given-up.jsonl").write_text("".join([*lines[:second + 1], *(json.dumps(e, separators=(",", ":")) + "\n"
+                                                                         for e in events), lines[-1]]))
+    return str(fake / "given-up.jsonl")
+
+
+@pytest.mark.parametrize("sent, error, unavailable, rejected", [
+    (retried, '503: {"message":"busy"}', True, False), (retried, "503 status code (no body)", True, False),
+    (retried, "503 <html><body>Service Unavailable</body></html>", True, False),
+    (retried, '503 {"error":{"message":"busy"}}', True, False),
+    (retried, 'hermit API error (503): {"error":{"message":"busy"}}', True, False),
+    (retried, '500: {"message":"internal error"}', True, False),
+    (retried, '529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}', True, False),
+    (retried, '429 {"error":{"message":"slow down"}}', True, False), (retried, "Connection error.", True, False),
+    (once, '400: {"message":"no such field"}', False, True), (once, '401 {"error":{"message":"bad key"}}', False, True),
+    (once, 'hermit API error (404): {"error":{"message":"no such model"}}', False, True),
+    (once, '408: {"message":"too slow"}', False, False), (once, '409: {"message":"conflict"}', False, False),
+    (given_up, '400: {"message":"no such field"}', False, True)],
     ids=["outage", "outage, no body", "outage, a proxy's page", "outage, Messages API", "outage, Responses API",
-         "rate limit, Messages API", "no connection, retries given up", "bad request", "bad key, Messages API",
-         "no such model, Responses API", "request timeout"])
-def test_a_failed_requests_status_says_whether_a_retry_can_help(fake, monkeypatch, error, unavailable, rejected):
+         "server error", "overloaded, Messages API", "rate limit, Messages API", "no connection, retries given up",
+         "bad request", "bad key, Messages API", "no such model, Responses API", "request timeout", "conflict",
+         "outages, then a bad request"])
+def test_a_failed_requests_status_says_whether_a_retry_can_help(fake, monkeypatch, sent, error, unavailable, rejected):
     """Pi reports a provider's status in its own forms (those Pi 1.5.0 printed): `503: {...}` or `503 status code (no
     body)` from chat completions, `503 {...}` from the Messages API, `<provider> API error (503): ...` from the
-    Responses API. An outage or a rate limit is `unavailable` (retried; the chat endpoint's 503), and so is an error
-    with no status that Pi retried until it gave up (a dropped connection); a status no retry can help is `rejected`
-    (the chat endpoint's 400, which a client does not retry); a timeout or a conflict is neither."""
+    Responses API; it retries a 429, a 500 to 504, an overload and a lost connection, and sends a 4xx once. An outage
+    (any 5xx) or a rate limit is `unavailable` (retried; the chat endpoint's 503), and so is an error with no status
+    that Pi retried until it gave up (a dropped connection); a status no retry can help is `rejected` (the chat
+    endpoint's 400, which a client does not retry); a timeout or a conflict is neither. The last request's status
+    decides: outages that ended in a bad request are rejected."""
     from hermit.agent.base.endpoint import _no_reply
-    recorded = '503: {"message":"mock: service unavailable"}'
-    stream = (STREAMS / "failure.jsonl").read_text().replace(json.dumps(recorded)[1:-1], json.dumps(error)[1:-1])
-    assert error in "".join(json.loads(line)["message"].get("errorMessage") or "" for line in stream.splitlines()
-                            if isinstance(json.loads(line).get("message"), dict))
-    (fake / "status.jsonl").write_text(stream)
-    monkeypatch.setenv("FAKE_PI_STREAM", str(fake / "status.jsonl"))
+    monkeypatch.setenv("FAKE_PI_STREAM", sent(fake, error))
+    raw = Path(os.environ["FAKE_PI_STREAM"]).read_text()
+    assert base_cli.Pi._last_assistant(raw)["errorMessage"] == error
+    assert ('"auto_retry_start"' in raw) == (sent is not once)
     work = fake / "work"
     work.mkdir()
     agent = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")})
     result = agent.run("go", workspace=work)
     assert result.extra["failed"] and (result.extra["unavailable"], result.extra["rejected"]) == (unavailable, rejected)
-    assert _no_reply(agent, result)[0] == (503 if unavailable else 400 if rejected else 502)
+    assert not result.extra["model_refusal"] and _no_reply(agent, result)[0] == (
+        503 if unavailable else 400 if rejected else 502)
+
+
+@pytest.mark.parametrize("error, raw", [("The model refused to complete the request", "refusal"),
+                                        ("500 words of the answer are withheld by the usage policy", "refusal"),
+                                        ("Provider stopped with: sensitive", "sensitive"),
+                                        ("Provider finish_reason: content_filter", "content_filter"),
+                                        ("Response incomplete: content_filter", "incomplete.content_filter")],
+                         ids=["refusal, Messages API", "refusal, explained with a number first",
+                              "sensitive, Messages API", "content filter, chat completions",
+                              "content filter, Responses API"])
+def test_an_answer_the_provider_declined_is_a_refusal_no_retry_can_help(fake, monkeypatch, error, raw):
+    """Pi 1.5.0 ends a request whose answer the provider stopped as an error, sent once, with the provider's stop
+    reason (`rawStopReason`) and its words (on the Messages API the refusal's explanation, when it gives one):
+    `rejected` and `model_refusal`, as on Claude Code, and never `unavailable` (the chat endpoint's 400), whatever
+    Pi retried before it and whatever number the words start with."""
+    from hermit.agent.base.endpoint import _no_reply
+    work = fake / "work"
+    work.mkdir()
+    agent = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")})
+    for stream in (ended(fake, "declined.jsonl", stopReason="error", errorMessage=error, rawStopReason=raw),
+                   given_up(fake, error, raw)):
+        monkeypatch.setenv("FAKE_PI_STREAM", stream)
+        result = agent.run("go", workspace=work)
+        assert result.extra["failed"] and result.extra["rejected"] and result.extra["model_refusal"]
+        assert not result.extra["unavailable"] and _no_reply(agent, result)[0] == 400
 
 
 def test_command_timeout_s_from_the_config_reaches_the_acting_agents_and_the_learners_sessions(fake):
@@ -472,15 +548,8 @@ def test_a_model_through_pi_answers_each_request_with_a_session_that_only_replie
 
 def cut_stream(fake, text: bool = True):
     """The recorded resume stream with its reply ended at the output limit, and with no text but its thinking."""
-    lines = (STREAMS / "resume.jsonl").read_text().splitlines(keepends=True)
-    last = max(i for i, line in enumerate(lines) if '"type":"message_end"' in line and '"assistant"' in line)
-    event = json.loads(lines[last])
-    event["message"]["stopReason"] = "length"
-    if not text:
-        event["message"]["content"] = [{"type": "thinking", "thinking": "a long thought"}]
-    lines[last] = json.dumps(event, separators=(",", ":")) + "\n"
-    (fake / "cut.jsonl").write_text("".join(lines))
-    return str(fake / "cut.jsonl")
+    return ended(fake, "cut.jsonl", stopReason="length",
+                 **({} if text else {"content": [{"type": "thinking", "thinking": "a long thought"}]}))
 
 
 def test_a_reply_cut_at_the_output_limit_comes_back_through_the_chat_endpoint_marked_so(fake, monkeypatch):
@@ -594,7 +663,8 @@ def test_a_pipelines_model_through_pi_is_bound_as_the_learners_is():
 
 def serve_chat(script):
     """A chat-completions model on the loopback: `script(request body) -> (tool call (name, arguments) | None)`;
-    None answers `the answer`. Every response is streamed, with usage."""
+    None answers `the answer`, a status (an int) is an error with that status, and a finish reason (a str, such as
+    `content_filter`) ends an answer that has no text. Every answer is streamed, with usage."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     def chunk(body):
@@ -607,13 +677,22 @@ def serve_chat(script):
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers.get("content-length") or 0)) or b"{}")
             call = script(body)
+            if isinstance(call, int):
+                error = json.dumps({"error": {"message": f"scripted {call}"}}).encode()
+                self.send_response(call)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(error)))
+                self.end_headers()
+                self.wfile.write(error)
+                return
+            tool = isinstance(call, tuple)
             delta = {"role": "assistant", "tool_calls": [{"index": 0, "id": "call_1", "type": "function",
                                                           "function": {"name": call[0],
                                                                        "arguments": json.dumps(call[1])}}]} \
-                if call else {"role": "assistant", "content": "the answer"}
+                if tool else {"role": "assistant", "content": "" if call else "the answer"}
             data = b"".join([chunk({"choices": [{"index": 0, "delta": delta, "finish_reason": None}]}),
                              chunk({"choices": [{"index": 0, "delta": {}, "finish_reason":
-                                                 "tool_calls" if call else "stop"}]}),
+                                                 "tool_calls" if tool else call or "stop"}]}),
                              chunk({"choices": [], "usage": {"prompt_tokens": 100, "completion_tokens": 5}}),
                              b"data: [DONE]\n\n"])
             self.send_response(200)
@@ -795,3 +874,40 @@ def test_with_the_pi_cli_the_model_is_sent_the_calls_effort_over_the_backends(tm
     finally:
         server.shutdown()
     assert status == 200 and [b.get("reasoning_effort") for b in bodies] == [sent]
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not shutil.which("pi"), reason="needs the pi CLI")
+@pytest.mark.parametrize("answers, retries, rejected, refusal, status", [
+    ([503, 503, 400], ["auto_retry_start", "auto_retry_start", "auto_retry_end"], True, False, 400),
+    ([409], [], False, False, 502), (["content_filter"], [], True, True, 400)],
+    ids=["outages, then a bad request", "a conflict", "a content filter"])
+def test_with_the_pi_cli_the_last_requests_status_or_stop_reason_says_whether_a_retry_can_help(
+        tmp_path, monkeypatch, answers, retries, rejected, refusal, status):
+    """The installed Pi, bound to a scripted model that answers each request in turn: Pi retries a 503 (after 2 s,
+    then 4 s) and gives up at a 400, sends a 409 or a content filter once, and the session reads as the streams built
+    for test_a_failed_requests_status_says_whether_a_retry_can_help and the refusal test do."""
+    from hermit.agent.base.endpoint import _no_reply
+    asked = []
+
+    def script(body):
+        asked.append(body)
+        return answers[min(len(asked), len(answers)) - 1]
+
+    server, url = serve_chat(script)
+    monkeypatch.setenv("MOCK_KEY", "sk-mock")
+    params = bind_agent_params({"model": "mock/m-1"}, "pi",
+                               registry({"mock": {"base_url": url, "api_key_env": "MOCK_KEY", "apis": ["chat"]}}))
+    work = tmp_path / "work"
+    work.mkdir()
+    agent = make("pi", {**params, "web_search": False, "home": str(tmp_path / "home"), "timeout_s": 300,
+                        "log": str(tmp_path / "agent-pi.jsonl")})
+    try:
+        result = agent.run("Do the task.", workspace=work)
+    finally:
+        server.shutdown()
+    events = [json.loads(line) for line in (tmp_path / "agent-pi.jsonl").read_text().splitlines() if line.strip()]
+    assert len(asked) == len(answers) and [e["type"] for e in events if e["type"].startswith("auto_retry")] == retries
+    assert result.extra["failed"] and not result.extra["unavailable"]
+    assert (result.extra["rejected"], result.extra["model_refusal"]) == (rejected, refusal)
+    assert _no_reply(agent, result)[0] == status

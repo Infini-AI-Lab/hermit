@@ -1352,6 +1352,9 @@ PI_PARAMS = ("provider", "image_input", "command_timeout_s")     # a Pi session'
 # The provider's status in Pi's report of a failed request: "503: {...}" or "503 status code (no body)" from chat
 # completions, "503 {...}" from the Messages API, "<provider> API error (503): ..." from the Responses API
 PI_STATUS = re.compile(r"^(\d{3})\b|API error \((\d{3})\)")
+# A provider's stop reason for an answer it declined, as Pi keeps it (rawStopReason): "refusal" or "sensitive" from the
+# Messages API, "content_filter" from chat completions, "incomplete.content_filter" from the Responses API
+PI_REFUSALS = ("refusal", "content_filter", "sensitive")
 
 
 class Pi(CliAgent):
@@ -1494,22 +1497,25 @@ class Pi(CliAgent):
         """Pi's JSON mode exits 0 however the session ended: one that did not settle, aborted, or whose last request
         failed, was aborted or was cut at the output limit (Pi's text mode exits 1 for each) has failed, and so has a
         session that was to have no tools and ran one. A provider's outage or rate limit is `unavailable` (retried);
-        a status no retry can help (a bad request, a key the provider refused) is `rejected`."""
+        a status no retry can help (a bad request, a key the provider refused) is `rejected`, and so is an answer the
+        model declined (a refusal, a content filter), which is also `model_refusal`, as on Claude Code."""
         notes, done = self.notices(raw), self.served(raw)
         last = self._last_assistant(raw)
         cut = last.get("stopReason") == "length"
         if self.settings.get("text_only") and any(e.get("type") == "tool_execution_start" for e in _objects(raw)[0]):
             notes, done = "the session was to have no tools, and it ran one", False
-        found = PI_STATUS.search(str(last.get("errorMessage") or ""))
+        # the model declined: no retry helps, and the request, answered, has no status (its words are the provider's)
+        refusal = not done and str(last.get("rawStopReason") or "").split(".")[-1] in PI_REFUSALS
+        found = None if refusal else PI_STATUS.search(str(last.get("errorMessage") or ""))
         code = int(found.group(1) or found.group(2)) if found else None      # the last request's: it decides
         if code is not None:
             unavailable = code == 429 or code >= 500
-        else:       # no status (a dropped connection): Pi retries what it takes to pass, and says when it gave up
-            unavailable = any(e.get("type") == "auto_retry_end" and not e.get("success") for e in _objects(raw)[0]) \
-                or bool(UNAVAILABLE.search(notes))
-        rejected = not done and code is not None and 400 <= code < 500 and code not in (408, 409, 429)
+        else:       # no status: a refusal, or a dropped connection, which Pi retries until it passes or it gives up
+            unavailable = not refusal and any(e.get("type") == "auto_retry_end" and not e.get("success")
+                                              for e in _objects(raw)[0])
+        rejected = not done and (refusal or code is not None and 400 <= code < 500 and code not in (408, 409, 429))
         return {"reply": self.last_message(stream, last_file), "served": done, "unavailable": unavailable,
-                "refused": False, "rejected": rejected, "failed": not done or cut,
+                "refused": False, "rejected": rejected, "model_refusal": refusal, "failed": not done or cut,
                 "finish_reason": "length" if cut else ("stop" if done else None),
                 "failure": (notes or ("the reply was cut at its output limit" if cut else "the session did not settle")
                             )[-600:]}

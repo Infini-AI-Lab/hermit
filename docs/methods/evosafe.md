@@ -57,8 +57,9 @@ The Evolver keeps Designer/Criticizer/Analyzer orchestration and all selection g
 `make("claude" | "codex" | "pi", settings).run(...)` with read-only TRAIN archive tools and a fresh session. Base Agents
 own process cleanup, cancellation, timeouts, configuration, login-plan scheduling and usage. The role's JSON schema
 is given to Codex as `--output-schema` and to Claude and Pi in the prompt, all through the Base Agent's existing settings,
-and the reply is validated against it in Layer 3; a refusal is read from the reply and the trajectory's error
-steps. The normalized trajectory of each role is archived. Claude's built-in tools are disabled (`--tools ""`), and
+and the reply is validated against it in Layer 3; a refusal is read from the Base Agent's own `model_refusal` (Claude
+Code's and Pi's), else from the reply and the trajectory's error steps, and is never retried. The normalized
+trajectory of each role is archived. Claude's built-in tools are disabled (`--tools ""`), and
 so are Pi's (`--no-builtin-tools`); Codex has web search disabled, a read-only sandbox by default, an ephemeral session, and instructions to use only the supplied TRAIN readers. Codex's read-only mode does not hide files; use the shared isolation settings for a filesystem boundary.
 
 `evolver.base`, `evolver.model` and `evolver.claude`/`evolver.codex`/`evolver.pi` are the preferred configuration. Legacy

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace as NS
 
+import pytest
 import yaml
 
 from pi_stand import bound_params, pi_stand  # noqa: F401 (pi_stand: the fixture)
@@ -45,6 +46,19 @@ def test_a_reply_that_is_no_answer_fails_the_role(pi_stand, tmp_path):  # noqa: 
     response, _, error = pi_agent.call_role(ctx_of(tmp_path), [{"role": "user", "content": "x"}],
                                             {"type": "object", "required": ["verdict"]}, "trial-002-designer")
     assert response is None and error.startswith("pi role failed")
+
+
+def test_a_role_the_provider_declines_is_the_safety_refusal_and_is_not_tried_again(pi_stand, tmp_path):  # noqa: F811
+    """As on Claude Code (test_evosafe_on_claude.py): Pi's `model_refusal` is EvoSafe's safety refusal, which ends
+    the role however many retries it has, not a role that failed."""
+    from hermit.agent.evolver.methods.evosafe import roles
+    pi_stand.play(declined="content_filter")
+    ctx = ctx_of(tmp_path)
+    ctx.params["role_retries"] = 2
+    schema = {"type": "object", "required": ["verdict"], "properties": {"verdict": {"type": "string"}}}
+    with pytest.raises(roles.RoleSafetyRefusal, match="SAFETY_REVIEW_REFUSAL"):
+        roles.invoke_role(ctx, "Review it.", {"case": 1}, schema, "trial-001-criticizer", [])
+    assert len(pi_stand.seen()) == 1
 
 
 def test_a_legacy_proposer_pi_without_a_model_is_refused_with_how_to_give_it_one(tmp_path):
