@@ -1,0 +1,14 @@
+# The harness's policy for XPolicyLab: its server runs the acting agent's program (model.py). The fields are the
+# ones XPolicyLab's server and RoboDojo's client read (XPolicyLab policy/demo_policy/deploy.yml).
+policy_name: hermit_program
+protocol: ws
+host: localhost
+port: null
+bench_name: null
+task_name: null
+ckpt_name: null
+env_cfg_type: null
+seed: null
+action_type: null
+gpu_id: null
+eval_batch: false        # one environment at a time: a program keeps its state across the steps of one episode

@@ -1,0 +1,10 @@
+libero_goal_task-t00
+libero_goal_task-t01
+libero_goal_task-t02
+libero_goal_task-t03
+libero_goal_task-t04
+libero_goal_task-t05
+libero_goal_task-t06
+libero_goal_task-t07
+libero_goal_task-t08
+libero_goal_task-t09
