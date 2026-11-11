@@ -19,8 +19,12 @@ acting side.
 ## Update and selection
 
 Each framework step runs a SkillOpt update on the batch. With `use_gate: true`, the method keeps an update only
-if its validation score improves. The slow update and meta skill run at an epoch boundary when enabled.
-Finalization considers the method's retained validation candidates.
+if its validation score improves. The slow update and meta skill run at an epoch boundary when enabled. Both compare the
+previous and the current skill on a sample of training tasks through `run_agent`, which runs no training row that is a
+step of a multi-step Harbor task: on a task set with one, those runs are refused (score 0), so such a set trains with
+both off (`use_slow_update: false`, `use_meta_skill: false`), when SkillOpt learns from the Trainer's own rollouts
+([Known limitations](../reference/compatibility.md#known-limitations)). Finalization considers the method's retained
+validation candidates.
 
 A slow update can make the last step of an epoch substantially more expensive than other steps. Set
 `trainer.call_timeout_min` with that work in mind.
@@ -43,7 +47,7 @@ A slow update can make the last step of an epoch substantially more expensive th
 | `gate_metric`, `gate_mixed_weight` | `hard`, `soft`, or `mixed`; weight in [0, 1] | Select the metric for validation comparison; see below |
 | `use_slow_update`, `slow_update_gate` | Booleans / true and false | Enable epoch-end work and separately choose whether its slow-update candidate must pass validation |
 | `promote_final` | Boolean / true | If final current skill differs from best, re-evaluate it at finalization and promote it only on improvement |
-| `codex_trace_to_optimizer` | Boolean / true | Show the analyst each run's Codex trace summary (`codex_trace_summary.txt` in the run's log, written by SkillOpt's Codex harness), as SkillOpt does for a Codex target |
+| `codex_trace_to_optimizer` | Boolean / true | Show the analyst each run's Codex trace summary (`codex_trace_summary.txt` in the run's log, written by SkillOpt's Codex harness, else one built from the run's Codex stream, Hermit's or a Harbor trial's), as SkillOpt does for a Codex target |
 
 ### Understand the validation score
 
@@ -51,6 +55,10 @@ This integration converts each judged attempt to a hard success flag using `scor
 Its soft value comes from the judge result's `extra.f1` when present, otherwise the numeric score.
 `hard` compares aggregate success, `soft` compares aggregate partial credit, and `mixed` uses
 `(1 - weight) * hard + weight * soft`. Keep the components on comparable scales.
+
+Under [`run.feedback: score`](../framework/configuration.md#how-the-run-is-done-run) the analyst reads a failed run's
+status in place of the judge's feedback, and no `extra.f1` reaches the soft value. SkillOpt needs at least `score`
+(`run.feedback: none` is refused), and `full` with `gate_metric: soft` or `mixed`.
 
 Ordinary gating requires strict improvement, so ties reject. The
 [pinned upstream gate implementation](https://github.com/microsoft/SkillOpt/blob/79124b37e9a6371e13b753f8bcd7adb1e493ade1/skillopt/evaluation/gate.py)

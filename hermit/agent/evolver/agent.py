@@ -76,6 +76,7 @@ def _run(command: list[str], env: dict, ctx: Context, log: Path, cwd: Path) -> i
 
 class AgentEvolver(Evolver):
     supports_resume = True
+    min_feedback = "none"            # its session reads the material as the run shows it (the README says what)
 
     def step(self, ctx: StepContext) -> StepResult:
         params = ctx.params
@@ -151,6 +152,7 @@ class CommandEvolver(Evolver):
     """
     supports_resume = True
     sandbox_framework = True         # the program may use the framework's helpers: the hermit package is shown
+    min_feedback = "none"            # the program reads the material as the run shows it
 
     def step(self, ctx: StepContext) -> StepResult:
         info = {"workspace": {k: str(v) for k, v in ctx.workspace.__dict__.items()},

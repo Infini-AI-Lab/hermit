@@ -72,8 +72,12 @@ tag(adapter, "final")
 | Trainer → specification check | Changed candidate and the template reference. | Accepted files, or a repair followed by another check. |
 | Trainer → storage | Accepted files and step results. | Git changes, state snapshot, records, and any checkpoint tag. |
 
-The current implementation scores every rollout through the configured `judge.path`. In the component model,
-scoring feedback is one part of the Agent → Learning Material path.
+The current implementation scores every rollout through the configured `judge.path`, but three it never judges: one the
+pipeline says is not the agent's result (`RunOutput.extra["unscored"]`, [Execution result](task.md#execution-result)),
+recorded with status `infra` and left out of the means; and one whose agent session failed
+(`RunOutput.extra["session_failed"]`: no answer to judge) and one whose pipeline raised (a lost sign-in stops the run
+instead), both recorded with status `error` and score 0. In the component model, scoring feedback is one part of the
+Agent → Learning Material path.
 
 A step's rollout scores describe its **input** adapter. The returned adapter first affects a later execution.
 Successive steps can use different tasks, so their scores alone are not a controlled comparison of adapter versions.
@@ -103,6 +107,11 @@ learning_material/
 | `trajectories/<id>/` | Original pipeline log copied as a file or directory. |
 | `check_feedback.json` | Repaired paths, restoration source, and reason. |
 | `index.jsonl` | One summary row per step for scanning previous results. |
+
+That is the material under the default [`run.feedback`](configuration.md#how-the-run-is-done-run), `full`. Under
+`score` a task's judge result is its score alone, and under `none` the material holds no verdict at all; under both,
+the verdict a Harbor trial carries beside the judge (its reward fields, its verifier status and files, and the timeout
+of a solution its verifier ran out of time on, whose `timed_out` reads false) is left out.
 
 The Trainer can only preserve evidence the pipeline returns. It does not manufacture a missing transcript.
 The [task interface](task.md#execution-result) defines those fields; the Evolver chooses which evidence to read.
@@ -139,15 +148,23 @@ tagged `<run>/bootstrap`; a resumed run does not repeat it), then processes batc
 early stop, or a handled budget stop, it calls `finalize`. An unhandled process crash does not guarantee finalization.
 
 The default finalization returns the current adapter. A custom Evolver can select another candidate, which is
-collected and checked. `final` means this selection, not an automatically chosen highest-scoring checkpoint.
-Final evaluation is a separate command.
+collected and checked. `final` means this selection, not an automatically chosen highest-scoring checkpoint; with
+`run.mode: stream` there is no selection: `final` is the adapter the last step left. Final evaluation is a separate
+command, except with `run.mode: split`: `hermit train` then tests the final adapter on `data.test` when training
+ends (`eval/final/`).
 
 An epoch is one pass over the training split. Each step takes up to `data.step_size` tasks; the order is reshuffled
-deterministically for each epoch, or kept as the split file gives it when `data.shuffle` is false (an ordered
-stream, such as a continual-learning sequence). The last batch can be smaller. An Evolver that declares `chooses_tasks` may
-instead name the next step's tasks from those the epoch has still to run ([Choosing the next tasks](evolver.md#choosing-the-next-tasks));
-the epoch still runs every training task once. Validation tasks are offered to the Evolver rather
-than included in the Trainer's training batches. Test tasks are reserved for `eval`.
+deterministically for each epoch (a multi-step Harbor task's rows moved as one, in step order: a step ahead of an
+earlier one would wait for it in the task's stream), or kept as the split file gives it when `data.shuffle` is false
+(an ordered stream, such as a continual-learning sequence). An order taken as given (the split's then, an order
+file's, or a seed's, which keeps each task's rows in the split's order) that lists a step of a multi-step Harbor task
+ahead of an earlier step of its stream is refused before training, and `hermit check` reports it. The last batch can
+be smaller. An Evolver that declares `chooses_tasks` may instead name the next step's tasks from those the epoch has
+still to run, a step of a multi-step Harbor task only once each earlier step of its stream has run in the epoch or
+comes before it in the request ([Choosing the next tasks](evolver.md#choosing-the-next-tasks)); the epoch still runs
+every training task once.
+Validation tasks are offered to the Evolver rather than included in the Trainer's training batches. Test tasks are
+reserved for `eval`.
 
 ### Resuming after a crash
 
@@ -174,7 +191,9 @@ stopped by this mechanism. Calls already in flight can exceed a limit; agent-bac
 only after the host session ends.
 
 Recorded dollar cost depends on known usage and applicable prices. Separate `check` probes and `eval` commands are
-outside the training budget. See [Configuration](configuration.md#budgets-and-checkpoint-frequency).
+outside the training budget, and so are the tests `hermit train` runs itself (`run.mode: split`'s test of the final
+adapter, the checkpoint tests, during training too: their time is not counted against `hours`). See
+[Configuration](configuration.md#budgets-and-checkpoint-frequency).
 
 ## Minimal example
 
@@ -203,7 +222,12 @@ Outputs go under `.demo/interface-example/interface-demo/`. A completed run is n
 | `step_NNNN/state/`, `step_NNNN/output/` | Saved learner state and reports. |
 | `learning_material/` | Evidence supplied to the learner. |
 | `config.yaml`, `summary.json` | Resolved settings and final run summary. |
-| `eval/<adapter>/` | Separate evaluation results. |
+| `stream_summary.json` | With `run.mode: stream`: the stream's prequential score, overall, by halves and by step. |
+| `checkpoints.json`, `checkpoints/<name>/<adapter>/` | With `run.checkpoints`: each checkpoint's commit and test results; each tested adapter's summary and per-attempt results. |
+| `eval/<adapter>/` | Evaluation results: `hermit eval`'s, and with `run.mode: split` the final adapter's on `data.test`. |
+
+With `run.orders`, each order is a run of its own, `<run_name>-o<i>`, beside `<run_name>/streams.json`, which holds
+each order's stream score and the means over the orders.
 
 The adapter tree defaults to `<output_dir>/trees/<template id>`. Runs use branches; checkpoints and finals use tags
 such as `<run>/ckpt-step-5`, `<run>/ckpt-epoch-1`, and `<run>/final`. Checkpoint frequency is controlled by

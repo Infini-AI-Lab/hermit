@@ -24,7 +24,9 @@ llm: {model: <backend>/<model>}   # the optimizer
 The instruction is `ADAPTER.md`. The optimizer is the run's model (`llm`); on a model reachable only through a
 ChatGPT login, OfficeQA's GPT-5.6-Luna setting makes each call one Codex session (`llm: {cli: codex}`). The judge's
 scores must be in [0, 1]: the meta-prompt shows them from 0 to 100, and a step whose rollouts score outside that range
-fails.
+fails. Under [`run.feedback: score`](../framework/configuration.md#how-the-run-is-done-run) an exemplar the agent got
+wrong shows no judge feedback as its answer, only that the answer was judged wrong; OPRO needs at least `score`, its
+history being the instructions' scores, so `run.feedback: none` is refused.
 
 ## One framework step
 
@@ -39,7 +41,10 @@ The Trainer's rollouts run the current instruction on every training task. Then 
    compared by md5 with every instruction generated before (as upstream, not with the initial one);
 5. each new instruction passes the template check, runs on every training task (`run_agent`), and joins the history
    with its mean score. A wrong answer scores 0; a run that fails for an infrastructure reason (a container or
-   proxy error) is run again, and an instruction whose runs fail twice is left unscored rather than scored 0;
+   proxy error) is run again, and an instruction whose runs fail twice is left unscored rather than scored 0 (so is
+   every new instruction on a task set whose training split holds a multi-step Harbor task, whose steps `run_agent` does
+   not run: such a set trains with a method that learns from the Trainer's own rollouts,
+   [Known limitations](../reference/compatibility.md#known-limitations));
 6. the instruction with the best training score so far becomes the adapter.
 
 ```mermaid

@@ -10,8 +10,9 @@ What you have:
   score, and where its files and its rollouts are.
 - {store}/<id>/adapter/: each candidate's files.
 - {learning_material}/step_NNNN/: the rollouts of one candidate on the search tasks: for each task its input, the
-  agent's output, the judge's score and feedback, and the full trajectory ({learning_material}/README.md describes
-  the layout).
+  agent's output, the judge's verdict as far as this run shows it (its score and feedback, or less), and its
+  trajectory (without the verifier's output and the run's result and exception files unless the feedback is shown
+  too; {learning_material}/README.md describes the layout).
 
 What you deliver:
 - Exactly {k} new candidates, each a complete adapter in its own directory {candidates_dir}/<name>/ (name: lowercase

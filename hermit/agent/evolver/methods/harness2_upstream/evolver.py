@@ -4,7 +4,8 @@ The paper (Xu et al., arXiv:2610.14224, Sec. 2) refines a harness per task, at t
 starts from the common harness H0; a reference execution; an INV and a DOM editor session, each candidate executed on
 the same task; a composer session whose composed harness is executed on the same task, and that execution is the
 task's deliverable; a reflection that stores the adopted harness and its lesson in the domain's library, which is all
-the next task inherits. The training split is that stream: `data.step_size: 1`, `data.shuffle: false`, one epoch.
+the next task inherits. The training split is that stream: `data.step_size: 1`, `data.shuffle: false`, one epoch. A
+step of a multi-step task is refused before any session: run_agent does not run one.
 
 Each step hands upstream `harness2.core.schedule.run_task` the step's task through `bench.FrameworkBench` (executions
 by the run_agent tool; the reference execution is the Trainer's rollout of the step, H0 on this task) and
@@ -84,7 +85,28 @@ def _markers(context, extra: list[str]) -> None:
 
 
 class Harness2UpstreamEvolver(Evolver):
+    # The labels stay in this process: the scores in FrameworkBench.private, read by upstream only after selection, and
+    # no session sees the run (_assert_hidden). So the Trainer hands it the full records whatever run.feedback says,
+    # and any run.feedback will do.
+    hides_labels = True
+    min_feedback = "none"
     _pinned_bin = ""
+
+    def step_scores(self, result: StepResult) -> dict[str, float | None] | None:
+        """The paper's score of the step's task: the deliverable upstream chose without the labels, graded after by
+        the run's judge (`extra.harness2.judged.score`, on the rollouts' scale); for a deliverable whose execution was
+        not the agent's result (infra, which has no grade) the task maps to None, a row the stream leaves unscored;
+        None when nothing else was graded (the stream takes the rollout's, H0's)."""
+        h2 = (result.extra or {}).get("harness2") or {}
+        judged = h2.get("judged") or {}
+        score = judged.get("score")
+        chosen = (h2.get("runs") or {}).get((h2.get("selection") or {}).get("chosen_label") or "") or {}
+        if h2.get("task") and not judged.get("graded") and chosen.get("unscored"):
+            return {str(h2["task"]): None}
+        if not h2.get("task") or not judged.get("graded") or isinstance(score, bool) or \
+                not isinstance(score, (int, float)):
+            return None
+        return {str(h2["task"]): float(score)}
 
     def setup(self, ctx) -> None:
         context = _upstream()[0]
@@ -135,6 +157,13 @@ class Harness2UpstreamEvolver(Evolver):
                                         f"has {len(records)}")
         record = json.loads(records[0].read_text())
         tid = record["id"]
+        task_row = record.get("input") or {}
+        if task_row.get("harbor_task") and isinstance(task_row.get("steps"), int) and task_row["steps"] > 1:
+            # A step of a multi-step task (hermit.harbor.dataset's step rows) runs only in the Trainer's own stream of
+            # its task: run_agent runs none of the candidates, so the editors' sessions would deliver nothing.
+            return StepResult("failed", f"{tid} is a step of the multi-step task {task_row['harbor_task']}: run_agent "
+                                        f"does not run such a step, and the paper's protocol executes every candidate "
+                                        f"on the step's task, so no editor session runs")
         layout = U.layout_of(ws.adapter)
         layout.register()
         _markers(context, params.get("verdict_markers"))
@@ -144,7 +173,7 @@ class Harness2UpstreamEvolver(Evolver):
         model = str(params.get("model") or "")
         channel = spec.ChannelSpec("claude_cli", model, effort=str(params.get("effort") or "medium"),
                                    timeout=int(params.get("session_timeout_s") or 3600))
-        domain = str((record.get("input") or {}).get(params.get("domain_field") or "domain") or "default")
+        domain = str(task_row.get(params.get("domain_field") or "domain") or "default")
         root = ws.scratch / "h2"
         bench = FrameworkBench(ctx, record, prompts=prompts, channel=channel, runs_root=root, domain=domain,
                                name=str(params.get("name") or "task"), obs_trunc=int(params.get("obs_trunc") or 50000),
@@ -181,7 +210,7 @@ class Harness2UpstreamEvolver(Evolver):
         for run_id, judged in bench.private.items():
             run_dir = root / "executions" / run_id
             runs[run_id.rsplit("/", 1)[-1]] = {"answered": bench.delivered(run_dir), "score": judged.get("score"),
-                                                **({"error": judged["error"]} if judged.get("error") else {})}
+                                                **{k: judged[k] for k in ("error", "unscored") if judged.get(k)}}
         finals = [f"agg{i}" for i in range(1, k + 1)]
         added = sorted(set(lib.entries()) - set(before))
         mode_rec = (summary.get("modes") or {}).get(MODE) or {}
@@ -193,6 +222,7 @@ class Harness2UpstreamEvolver(Evolver):
                  "library": {"entries_before": len(before), "added": added},
                  "runs": runs, "finals": finals,
                  "judged": None if row is None else {"graded": row.graded, "frac": row.frac,
+                                                     "score": (row.raw or {}).get("score"),
                                                      "label": row.label, "error": row.error},
                  "sessions_usd": round(sum(u.cost_usd or 0.0 for u in getattr(prop, "usages", [])), 6),
                  "claude": params.get("claude_bin") or self._claude(ws, params.get("backend"))}

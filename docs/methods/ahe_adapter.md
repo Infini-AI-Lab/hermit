@@ -38,6 +38,11 @@ deployments list the hook commands for the agent to run by hand, and run so, wit
 `session_start` has something to do (it hands the memory over). OpenCode is not one of the template's hosts: its
 middleware refuses a copy deployed into an OpenCode workspace.
 
+AHE needs the judge's whole verdict, [`run.feedback: full`](../framework/configuration.md#how-the-run-is-done-run)
+(the default): a rollout's pass or fail drives attribution and rollback, and the analysis reads the verifier's output
+(the judge's feedback) and the trial's status (an `agent_error` trial is an exception, not a fail). `score` and
+`none` are refused.
+
 ## The template
 
 `ahe@1.0` (`hermit/adapter/templates/ahe/`) maps AHE's harness components onto files, the same for every host:
@@ -61,7 +66,8 @@ It hands each call to that host's wire in `hook_hosts.py`, which turns the host'
 the middleware reads and its `HookResult` into the host's output (context to add, a tool call to deny, a stop to
 block). The runner calls the middleware's function for the event with the task text (the workspace's `task.md`,
 else the session's first prompt), fails open on any error, and logs every call to `.hermit-hooks/hook-calls.jsonl`
-in the workspace, which the Debugger reads beside the session's trajectory. The hosts differ where this table, the
+in the workspace (in a Harbor trial to Harbor's agent log directory, which the trial's log keeps as
+`agent/hook-calls.jsonl` beside `agent/hook-state/`), which the Debugger reads beside the session's trajectory. The hosts differ where this table, the
 one `.hermit/EVOLVER.md` gives the Evolve Agent (`hook_hosts.CAPABILITIES`), says:
 
 <!-- hook_hosts.capability_table: begin -->
@@ -141,7 +147,8 @@ Under `<run>/workspace/state/` (and each step's copy, `step_NNNN/state/`): `stat
 Debugger's overview, one report per task, its jobs and usage), `queries/` (the Evolve Agent's input), `manifests/`,
 `evaluations/` (the verdicts on the previous step's changes), `rollbacks/`, `best_ever.json`, `iteration_scores.md`
 and `evolution_history.md`; `<run>/workspace/output/final_selection.json` names the iteration `finalize` handed back.
-Each rollout's log holds its `hook-calls.jsonl` and `hook-state/` beside the session's trajectory.
+Each rollout's log holds its `hook-calls.jsonl` and `hook-state/` beside the session's trajectory (a Harbor trial's
+under `agent/`, with its stream).
 
 ## The authors' implementation against this one
 
@@ -155,7 +162,7 @@ this framework's own code.
 | Dimension | AHE (8b2a55d) | This Evolver | Why |
 |---|---|---|---|
 | When learning happens | Once per iteration, after k = 2 rollouts of every task; 10 iterations | The same: a step is every trial row, ten steps | Same |
-| What the learner sees | The Debugger: each task's NexAU traces (with a per-turn timing breakdown for a timed-out rollout) and verifier output; the Evolve Agent: the overview, per-task reports, verdicts, history | The same, with the acting agent's event stream (the one its CLI wrote; whole, and one file per standard step) and, on the hosts that run hooks (Codex, Claude Code), the hook audit as the traces, and the judge's feedback as the verifier output; no timing breakdown, which comes only from a Harbor trial's `agent/trajectory.json` | Framework: the host's trace format |
+| What the learner sees | The Debugger: each task's NexAU traces (with a per-turn timing breakdown for a timed-out rollout) and verifier output; the Evolve Agent: the overview, per-task reports, verdicts, history | The same, with the acting agent's event stream (the one its CLI wrote; whole, and one file per standard step) and, on the hosts that run hooks (Codex, Claude Code), the hook audit as the traces, and the judge's feedback as the verifier output; no timing breakdown, which comes only from an ATIF trajectory (`agent/trajectory.json`), written by Harbor's built-in agents alone: a HermitXXX trial keeps its CLI's stream (`agent/agent-<backend>.jsonl`) | Framework: the host's trace format |
 | What is learned | NexAU's prompt, tool descriptions and implementations, middleware classes, skills, sub-agents, memory | The adapter's files (the table above), the same on either host; the host's loop and tools are fixed | Framework: the acting agent is fixed; the reason for the name |
 | The update | Edits plus a manifest of predictions, attributed at the next iteration; Algorithm 1 reverts HARMFUL changes, the released code leaves it to the agent | The same manifest and rules; `rollback: auto` (the paper) or `agent` (the code) | Decision: the paper by default |
 | Final harness | The best iteration by pass@1 | The best-ever commit, the harness its rollouts ran (Algorithm 1 line 15 names the harness after the next edit, which no rollout measured) | Decision |

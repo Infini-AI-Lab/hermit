@@ -79,7 +79,7 @@ first.
 
 | Paper (Algorithm 1) | Framework |
 |---|---|
-| The filesystem D | The Evolver's `state/`: `evolution_summary.jsonl` (one line per candidate: id, round, hypothesis, base, mean score, where its files and rollouts are), `candidates/<id>/adapter/`, and the learning material's `step_NNNN/` (for each task its input, the agent's output, the judge's score and feedback, the full trajectory) |
+| The filesystem D | The Evolver's `state/`: `evolution_summary.jsonl` (one line per candidate: id, round, hypothesis, base, mean score, where its files and rollouts are), `candidates/<id>/adapter/`, and the learning material's `step_NNNN/` (for each task its input, the agent's output, the judge's score and feedback, the full trajectory; under `run.feedback: score` only the judge's verdict is cut, to its score: the input stays, the output less its reward and verdict fields, the trajectory less the verifier's output and the trial's result files; `none` is refused: the selection is by the scores) |
 | The proposer | An `AgentEvolver` session (Codex, Claude Code, Pi or OpenCode) started afresh each round with the round's prompt, `PROPOSE.md`; it reads D and writes into `scratch/candidates/` |
 | Interface validation | `check_spec` on each candidate, by the proposer and again by the Evolver |
 | Evaluation on the search set | The Trainer's rollouts of the next step, on the training split |

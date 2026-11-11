@@ -38,9 +38,9 @@ these follow this page verbatim; this page says how they map onto the harness, a
   Promote only what a `verified` run supports, into the topic files of `{adapter}`, with the verifier's result on the
   Provenance line. A verifier's score is 0 unless its own verdict is `verified`, and its run was within its rules; a
   `void` result says nothing about the skill. Never leave `skills/proposed.md` in `{adapter}`.
-- **Evaluation results are not development evidence.** A task's Stage 2 result is its record's `judge` (score and
-  feedback); the held-out runs themselves are not given to you, and you never use held-out results to tune an entry
-  (ASPIRE's Stage 2 rule).
+- **Evaluation results are not development evidence.** A task's Stage 2 result is its record's `judge`, the judge's
+  verdict as far as this run shows it (its score and feedback, or less); the held-out runs themselves are not given
+  to you, and you never use held-out results to tune an entry (ASPIRE's Stage 2 rule).
   Use `run_agent` only on `verify-*` rows: running a training task would run its held-out evaluation.
 - **Curriculum.** The tasks this epoch has still to run are listed above. Append your round to
   `{state}/curriculum.md` in the guide's format, then write the next task as a JSON list of one task id from that

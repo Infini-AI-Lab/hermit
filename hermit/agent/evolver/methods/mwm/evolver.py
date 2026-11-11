@@ -55,8 +55,10 @@ import sys
 import time
 import uuid
 
+from hermit.agent.base import trajectory
 from hermit.agent.base.interface import LoginFailed, make
 from hermit.agent.evolver.base import Context, Evolver, FinalResult, StepContext, StepResult, Usage
+from hermit.isolate import _safe                         # the learning material's file name of a task
 
 HERE = Path(__file__).resolve().parent
 
@@ -77,6 +79,8 @@ EDIT_TIMES = ".mwm/edit_times.json"
 PROTECTED = ("CONTRACT.md", ".hermit/", "interface.py", "mwm_core/")
 SKIP = ("__pycache__", ".git")
 ACTIONS = ("command_execution", "file_change", "mcp_tool_call")     # codex items that act on something
+# A generic block entry's score line when the record holds no verdict (run.feedback none: the material has no judge)
+NO_VERDICT = "score: not shown (this run shows the learner no score or feedback)"
 
 
 def _copy(source: Path, target: Path) -> None:
@@ -125,6 +129,7 @@ def _native_text(result) -> str:
 
 class MwmEvolver(Evolver):
     supports_resume = False          # every MWM session is a fresh CLI session, as natively
+    min_feedback = "none"            # its evidence is the task's store; a verdict shown is listed with the block
 
     # ------------------------------------------------------------------ inputs
     def _state(self, ctx: Context) -> dict:
@@ -148,14 +153,15 @@ class MwmEvolver(Evolver):
         records = []
         if current.is_dir():
             for task in json.loads((current / "summary.json").read_text())["tasks"]:
-                path = current / "tasks" / f"{''.join(c if c.isalnum() or c in '-_.' else '_' for c in task)}.json"
+                path = current / "tasks" / f"{_safe(task)}.json"     # as the material names it
                 records.append(json.loads(path.read_text()) if path.exists() else {"id": task})
         return records, tick
 
     @staticmethod
     def _goal(records: list[dict], tick: int) -> str:
         """The native per-block listing: "This block covers <unit> a-b; the current tick is T." and one entry per
-        episode between rules of '='. A task without the protocol gets one generic entry per task."""
+        episode between rules of '='. A task without the protocol gets one generic entry per task: its score and
+        feedback as the run shows them, or NO_VERDICT (run.feedback none)."""
         entries, numbers, unit = [], [], "tasks"
         for i, r in enumerate(records):
             mwm = ((r.get("pipeline_extra") or {}).get("mwm")) or {}
@@ -165,7 +171,7 @@ class MwmEvolver(Evolver):
                 unit = mwm.get("unit", unit)
             else:
                 judge = r.get("judge") or {}
-                text = [f"## Task {r.get('id')}", f"score: {judge.get('score')}"]
+                text = [f"## Task {r.get('id')}", f"score: {judge['score']}" if "score" in judge else NO_VERDICT]
                 if judge.get("feedback"):
                     text.append(f"feedback: {judge['feedback']}")
                 if r.get("trajectory"):
@@ -326,8 +332,7 @@ class MwmEvolver(Evolver):
             _restore(snapshot, adapter)
             raise LoginFailed(f"a learner session: {result.extra.get('failure')}")
         session_id, usage = result.session, result.usage
-        events = [json.loads(l) for l in log.read_text(errors="replace").splitlines() if l.startswith("{")] \
-            if log.exists() else []
+        events = trajectory.events(log)                    # a line that is no JSON object (the CLI's own) is skipped
         if backend == "codex":
             turns = sum(1 for e in events if e.get("type") == "turn.completed")
             actions = sum(1 for e in events if e.get("type") == "item.completed"

@@ -75,7 +75,9 @@ so it is part of the learning protocol, not just logging.
 ```
 
 This toy judge computes its target privately. For a real dataset, load labels from judge-owned storage.
-Choose the score scale deliberately; the generic evaluator's `solved_once` uses a fixed threshold of 1.0.
+Choose the score scale deliberately; the generic evaluator's `solved_once` and `pass_at_k` count a score of at least
+1.0 as solved, unless the judge returns `passed` as a bool, which decides; a judge that returns `passed: None` (a score
+scale with no pass) leaves both uncomputed.
 Do not reveal a reference solution through feedback unless your protocol permits it.
 
 ## Describe the task for the learner

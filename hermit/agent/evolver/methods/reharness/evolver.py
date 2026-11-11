@@ -139,6 +139,7 @@ def _safe(text: str) -> str:
 
 class ReHarnessEvolver(Evolver):
     model_params = ("embedding",)      # bound by the loader against the run's backends, like any model reference
+    min_feedback = "none"              # a verdict shown is part of tau_t's [OUTCOME]; none is needed
     def __init__(self):
         self._client = None          # the embedding client, or None for BM25
         self._client_for = None      # the params it was built from
@@ -273,7 +274,7 @@ class ReHarnessEvolver(Evolver):
             tau_t_shown = trajectory.clip_middle(tau_t, trace_chars)
             x_t = trajectory.query_of(record)
             rec = {"step": n, "task": tid, "query_chars": len(x_t), "trajectory_chars": len(tau_t),
-                   "feedback": feedback}
+                   "feedback": feedback and bool(record.get("judge"))}     # tau_t's [OUTCOME] holds a verdict
             if record.get("status") == "error" and not (record.get("trajectory") or record.get("messages")
                                                         or record.get("output")):
                 rec["outcome"] = "skipped: the pipeline failed and left no trajectory"

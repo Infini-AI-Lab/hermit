@@ -11,6 +11,9 @@ The Quick Start's learner reads the current batch's judge feedback and writes on
 :language: python
 ```
 
+Its `min_feedback = "full"` says that it reads the judge's feedback, so `hermit train` refuses a
+[`run.feedback`](../framework/configuration.md#how-the-run-is-done-run) that hides it (`score` or `none`).
+
 It is deliberately narrow: it can extract only one rule. A real method can analyze trajectories, generate and
 test candidates, and select which files to return. The adapter result is the directory left in
 `ctx.workspace.adapter`; `StepResult` reports the call's status, summary, and externally incurred usage.
@@ -79,7 +82,13 @@ For candidate tests:
 result = ctx.tools["run_agent"](task_ids=["train-1"], adapter=str(candidate_directory))
 ```
 
-Candidate directories must be inside the run directory; only training/validation task ids are accepted.
+Candidate directories must be inside the run directory; only training/validation task ids are run (in a stream, a
+training id once the stream has reached it; never a training id that is a step of a multi-step Harbor task, which runs
+only in the Trainer's own stream of that task). An id outside these comes back as a result with status `error` and a
+judge score of 0 (no judge under `run.feedback: none`), not as an exception, and the judge results are what
+`run.feedback` shows: the score alone under `score`, none under `none`. The run's budget does raise: a call in which a
+run ends with the budget reached raises `BudgetExceeded` once its runs in flight end (a learner session's call gets an
+error), and returns no results, not even those of the runs it made.
 Those calls count toward learner usage. They do not expose test evaluation to the learner.
 
 ## Choose a different execution form

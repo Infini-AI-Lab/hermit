@@ -34,6 +34,9 @@ extra: the template's code is standard library. What it needs from the run:
 - With `embedding` set, an OpenAI-compatible `/embeddings` endpoint, and `REHARNESS_EMBED_URL` in the environment
   for the acting side's reader; see [Embeddings and the relay](#embeddings-and-the-relay). With `embedding: null`
   nothing else.
+- Any [`run.feedback`](../framework/configuration.md#how-the-run-is-done-run): ReHarness needs no verdict. tau_t's
+  `[OUTCOME]` holds the judge's verdict as the run shows it: the reward alone under `score`, and under `none`, as
+  with `feedback: false`, a line saying that no verdict is shown.
 
 ## One framework step
 
@@ -80,7 +83,7 @@ reflection and revision agents; bind `llm` to the acting model.
 | `revise` | Boolean / true | False is the paper's No Revision ablation: the forward flow only, retrieved reflections never change |
 | `demonstrations` | Boolean / true | False writes each reflection without the revised reflections as demonstrations |
 | `raw_memory` | Boolean / false | True stores the rendered trajectory itself in place of a reflection, with no model calls: the paper's Top-K Raw baseline on the same retrieval. The reader then renders `[RANKED TRAJECTORIES]`; give such a run an `ADAPTER.md` that describes the entries as trajectories (the template's text describes reflections) |
-| `feedback` | Boolean / true | True puts the judge's score and feedback in tau_t's `[OUTCOME]` block, the environment's outcome (the paper's footing: online supervision). False keeps every verdict, score and reference answer away from the agents: the trajectory and the answer alone are their evidence, the label-free footing of a stream whose verdicts the learner must not see. The switch governs the `[OUTCOME]` block only: a venue whose own observations name the answer (CL-Bench database: `Correct answer: ...`) stays supervised through the trajectory. Recorded per instance in the state |
+| `feedback` | Boolean / true | True puts the judge's score and feedback in tau_t's `[OUTCOME]` block, the environment's outcome (the paper's footing: online supervision). False keeps every verdict, score and reference answer away from the agents: the trajectory and the answer alone are their evidence, the label-free footing of a stream whose verdicts the learner must not see. The switch governs the `[OUTCOME]` block only: a venue whose own observations name the answer (CL-Bench database: `Correct answer: ...`) stays supervised through the trajectory. Recorded per instance in the state: whether that instance's `[OUTCOME]` held a verdict (false under `run.feedback: none` too) |
 | `trace_chars`, `obs_chars` | Character limits / 24000, 4000 | Clip a trajectory shown to an agent (its middle is left out) and each message or observation inside it; the stored source trajectory keeps up to 400,000 characters |
 | `max_tokens`, `temperature` | Per call / 8192, null | Sampling for the reflection and revision calls; null leaves the endpoint's default |
 | `parallel` | Positive integer / 5 | Revision calls in flight at once; each retrieved reflection is revised independently of the others |

@@ -4,6 +4,8 @@ from hermit.agent.evolver.base import Evolver, StepContext, StepResult
 
 
 class FormatEvolver(Evolver):
+    min_feedback = "full"    # it reads the judge's feedback: hermit train refuses a run.feedback that hides it
+
     def step(self, ctx: StepContext) -> StepResult:
         tasks = ctx.workspace.learning_material / "current" / "tasks"
         records = [json.loads(p.read_text()) for p in sorted(tasks.glob("*.json"))]

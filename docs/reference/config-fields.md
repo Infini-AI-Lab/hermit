@@ -16,7 +16,10 @@ hermit train --config path/to/run.yaml trainer.run_name=trial-02 data.step_size=
 hermit eval --config path/to/run.yaml --adapter final trainer.run_name=trial-02 eval.repeats=3
 ```
 
-Overrides are YAML values; quote shell-sensitive lists and dictionaries. Unknown framework keys are rejected.
+Overrides are YAML values; quote shell-sensitive lists and dictionaries. Unknown framework keys are rejected. A key
+of `run` or `eval` left empty (null), in the file or by an override, is its default, and so is one that an override
+giving the whole section leaves out (`'eval={repeats: 3}'` keeps `eval.infra_retries` and `eval.infra_wait_s`, for the
+overrides after it too); either section left empty is all its defaults.
 `evolver.params`, `agent.params`, `pipeline.params`, `llm` and `backends` are free-form mappings at merge time; this is not a
 guarantee that their consumer supports arbitrary fields.
 
@@ -25,11 +28,11 @@ guarantee that their consumer supports arbitrary fields.
 | Field | Type / default | Meaning and constraints |
 |---|---|---|
 | `data.tasks` | path / null; required | JSONL with unique `id` or `task_id` values |
-| `data.train` | path / null; required | One training task id per line |
+| `data.train` | path / null; required to train | One training task id per line; order files in `run.orders` replace it |
 | `data.val` | path / null | Validation ids; required by methods declaring validation-data needs |
-| `data.test` | path / null | Test ids; a nonempty test split is required by `eval` |
+| `data.test` | path / null | Test ids; a nonempty test split is required by `eval`, but for `--split <file>` (that file's ids) and `--checkpoints` (each checkpoint's own `split`; this one for a checkpoint that names none) |
 | `data.step_size` | integer / 8 | Positive number of task executions in a main training batch |
-| `data.shuffle` | boolean / true | Shuffle training order; set false for ordered streams |
+| `data.shuffle` | boolean / true | Shuffle training order (a multi-step Harbor task's rows as one, in step order); set false for ordered streams |
 | `data.shuffle_seed` | integer / 0 | Training shuffle seed; does not seed every model or method |
 | `task_info` | directory / null | Learner-facing task description; provide `README.md` |
 | `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `harbor` (a benchmark's task set in Harbor's format, see [Benchmarks](../framework/task.md#benchmarks)), an Agent class, or a `file.py:function` / `module:function` |
@@ -46,15 +49,19 @@ guarantee that their consumer supports arbitrary fields.
 | `judge.name` | string / `score` | Callable accepting `(task, RunOutput)` |
 
 Split ids must exist in the task data. Use disjoint train/validation/test splits; `check` reports overlaps.
-Task row fields become training material, so private labels require judge-owned storage.
+Task row fields become training material, so private labels require judge-owned storage. `data.train`, `template`
+and `evolver.name` are required by `hermit train` (and by `check`, but for a `run.mode: eval` config): `hermit eval`
+and an eval-only config (`run.mode: eval`) need none of them, except that an adapter of the run's tree (`--adapter
+final`, `root`, a tag or a commit) needs `template` or `trainer.tree_dir`, the tree being the template's (`root` on a
+tree that does not exist yet needs `template`, whose adapter begins it); `none` and an adapter directory need neither.
 
 ## Adapter and learning method
 
 | Field | Type / default | Meaning and constraints |
 |---|---|---|
-| `template` | string / null; required | Built-in id, `id@version`, or directory containing `.hermit/adapter.yaml` |
+| `template` | string / null; required to train | Built-in id, `id@version`, or directory containing `.hermit/adapter.yaml` |
 | `start_from` | string / null | Initial adapter tag, commit, or compatible directory; does not restore learner state |
-| `evolver.name` | string / null; required | Built-in method or directory containing its Evolver definition |
+| `evolver.name` | string / null; required to train | Built-in method or directory containing its Evolver definition |
 | `evolver.resume` | boolean / false | Request learner-session continuation; method must support it |
 | `evolver.params` | mapping / {} | Overrides merged with the chosen method's defaults |
 | `evolver.base` | string / null | Layer 2 the method runs on: `codex`, `claude`, `pi`, `opencode` or `dsh` (an agent Evolver: sets `evolver.params.backend`) or `direct`. On a method that calls the run's model, `pi` makes that model Pi (`llm: {cli: pi, ...}`) |
@@ -135,10 +142,19 @@ the Base Agent's setting (`hermit/agent/base/cli.py`).
 | `trainer.budget.tokens` | number / null | Token budget |
 | `trainer.budget.hours` | number / null | Training wall-time budget |
 | `trainer.call_timeout_min` | number / 60 | Per-call timeout in minutes |
-| `eval.repeats` | integer / 1 | Attempts per test task; use a positive value |
+| `eval.repeats` | integer / 1 | Attempts per test row (a Harbor task indexed with k rollouts is k rows); use a positive value |
+| `eval.infra_retries` | integer / 0 | `hermit eval`, and the tests `hermit train` runs itself (`run.mode: split`'s final test, the checkpoint tests), run the rows that ended `infra` (not the agent's result) again up to this many times, unless one reports a halt; never a multi-step task's step rows |
+| `eval.infra_wait_s` | number / 600 | Seconds before each such pass |
+| `run.mode` | string / null | `eval` (`hermit eval` only), `split` (train, then the final adapter on `data.test`), `stream` (each row scored once, before it is learned from); null: train only ([run modes](../framework/configuration.md#how-the-run-is-done-run)) |
+| `run.feedback` | string / null | `full` (null), `score` or `none`: what the learner is shown of each verdict; a stream must name it; `hermit train` refuses one below the Evolver's `min_feedback` (under its `evolver.params`, for an Evolver whose params decide it) |
+| `run.orders` | list / null | Stream: seeds or order files, one run each (`<run_name>-o<i>`) |
+| `run.checkpoints` | list / null | Stream: `{name, after: <task id> \| end, split, adapters: [checkpoint \| final \| root]}`; a task id YAML would read as a number goes in quotes (`after: '42'`) |
+| `run.checkpoints_during` | boolean / false | A checkpoint's test right after the step that reaches it, not after training |
+| `run.state`, `run.score` | string / null | `file.py:fn` hooks: a checkpoint test's environment, and the benchmark's own scores of it |
 
 Use at least one finite budget for a real experiment. Limits are observed at call/rollout boundaries; concurrent
-work can overshoot. Separate `check` probes and `eval` calls are outside the training budget.
+work can overshoot. Separate `check` probes and `eval` calls are outside the training budget, and so are the tests
+`hermit train` runs itself (`run.mode: split`'s final test, the checkpoint tests, those during training included).
 Checkpoint frequency controls tags; completed steps still have records and accepted adapter history.
 
 ## Sandboxes

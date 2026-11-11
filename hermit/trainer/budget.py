@@ -1,6 +1,7 @@
 """Hard budgets (usd, tokens, hours), observed wherever spending is visible; thread-safe."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import asdict
 import threading
 import time
@@ -26,6 +27,18 @@ class Budget:
 
     def seconds(self) -> float:
         return self.elapsed_before + (time.time() - self.started)
+
+    @contextmanager
+    def paused(self):
+        """Work outside the hours budget (a checkpoint's test during training, whose cost its own eval counts) spends
+        none of its time: the time the block took is taken off the clock when the block ends (inside it, seconds()
+        still counts it)."""
+        stopped = time.time()
+        try:
+            yield
+        finally:
+            with self._lock:
+                self.started += time.time() - stopped
 
     def add(self, part: str, usage: Usage | None = None, *, usd: float | None = None, tokens: int | None = None):
         with self._lock:

@@ -178,6 +178,17 @@ def test_the_coordinator_prompt_carries_the_guides_sections():
         assert placeholder in text
 
 
+def test_the_coordinator_prompt_promises_no_more_of_a_verdict_than_the_run_shows():
+    """ASPIRE takes run.feedback: score (its min_feedback), which shows each record's score alone: the prompt promises
+    the judge's verdict as far as the run shows it, not its feedback."""
+    from hermit.agent.evolver.methods.aspire.evolver import AspireEvolver
+    text = " ".join((ROOT / "hermit" / "agent" / "evolver" / "methods" / "aspire" / "COORDINATOR.md").read_text()
+                    .split())
+    assert AspireEvolver.min_feedback == "score"
+    assert "record's `judge`, the judge's verdict as far as this run shows it (its score and feedback, or less)" in text
+    assert "(score and feedback)" not in text
+
+
 # ---------- the example's actor helpers ----------
 
 def _actor_module():

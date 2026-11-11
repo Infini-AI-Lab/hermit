@@ -157,6 +157,18 @@ def test_a_learner_on_a_cli_mwm_is_set_up_for_passes_the_backend_check(name):
         MwmEvolver().setup(SimpleNamespace(params={"backend": name, "network_isolation": True}))
 
 
+def test_a_task_without_the_protocol_is_listed_with_its_score_or_says_the_run_shows_none():
+    """A task whose pipeline does not speak MWM's protocol gets a generic entry: its score and feedback as the run
+    shows them; under run.feedback none (a record without a judge) a line that says none is shown, not `score: None`."""
+    from hermit.agent.evolver.methods.mwm.evolver import MwmEvolver
+    record = {"id": "t0", "trajectory": "trajectories/t0"}
+    scored = MwmEvolver._goal([{**record, "judge": {"score": 0.0, "feedback": "wrong"}}], 1)
+    assert "## Task t0\nscore: 0.0\nfeedback: wrong\nraw trajectory: trajectories/t0\n" in scored
+    shown = MwmEvolver._goal([record], 1)
+    assert "## Task t0\nscore: not shown (this run shows the learner no score or feedback)\nraw trajectory: " \
+           "trajectories/t0\n" in shown and "None" not in shown
+
+
 @pytest.mark.parametrize("name", ["react", "mini-swe-agent", "dsh"])
 def test_a_learner_on_a_cli_mwm_is_not_set_up_for_is_refused_at_setup(tmp_path, monkeypatch, name):
     """From the config through the Trainer: mwm's sessions are set up for Codex, Claude Code and Pi (each one's way to its
@@ -251,6 +263,30 @@ def test_failed_session_restores_the_adapter(tmp_path, monkeypatch):
     sessions = json.loads((run / "step_0001" / "output" / "sessions.json").read_text())
     assert sessions[0]["status"] == "failed" and sessions[0]["retried_after"] == "failed"
     assert not list((run / "checkout" / "memory").glob("note*.md"))
+
+
+def test_a_session_whose_stream_holds_a_line_separator_or_a_brace_line_of_its_own_is_adopted_with_its_counts(
+        tmp_path, monkeypatch):
+    """A session's turns and actions are counted from its stream's events: a command whose output holds U+2028
+    (Codex's serde_json leaves it unescaped) is one event, and a line of Codex's own that starts with `{` but is no
+    JSON is none, never an error that fails the step."""
+    path = make(tmp_path, monkeypatch, steps=1)
+    fake = tmp_path / "fakebin" / "codex"
+    fake.write_text(FAKE_CODEX.replace(
+        'print(json.dumps({"type": "item.completed"',
+        'sys.stdout.reconfigure(encoding="utf-8")\n'
+        'print("{ codex: a line of its own, no JSON }")\n'
+        'print(json.dumps({"type": "item.completed", "item": {"type": "command_execution", '
+        '"aggregated_output": "a\\u2028b"}}, ensure_ascii=False))\n'
+        'print(json.dumps({"type": "item.completed"'))
+    cfg = Config.load(path, ["evolver.params.bootstrap=false"])
+    Trainer(cfg, log=lambda *_: None).train()
+    run = tmp_path / "runs" / "mwm-test"
+    steps = [json.loads(l) for l in (run / "steps.jsonl").read_text().splitlines()]
+    assert steps[-1]["evolver"]["status"] == "done", steps[-1]["evolver"].get("summary")
+    [session] = json.loads((run / "step_0001" / "output" / "sessions.json").read_text())
+    assert (session["status"], session["turns"], session["tool_calls"]) == ("adopted", 1, 2)
+    assert "a\u2028b" in (run / "step_0001" / "output" / "review_0001.codex.jsonl").read_text(encoding="utf-8")
 
 
 def test_editing_serving_code_discards_the_session(tmp_path, monkeypatch):

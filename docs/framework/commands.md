@@ -4,7 +4,7 @@
 |---|---|
 | `hermit check --config run.yaml` | Check the settings before training |
 | `hermit train --config run.yaml` | Run the Trainer |
-| `hermit eval --config run.yaml --adapter ...` | Evaluate one adapter on the test split |
+| `hermit eval --config run.yaml --adapter ...` | Evaluate one adapter on the test split (or on `--split <file>`); with `--checkpoints` instead, the run's checkpoint tests |
 | `hermit deploy --adapter DIR --workspace WORKSPACE --host codex` | Generate a host workspace from an adapter |
 | `hermit convert --adapter DIR --output OUT --target claude-code` | Emit a plugin in a host's native format |
 | `hermit serve DIR` | Serve adapter tools over stdio, normally started by a host |
@@ -28,10 +28,11 @@ hermit eval  --config run.yaml --adapter none       # optional: the agent withou
 | What `check` looks at | Example of a problem it finds |
 |---|---|
 | Template | The starting adapter fails `check_spec` |
-| Evolver | The class does not load; a need is not given; resume is requested but not supported |
-| Task | `task-info/README.md` missing; splits overlap; the judge cannot score a sample task |
+| Evolver | The class does not load; a need is not given; resume is requested but not supported; `run.feedback` is below the Evolver's `min_feedback` |
+| Task | `task-info/README.md` missing; splits overlap; the judge cannot score a sample task; a training config's acting agent is one of Harbor's own, which takes no adapter |
 | Budgets | No hard budget or no iteration budget |
-| Pipeline probe | One training task without an adapter; score, time, reported API speed, and cost are printed |
+| Run block | A checkpoint's `after` is no row of the train split, or falls inside a step; a checkpoint's split names unknown tasks; a stream's validation rows are train rows too. Its line names the mode, the feedback policy, the orders, the checkpoints, the tests the run adds and, only where an eval runs, how often it runs `infra` rows again (`eval.infra_retries`, `eval.infra_wait_s`) |
+| Pipeline probe | One training task (for a `run.mode: eval` config, one test row) without an adapter; score, time, reported API speed, and cost are printed |
 | Risky settings | The warnings listed in [Configuration](configuration.md#sandboxes) |
 
 `check` prints a disclaimer: it checks only these basic items. Passing `check` does not guarantee that the settings are
@@ -51,15 +52,17 @@ hermit eval --config run.yaml --adapter final         # a run's final adapter
 hermit eval --config run.yaml --adapter <tag|commit|path>
 hermit eval --config run.yaml --adapter root          # the template's initial content
 hermit eval --config run.yaml --adapter none          # no harness adapter: a pure baseline
+hermit eval --config run.yaml --adapter final --split splits/other.txt   # another split file
+hermit eval --config run.yaml --checkpoints           # the run's checkpoint tests that have no results yet
 ```
 
 | Item | Rule |
 |---|---|
-| Data | The test split only |
+| Data | The test split; `--split <file>` another split file (a path from the working directory; results in `<run>/eval/<adapter>-<its stem>/`); `--checkpoints` each of `run.checkpoints` on its own split (`<run>/checkpoints/<name>/<adapter>/`) |
 | Deployment and scoring | The same pipeline and judge as the training rollouts |
-| Repeats | `eval.repeats`; reports the mean and the share of tasks solved at least once |
+| Repeats | `eval.repeats`, the attempts per test row; reports the mean, the share of test rows solved at least once (`solved_once`) and of tasks (`pass_at_k`, where a Harbor task's `<task>#1..k` rows are its attempts) |
 | Records | Per-task score, cost, time and API speed under `<run>/eval/<adapter>/`; the summary counts runs that errored |
-| `.hermit/CARD.md` | With the literal `--adapter final` selector, the results are written into the run's final card |
+| `.hermit/CARD.md` | With the literal `--adapter final` selector on the test split, the results are written into the run's final card |
 
 `eval` evaluates exactly what it is given and runs no baseline by itself. A baseline is one more `eval`, run when the
 user chooses: `--adapter none` runs the acting agent with no harness adapter at all (the pipeline receives

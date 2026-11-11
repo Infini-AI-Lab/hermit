@@ -98,6 +98,68 @@ def test_resume_after_crash(tmp_path):
     assert summary["steps"] == 4
 
 
+SEPARATORS = "\u2028\u2029\x85"         # U+2028, U+2029, U+0085: each ends a line for str.splitlines(), none for JSON
+QUOTE_EVOLVER = '''
+import json
+from hermit.agent.evolver.base import Evolver, StepResult
+
+class Quote(Evolver):
+    """Writes the toy rule; its summary quotes the instruction of a task it was shown, as a learner's report may."""
+    min_feedback = "none"
+
+    def step(self, ctx):
+        (ctx.workspace.adapter / "ADAPTER.md").write_text("Always add the numbers.\\n")
+        task = json.loads(min((ctx.workspace.learning_material / "current" / "tasks").glob("*.json")).read_text())
+        return StepResult("done", f"step {ctx.progress.step}: {task['input']['instruction']}")
+'''
+
+
+def test_an_instruction_and_a_learners_summary_holding_unicode_line_separators_load_resume_and_finish(tmp_path):
+    """JSON written with ensure_ascii=False (hermit.harbor.dataset's tasks.jsonl, the Trainer's steps.jsonl) keeps
+    U+0085, U+2028 and U+2029 unescaped in a string, and str.splitlines() ends a line at each: a row whose instruction
+    held one could not be loaded, and a step record whose summary quoted it left a run that could neither resume nor
+    finish, nor test its checkpoints. Each file is read a line at a newline alone."""
+    path = make_task(tmp_path)
+    rows = [{"id": f"t{i}", "a": i, "b": 2 * i, "instruction": f"Add{SEPARATORS}them."} for i in range(10)]
+    (tmp_path / "tasks.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    assert SEPARATORS in (tmp_path / "tasks.jsonl").read_text()                     # unescaped, as the set writes it
+    (tmp_path / "quote").mkdir()
+    (tmp_path / "quote" / "evolver.py").write_text(QUOTE_EVOLVER)
+    (tmp_path / "quote" / "evolver.yaml").write_text("class: evolver.py:Quote\nneeds: []\n")
+    (tmp_path / "cp.txt").write_text("t7\n")
+    args = ("evolver.name=quote", "run.mode=stream", "run.feedback=full", "data.step_size=2", "trainer.epochs=1",
+            "run.checkpoints=[{name: last, after: end, split: cp.txt}]")
+    trainer = Trainer(load(path, *args), log=lambda *_: None)
+    calls = {"n": 0}
+    original = trainer._step
+
+    def crash_on_second(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise KeyboardInterrupt("simulated crash")
+        return original(*a, **k)
+    trainer._step = crash_on_second
+    with pytest.raises(KeyboardInterrupt):
+        trainer.train()
+    run = tmp_path / "runs" / "toy-run"
+    assert SEPARATORS in (run / "steps.jsonl").read_text()                         # step 1's record, unescaped
+    summary = Trainer(load(path, *args), log=lambda *_: None).train()           # resumes after step 1, finishes
+    steps = [json.loads(line) for line in (run / "steps.jsonl").read_text().split("\n") if line]
+    assert [s["evolver"]["summary"] for s in steps] == [f"step {n}: Add{SEPARATORS}them." for n in (1, 2, 3)]
+    assert summary["steps"] == 3 and summary["checkpoint_tests"] == {"last": {"checkpoint": 1.0}}
+
+
+def test_the_materials_index_is_read_a_line_at_a_newline_alone(tmp_path):
+    """Material.truncate (on a resume, at the finish) splits index.jsonl as the Trainer splits steps.jsonl: a line
+    whose string holds U+0085, U+2028 or U+2029 unescaped is one line (the index's own lines hold no string)."""
+    from hermit.trainer.material import Material
+    material = Material(tmp_path / "material")
+    lines = [json.dumps({"step": 1, "note": f"a{SEPARATORS}b"}, ensure_ascii=False), json.dumps({"step": 2})]
+    (material.root / "index.jsonl").write_text("".join(line + "\n" for line in lines))
+    material.truncate(1)
+    assert (material.root / "index.jsonl").read_text() == lines[0] + "\n"
+
+
 def test_budget_stops_the_run(tmp_path):
     cfg = load(make_task(tmp_path), "trainer.budget.usd=0.05")
     summary = Trainer(cfg, log=lambda *_: None).train()
@@ -132,6 +194,42 @@ def test_run_agent_says_why_a_run_failed(tmp_path):
     Trainer(load(path, "trainer.epochs=1"), log=lambda *_: None).train()
     probe = json.loads((tmp_path / "runs/toy-run/step_0001/output/probe.json").read_text())
     assert probe["status"] == "error" and probe["error"] == "RuntimeError: the session failed"
+
+
+PROBE_EVOLVER = '''
+import json
+from hermit.agent.evolver.base import Evolver, StepResult
+
+class Probe(Evolver):
+    """Runs params.probe through run_agent and keeps what came back, each log's text beside it (state/probe.json)."""
+    min_feedback = "none"
+
+    def step(self, ctx):
+        out = ctx.tools["run_agent"](task_ids=list(ctx.params["probe"]))
+        for r in out["results"]:
+            r["log_text"] = open(r["log"]).read() if r.get("log") else None     # readable here (the sandbox is off)
+        (ctx.workspace.state / "probe.json").write_text(json.dumps(out))
+        return StepResult("done", "probed")
+'''
+
+
+def test_run_agent_returns_the_runs_and_logs_of_rows_whose_tasks_jsonl_ids_are_numbers(tmp_path):
+    """tasks.jsonl may give its ids as JSON numbers: TaskData names each row by str(id), and its run's record keeps
+    the number. run_agent ran and billed such rows and returned none of them (it kept each run under its record's id,
+    a number, and looked it up by the id asked, a string); it returns them as it does rows whose ids are strings, a
+    training run's log included."""
+    path = make_task(tmp_path)
+    (tmp_path / "tasks.jsonl").write_text("".join(json.dumps({"id": i, "a": i, "b": 2 * i}) + "\n" for i in range(10)))
+    for split, ids in (("train", "0\n1\n2\n3\n"), ("val", "6\n"), ("test", "7\n")):
+        (tmp_path / f"{split}.txt").write_text(ids)
+    (tmp_path / "probe").mkdir()
+    (tmp_path / "probe" / "evolver.py").write_text(PROBE_EVOLVER)
+    (tmp_path / "probe" / "evolver.yaml").write_text("class: evolver.py:Probe\nneeds: []\n")
+    Trainer(load(path, "evolver.name=probe", "trainer.epochs=1", "evolver.params.probe=['0', '6']"),
+            log=lambda *_: None).train()
+    results = json.loads((tmp_path / "runs/toy-run/workspace/state/probe.json").read_text())["results"]
+    assert [(r["id"], r["status"]) for r in results] == [(0, "ok"), (6, "ok")]      # each record keeps its row's id
+    assert results[0]["log_text"] == "question 0+0 answer ?" and "log" not in results[1]   # a validation run: no log
 
 
 def test_needs_are_enforced(tmp_path):
