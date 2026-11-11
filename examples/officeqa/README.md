@@ -245,6 +245,8 @@ utils/task.py       OfficeQA's task functions for the framework's Codex agent (t
 utils/harbor/       the Codex harness through Harbor: build_tasks.py writes one Harbor task per question (private,
                     with the answers in tests/), judge.py is the exact-match judge run inside the container;
                     gepa/run_codex_harbor.yaml runs it (agent.name: harbor; recipe: "Through Harbor")
+utils/tests/        test_harbor_judge.py: utils/harbor/judge.py finds the <answer> of the final message in either
+                    Codex stream a trial leaves in /logs/agent (HermitCodex's, Harbor's own Codex agent's)
 utils/prepare.py    tasks.jsonl, the splits, data.json and seed_adapter/      utils/judge.py   SkillOpt's exact match
 utils/task-info/    the task for the learner
 gepa/ skillopt/     smoke.yaml and run.yaml per method, smoke_codex.yaml and run_codex.yaml for the Codex harness,

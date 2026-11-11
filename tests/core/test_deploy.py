@@ -511,6 +511,26 @@ def test_a_hook_type_the_host_does_not_run_is_done_from_the_context_or_refused(t
         pi_prepare(a, tmp_path / "q", sys.executable)
 
 
+def test_a_harbor_trials_workspace_connects_the_hooks_its_hosts_deployment_connects_and_no_others(tmp_path):
+    """A Harbor trial's workspace is the host's deployment with its hooks rewritten for the container
+    (hermit.harbor.staging): the hooks it connects are the ones `hermit deploy` connects for that host (Codex's command
+    hooks, Claude Code's command and prompt hooks), and a hook of a type the host does not run stays in the context
+    only, as there."""
+    from hermit.harbor.staging import stage
+    a = tree_adapter(tmp_path)
+    (a / ".codex/hooks.json").write_text(json.dumps({"hooks": {
+        "Stop": [{"hooks": [{"type": "prompt", "prompt": "Check the answer has units."}]}],
+        "SubagentStop": [{"hooks": [{"type": "agent", "prompt": "Check the reviewer's verdict."}]}],
+        "PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "python3 scripts/stamp.py"}]}]}}))
+    for host, place, events in (("codex", ".codex/hooks.json", {"PostToolUse"}),
+                                ("claude", ".claude/settings.json", {"PostToolUse", "Stop"})):
+        info = stage(a, tmp_path / host, sys.executable, "best_effort", host)
+        deploy = tmp_path / host / "deploy"
+        assert info["hooks"] is True and set(json.loads((deploy / place).read_text())["hooks"]) == events, host
+        assert "check this yourself before you go on: Check the reviewer's verdict." in \
+            (deploy / ("AGENTS.md" if host == "codex" else "CLAUDE.md")).read_text()
+
+
 def test_a_container_session_gets_the_adapters_tools_from_its_own_tool_server(tmp_path):
     from hermit.agent.acting import workspace as cli
     a = Path(__file__).resolve().parents[2] / "docs" / "_examples" / "file_adapter"

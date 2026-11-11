@@ -583,6 +583,8 @@ def test_one_of_harbors_own_acting_agents_takes_no_adapter_so_training_and_an_ad
         with pytest.raises(SystemExit, match=re.escape(f"{refused}: evaluate it with --adapter none")):
             evaluate(load(path, *harbor, command="eval"), "root", **QUIET)
     assert not (tmp_path / "runs").exists()
+    with pytest.raises(ValueError, match="is not an executable file"):          # none goes on to the pipeline
+        evaluate(load(path, *harbor, command="eval"), "none", **QUIET)
 
 
 # ---------- the feedback policy ----------
@@ -1084,6 +1086,46 @@ def test_an_order_taken_as_given_that_lists_a_step_ahead_of_an_earlier_one_is_re
     assert [s["tasks"] for s in _steps(tmp_path)] == [["t0", "m:s1"], ["t1", "m:s2"], ["m:s3"]]
 
 
+def test_the_splits_dataset_prepare_writes_list_each_streams_steps_in_step_order_and_none_is_refused(tmp_path):
+    """hermit.harbor.dataset prepare writes a multi-step task's rows rollout by rollout, each rollout's steps in step
+    order, into every split and its smoke rows: none is refused as an order (hermit check of a stream over them all,
+    and of an eval config); the same rows with one rollout's steps swapped are."""
+    from hermit.harbor import dataset
+    from hermit.task import read_ids
+    from hermit.trainer.trainer import out_of_step
+    path = _task(tmp_path)
+
+    def download(ref, output):                     # Harbor's export of the set: <output>/<name>/<task>/
+        tasks = Path(output) / "demo"
+        for name, steps in (("alpha", ()), ("beta", ()), ("flow", ("s1", "s2", "s3")), ("gamma", ())):
+            (tasks / name / "tests").mkdir(parents=True)
+            (tasks / name / "task.toml").write_text('schema_version = "1.4"\n[agent]\ntimeout_sec = 60.0\n'
+                                                    + "".join(f'\n[[steps]]\nname = "{s}"\n' for s in steps))
+            (tasks / name / "instruction.md").write_text(f"Do {name}.\n")
+            for step in steps:
+                (tasks / name / "steps" / step).mkdir(parents=True)
+                (tasks / name / "steps" / step / "instruction.md").write_text(f"Step {step} of {name}.\n")
+        return tasks
+    (tmp_path / "utils").mkdir()
+    (tmp_path / "utils" / "benchmark.yaml").write_text(yaml.safe_dump({"tasks_dir": "tasks", "dataset": {
+        "ref": "demo@1.0", "data": str(tmp_path / "data"), "rollouts": 2, "smoke": ["flow"],
+        "split": {"train": 2, "test": "rest", "seed": 0}}}))
+    dataset.prepare(tmp_path / "utils" / "benchmark.yaml", download_fn=download, log=lambda *_: None)
+    tasks = TaskData(tmp_path / "utils" / "tasks.jsonl", None, None, None).tasks
+    splits = {name: read_ids(tmp_path / "utils" / "splits" / f"{name}.txt") for name in dataset.SPLITS}
+    flow = [i for i in splits["all"] if i.startswith("flow:")]
+    assert flow == ["flow:s1#1", "flow:s2#1", "flow:s3#1", "flow:s1#2", "flow:s2#2", "flow:s3#2"]
+    assert {name: out_of_step(ids, tasks, name) for name, ids in splits.items()} == dict.fromkeys(splits)
+    swapped = [*flow[:3], flow[4], flow[3], flow[5]]
+    assert "flow:s2#2 ahead of flow:s1#2 (task flow)" in out_of_step(swapped, tasks, "it")
+    harbor = ("data.tasks=utils/tasks.jsonl", "data.train=null", "data.val=null")
+    every = "run.orders=[" + ", ".join(f"utils/splits/{n}.txt" for n in ("all", "train", "test", "smoke")) + "]"
+    for args in ((*STREAM, "run.feedback=full", every, "data.test=null"),
+                 ("run.mode=eval", "data.test=utils/splits/all.txt")):
+        lines = []
+        assert run_check(load(path, *harbor, *args, command="check"), probe=False, log=lines.append), lines
+
+
 def test_each_order_is_a_run_of_its_own_and_streams_json_combines_them(tmp_path, capsys):
     """A seed orders the tasks, each task's rows together (a Harbor task's #k rows share its harbor_task)."""
     path = _task(tmp_path)
@@ -1231,6 +1273,47 @@ def test_a_checkpoint_inside_a_chosen_steps_tasks_stops_the_run_until_it_is_fixe
     summary = Trainer(load(path, *chosen, "run.checkpoints=[{name: mid, after: t2, split: cp.txt}]"), **QUIET).train()
     assert summary["checkpoint_tests"] == {"mid": {"checkpoint": 1.0}} and summary["steps"] == 3
 
+
+def test_a_train_that_finishes_stops_its_harbor_streams_with_its_pipeline_and_one_stopped_midway_keeps_them(
+        tmp_path, monkeypatch):
+    """The Trainer's pipeline keeps a Harbor task set's streams for a resume (hermit.isolate.agent_pipeline gives its
+    HarborAgent keep_streams); a run that finished (summary.json: it never resumes) closes its pipeline with them
+    stopped (HarborAgent.close), as any pipeline that never resumes does, and a run stopped midway, which resumes,
+    keeps them. The stand-in has a HarborAgent's shape: the pipeline is its bound run, and keep_streams is
+    HarborAgent's own, read from its params."""
+    import hermit.trainer.trainer
+    from hermit.harbor.runner import HarborAgent
+    path = _task(tmp_path)
+    kept = []                                        # keep_streams as each pipeline of the Trainer's was closed
+
+    class Streams:
+        keep_streams = HarborAgent.keep_streams
+
+        def __init__(self, run):
+            self.params, self.inner = {"keep_streams": True}, run
+
+        def run(self, task, adapter):
+            return self.inner(task, adapter)
+    built = hermit.trainer.trainer.agent_pipeline
+
+    def pipeline(config, role, **kwargs):
+        run, close = built(config, role, **kwargs)
+        agent = Streams(run)
+
+        def close_agent():
+            kept.append(agent.keep_streams)
+            close()
+        return agent.run, close_agent
+    monkeypatch.setattr(hermit.trainer.trainer, "agent_pipeline", pipeline)
+    chosen = (*STREAM, "run.feedback=full", "evolver.name=choose", "evolver.params.next_at_1=[t3, t2]")
+    with pytest.raises(SystemExit, match="train stops: "):
+        Trainer(load(path, *chosen, "run.checkpoints=[{name: mid, after: t3, split: cp.txt}]"), **QUIET).train()
+    assert kept == [True]                            # stopped midway: its resume meets its streams again
+    summary = Trainer(load(path, *chosen, "run.checkpoints=[{name: mid, after: t2, split: cp.txt}]"), **QUIET).train()
+    assert summary["steps"] == 3 and kept == [True, False]
+
+
+# ---------- split mode, eval ----------
 
 def test_split_mode_tests_the_final_adapter_on_the_test_split_when_training_ends(tmp_path):
     path = _task(tmp_path)

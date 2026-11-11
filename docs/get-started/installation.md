@@ -90,7 +90,10 @@ never shown).
 ## Install mini-swe-agent
 
 The `mini-swe-agent` acting agent and `hermit deploy --host mini-swe-agent` need mini-swe-agent (2.4.6, which brings
-litellm), published as an extra:
+litellm), published as an extra, and so does a Harbor task set acting with it (`acting_agent: {cli: mini-swe-agent}`):
+the task's container installs its own, but this machine deploys each trial's adapter from the package's config, so
+startup refuses a run that deploys adapters (any but `hermit eval --adapter none`) when the interpreter the deployment
+runs with (`agent.params.python`, else Hermit's own) does not find it:
 
 ```bash
 python -m pip install -e ".[mini-swe-agent]"      # a checkout

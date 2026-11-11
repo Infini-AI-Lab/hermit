@@ -49,6 +49,7 @@ def test_the_rest_of_the_framework_runs_core_and_documentation_runs_nothing():
     assert groups_for("hermit/agent/evolver/methods/codex/evolver.yaml") == {"core"}
     assert groups_for("tests/core/test_deploy.py") == {"core"}
     assert groups_for("docs/_examples/file_adapter/ADAPTER.md") == {"core"}      # the core tests read it
+    assert groups_for(".gitignore") == {"core"}       # test_harbor_dataset.py checks what it ignores
     assert groups_for("docs/methods/rrsi_adapter.md") == set()
     assert groups_for("README.md") == set()
     assert groups_for("tests/README.md") == set()

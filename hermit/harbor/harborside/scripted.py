@@ -7,7 +7,12 @@
 The script runs in the task's environment as its default user, with the instruction in the file
 `$HERMIT_INSTRUCTION_FILE` (`/logs/agent/instruction.md`); its output is kept in the agent's logs as `script.txt`.
 A non-zero exit is the agent's failure (NonZeroAgentExitCodeError is not raised: the verifier still runs, as it
-would after a real agent gave up). Tokens are zero.
+would after a real agent gave up). Tokens are zero. A script still running after `timeout_sec` is not waited for:
+Harbor's docker environment ends its `docker compose exec` client and raises a RuntimeError ("Command timed out
+after <timeout_sec> seconds") out of `run`, before `script.txt` is written: an agent error. A single-step trial ends
+there, without its verifier (Hermit's side scores it 0); in a step of a multi-step task the error is the step's, and
+its verifier still runs (Hermit's side scores the step's reward). (The task's own agent timeout, when it comes first,
+is Harbor's AgentTimeoutError instead, after which the verifier runs.)
 """
 from __future__ import annotations
 

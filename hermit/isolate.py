@@ -751,7 +751,9 @@ def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path |
     check's probe), one of its own; and whether the pipeline deploys adapters (`deploys_adapters`: false for hermit
     eval --adapter none, whose trials deploy none, so that its startup check needs nothing only a deployment reads).
     That agent is told, too, whether its streams are kept for a resume (`keep_streams`: the Trainer's
-    pipeline's only, until the run finishes: Trainer._finish turns it off before closing the pipeline)."""
+    pipeline's only, until the run finishes: Trainer._finish turns it off before closing the pipeline), and is closed
+    with the pipeline (HarborAgent.close): any other pipeline's close stops the drivers of its streams that did not
+    finish, which it never meets again."""
     d = config.data
     set_hidden(hidden_paths(d["sandbox"].get("hide") or []))    # eval and check too: what only the judge may read
     params = dict(d["agent"].get("params") or {})
@@ -796,7 +798,15 @@ def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path |
                 params["keep_streams"] = resumes
                 params["deploys_adapters"] = bool(deploys_adapters)     # no adapter: nothing only a deployment reads
             host = load_agent(d["agent"]["name"], params, config.base)
-            return host.run, stop
+            if not harbor:
+                return host.run, stop
+
+            def close_host() -> None:                        # its streams closed with the pipeline (HarborAgent.close)
+                try:
+                    host.close()
+                finally:
+                    stop()
+            return host.run, close_host
         agent = SandboxedAgent(config, role, records=records, work_root=work_root, model_endpoint=endpoint)
     except BaseException:
         stop()                                           # the endpoint started for a pipeline that never came

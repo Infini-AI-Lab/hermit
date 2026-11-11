@@ -10,6 +10,9 @@ examples/<task>/
     agent/           the acting agent: a prompt for a built-in agent, or agent.py with the task's own Agent
                      class when a benchmark owns the loop; the config names it in agent.name
     prepare.py       writes tasks.jsonl and splits/ beside itself, from the task's data (which stays where it is)
+    benchmark.yaml   a benchmark of Harbor's registry, in place of prepare.py: the params its configs share and a
+                     dataset: block, from which python -m hermit.harbor.dataset prepare writes tasks.jsonl, splits/
+                     and the rest beside it (Add an example, below)
     judge.py         scores one output and writes the feedback
     tools.py         the task's tools for a built-in agent, where it has any
     task-info/       what the learner is told: README.md, and mwm/ with what MWM needs to know about the task
@@ -74,10 +77,17 @@ SGLang server with one override, `model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP
   `utils/task-info/README.md` (see [Task integration](../docs/framework/task.md) and the
   [built-in agents](../docs/framework/task.md#built-in-agents)), and a row in the table above.
 - A benchmark comes as a task set in Harbor's format, the one protocol every task enters by, not as Docker code or a
-  loop of its own: `utils/prepare.py` downloads or builds the task directories (`task.toml`, `environment/`,
-  `tests/test.sh` writing the reward) and indexes them into `tasks.jsonl`, the configs name `agent.name: harbor` and
-  `judge.path: hermit.harbor.judge`, and a benchmark whose tasks carry state from one to the next (CL-Bench,
-  ServeLearnBench) is one multi-step task per stream. See [Benchmarks](../docs/framework/task.md#benchmarks).
+  loop of its own. A benchmark of Harbor's registry is packaged as `utils/benchmark.yaml`: the params every method's
+  config shares (`agent.params.benchmark` names the file) and a `dataset:` block naming the set
+  (`ref: <name>@<version>`), from which `python -m hermit.harbor.dataset prepare utils/benchmark.yaml` downloads the
+  tasks outside the checkout (by default under `~/.cache/hermit/harbor-tasks`, or `$HERMIT_HARBOR_TASKS`, a relative one
+  the working directory's) and writes beside the file the `tasks` link to them (git-ignored: it names a path of this
+  machine), `tasks.jsonl`, `dataset.lock` (the tasks' contents, which every later prepare checks), `splits/` and, with
+  `image_sizes: true`, `image_sizes.json`. A benchmark of your own has a `utils/prepare.py` that builds the task
+  directories (`task.toml`, `environment/`, `tests/test.sh` writing the reward) and indexes them into `tasks.jsonl`. The
+  configs name `agent.name: harbor` and `judge.path: hermit.harbor.judge`, and a benchmark whose tasks carry state from
+  one to the next (CL-Bench, ServeLearnBench) is one multi-step task per stream. See
+  [Benchmarks](../docs/framework/task.md#benchmarks).
   The examples that still own their loop (CL-Bench, ServeLearnBench, OfficeQA's direct harness) predate this rule
   and are to be moved onto it; no new example drives Docker or a model loop itself.
 - A method on an existing task: `<method>/smoke.yaml` and `run.yaml` (a stream's launcher may take a prefix split in
