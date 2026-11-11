@@ -1,2 +1,0 @@
-rerun-libero_object_swap-t00
-rerun-libero_object_swap-t01
