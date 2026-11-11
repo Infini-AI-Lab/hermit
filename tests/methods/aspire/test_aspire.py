@@ -23,6 +23,7 @@ from hermit.spec import check_spec
 ROOT = Path(__file__).resolve().parents[3]
 TEMPLATE = ROOT / "hermit" / "adapter" / "templates" / "aspire"
 EXAMPLE = ROOT / "examples" / "aspire_robosuite" / "utils"
+LIBERO = ROOT / "examples" / "aspire_libero"         # LIBERO on the same engine: its own tasks and configs
 
 ENTRY = """## Re-localize after the approach
 **Failure signature.** The gripper closes on air: the cube moved when the arm passed over it.
@@ -312,10 +313,13 @@ def fake_aspire(tmp: Path) -> Path:
     (evosearch / "subagent-prompt.md").write_text("intro\n\n```\n## Task Assignment\n\nBENCHMARK: <x>\n\n---\n\n"
                                                   "## EVAL SET LOCKOUT\nsearch text\n```\n")
     (evosearch / "skills" / "evosearch-iteration.md").write_text("# iteration\n")
-    harness = root / ".venv-robosuite" / "bin" / "cap-harness"
-    harness.parent.mkdir(parents=True)
-    harness.write_text(FAKE_HARNESS.format(python=sys.executable))
-    harness.chmod(0o755)
+    (root / "docs" / "libero-pro.md").write_text("# LIBERO-Pro\nkept\n\n## Task examples\n\n| `close_microwave.py` | "
+                                                 "`libero_90:33` | Close the open microwave. |\n")
+    for venv in (".venv-robosuite", ".venv-libero"):
+        harness = root / venv / "bin" / "cap-harness"
+        harness.parent.mkdir(parents=True)
+        harness.write_text(FAKE_HARNESS.format(python=sys.executable))
+        harness.chmod(0o755)
     return root
 
 
@@ -328,7 +332,7 @@ FAKE_HARNESS = """#!{python}
 import argparse, json, os, pathlib, sys, time
 ap = argparse.ArgumentParser()
 for flag in ("--benchmark", "--suite", "--task-id", "--program", "--output-root", "--max-steps", "--seed", "--workers",
-             "--results-jsonl", "--log-dir"):
+             "--results-jsonl", "--log-dir", "--init-mode"):
     ap.add_argument(flag)
 ap.add_argument("--seeds", nargs="+")
 ap.add_argument("--flat-run-dir", action="store_true")
@@ -388,6 +392,8 @@ def _bwrap_works() -> bool:
 needs_bwrap = pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap: simulator runs are confined")
 
 
+LIBERO_ROW = {"id": "libero_90-t33", "benchmark": "libero-pro", "suite": "libero_90", "task_id": 33,
+              "debug_seeds": "51-53", "unseen_seeds": "66", "eval_seeds": "1-3"}
 ROW = {"id": "robosuite-cube_lifting", "suite": "cube_lifting", "task_id": 0, "debug_seeds": "101-103",
        "unseen_seeds": "126", "eval_seeds": "1-3"}
 VERIFY = {"id": "verify-robosuite-cube_lifting", "suite": "cube_lifting", "task_id": 0, "role": "verifier",
@@ -420,7 +426,7 @@ class _Service:
         S = _load("aspire_sim_service", EXAMPLE / "agent" / "sim_service.py")
         self.sessions = tmp / "sessions"
         self.sessions.mkdir()
-        self.service = service = S.Service(root, {r["id"]: r for r in (ROW, VERIFY)}, [self.sessions],
+        self.service = service = S.Service(root, {r["id"]: r for r in (ROW, VERIFY, LIBERO_ROW)}, [self.sessions],
                                            S.Ledger(tmp / "ledger.json"), {}, 2, **options)
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), S.handler(service))
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -477,6 +483,66 @@ def test_prepare_registers_the_session_and_the_service_holds_its_rules(tmp_path,
     T.prepare(ROW, work, params, tmp_path)                        # a retry's prepare: the registration as it was
     again = _sim(work, "run", "--seed", "126", "--program", "p.py", "--output-root", "u")
     assert again.returncode == 2 and "run once" in again.stderr     # what the session spent stays spent
+
+
+def test_a_libero_task_runs_on_its_own_venv_seeded_with_its_own_docs(tmp_path, service, monkeypatch):
+    T = _task_module()
+    params = {"aspire_root": str(tmp_path / "ASPIRE")}
+    text = T.prompt(LIBERO_ROW, params, tmp_path)
+    assert "BENCHMARK: libero-pro" in text and "`$TASK_DIR` is `libero-pro/libero_90/task_33`" in text
+    assert "the benchmark (libero-pro)" in text and "`docs/libero-pro.md`" in text and "robosuite" not in text
+    assert "`TASK_DIR` is `evosearch/libero-pro/libero_90/task_33`" in text and "DEV_SEEDS: 51-53" in text
+    work = _workspace(service, LIBERO_ROW)
+    T.prepare(LIBERO_ROW, work, params, tmp_path)
+    page = (work / "docs" / "libero-pro.md").read_text()
+    assert "kept" in page and "Task examples" not in page and "microwave" not in page   # no worked solution named
+    assert not (work / "docs" / "robosuite.md").exists()
+    ran = []
+    monkeypatch.setattr(service.service, "_execute", lambda cmd, env, *a, **k: ran.append((cmd, env)) or (0, "", ""))
+    (work / "p.py").write_text("result = {}\n")
+    _sim(work, "run-batch", "--seeds", "51-52", "--program", "p.py", "--output-root", "out", "--init-mode", "saved")
+    cmd, env = ran[-1]
+    assert cmd[0] == str(tmp_path / "ASPIRE" / ".venv-libero" / "bin" / "cap-harness")
+    option = lambda flag: cmd[cmd.index(flag) + 1]
+    assert (option("--benchmark"), option("--suite"), option("--task-id")) == ("libero-pro", "libero_90", "33")
+    assert option("--init-mode") == "seeded"                    # the engine's, whatever the session passed
+    assert env["LIBERO_CONFIG_PATH"] == str(tmp_path / "ASPIRE" / ".libero")
+    assert env["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] == "1"
+    _sim(work, "validate", "--program", "p.py")
+    assert ran[-1][0][0] == str(tmp_path / "ASPIRE" / ".venv-libero" / "bin" / "python")
+    # Robosuite's runs are as they were: its venv, no init mode
+    robosuite = _workspace(service, ROW)
+    T.prepare(ROW, robosuite, params, tmp_path)
+    (robosuite / "p.py").write_text("result = {}\n")
+    _sim(robosuite, "run", "--seed", "101", "--program", "p.py", "--output-root", "out")
+    cmd, env = ran[-1]
+    assert cmd[0].endswith(".venv-robosuite/bin/cap-harness") and "--init-mode" not in cmd
+    assert "LIBERO_CONFIG_PATH" not in env
+
+
+def test_the_engine_takes_the_benchmarks_venv_and_refuses_one_it_does_not_run(tmp_path):
+    sim = _sim_module()
+    root = fake_aspire(tmp_path)
+    engine = sim.Engine(root, benchmark="libero-pro")
+    assert engine.cli == root.resolve() / ".venv-libero" / "bin" / "cap-harness"
+    assert engine._env()["LIBERO_CONFIG_PATH"] == str(root.resolve() / ".libero")
+    assert sim.init_args("libero-pro") == ["--init-mode", "seeded"] and sim.init_args(None) == []
+    assert sim.Engine(root).cli.parent.parent.name == ".venv-robosuite"
+    shutil.rmtree(root / ".venv-libero")
+    with pytest.raises(FileNotFoundError, match="bootstrap_libero.sh"):
+        sim.Engine(root, benchmark="libero-pro")
+    with pytest.raises(ValueError, match="behavior"):
+        sim.Engine(root, benchmark="behavior")
+
+
+def test_the_libero_tasks_are_liberos_five_suites_with_aspires_seeds():
+    P = _load("aspire_libero_prepare", LIBERO / "utils" / "prepare.py")
+    assert sum(P.SUITES.values()) == 130 and P.SUITES["libero_90"] == 90
+    seeds, verify = P.seeds_from(P.PRESETS, [])
+    assert seeds == {"debug_seeds": "51-65", "unseen_seeds": "66-80", "eval_seeds": "1-50"} and verify == "51-55"
+    assert P.seeds_from(P.PRESETS, ["--preset", "smoke", "--eval", "1-5"])[0]["eval_seeds"] == "1-5"
+    with pytest.raises(SystemExit):
+        P.seeds_from(P.PRESETS, ["--eval", "1-60"])              # held-out seeds a session could run
 
 
 def test_a_session_cannot_forge_a_registration_for_more_seeds(tmp_path, service):
@@ -846,6 +912,8 @@ def test_the_judge_runs_stage_two_on_the_rows_seeds_and_a_verifier_only_when_ver
     assert J.score(ROW, out(actor))["score"] == 2 / 3 and runs[-1] == [1, 2, 3]   # the row's held-out seeds
     assert J.score(ROW, out({**actor, "fix_code": "import os\n"}))["score"] == 0.0
     assert J.score(ROW, out({**actor, "max_steps": 300}))["score"] == 2 / 3 and engines[-1]["max_steps"] == 300
+    assert engines[-1]["benchmark"] == "robosuite"
+    assert J.score(LIBERO_ROW, out(actor))["score"] == 2 / 3 and engines[-1]["benchmark"] == "libero-pro"
     work = str(tmp_path / "w")
     verified = {"role": "verifier", "fix_code": "result = {}\n", "verification": {"verdict": "verified"},
                 "workspace": work}

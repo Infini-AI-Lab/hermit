@@ -146,8 +146,6 @@ class Service:
         self.scratch = Path(scratch or ledger.path.parent / "runs")      # this service's own: outside every sandbox
         self.scratch.mkdir(parents=True, exist_ok=True)
         self.nonce = ""
-        self.cli = root / ".venv-robosuite" / "bin" / "cap-harness"
-        self.python = root / ".venv-robosuite" / "bin" / "python"
         self.running: set[subprocess.Popen] = set()
         self.lock, self.stopping = threading.Lock(), False
 
@@ -172,8 +170,10 @@ class Service:
             if any(Path(w).is_relative_to(rollout) for w in self.ledger.data):
                 return {"ok": False, "error": "this rollout has registered its session already"}
             verifier = row.get("role") == "verifier"
+            sim.profile(row.get("benchmark"))               # a benchmark this engine does not run is refused here
             self.ledger.data[str(workspace)] = {
                 "task": row["id"], "role": "verifier" if verifier else "actor", "suite": str(row["suite"]),
+                "benchmark": str(row.get("benchmark") or "robosuite"),
                 "task_id": int(row.get("task_id", 0)), "dev": seeds_of(row.get("debug_seeds")),
                 "unseen": seeds_of(row.get("unseen_seeds")), "max_programs": 2 if verifier else None,
                 "max_steps": body.get("max_steps"), "unseen_used": False, "programs": []}
@@ -205,12 +205,14 @@ class Service:
             shutil.rmtree(own, ignore_errors=True)
 
     def _run(self, body, session, program, code, own_out, rollout, out, swaps) -> dict:
-        env = {**sim.scrubbed(os.environ),
+        benchmark = session.get("benchmark")                # a ledger from before the field: Robosuite's
+        cli, python = sim.harness(self.root, benchmark)
+        env = {**sim.scrubbed(os.environ), **sim.profile_env(self.root, benchmark),
                **{k: os.path.expandvars(os.path.expanduser(str(v))) for k, v in self.env.items()}}
         if body.get("cmd") == "validate":
             check = ("import ast,sys\nfrom cap_harness.runtime import _ProgramValidator\n"
                      "_ProgramValidator().visit(ast.parse(open(sys.argv[1]).read()))\nprint('program accepted')")
-            returncode, stdout, stderr = self._execute([str(self.python), "-c", check, str(program)], env, 300,
+            returncode, stdout, stderr = self._execute([str(python), "-c", check, str(program)], env, 300,
                                                        program.parent, gpu=[])
             return {"ok": True, "code": returncode, "stdout": self._swap(stdout, swaps),
                     "stderr": self._swap(stderr, swaps)[-4000:]}
@@ -234,16 +236,16 @@ class Service:
                     session["programs"].append(digest)
             self.ledger.save()
         own_out.mkdir()
-        common = ["--benchmark", "robosuite", "--suite", session["suite"], "--task-id", str(session["task_id"]),
-                  "--program", str(program), "--output-root", str(own_out), "--flat-run-dir"]
+        common = ["--benchmark", benchmark or "robosuite", "--suite", session["suite"],
+                  "--task-id", str(session["task_id"]), *sim.init_args(benchmark), "--program", str(program), "--output-root", str(own_out), "--flat-run-dir"]
         if body.get("no_videos"):
             common.append("--no-videos")
         if session.get("max_steps"):                        # the registration's, as the judge's (not the request's)
             common += ["--max-steps", str(int(session["max_steps"]))]
         if body.get("cmd") == "run":
-            cmd = [str(self.cli), "run", *common, "--seed", str(seeds[0])]
+            cmd = [str(cli), "run", *common, "--seed", str(seeds[0])]
         else:
-            cmd = [str(self.cli), "run-batch", *common, "--seeds", *map(str, seeds),
+            cmd = [str(cli), "run-batch", *common, "--seeds", *map(str, seeds),
                    "--workers", str(min(self.workers, len(seeds))), "--results-jsonl", str(own_out / "results.jsonl"),
                    "--log-dir", str(own_out / "logs")]
         returncode, stdout, stderr = self._execute(cmd, env, self.run_timeout, program.parent, own_out, gpu=self.gpu)

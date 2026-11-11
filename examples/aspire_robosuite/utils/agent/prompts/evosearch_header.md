@@ -5,7 +5,7 @@ Part 1's return message. Below it, run ASPIRE's evolutionary-search subagent on 
 (NVlabs/ASPIRE, `.claude/skills/evosearch/subagent-prompt.md`), and return its message too. It maps onto this
 workspace as follows; where it and this page disagree, this page wins.
 
-- **Assignment.** `BENCHMARK` robosuite, `SUITE` {suite}, `TASK_ID` {task_id}, `TASKSHORT` {suite},
+- **Assignment.** `BENCHMARK` {benchmark}, `SUITE` {suite}, `TASK_ID` {task_id}, `TASKSHORT` {suite},
   `BASELINE_RATE` `fix_code.py`'s development rate from Part 1, `EVOSEARCH_DIR` `evosearch`, so
   `TASK_DIR` is `{evo_dir}` in this workspace. The fix loop's `fix_code.py` is `{task_dir}/fix_code.py`: seed it as
   candidate_A verbatim.

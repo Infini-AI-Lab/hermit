@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Train, or evaluate, the ASPIRE method on Robosuite. Run it on the host that serves ASPIRE's providers.
+# (Another benchmark of ASPIRE's harness starts it from its own folder, as ASPIRE_EXAMPLE: its configs, its
+# utils/prepare.py and task rows, its runs; ../../aspire_libero/aspire/launch.sh.)
 #
 #   ASPIRE_ROOT=/path/to/ASPIRE ./launch.sh                      # train run.yaml
 #   ASPIRE_CONFIG=smoke.yaml ./launch.sh                          # train the smoke (its seeds: ASPIRE_SEEDS=smoke)
@@ -20,6 +22,7 @@
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 : "${ASPIRE_ROOT:?set ASPIRE_ROOT to an ASPIRE checkout with .venv-robosuite}"
+EXAMPLE="$(cd "${ASPIRE_EXAMPLE:-$HERE/..}" && pwd)"              # the folder with aspire/<config> and utils/prepare.py
 # Absolute, from where the launcher was called: the service, the judge and the sandboxed workers each start elsewhere
 ASPIRE_ROOT="$(cd "$ASPIRE_ROOT" && pwd)"
 [[ -z "${ASPIRE_OUT:-}" ]] || { mkdir -p "$ASPIRE_OUT" && ASPIRE_OUT="$(cd "$ASPIRE_OUT" && pwd)"; }
@@ -44,19 +47,19 @@ done
 PINNED=fa00f0ef2bc1d91d594b9aa502c22133c9f538f7
 ACTUAL="$(git -C "$ASPIRE_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
 [[ "$ACTUAL" == "$PINNED" ]] || echo "note: ASPIRE_ROOT is at $ACTUAL, not the pinned $PINNED" >&2
-cd "$HERE"
+cd "$EXAMPLE/aspire"
 
-# The seeds, in the task rows: the simulator service and the judge read them there.
-case "${ASPIRE_SEEDS:-$([[ "${CONFIG##*/}" == smoke* ]] && echo smoke || echo aspire)}" in
-  smoke)  SEEDS=(--dev 101-103 --unseen 126 --eval "${ASPIRE_EVAL_SEEDS:-1-3}") ;;
-  aspire) SEEDS=(--dev 101-125 --unseen 126-130 --eval "${ASPIRE_EVAL_SEEDS:-1-100}") ;;
-  *) echo "ASPIRE_SEEDS is smoke or aspire" >&2; exit 2 ;;
-esac
+# The seeds, in the task rows: the simulator service and the judge read them there. The example's prepare.py holds
+# its benchmark's (ASPIRE's defaults and the smoke's).
+PRESET="${ASPIRE_SEEDS:-$([[ "${CONFIG##*/}" == smoke* ]] && echo smoke || echo aspire)}"
+[[ "$PRESET" == smoke || "$PRESET" == aspire ]] || { echo "ASPIRE_SEEDS is smoke or aspire" >&2; exit 2; }
+SEEDS=(--preset "$PRESET")
+[[ -z "${ASPIRE_EVAL_SEEDS:-}" ]] || SEEDS+=(--eval "$ASPIRE_EVAL_SEEDS")
 (cd ../utils && "$HERMIT" prepare.py "${SEEDS[@]}")
 
 # Where the runs go (ASPIRE_OUT): the trainer's records, the actors' sessions (their simulator runs' records and
 # traces; their images are pruned after scoring), the judge's Stage 2. Put it on a large disk.
-OUT="${ASPIRE_OUT:-$HERE/../runs}"
+OUT="${ASPIRE_OUT:-$EXAMPLE/runs}"
 case "$(cd "$OUT" 2>/dev/null && pwd -P || echo "$OUT")/" in          # the simulator reads the checkout, not the runs
   "$(cd "$ASPIRE_ROOT" && pwd -P)"/*) echo "ASPIRE_OUT ($OUT) lies inside ASPIRE_ROOT: keep the runs elsewhere" >&2
                                       exit 2 ;;
@@ -69,7 +72,7 @@ export ASPIRE_ROOT ASPIRE_OUT="$OUT" ASPIRE_SIM_ENV="$SIM_ENV_JSON" ASPIRE_SIM_G
 [[ -n "${ASPIRE_SIM_GPU:-}" ]] || echo "note: ASPIRE_SIM_GPU names no GPU: the simulator renders in software" >&2
 PORT="${ASPIRE_SIM_PORT:-8120}"
 NONCE="$$-$RANDOM-$(date +%s%N)"                  # this launch's service answers /health with it, another run's not
-"$HERMIT" ../utils/agent/sim_service.py --port "$PORT" --aspire-root "$ASPIRE_ROOT" --tasks ../utils/tasks.jsonl \
+"$HERMIT" "$HERE/../utils/agent/sim_service.py" --port "$PORT" --aspire-root "$ASPIRE_ROOT" --tasks ../utils/tasks.jsonl \
   --workspaces "$OUT/actor-logs" --state "$OUT/sim-service" --sim-env "$SIM_ENV_JSON" --nonce "$NONCE" \
   --gpu "${ASPIRE_SIM_GPU:-}" > "$OUT/sim-service.log" 2>&1 &
 SERVICE=$!

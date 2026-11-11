@@ -140,3 +140,5 @@ Phase 3 does).
 
 [`examples/aspire_robosuite/`](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/aspire_robosuite): the
 seven Robosuite tasks of ASPIRE's harness.
+[`examples/aspire_libero/`](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/aspire_libero): LIBERO's
+five suites on the same engine.

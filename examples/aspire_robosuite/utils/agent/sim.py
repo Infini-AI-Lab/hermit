@@ -1,6 +1,7 @@
 """The robot execution engine: ASPIRE's CaP harness (github.com/NVlabs/ASPIRE, `cap-harness`) in its own venv.
 
-Every call here is a subprocess of ASPIRE's `.venv-robosuite`; nothing of ASPIRE is imported into this process. A
+Every call here is a subprocess of the benchmark's ASPIRE venv (PROFILES: `.venv-robosuite`, `.venv-libero`); nothing
+of ASPIRE is imported into this process. A
 program runs as `cap-harness run-batch` over a list of seeds, and each seed leaves ASPIRE's run directory
 (docs/run-artifacts.md): outcome.json, source/program-result.json (one CallTrace per public call), trace/events.jsonl
 and media/keyframes/ (lossless RGB before and after every motion call). `digest` reads those back as the per-primitive
@@ -65,6 +66,41 @@ PROVIDER_PORTS = (8114, 8115, 8116, 8118)
 # (cap-harness runs from src/, third_party/, assets/, configs/ and the venvs; without git it records no commit in a
 # run's provenance)
 HIDDEN = ("examples", ".claude", ".agents", ".codex", "tests", "outputs", ".git")
+
+# What differs between ASPIRE's benchmarks (its fix-loop template's "Benchmark Profiles"): the venv that holds
+# cap-harness, the init mode every run uses (LIBERO: `seeded`, so each seed is a scene of its own rather than one of
+# the 50 saved states), the benchmark's page of ASPIRE's docs (cut at `cut`: what follows names worked solutions per
+# task), and the environment its simulator needs besides the render device ({root}: the checkout).
+PROFILES = {
+    "robosuite": {"venv": ".venv-robosuite", "bootstrap": "scripts/bootstrap_robosuite.sh", "init_mode": None,
+                  "doc": "robosuite.md", "cut": None, "env": {}},
+    "libero-pro": {"venv": ".venv-libero", "bootstrap": "scripts/bootstrap_libero.sh", "init_mode": "seeded",
+                   "doc": "libero-pro.md", "cut": "## Task examples",
+                   "env": {"LIBERO_CONFIG_PATH": "{root}/.libero", "TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD": "1"}},
+}
+
+
+def profile(benchmark) -> dict:
+    """The profile of a task row's `benchmark` (a row without one is Robosuite's)."""
+    try:
+        return PROFILES[benchmark or "robosuite"]
+    except KeyError:
+        raise ValueError(f"benchmark {benchmark!r} is not one of {', '.join(PROFILES)}") from None
+
+
+def harness(root: Path, benchmark) -> tuple[Path, Path]:
+    """(cap-harness, python) of the benchmark's venv in ASPIRE's checkout."""
+    venv = Path(root) / profile(benchmark)["venv"] / "bin"
+    return venv / "cap-harness", venv / "python"
+
+
+def profile_env(root: Path, benchmark) -> dict:
+    return {k: v.format(root=root) for k, v in profile(benchmark)["env"].items()}
+
+
+def init_args(benchmark) -> list[str]:
+    mode = profile(benchmark)["init_mode"]
+    return ["--init-mode", mode] if mode else []
 
 
 def gpus_of(value) -> list[int]:
@@ -162,15 +198,16 @@ def confine(cmd: list[str], *, root: Path, env: dict, writable=(), readable=(), 
 
 
 class Engine:
-    """ASPIRE's harness at `root` (a checkout with `.venv-robosuite` bootstrapped)."""
+    """ASPIRE's harness at `root` (a checkout with the benchmark's venv bootstrapped)."""
 
     def __init__(self, root: Path | str, *, env: dict | None = None, workers: int = 4, max_steps: int | None = None,
-                 timeout_s: float = 3600.0, gpu=None):
+                 timeout_s: float = 3600.0, gpu=None, benchmark: str = "robosuite"):
         self.root = Path(root).expanduser().resolve()
-        self.cli = self.root / ".venv-robosuite" / "bin" / "cap-harness"
-        self.python = self.root / ".venv-robosuite" / "bin" / "python"
+        self.benchmark = benchmark or "robosuite"
+        self.cli, self.python = harness(self.root, self.benchmark)
         if not self.cli.is_file():
-            raise FileNotFoundError(f"{self.cli}: bootstrap ASPIRE's Robosuite venv (scripts/bootstrap_robosuite.sh)")
+            raise FileNotFoundError(f"{self.cli}: bootstrap ASPIRE's {self.benchmark} venv "
+                                    f"({profile(self.benchmark)['bootstrap']})")
         self.env = {k: str(v) for k, v in (env or {}).items()}
         self.workers, self.max_steps, self.timeout_s = int(workers), max_steps, float(timeout_s)
         self.gpu = gpus_of(os.environ.get("ASPIRE_SIM_GPU") if gpu is None else gpu)
@@ -178,7 +215,7 @@ class Engine:
         self.records = Path(os.environ["ASPIRE_OUT"]) / "sandbox" if os.environ.get("ASPIRE_OUT") else None
 
     def _env(self) -> dict:
-        env = scrubbed(os.environ)
+        env = {**scrubbed(os.environ), **profile_env(self.root, self.benchmark)}
         for key, value in self.env.items():
             env[key] = os.path.expandvars(os.path.expanduser(value))
         return env
@@ -202,8 +239,8 @@ class Engine:
         out.mkdir(parents=True, exist_ok=True)
         results = out / "results.jsonl"
         results.unlink(missing_ok=True)
-        cmd = [str(self.cli), "run-batch", "--benchmark", "robosuite", "--suite", suite, "--task-id", str(task_id),
-               "--seeds", *[str(s) for s in seeds], "--program", str(program), "--output-root", str(out),
+        cmd = [str(self.cli), "run-batch", "--benchmark", self.benchmark, "--suite", suite, "--task-id", str(task_id),
+               *init_args(self.benchmark), "--seeds", *[str(s) for s in seeds], "--program", str(program), "--output-root", str(out),
                "--flat-run-dir", "--workers", str(min(self.workers, len(seeds))), "--results-jsonl", str(results),
                "--log-dir", str(out / "logs")]
         if not videos:

@@ -28,6 +28,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- ASPIRE on LIBERO (`examples/aspire_libero/`): LIBERO's Object, Spatial, Goal, Long and LIBERO-90 suites as tasks
+  of ASPIRE's harness, on the Robosuite example's engine, which now takes a task row's `benchmark` and with it the
+  venv, the init mode (`seeded` for LIBERO), the environment and the docs page; training, LIBERO-90 and smoke configs.
 - GPUs in the bubblewrap sandbox: `environment.gpu: [<N>, ...]` shows those NVIDIA GPUs (the N of `/dev/nvidia<N>`) in
   the task sandbox and its tools' and judge's, with what CUDA and EGL read to find them (the driver's devices and,
   read-only, `/sys/devices`, `/sys/bus/pci`, `/sys/module/nvidia(_uvm)`), and no other GPU's device (their `/sys`
