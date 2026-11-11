@@ -52,6 +52,28 @@ def test_a_pi_reply_cut_at_its_limit_is_no_reply_and_what_it_spent_is_kept(pi_st
     assert cost == pytest.approx(prop.usages[0].cost_usd) and prop.usages[0].output_tokens == 20
 
 
+@pytest.mark.parametrize("ending", ["timed_out", "cancelled"])
+def test_what_a_pi_session_spent_is_kept_when_it_times_out_or_is_stopped(tmp_path, monkeypatch, ending):
+    """Upstream retries a session that timed out: the attempt's spending is the step's all the same."""
+    import subprocess
+    from hermit.agent.base.interface import Result
+    from hermit.agent.evolver.base import Usage
+    from hermit.agent.evolver.methods.harness2_upstream import channel
+    spent = Usage(model="m-1", input_tokens=900, output_tokens=40, calls=3, cost_usd=0.02)
+
+    class Stopped:
+        def run(self, prompt, workspace):
+            return Result(reply="", usage=[spent], timed_out=ending == "timed_out",
+                          extra={"cancelled": ending == "cancelled", "served": False})
+    monkeypatch.setattr(channel, "make", lambda backend, settings: Stopped())
+    prop = proposer()
+    cwd = tmp_path / "session"
+    cwd.mkdir()
+    with pytest.raises(subprocess.TimeoutExpired if ending == "timed_out" else RuntimeError):
+        prop._claude_cli(cwd, "the mission", "", wall=60)
+    assert prop.usages == [spent] and prop.served == 0
+
+
 def test_a_session_on_pi_keeps_its_models_key_where_upstream_drops_anthropics(pi_stand, tmp_path, monkeypatch):  # noqa: F811
     """Upstream drops ANTHROPIC_API_KEY for its Claude sessions; a Pi session bound to a backend whose key is in that
     variable (the built-in anthropic backend's) needs it."""
@@ -100,4 +122,24 @@ def test_a_pi_trajectory_reads_in_upstreams_grammar():
     from hermit.agent.evolver.methods.harness2_upstream.render import render_pi_events
     text = render_pi_events(STREAMS / "success.jsonl", obs_trunc=1000, max_chars=100000)
     assert "[ACTION] bash: echo hi && exit 3" in text and "[OBSERVATION ERROR] hi" in text
-    assert '"tool": "echo"' in text and text.rstrip().endswith("[ASSISTANT] the answer")
+    assert '[ACTION] mcp__hermit_tools__echo: {"text": "from pi"}' in text
+    assert '[OBSERVATION] {"echoed": "from pi"}' in text
+    assert "[OBSERVATION] Successfully wrote to note.txt" in text and text.rstrip().endswith("[ASSISTANT] the answer")
+
+
+def test_a_pi_tool_that_failed_reads_as_an_error_whatever_the_tool(tmp_path):
+    """An edit that did not apply and a read of a missing file are what the editors learn from, as on Claude Code."""
+    from hermit.agent.evolver.methods.harness2_upstream.render import render_pi_events
+    calls = [("edit", {"path": "a.py", "oldText": "x", "newText": "y"}, "Could not find the exact text in a.py"),
+             ("read", {"path": "gone.txt"}, "ENOENT: no such file or directory, open 'gone.txt'")]
+    lines = []
+    for i, (name, args, said) in enumerate(calls):
+        lines += [{"type": "message_end", "message": {"role": "assistant", "stopReason": "toolUse", "content": [
+                      {"type": "toolCall", "id": f"c{i}", "name": name, "arguments": args}]}},
+                  {"type": "tool_execution_end", "toolCallId": f"c{i}", "toolName": name, "isError": True,
+                   "result": {"content": [{"type": "text", "text": said}]}}]
+    (tmp_path / "agent-pi.jsonl").write_text("".join(json.dumps(e) + "\n" for e in lines))
+    text = render_pi_events(tmp_path / "agent-pi.jsonl", obs_trunc=1000, max_chars=100000)
+    assert '[ACTION] edit: {"path": "a.py"' in text
+    assert "[OBSERVATION ERROR] Could not find the exact text in a.py" in text
+    assert "[OBSERVATION ERROR] ENOENT: no such file or directory" in text

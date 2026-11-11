@@ -458,7 +458,7 @@ class MwmEvolver(Evolver):
 
     # ------------------------------------------------------------------ steps
     def setup(self, ctx: Context) -> None:
-        if ctx.params.get("backend", "codex") not in ("codex", "claude", "pi"):   # the CLIs its sessions are set up for
+        if ctx.params.get("backend", "codex") not in ("codex", "claude", "claude-code", "pi"):   # its sessions' CLIs
             raise ValueError("the mwm Evolver's learner is a Codex, Claude Code or Pi session: evolver.params.backend "
                              f"is codex, claude or pi, not {ctx.params.get('backend')!r}")
         if "network_isolation" in ctx.params:

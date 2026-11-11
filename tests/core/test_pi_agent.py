@@ -618,6 +618,13 @@ def test_evolver_base_pi_is_the_run_model_of_a_method_that_calls_it_and_the_lear
     assert "backend" not in data["evolver"]["params"]
     [(who, _, dialect)] = bindings_of(data)
     assert who == "llm tool through pi" and dialect == "chat"
+    data = {"agent": {}, "llm": None, "backends": {"fake": fake_backend},     # a model mapping binds the same way
+            "evolver": {"name": "ace", "base": "pi", "model": {"ref": "fake/m-1", "extra_body": {"top_k": 20}},
+                        "params": {}}}
+    layered(data)
+    normalize_config(data)
+    assert data["llm"]["model"] == "m-1" and data["llm"]["provider"]["apiKey"] == "$FAKE_KEY"
+    assert data["llm"]["provider"]["models"][0]["samplingParams"] == {"top_k": 20}
     for name in ("mwm", "evosafe", "rrsi_adapter", "ahe_adapter", "harness2_upstream", "meta_harness_adapter", "aspire"):
         data = {"agent": {}, "llm": None, "evolver": {"name": name, "base": "pi", "model": "fake/m-1", "params": {}}}
         layered(data)

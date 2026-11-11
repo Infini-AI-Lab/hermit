@@ -168,14 +168,14 @@ class FrameworkProposer(Proposer):
         return self._reply("pi", result, err, wall)
 
     def _reply(self, program: str, result, err: Path, wall: int) -> tuple[str, float, str]:
-        """(reply, cost, problem) of a Codex or Pi session. Its usage is kept for the step, a failed session's too; a
-        reply cut at the output limit is no reply."""
+        """(reply, cost, problem) of a Codex or Pi session. Its usage is kept for the step, a failed, stopped or timed
+        out session's too; a reply cut at the output limit is no reply."""
+        with self._usage_lock:
+            self.usages.extend(result.usage)
         if result.extra["cancelled"]:
             raise RuntimeError("the session was stopped by the Trainer (budget or timeout)")
         if result.timed_out:
             raise subprocess.TimeoutExpired([program], wall)
-        with self._usage_lock:
-            self.usages.extend(result.usage)
         cost = sum(float(u.cost_usd or 0.0) for u in result.usage)
         if not result.extra["served"] or not result.reply.strip() or result.finish_reason == "length":
             tail = (_read_own(err) or result.extra.get("failure") or result.extra.get("output_tail", ""))[-300:]

@@ -547,7 +547,7 @@ def _cli_model(spec: dict, backends: dict[str, Backend], where: str) -> dict:
     if cli not in ("codex", "claude", "pi"):
         raise ValueError(f"{where}.cli must be codex, claude or pi, not {spec['cli']!r}")
     spec = {**spec, "cli": cli}
-    return bind_agent_params(spec, cli, backends) if is_ref(spec.get("model"), backends) else spec
+    return bind_agent_params(spec, cli, backends) if as_binding(spec.get("model"), backends) else spec
 
 
 def _split(ref: str) -> dict:
