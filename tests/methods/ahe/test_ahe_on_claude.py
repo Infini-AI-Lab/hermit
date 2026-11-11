@@ -17,8 +17,8 @@ def test_the_ahe_learners_take_the_evolvers_cli(stand, tmp_path):
     ctx = roles_ctx(tmp_path, {"prompt": "START.md", "k": 1})
     evolver = AHEAdapterEvolver()
     evolver.setup(ctx)                                               # no refusal for claude
-    with pytest.raises(ValueError, match="codex or claude"):
-        AHEAdapterEvolver().setup(roles_ctx(tmp_path, {"backend": "pi"}))
+    with pytest.raises(ValueError, match="codex, claude or pi"):
+        AHEAdapterEvolver().setup(roles_ctx(tmp_path, {"backend": "mini-swe-agent"}))
     base = evolver.settings(ctx, "claude")
     runner = D.Runner(ctx, {"model": None}, base, tmp_path / "scratch")
     job = D.Job.__new__(D.Job)

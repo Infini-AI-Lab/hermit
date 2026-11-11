@@ -9,6 +9,30 @@ is refused.
 The `dsh` learner signs in as the `pi` learner does (`evolver.base: dsh`) and copies no file of `~/.dsh` (`home: []`).
 On the single-file prompt-only template, the Codex learner is the [prompt-only](prompt-only.md) method.
 
+## Every method on Pi
+
+`evolver.base: pi` with `evolver.model: <backend>/<model>` runs any method's learner on Pi, on that model:
+
+| Method | What runs on Pi |
+|---|---|
+| `pi`, Meta-Harness Adapter, ASPIRE, MWM, AHE Adapter, Harness², RRSI Adapter, EvoSafe | The method's own sessions, as on Codex or Claude Code |
+| GEPA, SkillOpt, ACE, OPRO, ReHarness, Continual Harness | They call the run's model, so that model becomes Pi: each call is one session with no tools (the same as `llm: {cli: pi, model: <backend>/<model>}`) |
+
+Pi signs in only through the model reference and has no web search. Where the backend speaks an OpenAI-compatible API
+(chat completions or the Responses API), a request's `temperature` and `top_p` reach the model as Pi's
+`samplingParams`; on the Messages API Pi ignores them, so there a request that asks for a `temperature` is refused
+unless `evolver.pi.unapplied` names it. The backend's `extra_body` goes with each chat-completions request. A session's
+`effort` is what the model is sent, over an `extra_body.reasoning_effort`; on the Messages API Pi gives `xhigh` and `max`
+the same thinking budget as `high`, so there they are refused. Pi has no sub-agents: an adapter's sub-agents stay
+files its acting agent can read. Pi's `grep` and `find` tools run `rg` and `fd`, which an offline Pi cannot fetch: RRSI's
+digesters get them only where the machine has them. Pi caps one reply at 16384 tokens unless the backend says otherwise:
+a reply cut there comes back with `finish_reason: length`, or fails the session that needed it whole. Where a long answer
+is due (EvoSafe's whole files) and the model reasons at length, give the backend a larger
+[`max_output_tokens`](../guides/model-backends.md). Pi's `bash` has no time limit of its own: a command the model
+gives none stops after 600 seconds, so one command that never ends costs that much of a step, not the whole call.
+`command_timeout_s` in `evolver.pi` (the learner's sessions) or `agent.pi` (the acting agent's) changes it; `0` turns it
+off.
+
 ## Requirements and setup
 
 Install and authenticate the selected learner CLI in the environment where training runs. Sandboxed program

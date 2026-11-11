@@ -4,7 +4,7 @@ description: OPRO, Optimization by PROmpting (Yang et al., ICLR 2024, arXiv:2309
   instructions; each is scored with run_agent on every training task and joins the history. Set data.step_size to the
   training split's size. finalize keeps the best on training, or the best on validation of the top_k on training.
 class: evolver.py:OPROEvolver
-needs: []
+needs: [llm]                   # it calls the run's model (ctx.agent, the llm tool)
 params:
   n_candidates: 8                 # new instructions per step, one optimizer call each (upstream: 8)
   max_num_instructions: 20        # old instructions shown, the best ones (upstream: 20)

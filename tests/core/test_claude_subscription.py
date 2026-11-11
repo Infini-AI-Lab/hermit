@@ -106,8 +106,8 @@ def test_a_model_through_the_cli_stays_a_cli_spec_for_learning_and_acting():
     assert data["llm"]["env"]["ANTHROPIC_BASE_URL"].startswith("https://")
     data = layers(evolver={"base": "direct", "model": dict(spec)})   # the per-layer spelling of the same `llm`
     assert data["llm"] == spec
-    with pytest.raises(ValueError, match="llm.cli must be codex or claude"):
-        normalize_config({"llm": {"cli": "pi"}, "agent": {}})
+    with pytest.raises(ValueError, match="llm.cli must be codex, claude or pi"):
+        normalize_config({"llm": {"cli": "aider"}, "agent": {}})
     with pytest.raises(ValueError, match="is that CLI itself"):
         normalize_config({"agent": {"name": "claude-code", "params": {"model": dict(spec)}}})
 

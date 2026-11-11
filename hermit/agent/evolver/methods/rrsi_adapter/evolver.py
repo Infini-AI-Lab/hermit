@@ -14,7 +14,7 @@ What is upstream's code, unchanged (the pinned `rrsi` package): the schedule (rr
 and its summaries (rrsi.history: L_t, T_t, U_t, sigma_t, E_t, g_t, B_t, the rendered rows), the component tags
 (rrsi.components.normalize), the scores (rrsi.evaluate), delta's calibration (rrsi.calibrate), the selection
 (rrsi.selection.select_round), the analyst with its digesters (rrsi.analyst.analyze) and the critic (rrsi.critic.
-review), the last two with `generate` rebound to one session of the proposer's CLI Base Agent (`codex` or `claude`)
+review), the last two with `generate` rebound to one session of the proposer's CLI Base Agent (`codex`, `claude` or `pi`)
 per call (roles.py). What
 is Hermit's:
 
@@ -417,9 +417,9 @@ class RRSIAdapterEvolver(AgentEvolver):
         """What every step needs, checked once: a broken hyperparameter file or domain, or an unset web_search,
         stops the run here rather than failing each step."""
         _require_rrsi()
-        if ctx.params.get("backend") == "dsh":   # its roles' settings are Codex's or Claude Code's
-            raise ValueError("the RRSI Adapter's proposer and roles are Codex or Claude Code sessions: "
-                             "evolver.params.backend is codex or claude, not 'dsh'")
+        if ctx.params.get("backend", "codex") not in ("codex", "claude", "claude-code", "pi"):   # roles kept read-only
+            raise ValueError("the RRSI Adapter's proposer and roles are Codex, Claude Code or Pi sessions: "
+                             f"evolver.params.backend is codex, claude or pi, not {ctx.params.get('backend')!r}")
         if not isinstance(ctx.params.get("web_search"), bool):
             raise ValueError("evolver.params.web_search must be set, true or false")
         role = ctx.params.get("roles") or {}
@@ -431,10 +431,14 @@ class RRSIAdapterEvolver(AgentEvolver):
             # the roles run on the proposer's CLI: refused here, not by every role call
             raise ValueError(f"evolver.params.roles.login: {role['login']} is not the sign-in of backend {backend} "
                              "(codex: login chatgpt; claude: login claude)")
+        if backend == "pi" and role.get("model") is not None and role.get("binding") is None:
+            raise ValueError("evolver.params.roles.model on Pi needs roles.binding too: Pi reaches a model through a "
+                             "binding, and would otherwise look the name up in its own catalog")
         if isinstance(role.get("binding"), dict):        # read at every step (_roles), before its errors count
             from hermit.agent.model.backends import Binding
             try:
-                Binding.from_spec(role["binding"]).codex_args()
+                binding = Binding.from_spec(role["binding"])
+                binding.pi_provider() if backend == "pi" else binding.codex_args()
             except ValueError as exc:
                 raise ValueError(f"evolver.params.roles.binding: {exc}") from exc
         cfg = self._cfg(ctx)
@@ -549,9 +553,9 @@ class RRSIAdapterEvolver(AgentEvolver):
     def _roles(self, ctx) -> Roles:
         """The roles' sessions: the proposer's Base Agent and its settings (its model, login and effort unless
         `roles` gives the roles' own; with the roles' own model, the proposer's binding, price and the provider
-        settings its binding put in `args` or `env` are not theirs; `roles.args` replaces the proposer's own arguments,
-        not those provider arguments), read-only (Codex's own sandbox mode; Claude Code's by its tools,
-        Roles._session), `role_timeout_s` each. They do not see the run's
+        settings its binding put in `args`, `env` or `provider` are not theirs; `roles.args` replaces the proposer's own
+        arguments, not those provider arguments), read-only (Codex's own sandbox mode; Claude Code's and Pi's by their
+        tools, Roles._session), `role_timeout_s` each. They do not see the run's
         records, the step's output, the proposers' directories or the other calls' (Roles._session; upstream's roles
         see only the text they are given). Each call's prompt, events and reply are kept in the step's output
         (`rrsi_roles/`), its home and working directory in the scratch."""
@@ -582,6 +586,8 @@ class RRSIAdapterEvolver(AgentEvolver):
             binding = Binding.from_spec(role["binding"])
             if backend == "codex":
                 settings["args"] = [*binding.codex_args(), *(role.get("args") or [])]
+            elif backend == "pi":
+                settings["provider"] = binding.pi_provider()
             else:                                            # the proposer's provider settings give way to the roles'
                 own = {k: v for k, v in (settings.get("env") or {}).items() if k not in CLAUDE_ENV}
                 settings["env"] = {**own, **binding.claude_env()}
@@ -1011,7 +1017,7 @@ class RRSIAdapterEvolver(AgentEvolver):
         return cdir
 
     def _session(self, ctx, prompt: str, path: Path, work: Path, session: str | None, log: Path) -> StepResult:
-        """One proposer session (or a resumed one) of the `codex` or `claude` Base Agent, in the variant's working
+        """One proposer session (or a resumed one) of the `codex`, `claude` or `pi` Base Agent, in the variant's working
         directory (its candidate under adapter/, its context under context/) and the task description, nothing else the
         run keeps (a view of the run's sandbox), the Trainer's allowed tools, and its event log at `log`. Its home is
         the variant's own: a later variant never reads an earlier one's sessions."""
@@ -1064,7 +1070,7 @@ class RRSIAdapterEvolver(AgentEvolver):
                 # the model's plan held the session back past its wait, or refused it: not the proposer's doing, so
                 # the variant is drafted again later, never recorded as a gate failure
                 raise Stop(f"the model's plan did not serve a proposer session: {tail[-200:]}")
-            if result.exit_code == 0 or extra.get("served") or not extra.get("unavailable"):
+            if extra.get("served") or not extra.get("unavailable"):          # Pi exits 0 when its provider failed
                 ended = result.exit_code == 0 and not extra.get("failed")    # exit 0 with no result is no finished edit
                 return StepResult("done" if ended else "failed",
                                   f"{backend} session exited with {result.exit_code}", session=result.session,

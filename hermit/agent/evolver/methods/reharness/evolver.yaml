@@ -5,7 +5,7 @@ description: ReHarness (Xiao et al., arXiv:2610.12668), a recurrent harness for 
   feedback (Eq. 2) and writes the instance's reflection with the revised ones as demonstrations (Eq. 3), through the
   run's `llm` tool, with the paper's prompts. No validation data, no replay.
 class: evolver.py:ReHarnessEvolver
-needs: []
+needs: [llm]                   # it calls the run's model (ctx.agent, the llm tool)
 params:
   k: 5                             # reflections retrieved per instance, and revised after it (the paper: 5)
   embedding: null                  # the embedding model, `<backend>/<model id>` (the paper: Qwen3-Embedding-8B, on

@@ -106,8 +106,10 @@ What the Base Agent is used for. Two kinds:
   runs' trajectories and writes a new adapter, calling a Base Agent: `direct` for methods that decide every step in
   their own code (GEPA, SkillOpt, ReHarness, Continual Harness), `codex`, `claude`, `pi`, `opencode` or `dsh` for
   methods whose learner is an agent (Meta-Harness Adapter, the `codex`, `claude`, `pi`, `opencode` and `dsh` Evolvers).
-  The run's model reaches an Evolver as `ctx.agent`, a `direct` Base Agent metered against the budget;
-  `ask(ctx.agent, messages, max_tokens=...)` returns the reply as the `llm` tool does.
+  With `evolver.base: pi`, a method that decides every step in its own code calls Pi as its model
+  ([every method on Pi](../methods/agent.md#every-method-on-pi)). The run's model reaches an Evolver as
+  `ctx.agent`, a `direct` Base Agent metered against the budget; `ask(ctx.agent, messages, max_tokens=...)` returns
+  the reply as the `llm` tool does.
 
 What is specific to a task belongs to Layer 3: its environment, rules, turns, scoring, workspace and tools. A
 benchmark that defines its own steps keeps its loop in Layer 3 unchanged and makes every model call through Layer
@@ -118,11 +120,11 @@ relayed to the URL it would have reached with its body, key and reply unchanged 
 stream). CL-Bench's runner and ServeLearnBench's agent reach their model this way, through the launcher's meter as
 before. The same endpoint over a CLI Base Agent answers each request with one session of it (the system messages
 as its instructions, the rest as its prompt, its reply as the reply): `llm: {cli: claude, model: ..., login: claude,
-...}` (or `cli: codex`, `login: chatgpt`) makes the run's model one only the CLI reaches, such as a model on a
+...}` (or `cli: codex`, `login: chatgpt`, or `cli: pi` with a `<backend>/<model>` reference) makes the run's model one only the CLI reaches, such as a model on a
 subscription, for the Evolvers that call `ctx.agent` and the `llm` tool, and `agent.model: {cli: ...}` the same for an
 acting pipeline, which sees a local URL. Such a session works in an empty directory of its own, in a bubblewrap
 sandbox of its own (`isolation: sandbox`, the default) or a container (`isolation: container`), and is given no tools
-(`text_only`): a Claude Code session can only reply, a Codex session can still run commands inside its sandbox. A chat
+(`text_only`): a Claude Code or Pi session can only reply, a Codex session can still run commands inside its sandbox. A chat
 call sees no files, so a role that is to read files runs a session itself (`make(...).run(prompt, workspace)`). What a
 session cannot do is refused, not dropped ([the model contract](../guides/claude-subscription.md#the-model-contract)).
 Each call's event stream is kept under the run's `llm_sessions/`.
@@ -232,16 +234,16 @@ accepted; a key given in two layers is refused. On the command line a layer's se
 |---|---|---|
 | OfficeQA in Codex, every method | Acting Agent with OfficeQA's task functions (`utils/task.py`) | `codex` |
 | OfficeQA in direct chat | Acting Agent running SkillOpt's chat loop | `direct`, per turn |
-| GEPA, SkillOpt, ReHarness, Continual Harness, OPRO | Evolver Agent | `direct` (`ctx.agent`); OPRO in OfficeQA: `codex` through `llm: {cli: codex}` |
-| Meta-Harness Adapter, `codex` and `claude` Evolvers | Evolver Agent | `codex` or `claude` |
+| GEPA, SkillOpt, ReHarness, Continual Harness, OPRO | Evolver Agent | `direct` (`ctx.agent`); OPRO in OfficeQA: `codex` through `llm: {cli: codex}`; with `evolver.base: pi`, `pi` through `llm: {cli: pi}` |
+| Meta-Harness Adapter, ASPIRE, `codex` and `claude` Evolvers | Evolver Agent | `codex`, `claude`, `pi` or `opencode` |
 | `pi` Evolver | Evolver Agent | `pi` |
 | `opencode` Evolver | Evolver Agent | `opencode` |
 | `dsh` Evolver | Evolver Agent | `dsh` |
-| RRSI Adapter | Evolver Agent: upstream's rules and roles, the proposer's prompt | `codex` or `claude` for the proposer, and the same, one call per upstream `generate`, for the analyst, digesters and critic |
-| AHE Adapter | Evolver Agent: the Evolve Agent and the Agent Debugger | `codex` or `claude`, one session per step and per task |
+| RRSI Adapter | Evolver Agent: upstream's rules and roles, the proposer's prompt | `codex`, `claude` or `pi` for the proposer, and the same, one call per upstream `generate`, for the analyst, digesters and critic |
+| AHE Adapter | Evolver Agent: the Evolve Agent and the Agent Debugger | `codex`, `claude` or `pi`, one session per step and per task |
 | CL-Bench, ServeLearnBench | Acting Agent running the benchmark's loop | `direct`, per call, through the local endpoint |
-| MWM | Evolver Agent | `codex` or `claude`, in a view of the run's sandbox with MWM's native mounts (`/w`, `/evidence`, ...) |
-| Harness² | Evolver Agent: upstream's proposer | `claude`, one call per upstream session (or `codex`) |
+| MWM | Evolver Agent | `codex`, `claude` or `pi`, in a view of the run's sandbox with MWM's native mounts (`/w`, `/evidence`, ...) |
+| Harness² | Evolver Agent: upstream's proposer | `claude`, one call per upstream session (or `codex` or `pi`) |
 
 ## Outside the layers
 

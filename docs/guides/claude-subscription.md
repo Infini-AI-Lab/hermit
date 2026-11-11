@@ -250,7 +250,7 @@ A session is not a model API. This is what a chat request through the endpoint g
 | `reasoning_effort` | The session's effort; on Claude Code low, medium, high, xhigh or max, else 400 |
 | `model` | Must be the endpoint's; another is 400, never a quiet substitute |
 | `max_tokens`, `max_completion_tokens` | Accepted and not applied, and the reply's `unapplied` says so: methods send them as a cap, and the CLI's own cap would cut the reply and continue it by itself |
-| `temperature`, `top_p`, `stop`, `seed`, `logprobs`, penalties, anything else | 400: the CLI has no setting. `llm.unapplied: [temperature]` accepts a named field going unapplied |
+| `temperature`, `top_p`, `stop`, `seed`, `logprobs`, penalties, anything else | 400: the CLI has no setting. `llm.unapplied: [temperature]` accepts a named field going unapplied. Pi applies `temperature` and `top_p` where its backend speaks an OpenAI-compatible API |
 | `n` above 1; a `response_format` other than text | 400 |
 | `stream`, `stream_options` | Kept: the reply arrives whole, as chunks at the end |
 | `parallel_tool_calls`; `tools: []`; `tool_choice` `none` or `auto` | Accepted: they ask for nothing a session would do |

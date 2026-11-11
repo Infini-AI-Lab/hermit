@@ -11,7 +11,7 @@ Mapping onto the Trainer, one candidate per step (data.step_size covers the trai
 
 1. The step's rollouts are the evaluation of the candidate handed back last time (the starting adapter, `seed`, on
    the first step); their scores and trajectories are in the step's learning material. The step records them.
-2. When no proposed candidate is left to evaluate, a proposer session (a Codex or Claude Code agent, as the built-in
+2. When no proposed candidate is left to evaluate, a proposer session (a Codex, Claude Code or Pi agent, as the built-in
    `codex` / `claude` Evolvers run it, with check_spec as its only tool) writes k candidates into the scratch
    directory; each that passes check_spec is stored under state/candidates/<id>/ and queued.
 3. The next queued candidate is handed back (its files replace the working copy's, `.hermit/` kept), so the next

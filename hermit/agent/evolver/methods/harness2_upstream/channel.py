@@ -22,6 +22,7 @@ from typing import Any
 
 from harness2.core.proposer import SYSTEM_ARG_MAX, Proposer, _DROP_ENV, _parse_json
 
+from hermit.agent.base.cli import PI_PARAMS
 from hermit.agent.base.interface import LoginFailed, make
 from hermit.agent.base.records import price_usage
 from hermit.agent.evolver.base import Usage
@@ -62,10 +63,13 @@ class FrameworkProposer(Proposer):
         """One upstream session as one call of a CLI Base Agent (docs/framework/agent-layers.md): `claude` by default,
         upstream's command (stdin mission, its system prompt, one JSON result, its tools, no session kept); `codex`
         with `params.backend: codex` (a model only Codex reaches: a ChatGPT login), the mission on stdin, the system
-        text as its developer instructions, its own sandbox off inside the run's. Either has its own config directory,
-        runs in the run's sandbox with the session directory writable, and is stopped at `wall` or by the Trainer."""
+        text as its developer instructions, its own sandbox off inside the run's; `pi` with `params.backend: pi`, on
+        the bound model. Each has its own config directory, runs in the run's sandbox with the session directory
+        writable, and is stopped at `wall` or by the Trainer."""
         if self.params.get("backend") == "codex":
             return self._codex_cli(cwd, mission, system, wall)
+        if self.params.get("backend") == "pi":
+            return self._pi_cli(cwd, mission, system, wall)
         home = Path(cwd) / ".claude-home"
         stdin = mission
         if system and len(system) > SYSTEM_ARG_MAX:
@@ -141,20 +145,43 @@ class FrameworkProposer(Proposer):
                     "writable": [Path(cwd)], "timeout_s": wall, "cancel": self.cancel}
         settings = {k: v for k, v in settings.items() if v is not None or k == "plan_max_wait_s" and k in self.params}
         result = make("codex", settings).run(mission, workspace=Path(cwd))     # plan_max_wait_s: null is no limit
+        return self._reply("codex", result, err, wall)
+
+    def _pi_cli(self, cwd: Path, mission: str, system: str, wall: int) -> tuple[str, float, str]:
+        """The session on Pi: the `pi` Base Agent on the bound model (its models.json provider), the mission on stdin,
+        upstream's system text appended to Pi's own, Pi's own tools (read, bash, edit, write) inside the run's sandbox,
+        no session kept."""
+        own = {k: str(v) for k, v in (self.params.get("env") or {}).items()}
+        err = Path(cwd) / ".session.err"
+        key = (self.params.get("binding") or {}).get("api_key_env")          # upstream drops Anthropic's for Claude
+        settings = {"web_search": False, "bin": self.params.get("claude_bin") or "pi", "stdin": True,
+                    "effort": self.spec.effort,                               # Claude Code's levels are Pi's too
+                    "model": self.params.get("model") or self.spec.model, "binding": self.params.get("binding"),
+                    **{k: self.params.get(k) for k in PI_PARAMS},              # the bound model, images, command limit
+                    "price": self.params.get("price"), "args": self.params.get("args"),
+                    "append_system_prompt": system or None, "persist_session": False,
+                    "home": Path(cwd) / ".pi-home", "home_files": [], "log": Path(cwd) / ".session.out",
+                    "stderr_log": err, "env": {**QUIET, **own}, "env_drop": sorted(set(_DROP_ENV) - {key}),
+                    "isolation": "sandbox" if self.sandbox is not None else "none", "sandbox": self.sandbox,
+                    "writable": [Path(cwd)], "timeout_s": wall, "cancel": self.cancel}
+        result = make("pi", {k: v for k, v in settings.items() if v is not None}).run(mission, workspace=Path(cwd))
+        return self._reply("pi", result, err, wall)
+
+    def _reply(self, program: str, result, err: Path, wall: int) -> tuple[str, float, str]:
+        """(reply, cost, problem) of a Codex or Pi session. Its usage is kept for the step, a failed, stopped or timed
+        out session's too; a reply cut at the output limit is no reply."""
+        with self._usage_lock:
+            self.usages.extend(result.usage)
         if result.extra["cancelled"]:
             raise RuntimeError("the session was stopped by the Trainer (budget or timeout)")
         if result.timed_out:
-            raise subprocess.TimeoutExpired(["codex"], wall)
-        if not result.extra["served"] or not result.reply.strip():
-            tail = (_read_own(err) or result.extra.get("output_tail", ""))[-300:]
-            return "", 0.0, f"rc={result.exit_code}: {tail}"
-        cost = 0.0
+            raise subprocess.TimeoutExpired([program], wall)
+        cost = sum(float(u.cost_usd or 0.0) for u in result.usage)
+        if not result.extra["served"] or not result.reply.strip() or result.finish_reason == "length":
+            tail = (_read_own(err) or result.extra.get("failure") or result.extra.get("output_tail", ""))[-300:]
+            return "", cost, f"rc={result.exit_code}: {tail}"
         with self._usage_lock:
             self.served += 1
-        for usage in result.usage:
-            with self._usage_lock:
-                self.usages.append(usage)
-            cost += float(usage.cost_usd or 0.0)
         return result.reply, cost, ""
 
     def _harvest(self, tmp: Path, sub: str, label: str, cache_key: str = "") -> Path | None:

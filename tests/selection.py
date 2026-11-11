@@ -66,11 +66,11 @@ SHARED = ["hermit/agent/__init__.py", "hermit/agent/base/*", "hermit/agent/actin
           "hermit/task.py", "hermit/__init__.py", "hermit/adapter/templates/prompt_only/*",   # the toy task's
           "pyproject.toml", "conftest.py", "tests/conftest.py", "tests/fakes.py",
           "tests/toy_task.py", "tests/selection.py",
+          "tests/pi_stand.py", "tests/fixtures/pi/*",                   # the Pi stand-in: the methods'
           "tests/claude_stand.py", "tests/fixtures/claude_streams/*",   # the Claude stand-in: core's and the methods'
           ".github/workflows/tests.yml"]                    # how CI runs them: a change to it runs them all
 # the rest of the framework, the templates no method group owns, the documentation's examples: the core group
-CORE = ["hermit/*", "tests/core/*", "tests/fixtures/pi/*", "tests/fixtures/opencode/*", "tests/fixtures/dsh/*",
-        "docs/_examples/*"]
+CORE = ["hermit/*", "tests/core/*", "tests/fixtures/opencode/*", "tests/fixtures/dsh/*", "docs/_examples/*"]
 # nothing to run: documentation, and files no test reads
 NONE = ["docs/*", "*.md", "tests/README.md", "LICENSE", "NOTICE", ".github/*", ".agents/*", "assets/*", ".gitignore"]
 

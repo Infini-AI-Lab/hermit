@@ -6,7 +6,7 @@ description: ACE, Agentic Context Engineering (Zhang et al., ICLR 2026, arXiv:25
   (ADD only, as upstream) every curator_frequency samples. Validation (val_every) keeps the best playbook, which
   finalize hands back. Uses the run's `llm` tool; data.step_size 1 is upstream's per-sample loop.
 class: evolver.py:ACEEvolver
-needs: []
+needs: [llm]                   # it calls the run's model (ctx.agent, the llm tool)
 params:
   feedback: true                     # the judge's verdict is the Reflector's environment feedback and gates the
                                      # retry rounds (labels); false: label-free, the run's own status only, no retry

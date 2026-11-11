@@ -22,7 +22,7 @@ KEEPALIVE_S, so that the client's read timeout does not fire; an error after tha
 The URL carries a random token, so that only whoever was handed it can call the model; it listens on loopback
 unless told otherwise.
 
-Over a CLI Base Agent (`codex`, `claude`) the endpoint is no relay: each request is one session of it, for code that
+Over a CLI Base Agent (`codex`, `claude`, `pi`) the endpoint is no relay: each request is one session of it, for code that
 calls a chat API and a model only the CLI reaches (cli_answer, cli_model). A session is not a model API, and what it
 cannot do is refused rather than dropped: docs/guides/claude-subscription.md has the contract.
 """
@@ -276,6 +276,7 @@ def contract_problems(agent: BaseAgent, request: dict) -> tuple[list[str], list[
                 not isinstance(p, dict) or p.get("type") not in ("text", "input_text", "output_text")
                 for p in m["content"]):
             problems.append("a message part that is not text: a session takes text")
+    applied = set(agent.applied_fields()) if hasattr(agent, "applied_fields") else set()   # the session sets them
     session = agent.settings.get("model")
     if session and request.get("model") and request["model"] != session:
         problems.append(f"model {request['model']!r}: this endpoint's sessions run {session!r}")
@@ -283,7 +284,7 @@ def contract_problems(agent: BaseAgent, request: dict) -> tuple[list[str], list[
     if effort and efforts and effort not in efforts:
         problems.append(f"reasoning_effort {effort!r}: {agent.name} takes {list(efforts)}")
     for key, value in request.items():
-        if value is None or key in ("model", "messages", "reasoning_effort", "parallel_tool_calls"):
+        if value is None or key in ("model", "messages", "reasoning_effort", "parallel_tool_calls") or key in applied:
             continue
         if key in UNAPPLIED:
             unapplied.append(key)
@@ -334,11 +335,11 @@ def _usage_of(result) -> dict:
 
 
 def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = None):
-    """A chat-completions request answered by one session of a CLI Base Agent (`codex`, `claude`): a model reachable
-    only through the CLI (a subscription) for code that calls a chat API (an Evolver's `llm`, an acting pipeline's
-    model). The system messages are the session's instructions, the rest its prompt (split_messages), given on stdin;
-    the session works in an empty workspace of its own and only replies (`text_only`: Claude Code's session has no
-    tools; a Codex session's commands are held by its sandbox or container), and its reply is the content, with its
+    """A chat-completions request answered by one session of a CLI Base Agent (`codex`, `claude`, `pi`): a model reached
+    through the CLI (a subscription, or the Evolver's own agent) for code that calls a chat API (an Evolver's `llm`, an
+    acting pipeline's model). The system messages are the session's instructions, the rest its prompt (split_messages),
+    given on stdin; the session works in an empty workspace of its own and only replies (`text_only`: a Claude Code or
+    Pi session has no tools; a Codex session's commands are held by its sandbox or container), and its reply is the content, with its
     token usage. `reasoning_effort` is the session's effort; max_tokens is not applied and the reply says so
     (`unapplied`); what else a session cannot do is refused (contract_problems). A session that gave no reply is never
     an answer (_no_reply). The session sees no files: a caller that wants a session to read files runs one itself
@@ -352,6 +353,10 @@ def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = 
         return 400, json.dumps({"error": {"message": "; ".join(problems)}}).encode(), {}
     system, prompt = split_messages(request["messages"])
     own = {"stdin": True, "text_only": True, **({"cancel": abort} if abort is not None else {})}
+    sampling = {k: request[k] for k in (agent.applied_fields() if hasattr(agent, "applied_fields") else ())
+                if request.get(k) is not None}
+    if sampling:                                              # Pi's: sent with the request, as an API would
+        own["sampling"] = sampling
     if request.get("reasoning_effort"):
         own["effort"] = str(request["reasoning_effort"])
     log_dir, scratch = agent.settings.get("log_dir"), None
@@ -376,8 +381,8 @@ def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = 
                 redact_file(Path(os.path.realpath(kept)))     # through a link the caller made: its target
     if result.extra.get("cancelled"):
         return _DROP
-    if not result.extra.get("served") or not result.reply.strip():
-        return _no_reply(agent, result)
+    if not result.extra.get("served") or not (result.reply.strip() or result.finish_reason == "length"):
+        return _no_reply(agent, result)                       # a reply cut at the output limit is one, marked so
     body = {"id": f"chatcmpl-{secrets.token_hex(6)}", "object": "chat.completion", "created": int(time.time()),
             "model": result.extra.get("served_model") or request.get("model") or agent.settings.get("model"),
             "choices": [{"index": 0, "message": {"role": "assistant", "content": result.reply},
@@ -416,16 +421,31 @@ def cli_problems(spec: dict) -> list[str]:
     its own (`isolation: container`, with container: {image, network, proxy}); a machine without bubblewrap runs it
     unconfined only as the run says (sandbox.enforce: best_effort, sandbox.enabled: false), which the run's records
     keep. Codex's model can run commands, and Codex's own read-only sandbox still reads the whole machine (the test
-    answers, the keys); Claude Code's has no tools at all (the Base Agent's `text_only`), and the sandbox holds what
-    the CLI might do besides. A login is the CLI's own: chatgpt for codex, claude for claude."""
+    answers, the keys); Claude Code's and Pi's have no tools at all (the Base Agent's `text_only`), and the sandbox holds
+    what the CLI might do besides. A login is the CLI's own: chatgpt for codex, claude for claude; Pi has none, and
+    reaches its model through a `<backend>/<model>` reference."""
     isolation = spec.get("isolation") or "sandbox"
     if spec.get("cli") == "codex":
         out = [] if isolation in ("sandbox", "container") else [CODEX_BOUNDARY]
         if spec.get("login") and spec["login"] != "chatgpt":
             out.append(f"cli: codex signs in with login: chatgpt (Codex's sign-in), not login: {spec['login']}")
         return out
+    if spec.get("cli") == "pi":
+        from hermit.agent.base.cli import Pi
+        out = [] if isolation == "sandbox" else ["cli: pi needs isolation: sandbox (the default: a bubblewrap sandbox of "
+                                                 "its own); without bubblewrap, sandbox.enforce: best_effort runs it "
+                                                 "unconfined and records that"]
+        if spec.get("login"):
+            out.append(f"cli: pi signs in through a <backend>/<model> reference, not login: {spec['login']}")
+        elif not spec.get("binding"):
+            out.append("cli: pi needs a <backend>/<model> reference: without one, Pi would pick a provider itself")
+        if spec.get("web_search") is True:
+            out.append("cli: pi: a text session has no tools, so web_search cannot be on")
+        if spec.get("effort") is not None and spec["effort"] not in Pi.efforts:    # the CLI would ignore it
+            out.append(f"cli: pi takes effort {', '.join(Pi.efforts)}, not {spec['effort']!r}")
+        return out
     if spec.get("cli") != "claude":
-        return [f"cli must be codex or claude, not {spec.get('cli')!r}"]
+        return [f"cli must be codex, claude or pi, not {spec.get('cli')!r}"]
     out = []
     if not spec.get("binding") and spec.get("login") != "claude":
         out.append("cli: claude needs login: claude (your subscription) or a <backend>/<model> reference (that "
@@ -453,7 +473,7 @@ def cli_problems(spec: dict) -> list[str]:
 
 
 def cli_endpoint(spec: dict, log_dir=None, *, sandbox=None) -> ChatEndpoint:
-    """A chat endpoint over the CLI a spec names (`{cli: codex | claude, model: ..., login: ..., ...}`), started: each
+    """A chat endpoint over the CLI a spec names (`{cli: codex | claude | pi, model: ..., login: ..., ...}`), started: each
     request is one session of that Base Agent (cli_answer). Every key but `cli` and `timeout` is the Base Agent's
     setting (hermit.agent.base.cli). With `isolation: sandbox` (the default) every session runs in `sandbox`, the one
     the run made for them (hermit.isolate.cli_sandbox: its empty workspace and home, its model's or its login's
@@ -498,7 +518,7 @@ def endpoint_spec(endpoint: ChatEndpoint, spec: dict) -> dict:
 
 
 def cli_model(spec: dict, log_dir=None, sandbox=None):
-    """The run's `llm` when it names a CLI (`llm: {cli: codex | claude, model: ..., login: chatgpt | claude, ...}`): a
+    """The run's `llm` when it names a CLI (`llm: {cli: codex | claude | pi, model: ..., login: chatgpt | claude, ...}`): a
     chat client over a ChatEndpoint over that CLI (cli_endpoint), for a model only the CLI reaches; its sessions run
     in `sandbox`, which the Trainer makes (isolation: sandbox, the default), or each in a container of its own.
     `close()` closes the endpoint."""

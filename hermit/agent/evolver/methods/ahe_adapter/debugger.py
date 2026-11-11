@@ -1,4 +1,4 @@
-"""The Agent Debugger stage of the AHE Adapter (spec B.5): one CLI session (Codex or Claude Code) per task over the
+"""The Agent Debugger stage of the AHE Adapter (spec B.5): one CLI session (Codex, Claude Code or Pi) per task over the
 step's rollouts.
 
 Upstream (evolve.py:1216-1315, 1381-1543, 1722-1790) built one `TaskAnalysisJob` per task from the trial directories

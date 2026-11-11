@@ -27,7 +27,7 @@ hermit train --config run.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8  
 | `agent.params.model` (or `agent.model`) with `agent.name: codex` / `claude-code` | the CLI acting agent | Responses API / Messages API |
 | `agent.params.model` (or `agent.model`) with `agent.name: mini-swe-agent` | mini-swe-agent, through litellm | chat completions |
 | `evolver.params.model` of the `codex`, `claude` and `mwm` Evolvers | the learner's CLI session | Responses API / Messages API |
-| `agent.params.model` with `agent.name: pi`, `evolver.params.model` of the `pi` Evolver | Pi | chat completions, else the Messages API, else the Responses API: the first the backend serves |
+| `agent.params.model` with `agent.name: pi`, the model of any method on `evolver.base: pi` | Pi | chat completions, else the Messages API, else the Responses API: the first the backend serves |
 | `agent.params.model` with `agent.name: opencode`, `evolver.params.model` of the `opencode` Evolver | OpenCode | chat completions |
 | `agent.params.model` with `agent.name: dsh`, `evolver.params.model` of the `dsh` Evolver | DeepSeek Harness | chat completions, else the Messages API, else the Responses API: the first the backend serves |
 | `model` (top level) | the default for all of the above when they name none | |
@@ -108,8 +108,9 @@ lab-sglang:                             # a new one, like the built-in sglang at
 | `messages_url` | the root the Anthropic Messages API is under, when it is not `base_url` without its `/v1` |
 | `litellm` | the litellm route prefix, for task agents that call through litellm (`fireworks_ai`, `hosted_vllm`) |
 | `prices` | per model id, `{input, cached_input, output}` in USD per million tokens; a model without one has an unknown cost (never zero) |
-| `extra_body` | fields added to every chat request, such as `reasoning_effort` |
-| `context_window` | tokens; Codex is told it as `model_context_window`, Claude Code as `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, DeepSeek Harness as its provider's `contextWindow` |
+| `extra_body` | fields added to every chat request, such as `reasoning_effort`; Pi sends them as its model's `samplingParams` with each chat-completions request, under a session's own effort |
+| `context_window` | tokens; Codex is told it as `model_context_window`, Claude Code as `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, Pi as `contextWindow`, DeepSeek Harness as its provider's `contextWindow` |
+| `max_output_tokens` | tokens one request may answer with; Pi is told it as `maxTokens`, and otherwise uses its default of 16384: a model that reasons long can be cut before it answers, and that session fails |
 | `developer_role` | `keep` (default), or `system`: a relay in front of the backend renames the `developer` role Codex uses, for an endpoint that refuses it (the built-in `fireworks` sets it, as the examples always did; Qwen3.6's chat template refuses a `system` message after the first, so a local server keeps the role) |
 | `models` | aliases: short names for model ids |
 | `from` | start from a copy of another backend (the examples put a metering relay in front of one this way); the copy keeps the source's key variable, and a copy at another `base_url` drops the source's `messages_url` |

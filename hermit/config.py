@@ -108,10 +108,21 @@ def _model(params: dict, model, where: str, cli: bool = True) -> None:
     _put(params, "model", {"model": name, **model} if model else name, where)
 
 
-def layered(data: dict) -> None:
+def _calls_the_runs_model(name, base: Path | None) -> bool:
+    """Whether the Evolver `name` decides each step in its own code and calls the run's model (`ctx.agent`, the `llm`
+    tool): its manifest says so (`needs: [llm]`). Any other Evolver takes `evolver.base` as its own CLI."""
+    from hermit.agent.evolver.loader import find
+    try:
+        return "llm" in find(str(name), base).needs
+    except ValueError:                                     # no such Evolver: said where the Evolver is loaded
+        return False
+
+
+def layered(data: dict, base_dir: Path | None = None) -> None:
     """The per-layer form of `agent` and `evolver` (docs/framework/agent-layers.md#settings-by-layer) as the flat
     form the framework reads: `params` (Layer 3), `base` and its section (Layer 2), `model` (Layer 1). A key given in
-    two layers is refused."""
+    two layers is refused. `evolver.base: pi` on a method that calls the run's model makes that model Pi: `llm: {cli:
+    pi}`, one session per call."""
     agent = data["agent"]
     base = agent.pop("base", None)
     model = agent.pop("model", None)
@@ -155,6 +166,16 @@ def layered(data: dict) -> None:
     if base not in ("codex", "claude", "claude-code", "pi", "opencode", "dsh", "direct"):
         raise ValueError(f"evolver.base must be codex, claude, pi, opencode, dsh or direct, not {base!r}")
     params = dict(evolver.get("params") or {})
+    if base == "pi" and _calls_the_runs_model(evolver.get("name"), base_dir):
+        if data.get("llm") is not None:
+            raise ValueError("evolver.base: pi makes the run's model Pi, and llm names it too: give one")
+        llm: dict = {"cli": "pi"}
+        _model(llm, model if model is not None else data.get("model"), "evolver")
+        for key, value in (sections.get("pi") or {}).items():
+            _put(llm, key, value, "evolver.pi")
+        data["llm"] = llm
+        evolver["params"] = params
+        return
     if base == "direct":
         if model is not None:
             llm = _chat_spec(model, "evolver")
@@ -222,7 +243,7 @@ class Config:
                 data["agent"]["params"] = {**data["agent"].get("params", {}), **data["pipeline"]["params"]}
             if data["pipeline"].get("concurrency") is not None:
                 data["agent"]["concurrency"] = data["pipeline"]["concurrency"]
-        layered(data)               # per-layer settings -> the flat form
+        layered(data, Path(path).parent)               # per-layer settings -> the flat form
         normalize_config(data)      # model references -> the endpoints they name
         config = cls(data, Path(path).parent)
         config.validate()

@@ -61,15 +61,21 @@ Settings (given once; `configured(...)` for a call's own):
                     caller that would rather start over from its own files
   text_only         a session that can only reply (a model behind a chat endpoint, a role that answers from its
                     prompt). Claude Code: `--restricted`, no tools, no MCP servers, no commands, no settings or
-                    memory files, `@` mentions left as text, and a session that reports otherwise has failed
+                    memory files, `@` mentions left as text, and a session that reports otherwise has failed. Pi: no
+                    tools, no MCP, no extensions, skills, prompt templates or context files, and a session that runs a
+                    tool has failed
   Claude Code only: output_format (stream-json, or json: one result object), allowed_tools (its --tools; empty: none),
   persist_session (false: --no-session-persistence), system_prompt (in place of its own; written to a file in the
   home), append_system_prompt (a long one goes the same way), effort, permission_mode, usage_credits (true: sessions on
   `login: claude` may draw the account's usage credits; default: a session that did holds the next ones back)
   Pi only: provider (its models.json entry for a bound model, from the binding: Binding.pi_provider),
   image_input (true: the bound model takes images, such as a tool's result; default: text only, Pi's default for a
-  model it does not know), append_system_prompt, effort (its --thinking level). Pi takes no roles, has no web search
-  and runs under isolation none or sandbox.
+  model it does not know), append_system_prompt, effort (its --thinking level, sent as named and over the backend's
+  extra_body; a bound model on the Messages API takes up to high), allowed_tools (Pi's own tools by name, its --tools:
+  read, grep, find, ls, bash, edit, write; the call's tools stay; empty: none of its own), persist_session (false:
+  --no-session), sampling (fields for the bound model's samplingParams: a chat request's temperature, top_p),
+  command_timeout_s (a bash command's limit when the model gives none; default 600, 0: none). Pi takes no roles, has no
+  web search and runs under isolation none or sandbox.
   mini-swe-agent only: model_class, config, step_limit (MiniSweAgent; hermit.agent.base.mini_swe_agent). It takes no
   roles, no session and no login, has no web search and runs under isolation none or sandbox.
   OpenCode only: provider (its config's provider for the bound model, from the binding: Binding.opencode_provider;
@@ -127,7 +133,6 @@ ISOLATIONS = ("none", "sandbox", "container")
 UNAVAILABLE = re.compile(r"unexpected status (?:429|5\d\d)|exceeded retry limit|stream disconnected|"
                          r"error sending request|too many requests|service unavailable|bad gateway|overloaded|"
                          r"model is at capacity|"
-                         r"^(?:429|5\d\d): |"                     # Pi's report of a provider's status
                          r"error response from daemon|cannot connect to the docker daemon|"
                          + re.escape(container.MISSING), re.I | re.M)
 CODEX_HOME_SETTINGS = ["features.shell_snapshot = false",          # a snapshot would bring back the whole environment
@@ -1347,18 +1352,58 @@ def _final_turn(objects: list[dict]) -> str:
 PI_PROVIDER = "hermit"      # the models.json provider a bound model is given under
 PI_SETTINGS = {"cacheWarming": "off",                    # no provider requests besides the session's own
                "enableInstallTelemetry": False}
+PI_COMMAND_TIMEOUT_S = 600  # a bash command's limit when the model gives none (command_timeout_s; Pi's own: none)
+PI_COMMAND_LIMIT = """\
+// Hermit's: a bash command the model gave no time limit stops after {seconds} s (Pi's own default is none).
+export default function (pi) {{
+  pi.on("tool_call", async (event) => {{
+    if (event.toolName === "bash" && !(event.input.timeout > 0)) event.input.timeout = {seconds};
+  }});
+}}
+"""
+PI_PARAMS = ("provider", "image_input", "command_timeout_s")     # a Pi session's settings a method passes on
+# The provider's status in Pi's report of a failed request: "503: {...}" or "503 status code (no body)" from chat
+# completions, "503 {...}" from the Messages API, "<provider> API error (503): ..." from the Responses API
+PI_STATUS = re.compile(r"^(\d{3})\b|API error \((\d{3})\)")
+# A provider's stop reason for an answer it declined, as Pi keeps it (rawStopReason): "refusal" or "sensitive" from the
+# Messages API, "content_filter" from chat completions, "incomplete.content_filter" from the Responses API
+PI_REFUSALS = ("refusal", "content_filter", "sensitive")
 
 
 class Pi(CliAgent):
     """Pi (`pi --mode json`). Its home is its agent directory (PI_CODING_AGENT_DIR) and its HOME, offline (no catalog,
     update or download requests); a bound model is the models.json provider `hermit`, its key read by Pi from the
     backend's variable; the call's tools are an MCP server whose tools the model is offered directly. Pi reports a
-    failed request in its stream and exits 0: whether the session failed is read from the stream (`outcome`)."""
+    failed request in its stream and exits 0: whether the session failed is read from the stream (`outcome`). Pi's
+    bash has no time limit of its own: a command the model gives none stops after `command_timeout_s` (600 s; 0 for
+    none)."""
     name = backend = program = "pi"
     label = "Pi"
     home_var, user_folder = "PI_CODING_AGENT_DIR", ".pi/agent"
     home_files = ("auth.json",)
     turn_done = "agent_settled"
+    efforts = ("off", "minimal", "low", "medium", "high", "xhigh", "max")   # --thinking's levels; it ignores others
+    sampling = ("temperature", "top_p")     # request fields a session applies (models.json samplingParams)
+
+    def applied_fields(self) -> tuple[str, ...]:
+        """The request fields a session applies (the chat endpoint's contract_problems): a bound model's sampling
+        fields, which Pi sends to an OpenAI-compatible API as the model's samplingParams; the Messages API ignores
+        them, so there a request that asks for one is refused, as on the other CLIs."""
+        api = (self.settings.get("provider") or {}).get("api")
+        return self.sampling if api in ("openai-completions", "openai-responses") else ()
+
+    @classmethod
+    def effort_problem(cls, effort, provider: dict | None) -> str | None:
+        """Why a session could not send `effort` as given, or None: a level --thinking does not take (the CLI would
+        warn and go on at its default), or xhigh or max for a bound model on the Messages API, which Pi gives high's
+        thinking budget. On an OpenAI-compatible API both are sent as named (prepare_home maps them)."""
+        if not effort:
+            return None
+        if effort not in cls.efforts:
+            return f"Pi takes effort {', '.join(cls.efforts)}, not {effort!r}"
+        if effort in ("xhigh", "max") and (provider or {}).get("api") == "anthropic-messages":
+            return f"Pi gives a model on the Messages API high's thinking budget for effort {effort}: take high or lower"
+        return None
 
     def home_env(self, home):
         """Every variable Pi reads goes here, so that it passes the sandbox's filter: its agent directory, its HOME
@@ -1373,8 +1418,8 @@ class Pi(CliAgent):
 
     def prepare_home(self, home, roles, tools_url, tools_name):
         """models.json (the bound model), mcp.json (the call's tools, offered directly rather than through Pi's code
-        mode) and settings.json. No host path is written in them: a sandbox translates only the command, the
-        environment and the prompt."""
+        mode), settings.json and the extension that limits a command's time. No host path is written in them: a
+        sandbox translates only the command, the environment and the prompt."""
         if roles:
             raise Unsupported("pi has no sub-agents: it takes no roles")
         s = self.settings
@@ -1382,18 +1427,44 @@ class Pi(CliAgent):
         (home / "models.json").unlink(missing_ok=True)
         if s.get("provider"):
             provider = json.loads(json.dumps(s["provider"]))
-            if s.get("effort") and s["effort"] != "off":          # --thinking applies to a reasoning model only
-                for model in provider.get("models") or []:
+            effort = s.get("effort")
+            problem = self.effort_problem(effort, provider)
+            if problem:
+                raise Unsupported(problem)
+            for model in provider.get("models") or []:
+                if effort and effort != "off":                    # --thinking applies to a reasoning model only
                     model["reasoning"] = True
-            if s.get("image_input"):          # else Pi sends the model no image (a text-only model refuses them)
-                for model in provider.get("models") or []:
+                if effort in ("xhigh", "max") and provider.get("api") in ("openai-completions", "openai-responses"):
+                    # sent as named: a model with no map of its own, Pi takes either for high
+                    model["thinkingLevelMap"] = {**(model.get("thinkingLevelMap") or {}), effort: effort}
+                if s.get("image_input"):      # else Pi sends the model no image (a text-only model refuses them)
                     model["input"] = ["text", "image"]
+                # A request's own sampling (cli_answer) over the backend's extra_body; the session's effort over the
+                # extra_body's, as a call's fields win on the direct client (Pi applies samplingParams last)
+                sampling = {**(model.get("samplingParams") or {}), **(s.get("sampling") or {})}
+                if effort:
+                    sampling.pop("reasoning_effort", None)
+                if sampling:
+                    model["samplingParams"] = sampling
+                else:
+                    model.pop("samplingParams", None)
             (home / "models.json").write_text(json.dumps({"providers": {PI_PROVIDER: provider}}, indent=1))
         # A tool call may take minutes (a Trainer tool runs rollouts): Codex's tool_timeout_sec, not Pi's 60 s
         servers = {tools_name: {"url": tools_url, "exposure": "direct", "timeout": 1800}} if tools_url else {}
         for name, data in (("mcp.json", {"mcpServers": servers}), ("settings.json", PI_SETTINGS)):
             _clear(home / name)
             (home / name).write_text(json.dumps(data, indent=1))
+        # Pi's bash runs a command until it ends unless the model gives it a limit (Claude Code's Bash stops one
+        # after 2 minutes): an extension where Pi finds its own gives the others command_timeout_s, so one command
+        # that never ends (a search of the whole disk) costs that, not the caller's whole limit. The folder is
+        # Hermit's alone: what a session left in it is not loaded again.
+        limit = float(s.get("command_timeout_s", PI_COMMAND_TIMEOUT_S) or 0)      # 0 or None: no limit
+        folder = home / "extensions"
+        _clear(folder)                        # a directory or a link
+        folder.unlink(missing_ok=True)        # a file
+        if limit > 0:
+            folder.mkdir()
+            (folder / "hermit-command-limit.js").write_text(PI_COMMAND_LIMIT.format(seconds=format(limit, "g")))
 
     @classmethod
     def web_search_args(cls, enabled: bool) -> list[str]:
@@ -1437,11 +1508,28 @@ class Pi(CliAgent):
 
     def outcome(self, raw, stream, last_file):
         """Pi's JSON mode exits 0 however the session ended: one that did not settle, aborted, or whose last request
-        failed, was aborted or was cut at the output limit (Pi's text mode exits 1 for each) has failed."""
+        failed, was aborted or was cut at the output limit (Pi's text mode exits 1 for each) has failed, and so has a
+        session that was to have no tools and ran one. A provider's outage or rate limit is `unavailable` (retried);
+        a status no retry can help (a bad request, a key the provider refused) is `rejected`, and so is an answer the
+        model declined (a refusal, a content filter), which is also `model_refusal`, as on Claude Code."""
         notes, done = self.notices(raw), self.served(raw)
-        cut = self._last_assistant(raw).get("stopReason") == "length"
-        return {"reply": self.last_message(stream, last_file), "served": done,
-                "unavailable": bool(UNAVAILABLE.search(notes)), "refused": False, "failed": not done or cut,
+        last = self._last_assistant(raw)
+        cut = last.get("stopReason") == "length"
+        if self.settings.get("text_only") and any(e.get("type") == "tool_execution_start" for e in _objects(raw)[0]):
+            notes, done = "the session was to have no tools, and it ran one", False
+        # the model declined: no retry helps, and the request, answered, has no status (its words are the provider's)
+        refusal = not done and str(last.get("rawStopReason") or "").split(".")[-1] in PI_REFUSALS
+        found = None if refusal else PI_STATUS.search(str(last.get("errorMessage") or ""))
+        code = int(found.group(1) or found.group(2)) if found else None      # the last request's: it decides
+        if code is not None:
+            unavailable = code == 429 or code >= 500
+        else:       # no status: a refusal, or a dropped connection, which Pi retries until it passes or it gives up
+            unavailable = not refusal and any(e.get("type") == "auto_retry_end" and not e.get("success")
+                                              for e in _objects(raw)[0])
+        rejected = not done and (refusal or code is not None and 400 <= code < 500 and code not in (408, 409, 429))
+        return {"reply": self.last_message(stream, last_file), "served": done, "unavailable": unavailable,
+                "refused": False, "rejected": rejected, "model_refusal": refusal, "failed": not done or cut,
+                "finish_reason": "length" if cut else ("stop" if done else None),
                 "failure": (notes or ("the reply was cut at its output limit" if cut else "the session did not settle")
                             )[-600:]}
 
@@ -1473,8 +1561,24 @@ class Pi(CliAgent):
     def steps(cls, stream):
         return pi_steps(stream)
 
+    def _access(self, tools_url) -> list[str]:
+        """What a limited session may use: with `text_only` nothing but its prompt; with `allowed_tools` those of Pi's
+        own tools and the call's, which an allow-list would otherwise drop."""
+        s = self.settings
+        if s.get("text_only"):
+            return ["--no-tools", "--no-mcp", "--no-extensions", "--no-skills", "--no-prompt-templates",
+                    "--no-context-files"]
+        names = s.get("allowed_tools")
+        if names is None:
+            return []
+        if not names:
+            return ["--no-builtin-tools"]
+        return ["--tools", ",".join([*names, *([f"mcp__{s.get('tools_name') or 'hermit_tools'}__*"] if tools_url else [])])]
+
     def command(self, prompt, workspace, last_file, *, session=None, roles=(), tools_url=None):
         s, home = self.settings, last_file.parent                      # the session's home
+        if s.get("effort") and s["effort"] not in self.efforts:        # the CLI would warn and go on at its default
+            raise Unsupported(f"Pi takes effort {', '.join(self.efforts)}, not {s['effort']!r}")
         system = s.get("append_system_prompt")
         if system and len(str(system).encode()) > ARG_MAX:               # too long for one argument
             _clear(home / "append_system.md")
@@ -1486,7 +1590,8 @@ class Pi(CliAgent):
                 *(["--model", s["model"]] if s.get("model") else []),
                 *(["--thinking", s["effort"]] if s.get("effort") else []),
                 *(["--append-system-prompt", system] if system else []),
-                *self.web_search_args(bool(s.get("web_search"))),
+                *self.web_search_args(bool(s.get("web_search"))), *self._access(tools_url),
+                *(["--no-session"] if s.get("persist_session") is False else []),
                 *(["--session", str(resume)] if resume else []), *(s.get("args") or []),
                 *([] if s.get("stdin") else ["--", prompt])]
 

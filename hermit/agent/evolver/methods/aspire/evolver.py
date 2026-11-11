@@ -1,6 +1,6 @@
 """AspireEvolver: the coordinator of ASPIRE (Agentic Skills Discovery for Robotics; arXiv:2607.00272, §2.2 and §2.4;
 github.com/NVlabs/ASPIRE, `.claude/skills/iterative-debugging/main-agent-prompt.md`) as an Evolver on the `aspire`
-template: a Codex (or Claude Code) session, as the built-in agent Evolvers run it, given the guide's own sections on
+template: a Codex (or Claude Code or Pi) session, as the built-in agent Evolvers run it, given the guide's own sections on
 updating skills, dispatching verifiers and choosing the curriculum (COORDINATOR.md).
 
 In ASPIRE a coordinator agent dispatches one fix-loop subagent per robot task, runs its Stage 2 evaluation, updates

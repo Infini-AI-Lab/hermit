@@ -665,7 +665,7 @@ def test_a_cli_llm_is_left_to_the_trainer_and_bound_when_its_model_is_a_referenc
     normalize_config(data)
     assert data["llm"]["binding"] and any("model_provider" in a for a in data["llm"]["args"])
     with pytest.raises(ValueError, match="llm.cli must be codex"):
-        normalize_config({"llm": {"cli": "pi"}, "agent": {}})
+        normalize_config({"llm": {"cli": "aider"}, "agent": {}})
 
 
 def test_a_fresh_home_is_not_in_the_temporary_directory(tmp_path, monkeypatch):
