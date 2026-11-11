@@ -39,8 +39,14 @@ scripts/bootstrap_libero.sh                 # .venv-libero, third_party/LIBERO-P
 scripts/bootstrap_graspnet.sh               # .venv-graspnet: Contact-GraspNet, LIBERO's default grasp backend
 ```
 
-Serve Contact-GraspNet on 8115 beside the other three (`scripts/supervise_services.sh --providers graspnet`). The
-launcher does not check that port: without the service `generate_grasps` has no backend to call.
+Serve Contact-GraspNet on 8115 beside the other three (`scripts/supervise_services.sh --providers
+contact_graspnet`). The launcher does not check that port: without the service `generate_grasps` has no backend to
+call.
+
+Use SAM3 for segmentation here, not the Robosuite example's stand-in. LIBERO's Object scenes hold several similar
+packages, and the stand-in grounds every soup-can phrase on the tomato sauce can: ASPIRE's
+`examples/libero/object_swap_seed1.py` on `libero_object:0`, seeds 1-3, scores 3/3 with SAM3 and 0/3 with the
+stand-in.
 
 ## Run
 
