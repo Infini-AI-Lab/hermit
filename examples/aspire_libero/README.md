@@ -22,8 +22,9 @@ Profiles):
 - `--init-mode seeded` on every run, the actor's and the judge's, so that each seed is a scene of its own (the
   default restores one of a task's 50 saved states, and seeds past 50 would repeat them);
 - ASPIRE's LIBERO seeds: development 51-65, unseen-check 66-80, held-out 1-50, the verifier's 51-55;
-- `docs/libero-pro.md` in the actor's workspace, without its "Task examples" section, which names ASPIRE's worked
-  programs per task (one of them a LIBERO-90 task).
+- `docs/libero-pro.md` in the actor's workspace without its "Task examples" section, which names ASPIRE's worked
+  programs per task (one of them a LIBERO-90 task). The task sandbox is shown the staged copy only, not the
+  checkout's page; a page without that section is refused rather than passed whole.
 
 ASPIRE's own LIBERO results are on LIBERO-Pro's perturbed suites (`libero_*_swap`, `libero_*_task`), not on these.
 

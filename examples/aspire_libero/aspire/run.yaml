@@ -19,6 +19,7 @@ agent:
     answer: ../../aspire_robosuite/utils/agent/task.py:answer
     collect: ../../aspire_robosuite/utils/agent/task.py:collect
     aspire_root: $ASPIRE_ROOT
+    aspire_docs: $ASPIRE_DOCS
   model: {ref: fireworks/accounts/fireworks/models/glm-5p3-flash, effort: medium}
   codex:
     web_search: false
@@ -29,9 +30,7 @@ agent:
 environment:                        # the task sandbox: the actor's code, ASPIRE's prompts and docs, nothing else of it
   read:
     - ../../aspire_robosuite/utils/agent   # the engine's task functions, bin/sim's client, the prompt pages
-    - $ASPIRE_ROOT/docs/api-reference.md
-    - $ASPIRE_ROOT/docs/run-artifacts.md
-    - $ASPIRE_ROOT/docs/libero-pro.md
+    - $ASPIRE_DOCS                    # ASPIRE's docs as staged by launch.sh: nothing that names its worked programs
     - $ASPIRE_ROOT/.claude/skills/iterative-debugging/subagent-prompt.md
     - $ASPIRE_ROOT/.claude/skills/iterative-debugging/verifier-prompt.md
     - $ASPIRE_ROOT/.claude/skills/iterative-debugging/scripts/scene_snapshot.py

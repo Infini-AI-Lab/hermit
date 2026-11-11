@@ -10,7 +10,7 @@
 #   ASPIRE_SIM_ENV=/path/to/sim_env.yaml ./launch.sh              # the simulator's render environment (a YAML map)
 #   ASPIRE_SIM_GPU=8 ./launch.sh                                  # its GPUs, the N of /dev/nvidia<N> (none: software)
 #   ASPIRE_OUT=/big/disk/aspire ./launch.sh                       # the runs, the sessions, Stage 2 (default ../runs)
-#   ASPIRE_EVAL_SEEDS=1-50 ./launch.sh                            # held-out seeds other than ASPIRE's 1-100
+#   ASPIRE_EVAL_SEEDS=1-50 ./launch.sh                            # held-out seeds other than the preset's
 #
 # The launcher writes the seeds into the task rows (prepare.py; ASPIRE_SEEDS=smoke for the smoke's), starts the
 # simulator service the actors reach through bin/sim (utils/agent/sim_service.py, on ASPIRE_SIM_PORT, default 8120;
@@ -56,6 +56,11 @@ PRESET="${ASPIRE_SEEDS:-$([[ "${CONFIG##*/}" == smoke* ]] && echo smoke || echo 
 SEEDS=(--preset "$PRESET")
 [[ -z "${ASPIRE_EVAL_SEEDS:-}" ]] || SEEDS+=(--eval "$ASPIRE_EVAL_SEEDS")
 (cd ../utils && "$HERMIT" prepare.py "${SEEDS[@]}")
+# ASPIRE's docs as the actors may read them, outside its checkout: the task sandbox is shown these, not the
+# checkout's pages, which name ASPIRE's worked programs per task.
+export ASPIRE_DOCS="$EXAMPLE/utils/aspire-docs"
+"$HERMIT" "$HERE/../utils/agent/stage_docs.py" --aspire-root "$ASPIRE_ROOT" --tasks ../utils/tasks.jsonl \
+  --out "$ASPIRE_DOCS"
 
 # Where the runs go (ASPIRE_OUT): the trainer's records, the actors' sessions (their simulator runs' records and
 # traces; their images are pruned after scoring), the judge's Stage 2. Put it on a large disk.
@@ -89,8 +94,8 @@ export ASPIRE_SIM_URL="http://127.0.0.1:$PORT"
 
 MODE=train
 if [[ "${1:-}" == train || "${1:-}" == eval ]]; then MODE="$1"; shift; fi
-EXTRA=()
-[[ "$CONFIG" == *_direct* ]] && EXTRA=("agent.params.sim_env=$SIM_ENV_JSON")
+if [[ "$CONFIG" == *_direct* ]]; then EXTRA=("agent.params.sim_env=$SIM_ENV_JSON")
+else EXTRA=("agent.params.aspire_docs=$ASPIRE_DOCS"); fi
 "$HERMIT" -m hermit.cli "$MODE" --config "$CONFIG" "agent.params.aspire_root=$ASPIRE_ROOT" \
   "agent.params.logs=$OUT/actor-logs" "trainer.output_dir=$OUT" \
   "trainer.tree_dir=$OUT/trees/$(basename "$CONFIG" .yaml)" "${EXTRA[@]}" "$@"

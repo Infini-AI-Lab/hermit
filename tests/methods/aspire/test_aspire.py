@@ -520,6 +520,43 @@ def test_a_libero_task_runs_on_its_own_venv_seeded_with_its_own_docs(tmp_path, s
     assert "LIBERO_CONFIG_PATH" not in env
 
 
+def test_the_task_sandbox_is_shown_the_staged_docs_and_never_a_page_that_lost_its_cut(tmp_path, service):
+    """ASPIRE's benchmark pages name its worked programs per task: an actor that could read one would be handed
+    a strategy for its task. The configs grant the staged copies only, and a page without its cut is refused."""
+    T = _task_module()
+    root = tmp_path / "ASPIRE"
+    (tmp_path / "rows.jsonl").write_text(json.dumps(ROW) + "\n" + json.dumps(LIBERO_ROW) + "\n")
+    staged = tmp_path / "staged"
+    done = subprocess.run([sys.executable, str(EXAMPLE / "agent" / "stage_docs.py"), "--aspire-root", str(root),
+                           "--tasks", str(tmp_path / "rows.jsonl"), "--out", str(staged)],
+                          capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert sorted(p.name for p in staged.iterdir()) == ["api-reference.md", "libero-pro.md", "robosuite.md",
+                                                        "run-artifacts.md"]
+    assert all("examples/" not in p.read_text() and "microwave" not in p.read_text() for p in staged.iterdir())
+    (staged / "libero-pro.md").write_text("# the staged page\n")
+    work = _workspace(service, LIBERO_ROW)
+    T.prepare(LIBERO_ROW, work, {"aspire_root": str(root), "aspire_docs": str(staged)}, tmp_path)
+    assert (work / "docs" / "libero-pro.md").read_text() == "# the staged page\n"     # the staged copy, as it is
+    (root / "docs" / "libero-pro.md").write_text("# LIBERO-Pro\n\n## Worked programs\n| `close_microwave.py` |\n")
+    with pytest.raises(ValueError, match="Task examples"):
+        _sim_module().workspace_docs(root, "libero-pro")
+    # No Codex config of either example grants a page of the checkout's own docs, and each loads
+    from hermit.config import Config
+    configs = [p for folder in (EXAMPLE.parent, LIBERO) for p in sorted((folder / "aspire").glob("*.yaml"))]
+    assert len(configs) == 7
+    for path in configs:
+        data = Config.load(path).data
+        read = [str(p) for p in (data.get("environment") or {}).get("read") or []]
+        assert not any("/docs/" in p for p in read), path
+        if "_direct" not in path.name:
+            assert "$ASPIRE_DOCS" in read and data["agent"]["params"]["aspire_docs"] == "$ASPIRE_DOCS", path
+        for key in ("train", "val", "test"):                    # the splits prepare.py writes
+            name = Path(data["data"][key]).name
+            assert name in {"all.txt", "rerun.txt", "verify.txt", "smoke.txt", "smoke_rerun.txt", "libero.txt",
+                            "libero_rerun.txt", "libero_90.txt", "libero_90_rerun.txt"}, (path, name)
+
+
 def test_the_engine_takes_the_benchmarks_venv_and_refuses_one_it_does_not_run(tmp_path):
     sim = _sim_module()
     root = fake_aspire(tmp_path)

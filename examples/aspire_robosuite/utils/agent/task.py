@@ -10,8 +10,8 @@ host, as the simulator service (sim_service.py), which the session reaches only 
     collect  the actor's files into the log, and the facts the judge and the coordinator read: findings, skill report,
              the selected program (fix_code.py, or the evolutionary search's best); the judge runs Stage 2 on it
 
-ASPIRE's checkout comes from agent.params.aspire_root (its prompt templates, docs and snapshot program must be
-declared readable: environment.read); the service's URL from ASPIRE_SIM_URL (environment.env). A task row carries the
+ASPIRE's checkout comes from agent.params.aspire_root (its prompt templates and snapshot program must be
+declared readable: environment.read; its docs are read from agent.params.aspire_docs, the staged copies); the service's URL from ASPIRE_SIM_URL (environment.env). A task row carries the
 seeds: development, unseen-check and held-out (utils/prepare.py).
 """
 from __future__ import annotations
@@ -32,10 +32,10 @@ import sim  # noqa: E402
 TEMPLATES = {"actor": "subagent-prompt.md", "verifier": "verifier-prompt.md"}
 SKILLS = Path(".claude/skills/iterative-debugging")
 EVOSEARCH = Path(".claude/skills/evosearch")
-DOCS = ("api-reference.md", "run-artifacts.md")           # and the benchmark's own page (sim.PROFILES: `doc`)
-# The files of ASPIRE's checkout the task sandbox shows (environment.read): its prompts, docs and snapshot program;
-# not its shipped library, worked solutions or examples
-ASPIRE_FILES = [*(f"docs/{d}" for d in (*DOCS, *(p["doc"] for p in sim.PROFILES.values()))), str(SKILLS / "subagent-prompt.md"), str(SKILLS / "verifier-prompt.md"),
+# The files of ASPIRE's checkout the task sandbox shows (environment.read): its prompts and snapshot program; not
+# its shipped library, worked solutions or examples, nor its docs, which the sandbox is shown as staged
+# (agent.params.aspire_docs: stage_docs.py's copies, without what names the worked programs)
+ASPIRE_FILES = [ str(SKILLS / "subagent-prompt.md"), str(SKILLS / "verifier-prompt.md"),
                 str(SKILLS / "scripts" / "scene_snapshot.py"), str(SKILLS / "skills" / "task-exploration.md"),
                 str(EVOSEARCH / "subagent-prompt.md"), str(EVOSEARCH / "skills" / "evosearch-iteration.md")]
 # The workspace files the log keeps (the run directories stay in the workspace)
@@ -72,15 +72,13 @@ def prepare(task: dict, workspace: Path, params: dict, base: Path) -> list[dict]
     wrapper.write_text(f"#!/bin/sh\nexec {shlex.quote(sys.executable)} \"$(dirname \"$0\")/sim_cli.py\" \"$@\"\n")
     wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     (work / "docs").mkdir(exist_ok=True)
-    cut = sim.profile(s["benchmark"])["cut"]
-    for name in (*DOCS, s["doc"]):
-        # the repository's worked programs are not the actor's to read: drop the lines that name them, and the
-        # benchmark page's section that lists them per task
-        text = (s["root"] / "docs" / name).read_text()
-        if name == s["doc"] and cut and f"\n{cut}" in text:
-            text = text.split(f"\n{cut}", 1)[0] + "\n"
-        (work / "docs" / name).write_text("".join(line for line in text.splitlines(keepends=True)
-                                                  if "examples/" not in line))
+    # The repository's worked programs are not the actor's to read: the docs are the staged copies (launch.sh:
+    # stage_docs.py), or, where the checkout's own pages are what the sandbox shows, the same cut made here
+    staged = params.get("aspire_docs")
+    pages = {name: (Path(os.path.expandvars(str(staged))).expanduser() / name).read_text()
+             for name in (*sim.DOCS, s["doc"])} if staged else sim.workspace_docs(s["root"], s["benchmark"])
+    for name, text in pages.items():
+        (work / "docs" / name).write_text(text)
     shutil.copy2(s["root"] / SKILLS / "skills" / "task-exploration.md", work / "docs" / "task-exploration.md")
     shutil.copy2(s["root"] / EVOSEARCH / "skills" / "evosearch-iteration.md", work / "docs" / "evosearch-iteration.md")
     (work / "scripts").mkdir(exist_ok=True)

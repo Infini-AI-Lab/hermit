@@ -65,7 +65,8 @@ PROVIDER_PORTS = (8114, 8115, 8116, 8118)
 # the runs ASPIRE's own CLI leaves (outputs/, their programs' sources), and its git history, which holds them all
 # (cap-harness runs from src/, third_party/, assets/, configs/ and the venvs; without git it records no commit in a
 # run's provenance)
-HIDDEN = ("examples", ".claude", ".agents", ".codex", "tests", "outputs", ".git")
+HIDDEN = ("examples", ".claude", ".agents", ".codex", "tests", "outputs", ".git",
+          "third_party/LIBERO-PRO/libero/datasets")              # LIBERO's demonstrations, when downloaded
 
 # What differs between ASPIRE's benchmarks (its fix-loop template's "Benchmark Profiles"): the venv that holds
 # cap-harness, the init mode every run uses (LIBERO: `seeded`, so each seed is a scene of its own rather than one of
@@ -96,6 +97,28 @@ def harness(root: Path, benchmark) -> tuple[Path, Path]:
 
 def profile_env(root: Path, benchmark) -> dict:
     return {k: v.format(root=root) for k, v in profile(benchmark)["env"].items()}
+
+
+# ASPIRE's pages every actor reads, besides its benchmark's own (PROFILES: `doc`)
+DOCS = ("api-reference.md", "run-artifacts.md")
+
+
+def workspace_docs(root: Path, benchmark) -> dict[str, str]:
+    """ASPIRE's docs as an actor may read them, by file name: the lines that name the repository's worked programs
+    dropped, and the benchmark's page cut where it lists them per task. A page whose cut is not found is refused
+    rather than passed whole (another ASPIRE commit may have moved it)."""
+    chosen = profile(benchmark)
+    out = {}
+    for name in (*DOCS, chosen["doc"]):
+        text = (Path(root) / "docs" / name).read_text()
+        if name == chosen["doc"] and chosen["cut"]:
+            head, found, _ = text.partition(f"\n{chosen['cut']}")
+            if not found:
+                raise ValueError(f"{Path(root) / 'docs' / name} has no '{chosen['cut']}' section to cut: the page "
+                                 "is not passed to the actor whole (it may name worked solutions)")
+            text = head + "\n"
+        out[name] = "".join(line for line in text.splitlines(keepends=True) if "examples/" not in line)
+    return out
 
 
 def init_args(benchmark) -> list[str]:
