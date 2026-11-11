@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[3]
 TEMPLATE = ROOT / "hermit" / "adapter" / "templates" / "aspire"
 EXAMPLE = ROOT / "examples" / "aspire_robosuite" / "utils"
 LIBERO = ROOT / "examples" / "aspire_libero"         # LIBERO on the same engine: its own tasks and configs
+LIBERO_PRO = ROOT / "examples" / "aspire_libero_pro"   # LIBERO-Pro, likewise
 
 ENTRY = """## Re-localize after the approach
 **Failure signature.** The gripper closes on air: the cube moved when the arm passed over it.
@@ -543,8 +544,8 @@ def test_the_task_sandbox_is_shown_the_staged_docs_and_never_a_page_that_lost_it
         _sim_module().workspace_docs(root, "libero-pro")
     # No Codex config of either example grants a page of the checkout's own docs, and each loads
     from hermit.config import Config
-    configs = [p for folder in (EXAMPLE.parent, LIBERO) for p in sorted((folder / "aspire").glob("*.yaml"))]
-    assert len(configs) == 8
+    configs = [p for folder in (EXAMPLE.parent, LIBERO, LIBERO_PRO) for p in sorted((folder / "aspire").glob("*.yaml"))]
+    assert len(configs) == 12
     for path in configs:
         data = Config.load(path).data
         read = [str(p) for p in (data.get("environment") or {}).get("read") or []]
@@ -554,7 +555,8 @@ def test_the_task_sandbox_is_shown_the_staged_docs_and_never_a_page_that_lost_it
         for key in ("train", "val", "test"):                    # the splits prepare.py writes
             name = Path(data["data"][key]).name
             assert name in {"all.txt", "rerun.txt", "verify.txt", "smoke.txt", "smoke_rerun.txt", "libero.txt",
-                            "libero_rerun.txt", "libero_90.txt", "libero_90_rerun.txt"}, (path, name)
+                            "libero_rerun.txt", "libero_90.txt", "libero_90_rerun.txt", "long.txt",
+                            "long_rerun.txt"}, (path, name)
 
 
 def test_the_engine_takes_the_benchmarks_venv_and_refuses_one_it_does_not_run(tmp_path):
@@ -580,6 +582,15 @@ def test_the_libero_tasks_are_liberos_five_suites_with_aspires_seeds():
     assert P.seeds_from(P.PRESETS, ["--preset", "smoke", "--eval", "1-5"])[0]["eval_seeds"] == "1-5"
     with pytest.raises(SystemExit):
         P.seeds_from(P.PRESETS, ["--eval", "1-60"])              # held-out seeds a session could run
+
+
+def test_the_libero_pro_tasks_are_aspires_eighty_and_a_swap_and_a_task_suite_share_no_id():
+    P = _load("aspire_libero_pro_prepare", LIBERO_PRO / "utils" / "prepare.py")
+    assert len(P.SUITES) == 8 and len(set(P.SUITES)) == 8 and P.TASKS_PER_SUITE == 10
+    assert {s.rsplit("_", 1)[1] for s in P.SUITES} == {"swap", "task"}
+    ids = [f"{suite}-t{n:02d}" for suite in P.SUITES for n in range(P.TASKS_PER_SUITE)]
+    assert len(set(ids)) == 80                                  # the two perturbations share their task ids
+    assert P.seeds_from(P.PRESETS, [])[0] == {"debug_seeds": "51-65", "unseen_seeds": "66-80", "eval_seeds": "1-50"}
 
 
 def test_a_session_cannot_forge_a_registration_for_more_seeds(tmp_path, service):

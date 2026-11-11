@@ -28,6 +28,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- ASPIRE on LIBERO-Pro (`examples/aspire_libero_pro/`): the eighty LIBERO-Pro tasks ASPIRE reports on (the `_swap`
+  and `_task` perturbations of Object, Spatial, Goal and Long), on the engine and LIBERO settings of
+  `examples/aspire_libero/`; training, LIBERO-Long-Pro and smoke configs.
 - ASPIRE on LIBERO (`examples/aspire_libero/`): LIBERO's Object, Spatial, Goal, Long and LIBERO-90 suites as tasks
   of ASPIRE's harness, on the Robosuite example's engine, which now takes a task row's `benchmark` and with it the
   venv, the init mode (`seeded` for LIBERO), the environment and the docs page; training, LIBERO-90 and smoke configs.
