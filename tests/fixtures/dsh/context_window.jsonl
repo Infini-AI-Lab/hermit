@@ -1,0 +1,7 @@
+{"type":"session","sessionId":"session-483b5af4-c1a2-46d9-b2d7-68a9b00a6a7a","cwd":"/tmp/r4/work"}
+{"type":"status","phase":"turn_start","turn":1}
+{"type":"status","phase":"step_start","turn":1,"step":1}
+{"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":0,"outputTokens":0,"totalTokens":0}}
+{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"error","error":{"message":"400: {\"object\":\"error\",\"message\":\"This model's maximum context length is 32768 tokens. However, you requested 128743 tokens (743 in the messages, 128000 in the completion). Please reduce the length of the messages or completion.\",\"type\":\"BadRequestError\",\"param\":null,\"code\":400}","code":"CONTEXT_WINDOW_EXCEEDED"}}}
+{"type":"final","sessionId":"session-483b5af4-c1a2-46d9-b2d7-68a9b00a6a7a","reason":{"kind":"error","error":{"message":"400: {\"object\":\"error\",\"message\":\"This model's maximum context length is 32768 tokens. However, you requested 128743 tokens (743 in the messages, 128000 in the completion). Please reduce the length of the messages or completion.\",\"type\":\"BadRequestError\",\"param\":null,\"code\":400}","code":"CONTEXT_WINDOW_EXCEEDED"}},"text":""}
+dsh: CONTEXT_WINDOW_EXCEEDED: 400: {"object":"error","message":"This model's maximum context length is 32768 tokens. However, you requested 128743 tokens (743 in the messages, 128000 in the completion). Please reduce the length of the messages or completion.","type":"BadRequestError","param":null,"code":400}

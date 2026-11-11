@@ -36,7 +36,8 @@ import threading
 import time
 
 LOGINS = {"chatgpt": "codex", "claude": "claude"}             # a `login`: the CLI it signs in
-NO_LOGIN = ("pi", "mini-swe-agent", "opencode")   # the CLIs that sign in only through a <backend>/<model> reference
+# the CLIs that sign in only through a <backend>/<model> reference
+NO_LOGIN = ("pi", "mini-swe-agent", "opencode", "dsh")
 FILE = "auth.json"
 ROOT = Path.home() / ".cache" / "hermit" / "codex-login"      # the shared copy: ROOT/login/auth.json
 TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN"                         # the token of `claude setup-token`, the user's to export
@@ -604,15 +605,20 @@ def logins_of(data: dict, evolver_params: dict | None = None) -> list[tuple[str,
 
 
 def evolver_problems(params: dict | None) -> list[str]:
-    """What an agent Evolver's own sign-in cannot run, found before the first step rather than at each step's session
-    (after its rollouts): a login that is not its CLI's (`backend`), a Claude login with no model name to run."""
+    """What an agent Evolver's own sign-in or settings cannot run, found before the first step rather than at each
+    step's session (after its rollouts): a login that is not its CLI's (`backend`), a Claude login with no model name
+    to run, a dsh setting dsh refuses (cli.dsh_problems). `params` are the Evolver's as the Trainer gives them: its
+    method's own under the run's, the model bound."""
     params = params or {}
     login = params.get("login")
+    out = []
+    if params.get("backend") == "dsh":
+        from hermit.agent.base.cli import dsh_problems
+        out += dsh_problems(params, "evolver")
     if not login:
-        return []
+        return out
     own = LOGINS.get(login)
     backend = {"claude-code": "claude"}.get(params.get("backend"), params.get("backend"))
-    out = []
     if backend in NO_LOGIN:
         out.append(f"login: {login} is a Codex or Claude Code sign-in; the {backend} Evolver signs in through its "
                    "model reference (evolver.model: <backend>/<model>)")

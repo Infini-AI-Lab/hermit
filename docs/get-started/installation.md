@@ -103,7 +103,7 @@ python -m pip install "hermit-harness[mini-swe-agent]"
 |---|---|
 | [Offline first training](quickstart.md) | None beyond the core install |
 | [First real-model training](first-model.md) | `python -m pip install -e . --group gepa`, a compatible chat-completions endpoint, model id, and credential; data is included |
-| Generate a Codex / Claude Code / Pi / OpenCode workspace | No host CLI is needed until you start the host |
+| Generate a Codex / Claude Code / Pi / OpenCode / DeepSeek Harness workspace | No host CLI is needed until you start the host |
 | Act with, or deploy to, mini-swe-agent | The `mini-swe-agent` extra and a chat-completions model ([tutorial](../tutorials/mini-swe-agent.md)) |
 | Run an acting host | Installed and authenticated host, plus adapter tool dependencies |
 | Prompt-only learner | The Codex CLI, Linux with bubblewrap, and a learner backend that serves the Responses API |
@@ -116,6 +116,7 @@ python -m pip install "hermit-harness[mini-swe-agent]"
 | Acting and learning on a Claude subscription | Claude Code 2.1.248 or later, `claude setup-token`, Linux with bubblewrap for its sandboxes; see [Claude subscription](../guides/claude-subscription.md) |
 | Pi acting agent or learner | The `pi` release binary on `PATH` (GitHub release `pi-linux-x64.tar.gz`, checked against its `SHA256SUMS`) and a model reference. For a Pi acting agent put the release's directory on `PATH`, or link `pi` from outside `/usr`: its task sandbox shows a program's own directory and follows no link from `/usr` |
 | OpenCode acting agent or learner | The `opencode` 2.2 release binary on `PATH` (GitHub release `opencode-linux-x64.tar.gz` of `anomalyco/opencode`, checked against the release's sha256 digest) and a model reference |
+| DeepSeek Harness acting agent or learner | The `dsh` command on `PATH` (Node.js 24.9 or later, `npm install -g @deepseek-ai/dsh@0.2.2-rc.1`) and a model reference |
 | Benchmark recipe | Its dataset, scorer, model settings, and environment; see [catalog](../recipes/index.md) |
 
 Core installation and the deterministic tutorial work on macOS. The sandboxes (the acting agent's, the judge's, the

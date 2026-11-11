@@ -1,9 +1,10 @@
-"""The `codex`, `claude-code`, `pi`, `mini-swe-agent` and `opencode` agents: one task run by the agent CLI in a
+"""The `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode` and `dsh` agents: one task run by the agent CLI in a
 workspace the adapter is deployed into. They are the framework's one way to act with a coding-agent CLI; a task adds
 only what is its own.
 
     agent:
-      name: codex                            # or claude-code, pi, mini-swe-agent or opencode (`cli`: params.backend)
+      name: codex                            # or claude-code, pi, mini-swe-agent, opencode or dsh
+                                             # (`cli`: params.backend)
       params:
         model: gpt-5.4                       # optional: the CLI's default otherwise. A `<backend>/<model>` reference
                                              # (hermit.agent.model.backends) binds the CLI to that backend: its provider
@@ -72,7 +73,7 @@ from hermit.agent.base.interface import BaseAgent, Limits, LoginFailed, Mount, m
 from hermit.agent.base.login import LOGINS, NO_LOGIN
 from hermit.task import RunOutput, load_callable
 
-BACKENDS = ("codex", "claude", "pi", "mini-swe-agent", "opencode")
+BACKENDS = ("codex", "claude", "pi", "mini-swe-agent", "opencode", "dsh")
 DEPLOYS = ("host",)
 ISOLATIONS = ("none", "container")
 INPUT_FIELDS = ("question", "prompt", "instruction", "input", "query")
@@ -153,6 +154,9 @@ def deploy(adapter: Path, workspace: Path, backend: str, *, context: str | None 
     if backend == "opencode":
         from hermit.hosts.opencode import prepare as prepare_opencode
         return prepare_opencode(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
+    if backend == "dsh":
+        from hermit.hosts.dsh import prepare as prepare_dsh
+        return prepare_dsh(adapter, workspace, sys.executable, context=context)
     from hermit.hosts.claude_code import prepare
     return prepare(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
 
@@ -182,12 +186,15 @@ def _deploy(task: dict, adapter: Path | None, work: Path, backend: str, params: 
 def _session_args(backend: str, deployed: dict, work: Path) -> list[str]:
     """What the session needs to use what the deployment connected: the workspace's own Codex configuration (its
     tools, roles and hooks) trusted, as a person trusts a deployed project, and its sub-agents enabled; Pi's project
-    configuration (.pi/mcp.json, .pi/skills) trusted for the session (--approve), without which Pi skips it. OpenCode
-    loads its project's opencode.json and .opencode/skills with no trust step."""
+    configuration (.pi/mcp.json, .pi/skills) trusted for the session (--approve), without which Pi skips it; dsh's
+    patch layer of the adapter's tools (.dsh/hermit.patch.yml), which dsh loads only when it is named (--patch).
+    OpenCode loads its project's opencode.json and .opencode/skills with no trust step."""
     if backend == "pi":
         return ["--approve"]
     if backend == "opencode":
         return []
+    if backend == "dsh":
+        return ["--patch", str(deployed["patch"])] if deployed.get("patch") else []
     if backend == "codex":
         return ["-c", f'projects={{"{work}" = {{ trust_level = "trusted" }} }}',
                 *(["--enable", "multi_agent"] if deployed.get("roles") else [])]
@@ -294,11 +301,18 @@ def _check(backend: str, params: dict) -> str:
     if not isinstance(params.get("web_search"), bool):
         raise ValueError("agent.params.web_search must be set, true or false: Codex's hosted search runs at the "
                          "provider, past any sandbox or proxy, so it is never left to a default")
-    if backend in NO_LOGIN:                         # they sign in through a model reference, and run on this machine
+    # They sign in through a model reference (dsh: or its own provider), and run on this machine
+    if backend in NO_LOGIN:
         if params.get("login") is not None:
-            raise ValueError(f"agent {backend} takes no login: its model is a <backend>/<model> reference")
+            raise ValueError(f"agent {backend} takes no login: its model is a <backend>/<model> reference"
+                             + (", or a model of dsh's own provider" if backend == "dsh" else ""))
         if params.get("isolation") == "container":
             raise ValueError(f"isolation: container runs Codex or Claude Code; agent {backend} takes isolation: none")
+        if backend == "dsh" and params.get("permission_mode") is not None:
+            from hermit.agent.base.cli import DSH_PERMISSION_MODES
+            if params["permission_mode"] not in DSH_PERMISSION_MODES:
+                raise ValueError(f"agent.dsh.permission_mode is one of {', '.join(DSH_PERMISSION_MODES)} (dsh's own "
+                                 f"sandbox), not {params['permission_mode']!r}")
         return backend
     login, label = params.get("login"), {"codex": "Codex", "claude": "Claude Code"}[backend]
     if login is not None and login not in LOGINS:
@@ -329,6 +343,8 @@ def base_agent(backend: str, params: dict) -> BaseAgent:
                 if k in params and (params[k] is not None or k == "plan_max_wait_s")}
     if params.get("claude_permission_mode"):
         settings["permission_mode"] = params["claude_permission_mode"]
+    if backend == "dsh" and params.get("permission_mode"):    # dsh's own sandbox (agent.dsh.permission_mode)
+        settings["permission_mode"] = params["permission_mode"]
     return make(backend, {**settings, "web_search": params["web_search"]})
 
 

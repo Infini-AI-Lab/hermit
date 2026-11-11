@@ -1,0 +1,7 @@
+{"type":"session","sessionId":"session-23637470-e079-42ef-bbc7-7a40042ccad7","cwd":"/run/work"}
+{"type":"status","phase":"turn_start","turn":1}
+{"type":"status","phase":"step_start","turn":1,"step":1}
+{"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":0,"outputTokens":0,"totalTokens":0}}
+{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"error","error":{"message":"503: {\"message\":\"the service is unavailable\"}","code":"SERVER"}}}
+{"type":"final","sessionId":"session-23637470-e079-42ef-bbc7-7a40042ccad7","reason":{"kind":"error","error":{"message":"503: {\"message\":\"the service is unavailable\"}","code":"SERVER"}},"text":""}
+dsh: SERVER: 503: {"message":"the service is unavailable"}

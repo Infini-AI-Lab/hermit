@@ -1,0 +1,12 @@
+file:///opt/node/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js:4468
+		throw new Error(`${binName}: ${path} sets "${name}", which only the launching environment may set (it decides how this process starts, where its code and instructions load from, or how it reaches the network); ${remedy}`);
+		      ^
+
+Error: dsh: /run/dotenv/work/.env sets "PYTHONPATH", which only the launching environment may set (it decides how this process starts, where its code and instructions load from, or how it reaches the network); export PYTHONPATH instead of putting it in a .env file
+    at readEnvLayer (file:///opt/node/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js:4468:9)
+    at loadLayeredEnv (file:///opt/node/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js:4489:18)
+    at runCli (file:///opt/node/lib/node_modules/@deepseek-ai/dsh/lib/bin.js:216:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async file:///opt/node/lib/node_modules/@deepseek-ai/dsh/lib/bin.js:252:23
+
+Node.js v24.22.2

@@ -148,7 +148,7 @@ def make(tmp: Path, monkeypatch, steps: int = 2, deployment_param: bool = False)
     return path
 
 
-@pytest.mark.parametrize("name", ["react", "mini-swe-agent"])
+@pytest.mark.parametrize("name", ["react", "mini-swe-agent", "dsh"])
 def test_a_learner_on_a_cli_mwm_is_not_set_up_for_is_refused_at_setup(tmp_path, monkeypatch, name):
     """From the config through the Trainer: mwm's sessions are set up for Codex, Claude Code and Pi (each one's way to its
     model, home and sign-in). The run stops at setup, naming the backends it takes, before any step."""

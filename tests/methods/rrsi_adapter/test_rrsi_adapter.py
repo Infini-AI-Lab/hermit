@@ -840,7 +840,7 @@ def test_setup_checks_what_every_step_needs(tmp_path):
         ev.setup(context(ws, 1, dom, tmp_path, web_search=None))
     ev.setup(context(ws, 1, dom, tmp_path, backend="claude"))
     ev.setup(context(ws, 1, dom, tmp_path, backend="pi"))
-    for other in ("react", "mini-swe-agent"):                               # no way to keep its roles read-only
+    for other in ("react", "mini-swe-agent", "dsh"):                               # no way to keep its roles read-only
         with pytest.raises(ValueError, match=f"backend is codex, claude or pi, not '{other}'"):
             ev.setup(context(ws, 1, dom, tmp_path, backend=other))
     with pytest.raises(ValueError, match="roles.model on Pi needs roles.binding"):
