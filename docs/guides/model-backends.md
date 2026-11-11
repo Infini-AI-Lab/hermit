@@ -29,6 +29,7 @@ hermit train --config run.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8  
 | `evolver.params.model` of the `codex`, `claude` and `mwm` Evolvers | the learner's CLI session | Responses API / Messages API |
 | `agent.params.model` with `agent.name: pi`, `evolver.params.model` of the `pi` Evolver | Pi | chat completions, else the Messages API, else the Responses API: the first the backend serves |
 | `agent.params.model` with `agent.name: opencode`, `evolver.params.model` of the `opencode` Evolver | OpenCode | chat completions |
+| `agent.params.model` with `agent.name: dsh`, `evolver.params.model` of the `dsh` Evolver | DeepSeek Harness | chat completions, else the Messages API, else the Responses API: the first the backend serves |
 | `model` (top level) | the default for all of the above when they name none | |
 | the examples' task agents (`agent.params.model`, or the launchers' `MW_MODEL`) | CL-Bench's litellm host, ServeLearnBench's loop, the SkillOpt rollout | chat completions |
 
@@ -46,6 +47,17 @@ own `price`, else the backend's), not Pi's own figure. Pi sends such a model tex
 For OpenCode a reference becomes its config's provider `hermit` (OpenCode's OpenAI-compatible package): the
 backend's chat-completions URL and the key as `{env:VARIABLE}` (so no config holds the key). OpenCode runs a
 reference only; the cost recorded follows the price, not OpenCode's own figure.
+
+For DeepSeek Harness a reference becomes a provider `hermit` of its `llm-pi-ai` model plugin, in the patch layer the
+session is started with (an overlay of settings, loaded with `--patch`): the backend's URL and the name of the key's
+variable (DeepSeek Harness reads the key at each request, so no file holds it). `provider` in `agent.dsh` or
+`evolver.dsh` replaces the provider a reference makes with your own (`api`, the dialect as `openai-completions`,
+`anthropic-messages` or `openai-responses`; `baseURL`; `apiKeyEnv`; and `models`, a list of `{id: <the model's id>}`
+that must include the model); a sandbox lets through the reference's key and host, not yours. DeepSeek Harness reports
+no cost: the cost recorded follows the price (the agent's own `price`, else the backend's). As with Pi, set
+`image_input: true` in `agent.dsh` or `evolver.dsh` for a model that takes images. Declare the backend's
+`context_window` for DeepSeek Harness (with your own `provider`, `contextWindow` beside the model's `id`): without one
+it assumes 1,000,000 tokens and asks for up to 128,000 output tokens a request, which a smaller vLLM server refuses.
 
 A string whose first segment is no backend's name is not a reference: for a Codex or Claude Code agent it is a
 model of the CLI's own provider (`gpt-5.4`), as before. So a provider id that happens to start with a backend's
@@ -97,16 +109,17 @@ lab-sglang:                             # a new one, like the built-in sglang at
 | `litellm` | the litellm route prefix, for task agents that call through litellm (`fireworks_ai`, `hosted_vllm`) |
 | `prices` | per model id, `{input, cached_input, output}` in USD per million tokens; a model without one has an unknown cost (never zero) |
 | `extra_body` | fields added to every chat request, such as `reasoning_effort` |
-| `context_window` | tokens; Codex is told it as `model_context_window`, Claude Code as `CLAUDE_CODE_MAX_CONTEXT_TOKENS` |
+| `context_window` | tokens; Codex is told it as `model_context_window`, Claude Code as `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, DeepSeek Harness as its provider's `contextWindow` |
 | `developer_role` | `keep` (default), or `system`: a relay in front of the backend renames the `developer` role Codex uses, for an endpoint that refuses it (the built-in `fireworks` sets it, as the examples always did; Qwen3.6's chat template refuses a `system` message after the first, so a local server keeps the role) |
 | `models` | aliases: short names for model ids |
 | `from` | start from a copy of another backend (the examples put a metering relay in front of one this way); the copy keeps the source's key variable, and a copy at another `base_url` drops the source's `messages_url` |
 
 ## Dialects: what Codex and Claude Code need
 
-The framework's own client, the react agent and the examples' task agents speak **chat completions**, and so does Pi
-where the backend serves them, and OpenCode. Codex and Claude Code do not: **Codex speaks the OpenAI Responses API only**
-(`wire_api = "chat"` is rejected since Codex 0.95), and **Claude Code speaks the Anthropic Messages API only**. A
+The framework's own client, the react agent and the examples' task agents speak **chat completions**, and so do Pi and
+DeepSeek Harness where the backend serves them, and OpenCode. Codex and Claude Code do not: **Codex speaks the OpenAI
+Responses API only** (`wire_api = "chat"` is rejected since Codex 0.95), and **Claude Code speaks the Anthropic Messages
+API only**. A
 backend's `apis` says what it serves, and the framework checks a model's dialect against its backend before a run
 starts: `hermit check` reports it, `train` refuses to start on a mismatch, and `hermit backends check <ref>` sends
 one short request in each dialect (and lists `GET /models`) so a wrong claim shows up before anything is spent.

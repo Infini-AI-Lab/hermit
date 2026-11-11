@@ -73,7 +73,7 @@ with a control channel; today only the Lean collaboration run script plays that 
 `serve` is never typed by a user: it is the line `deploy` and `convert` write into the host's configuration, and
 the host starts it. The user-facing consumption commands stay two, `deploy` (into a project) and `convert` (into
 the agent). `serve` is host-agnostic by construction: it speaks MCP and nothing else, so the same process serves Codex,
-Claude Code, Pi, Hermes or a custom pipeline. Everything host-specific (where the command line goes, which plugin
+Claude Code, Pi, DeepSeek Harness, Hermes or a custom pipeline. Everything host-specific (where the command line goes, which plugin
 slot takes the context) stays in `deploy` and `convert`. With this section, `deploy` and `convert` reduce to
 copying context, skills and roles and writing the `command` line into the host's own format; `hermit check` can verify `health` before a run, and `serve` self-checks
 at start. The stdio `serve` command exists. The proposed health check, lifecycle switch, standalone launcher, and relay do not; the `tools` in `exports.yaml` and the current runtimes are available.

@@ -47,7 +47,7 @@ own tests under `examples/*/utils/tests/`) is:
 python -m pytest
 ```
 
-Tests marked `integration` run an agent CLI installed on the machine (`codex`, `claude`) and depend on its
+Tests marked `integration` run an agent CLI installed on the machine (`codex`, `claude`, `dsh`) and depend on its
 release; they run only with `--integration`.
 
 A pull request that adds or changes tests also answers the

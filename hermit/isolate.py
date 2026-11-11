@@ -186,6 +186,11 @@ def validate(config) -> None:
             if params["effort"] not in Claude.efforts:
                 raise ValueError(f"agent.model.effort is one of {', '.join(Claude.efforts)} for Claude Code, not "
                                  f"{params['effort']!r}")
+    if kind == "dsh":         # dsh's own settings, here too: else every session would be refused, one task at a time
+        from hermit.agent.base.cli import dsh_problems
+        problems = dsh_problems(params, "agent")         # the dsh Evolver's: login.evolver_problems, before its steps
+        if problems:
+            raise ValueError("; ".join(problems))
     if env.get("image"):
         if kind not in ("codex", "claude"):
             raise ValueError("environment.image runs a CLI acting agent (codex or claude) in a container: agent.base "

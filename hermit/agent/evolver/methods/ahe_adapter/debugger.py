@@ -195,7 +195,12 @@ STREAM_TEXTS = {"agent-pi.jsonl": (("agent-codex.jsonl", "agent-pi.jsonl"),
                                          ("the raw Codex event stream", "the raw OpenCode event stream"),
                                          ("the Codex event stream", "the OpenCode event stream"),
                                          ("`codex exec --json` event stream",
-                                          "`opencode run --format json` event stream"))}
+                                          "`opencode run --format json` event stream")),
+                "agent-dsh.jsonl": (("agent-codex.jsonl", "agent-dsh.jsonl"),
+                                    ("the raw Codex event stream", "the raw DeepSeek Harness event stream"),
+                                    ("the Codex event stream", "the DeepSeek Harness event stream"),
+                                    ("`codex exec --json` event stream",
+                                     "`dsh --profile headless --json` event stream"))}
 
 
 def stream_of(logs) -> str:

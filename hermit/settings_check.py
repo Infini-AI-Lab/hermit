@@ -57,7 +57,10 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
         cls = load_class(spec)
         _, evolver_params = instantiate(spec, d["evolver"]["params"], backends=registry(d.get("backends")),
                                         default_model=d.get("model"))
-        report("evolver", needs_errors(config, spec.needs, cls.supports_resume), f"{spec.name} ({spec.class_path})")
+        # an Evolver's own settings (with a login, its problems are the login's, below)
+        report("evolver", needs_errors(config, spec.needs, cls.supports_resume) +
+               ([] if evolver_params.get("login") else subscription.evolver_problems(evolver_params)),
+               f"{spec.name} ({spec.class_path})")
     except Exception as exc:
         report("evolver", [str(exc)])
     # Models: every model the run calls, the backend each is bound to, and whether that backend speaks the caller's

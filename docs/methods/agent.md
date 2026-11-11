@@ -1,11 +1,12 @@
-# Codex, Claude, Pi and OpenCode agent learners
+# Codex, Claude, Pi, OpenCode and DeepSeek Harness agent learners
 
-Use `evolver.name: codex`, `claude`, `pi` or `opencode` when a learner should inspect trajectories, use tools, and
-edit an adapter directory over several actions. This is useful for skills, multiple files, and tool code that a single text
-rewrite does not capture well. The `pi` learner signs in through a model reference (`evolver.base: pi` with
+Use `evolver.name: codex`, `claude`, `pi`, `opencode` or `dsh` when a learner should inspect trajectories, use tools,
+and edit an adapter directory over several actions. This is useful for skills, multiple files, and tool code that a
+single text rewrite does not capture well. The `pi` learner signs in through a model reference (`evolver.base: pi` with
 `evolver.model: <backend>/<model>`, or `evolver.params.model`); it copies no login from `~/.pi/agent` (`home: []`).
 The `opencode` learner runs only a model reference the same way (`evolver.base: opencode`); without one its session
 is refused.
+The `dsh` learner signs in as the `pi` learner does (`evolver.base: dsh`) and copies no file of `~/.dsh` (`home: []`).
 On the single-file prompt-only template, the Codex learner is the [prompt-only](prompt-only.md) method.
 
 ## Requirements and setup
