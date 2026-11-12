@@ -596,13 +596,35 @@ def test_the_libero_tasks_are_liberos_five_suites_with_aspires_seeds():
         P.seeds_from(P.PRESETS, ["--eval", "1-60"])              # held-out seeds a session could run
 
 
-def test_the_libero_pro_tasks_are_aspires_eighty_and_a_swap_and_a_task_suite_share_no_id():
+def test_the_libero_pro_tasks_are_aspires_eighty_and_a_swap_and_a_task_suite_share_no_id(tmp_path, monkeypatch):
+    """The rows and splits prepare.py writes: what the simulator service, the judge and the configs read."""
+    from hermit.config import Config
     P = _load("aspire_libero_pro_prepare", LIBERO_PRO / "utils" / "prepare.py")
-    assert len(P.SUITES) == 8 and len(set(P.SUITES)) == 8 and P.TASKS_PER_SUITE == 10
-    assert {s.rsplit("_", 1)[1] for s in P.SUITES} == {"swap", "task"}
-    ids = [f"{suite}-t{n:02d}" for suite in P.SUITES for n in range(P.TASKS_PER_SUITE)]
-    assert len(set(ids)) == 80                                  # the two perturbations share their task ids
-    assert P.seeds_from(P.PRESETS, [])[0] == {"debug_seeds": "51-65", "unseen_seeds": "66-80", "eval_seeds": "1-50"}
+    suites = [f"libero_{family}_{kind}" for family in ("object", "spatial", "goal", "10") for kind in ("swap", "task")]
+    assert P.SUITES == suites and P.TASKS_PER_SUITE == 10
+    monkeypatch.setattr(P, "HERE", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["prepare.py"])
+    P.main()
+    rows = [json.loads(line) for line in (tmp_path / "tasks.jsonl").read_text().splitlines()]
+    tasks = [r for r in rows if "role" not in r]
+    assert len(rows) == 240 and len({r["id"] for r in rows}) == 240      # the two perturbations share their task ids
+    assert all(r["benchmark"] == "libero-pro" for r in rows)             # the verifier's and the reruns' too
+    assert [(r["suite"], r["task_id"]) for r in tasks] == [(s, n) for s in suites for n in range(10)]
+    assert all((r["debug_seeds"], r["unseen_seeds"], r["eval_seeds"]) == ("51-65", "66-80", "1-50") for r in tasks)
+    assert {(r["debug_seeds"], r["eval_seeds"]) for r in rows if r.get("role") == "verifier"} == {("51-55", "none")}
+    split = lambda name: (tmp_path / "splits" / name).read_text().split()
+    assert split("all.txt") == [r["id"] for r in tasks] and split("smoke.txt") == split("all.txt")[:2]
+    assert split("long.txt") == [r["id"] for r in tasks if r["suite"] in ("libero_10_swap", "libero_10_task")]
+    assert split("long_rerun.txt") == [f"rerun-{i}" for i in split("long.txt")]
+    for path in sorted((LIBERO_PRO / "aspire").glob("*.yaml")):          # a config names splits written here
+        data = Config.load(path).data["data"]
+        named = [split(Path(data[key]).name) for key in ("train", "val", "test")]
+        assert all(named) and all(set(ids) <= {r["id"] for r in rows} for ids in named), path
+        assert not set(named[0]) & set(named[2]) and not set(named[0]) & set(named[1]), path
+    monkeypatch.setattr(sys, "argv", ["prepare.py", "--preset", "smoke"])
+    P.main()
+    first = json.loads((tmp_path / "tasks.jsonl").read_text().splitlines()[0])
+    assert (first["debug_seeds"], first["unseen_seeds"], first["eval_seeds"]) == ("51-53", "66", "1-3")
 
 
 def test_a_session_cannot_forge_a_registration_for_more_seeds(tmp_path, service):
