@@ -1,0 +1,9 @@
+# A Docker Compose overlay on every AlgoTune trial's container (benchmark.yaml: environment.extra_docker_compose):
+# no core files. A solver that crashes the timing run would dump the whole process into its working directory, the
+# container's writable layer on Docker's data root, when the host's core_pattern is a plain file name with no size
+# limit (a crash in scipy's SLSQP once wrote 23 GB). The crash still ends the timing run, scored as AlgoTune scores a
+# failed solver; only the dump is gone.
+services:
+  main:
+    ulimits:
+      core: 0

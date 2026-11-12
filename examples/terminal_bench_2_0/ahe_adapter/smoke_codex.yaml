@@ -1,0 +1,50 @@
+# Smoke of run_codex.yaml: the same pipeline, Evolver and learners on the two smoke tasks (rows <task>#0, which no
+# eval or training run takes), one rollout each (k = 1), two steps, then the final adapter's test on the same rows.
+# It checks the task set, Codex in the containers, the hooks, the Debugger and the Evolve Agent before the long run.
+#
+#   hermit train --config examples/terminal_bench_2_0/ahe_adapter/smoke_codex.yaml
+run: {mode: split}
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke.txt     # fix-git#0, log-summary-date-ranges#0
+  test: ../utils/splits/smoke.txt
+  step_size: 2
+  shuffle: false
+task_info: ../utils/task-info
+agent:
+  name: harbor
+  concurrency: 2
+  params:
+    benchmark: ../utils/benchmark.yaml
+    acting_agent: {cli: codex}
+    model: gpt-5.6-luna
+    login: chatgpt
+    effort: medium
+    jobs_dir: ~/.cache/hermit/harbor/jobs/tb20-codex-smoke  # the smoke's trials, apart from the run's
+judge:
+  path: hermit.harbor.judge
+template: ahe@1.0
+evolver:
+  name: ahe_adapter
+  params:
+    task_field: harbor_task
+    k: 1
+    rollback: auto
+    target_pass_rate: 1.01             # never reached: every step runs the Debugger and the Evolve Agent
+  base: codex
+  model: {name: gpt-5.6-luna, login: chatgpt, effort: medium}
+  codex: {web_search: false}
+sandbox:
+  enabled: true
+  evolver:
+    allowed_hosts: [chatgpt.com, auth.openai.com]
+trainer:
+  run_name: smoke-codex-ahe
+  output_dir: runs
+  tree_dir: runs/trees/smoke-codex-ahe
+  epochs: 2
+  save_freq: {steps: 1}
+  call_timeout_min: 600
+  budget: {usd: null, tokens: null, hours: null}
+eval:
+  repeats: 1

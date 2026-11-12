@@ -1,0 +1,66 @@
+# Smoke of run_claude.yaml: the same pipeline, judge, Evolver and learner on the two smoke tasks (rows <task>#0), two
+# epochs of one step, the gate on the same rows, then the final skill's test on them. It checks the task set, the
+# timing verifier, the CLI in the containers and SkillOpt's reflection before the long run.
+#
+#   hermit train --config examples/algotune/skillopt/smoke_claude.yaml
+run: {mode: split}
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke.txt     # the two smoke rows (<task>#0), which no eval or training run takes
+  val: ../utils/splits/smoke.txt       # the same rows: the gate's trials of the seed come from the trial cache
+  test: ../utils/splits/smoke.txt
+  step_size: 2
+  shuffle_seed: 42
+task_info: ../utils/task-info
+agent:
+  name: harbor
+  concurrency: 2
+  params:
+    benchmark: ../utils/benchmark.yaml
+    acting_agent: {cli: claude}        # Claude Code in the task's container, installed there by Harbor
+    model: claude-haiku-5-5            # a Claude Code model name, on the subscription
+    login: claude                      # the subscription's plan, shared with Hermit's other sessions on it
+    effort: medium
+    jobs_dir: ~/.cache/hermit/harbor/jobs/algotune-claude-smoke  # the smoke's trials, apart from the run's
+    agent_timeout_sec: 1800            # the smoke's cap on a session; the run keeps each task's own
+judge:
+  path: ../utils/judge.py              # 1 - 1/speedup (utils/judge.py)
+template: prompt-only@1.0              # the skill is ADAPTER.md, which starts empty (`--adapter root`)
+evolver:
+  name: skillopt
+  params:
+    total_steps: 2
+    minibatch_size: 2
+    merge_batch_size: 2
+    analyst_workers: 4
+    learning_rate: 4
+    min_learning_rate: 2
+    lr_scheduler: cosine
+    use_gate: true
+    gate_metric: soft
+    slow_update_samples: 2
+    slow_update_gate: true
+    use_meta_skill: true
+    trajectory_view: paper
+    promote_final: false
+    seed: 42
+llm:                                   # the learner: the acting model, one Claude Code session per chat call
+  cli: claude
+  model: claude-haiku-5-5
+  login: claude
+  effort: medium
+  web_search: false
+  isolation: sandbox                   # a bubblewrap sandbox of its own: an empty workspace, the login's host
+  timeout: 3600
+sandbox:
+  enabled: true
+trainer:
+  run_name: smoke-claude-skillopt
+  output_dir: runs
+  tree_dir: runs/trees/smoke-claude-skillopt
+  epochs: 2
+  save_freq: {steps: 1}
+  call_timeout_min: 600
+  budget: {usd: null, tokens: null, hours: null}
+eval:
+  repeats: 1

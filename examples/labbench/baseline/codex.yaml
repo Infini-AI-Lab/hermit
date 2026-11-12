@@ -1,0 +1,31 @@
+# LAB-Bench FigQA, the baseline: Codex with GPT-5.6-Luna and no adapter, on the 127 test questions of SkillOpt's split
+# (the questions the method's adapter is tested on), once each, each question's own 300 s, no web search; its 181
+# questions with --split. Codex runs GPT-5.6-Luna at medium effort on the ChatGPT login (`codex login`, no API key),
+# in each task's container.
+#
+#   hermit eval --config examples/labbench/baseline/codex.yaml --adapter none
+#   hermit eval --config examples/labbench/baseline/codex.yaml --adapter none --split examples/labbench/utils/splits/all.txt
+#
+# The accuracy is the summary's mean_score.
+run: {mode: eval}
+data:
+  tasks: ../utils/tasks.jsonl
+  test: ../utils/splits/test.txt       # 127 questions (SkillOpt's split: 2:1:7, seed 42)
+agent:
+  name: harbor
+  concurrency: 8
+  params:
+    benchmark: ../utils/benchmark.yaml
+    acting_agent: {cli: codex}         # Codex in the task's container, installed there by Harbor
+    model: gpt-5.6-luna                # a Codex model name, on the ChatGPT login
+    login: chatgpt                     # the ChatGPT plan, shared with Hermit's other sessions on it
+    effort: medium
+    jobs_dir: ~/.cache/hermit/harbor/jobs/labbench-codex  # the Codex configs' trials (and their cache)
+judge:
+  path: hermit.harbor.judge            # the verifier's reward
+trainer:
+  run_name: codex-baseline
+  output_dir: runs
+eval:
+  repeats: 1
+  infra_retries: 2                     # a trial that is not the agent's result (infra) runs again, twice at most

@@ -1,0 +1,63 @@
+# Terminal-Bench-Science with the AHE Adapter, in the AHE paper's protocol on Terminal-Bench 2 (Lin et al.,
+# arXiv:2604.25850, §4.1 and Table 4): ten iterations from the paper's seed harness (the `ahe` template as it is),
+# each iteration one step over every task's k = 2 rollouts (140 trials), the tasks it evolves on being the tasks it
+# reports on, the changes judged HARMFUL reverted file by file (Algorithm 1), the best iteration by pass@1 handed
+# back.
+# Codex runs GPT-5.6-Luna at medium effort on the ChatGPT login (`codex login`, no API key), as the acting agent in
+# each task's container and as both learners, the Agent Debugger and the Evolve Agent (the paper: GPT-5.4 for every
+# role). What differs from the paper besides the model and the benchmark: each task's own 8 hours (the paper: an hour,
+# Terminal-Bench 2's tasks being shorter), the acting agent is the CLI with the adapter deployed, not NexAU, 6 trials
+# at a time (96), and no Explore Agent.
+#
+#   hermit train --config examples/terminal_bench_science/ahe_adapter/run_codex.yaml   # again to resume
+#   hermit eval  --config examples/terminal_bench_science/ahe_adapter/run_codex.yaml --adapter root
+#
+# After the ten steps, run.mode split tests the final adapter on every task's rollouts #3 and #4 (fresh trials, as
+# ../baseline/codex.yaml tests no adapter and `--adapter root` the seed). The paper's own number, the best iteration's
+# pass@1 on its training rollouts, is the run's workspace/state/best_ever.json.
+run: {mode: split}
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/rows/train.txt       # every task x rollouts #1 and #2, a task's two rollouts together
+  test: ../utils/rows/test.txt         # the same tasks, rollouts #3 and #4
+  step_size: 140                       # one step = one AHE iteration over every training trial
+  shuffle: false
+task_info: ../utils/task-info
+agent:
+  name: harbor
+  concurrency: 6
+  params:
+    benchmark: ../utils/benchmark.yaml
+    acting_agent: {cli: codex}         # Codex in the task's container, installed there by Harbor
+    model: gpt-5.6-luna                # a Codex model name, on the ChatGPT login
+    login: chatgpt                     # the ChatGPT plan, shared with Hermit's other sessions on it
+    effort: medium
+    jobs_dir: ~/.cache/hermit/harbor/jobs/tbsci-codex  # the Codex configs' trials (and their cache)
+judge:
+  path: hermit.harbor.judge            # the verifier's reward; its output is what the Debugger reads
+template: ahe@1.0                      # H_0 is the template's own adapter (`--adapter root`)
+evolver:
+  name: ahe_adapter                    # the Agent Debugger and the Evolve Agent
+  params:
+    task_field: harbor_task            # a task's k rollouts share it
+    k: 2
+    rollback: auto                     # Algorithm 1: the HARMFUL changes reverted file by file
+  base: codex                          # both learners are sessions of the codex Base Agent
+  model: {name: gpt-5.6-luna, login: chatgpt, effort: medium}
+  codex: {web_search: false}
+sandbox:
+  enabled: true
+  evolver:
+    allowed_hosts: [chatgpt.com, auth.openai.com]  # the learners' ChatGPT login
+trainer:
+  run_name: codex-ahe
+  output_dir: runs
+  tree_dir: runs/trees/codex-ahe       # one adapter tree per run: runs can train side by side
+  epochs: 10                           # the paper's ten iterations
+  allow_early_stop: true               # the Evolver stops at its target_pass_rate (0.95)
+  save_freq: {steps: 1}
+  call_timeout_min: 10080              # a week: a step's learner sessions, and a wait for the plan's window
+  budget: {usd: null, tokens: null, hours: null}
+eval:
+  repeats: 1
+  infra_retries: 2                     # a test trial that is not the agent's result (infra) runs again, twice at most

@@ -1,0 +1,77 @@
+# LAB-Bench FigQA with SkillOpt, in the SkillOpt paper's protocol (Microsoft, arXiv:2605.23904, §4: its Codex and
+# Claude Code harness rows, DocVQA's questions about document images and LiveMathematicianBench's multiple choice the
+# nearest tasks): the questions split 2:1:7 with its seed 42 (36 train, 18 validation, 127 test), 4 epochs, every
+# training question each epoch (its rollout batch 40), reflection minibatches of 8, at most 4 edits a step decaying to
+# 2 (cosine), a candidate kept only if it beats the current skill on validation (hard success: the right letter), the
+# slow update and the meta skill at each epoch's end, the best skill handed back.
+# Claude Code runs Claude Haiku 5.5 at medium effort on a Claude subscription (`claude setup-token`, the token
+# exported as CLAUDE_CODE_OAUTH_TOKEN; no API key), as the acting agent in each question's container and as the
+# learner (the paper: GPT-5.5 at medium effort, both). What differs from the paper besides the model: the skill is
+# ADAPTER.md of the prompt-only template, which starts empty.
+#
+#   hermit train --config examples/labbench/skillopt/run_claude.yaml   # again to resume
+#   hermit eval  --config examples/labbench/skillopt/run_claude.yaml --adapter root
+#
+# After the 4 epochs, run.mode split tests the final skill on the 127 test questions; ../baseline/claude.yaml tests no
+# adapter on them, and `--adapter root` the empty skill.
+run: {mode: split}
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/train.txt     # 36 tasks
+  val: ../utils/splits/val.txt         # 18 tasks: the gate
+  test: ../utils/splits/test.txt       # 127 tasks
+  step_size: 40                        # the paper's rollout batch: every training task, one step an epoch
+  shuffle_seed: 42
+task_info: ../utils/task-info
+agent:
+  name: harbor
+  concurrency: 8
+  params:
+    benchmark: ../utils/benchmark.yaml
+    acting_agent: {cli: claude}        # Claude Code in the task's container, installed there by Harbor
+    model: claude-haiku-5-5            # a Claude Code model name, on the subscription
+    login: claude                      # the subscription's plan, shared with Hermit's other sessions on it
+    effort: medium
+    jobs_dir: ~/.cache/hermit/harbor/jobs/labbench-claude  # the Claude Code configs' trials (and their cache)
+judge:
+  path: hermit.harbor.judge            # the verifier's reward
+template: prompt-only@1.0              # the skill is ADAPTER.md, which starts empty (`--adapter root`)
+evolver:
+  name: skillopt
+  params:
+    total_steps: 4                     # 4 epochs of one step: the learning rate's cosine from 4 to 2
+    minibatch_size: 8                  # the paper's reflection minibatch
+    merge_batch_size: 8
+    analyst_workers: 16
+    learning_rate: 4
+    min_learning_rate: 2
+    lr_scheduler: cosine
+    use_gate: true                     # strict: a candidate must beat the current skill on validation
+    gate_metric: hard                  # the right letter
+    slow_update_samples: 20            # the epoch-end slow update compares the two epochs' skills on 20 tasks
+    slow_update_gate: true             # and passes the validation gate too, as in the paper
+    use_meta_skill: true
+    trajectory_view: paper             # the trajectories as the paper's analyst saw them
+    promote_final: false               # the paper's code hands back the best skill as it is
+    seed: 42
+llm:                                   # the learner: the acting model, one Claude Code session per chat call
+  cli: claude
+  model: claude-haiku-5-5
+  login: claude
+  effort: medium
+  web_search: false
+  isolation: sandbox                   # a bubblewrap sandbox of its own: an empty workspace, the login's host
+  timeout: 3600
+sandbox:
+  enabled: true
+trainer:
+  run_name: claude-skillopt
+  output_dir: runs
+  tree_dir: runs/trees/claude-skillopt  # one adapter tree per run: runs can train side by side
+  epochs: 4                            # the paper's 4 epochs
+  save_freq: {steps: 1}
+  call_timeout_min: 10080              # a week: a step's reflection and gate, and a wait for the plan's window
+  budget: {usd: null, tokens: null, hours: null}
+eval:
+  repeats: 1
+  infra_retries: 2                     # a test trial that is not the agent's result (infra) runs again, twice at most
