@@ -16,10 +16,16 @@ import traceback
 
 
 def main() -> None:
-    channel_in = os.fdopen(os.dup(sys.stdin.fileno()), "rb")
-    channel_out = os.fdopen(os.dup(sys.stdout.fileno()), "wb")
+    channel_in = os.fdopen(os.dup(0), "rb")     # os.dup: not inherited by a process the program starts
+    channel_out = os.fdopen(os.dup(1), "wb")
+    # Nothing the program does reaches the channel: not its prints, nor what a process it starts or a C library
+    # writes to fd 1 or reads from fd 0. Those are /dev/null and stderr from here on.
+    null = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(null, 0)
+    os.close(null)
+    os.dup2(2, 1)
     sys.stdin = open(os.devnull)
-    sys.stdout = sys.stderr                     # the program's prints must not reach the channel
+    sys.stdout = sys.stderr
     namespace = {"__name__": "policy"}
     loaded = None
     try:

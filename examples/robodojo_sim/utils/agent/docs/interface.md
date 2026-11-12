@@ -11,11 +11,11 @@ def act(obs):           # required: the next actions, a list of 1 to 100 action 
     return [action, ...]
 ```
 
-The file is loaded once per evaluation, so module-level state lasts across episodes: put what belongs to one
-episode in `reset`. The program runs in a process with no network and no access to the simulator or its files;
-numpy and the standard library are available. An exception in `act` or `reset`, an answer later than 60 seconds,
-or an invalid chunk ends your program's control of that episode: the robot holds its joints until the episode's
-horizon, and the episode fails.
+The file is loaded once per evaluation and again after an episode in which it failed, so module-level state can last
+across episodes: put what belongs to one episode in `reset`. The program runs in a process with no network and no
+access to the simulator or its files; numpy and the standard library are available. An exception in `act` or
+`reset`, an answer later than 60 seconds, or an invalid chunk ends your program's control of that episode: the robot
+holds its joints until the episode's horizon, and the episode fails.
 
 ## The robot
 

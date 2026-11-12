@@ -88,14 +88,18 @@ class Env:
         return {"instruction": f"layout {self.layout}", "env_idx": 0, "additional_info": {"frequency": 25},
                 "vision": {"cam_head": {"color": np.full((4, 6, 3), self.step, dtype=np.uint8)}},
                 "state": {"left_arm_joint_state": np.arange(6, dtype=np.float32), "right_arm_joint_state": np.zeros(6),
+                          "left_ee_pose": np.zeros(7), "right_ee_pose": np.zeros(7),
                           "left_ee_joint_state": [0.0], "right_ee_joint_state": [0.0]}}
     def take_action(self, action):
         self.step += 1
         assert all(isinstance(v, np.ndarray) and v.dtype == np.float32 for v in action.values()), action
-        # RoboDojo indexes both arms and both grippers of every action, and a NaN breaks its physics: an episode
-        # that raises is dropped unscored (main.py), which a program must not be able to cause
-        assert set(action) == {"left_arm_joint_state", "right_arm_joint_state", "left_ee_joint_state",
-                               "right_ee_joint_state"} and all(np.all(np.isfinite(v)) for v in action.values())
+        # RoboDojo (eval_env.py: take_action) infers one mode from an action's keys, joint or end effector, and
+        # indexes both arms of that mode and both grippers; a NaN breaks its physics. An episode that raises is
+        # dropped unscored (main.py), which a program must not be able to cause
+        grippers = {"left_ee_joint_state", "right_ee_joint_state"}
+        assert set(action) in ({"left_arm_joint_state", "right_arm_joint_state"} | grippers,
+                               {"left_ee_pose", "right_ee_pose"} | grippers), sorted(action)
+        assert all(np.all(np.isfinite(v)) for v in action.values())
         if float(action.get("left_ee_joint_state", [0])[0]) == 1.0:
             self.success = True
 details = {}
@@ -161,12 +165,16 @@ def test_the_worker_gives_the_program_numpy_arrays_and_its_error_is_an_answer_no
     np = pytest.importorskip("numpy")
     model = _load("hermit_program_model", UTILS / "policy" / "hermit_program" / "model.py")
     program = tmp_path / "policy.py"
-    program.write_text("seen = []\n"
+    program.write_text("import os, subprocess\n"
+                       "seen = []\n"
                        "def reset():\n    seen.clear()\n"
                        "def act(obs):\n"
                        "    image = obs['vision']['cam_head']['color']\n"
                        "    seen.append(1)\n"
                        "    print('this must not reach the channel')\n"
+                       # below sys.stdout: fd 1 itself, and a child that writes to it and reads its stdin
+                       "    os.write(1, b'nor this')\n"
+                       "    subprocess.run(['sh', '-c', 'echo nor a child; cat'], timeout=10)\n"
                        "    if obs['instruction'] == 'fail':\n        raise ValueError('boom')\n"
                        "    return [{'left_ee_joint_state': [float(image.shape[1])], "
                        "'right_ee_joint_state': [len(seen)]}]\n")
@@ -202,6 +210,32 @@ def test_the_engine_refuses_a_policy_that_is_not_the_harnesss_and_a_program_insi
         engine.run(program, task="stack_bowls", layout_seed=2, layouts=1, out=root / "out")
     assert "NUL" in dojo.check_program("def act(obs):\n    return []\n\x00") or \
         dojo.check_program("def act(obs):\n    return []\n\x00")
+
+
+def test_a_stopped_engine_starts_no_simulator_and_a_run_past_its_timeout_is_stopped_and_said(tmp_path, monkeypatch):
+    """What a stop and a timeout do, with a RoboDojo that never finishes (no sandbox: the worker is not started)."""
+    dojo = _load("dojo", UTILS / "agent" / "dojo.py")
+    root = fake_robodojo(tmp_path)
+    (root / "scripts" / "robodojo.sh").write_text("#!/bin/bash\nexec sleep 60\n")
+    dojo.install(root)
+    (tmp_path / "work").mkdir()
+    program = tmp_path / "work" / "policy.py"
+    program.write_text(GOOD)
+    unconfined = lambda self, staged, out, private: (SimpleNamespace(close=lambda: None), "{}")
+    monkeypatch.setattr(dojo.Engine, "_worker", unconfined)
+    started = []
+    real_popen = dojo.subprocess.Popen
+    monkeypatch.setattr(dojo.subprocess, "Popen", lambda *a, **k: started.append(a) or real_popen(*a, **k))
+    engine = dojo.Engine(root, timeout_s=1)
+    engine.stop()                       # a run that was waiting for the GPU when the service stopped
+    with pytest.raises(dojo.Stopped):
+        engine.run(program, task="stack_bowls", layout_seed=2, layouts=1, out=tmp_path / "stopped")
+    assert not started and not engine.running
+    assert dojo.Engine(root, timeout_s=1).run(program, task="stack_bowls", layout_seed=2, layouts=1,
+                                              out=tmp_path / "late") == []
+    run = json.loads((tmp_path / "late" / "records.json").read_text())
+    assert run["timed_out"] and run["timeout_s"] == 1 and len(started) == 1
+    assert (root / ".cache" / "hermit-locks" / "gpu0.lock").is_file()     # the GPU's lock, whatever the TMPDIR
 
 
 @needs_bwrap
@@ -335,6 +369,11 @@ def test_a_program_is_scored_by_what_it_does_and_reads_nothing_of_robodojos_chec
     assert (tmp_path / "good.private" / "robodojo.log").is_file()         # host paths: not in what a session gets
     assert not (tmp_path / "good" / "robodojo.log").exists() and not (tmp_path / "good" / "sandbox").exists()
     assert not list(tmp_path.glob(".good.program-*"))                     # the staged copy is gone
+    # An end-effector action reaches the simulator whole in its own mode (the other arm's pose held)
+    (work / "ee.py").write_text("def act(obs):\n    return [{'left_ee_pose': [0.3, 0, 0.2, 1, 0, 0, 0], "
+                                "'left_ee_joint_state': [1.0]}]\n")
+    records = engine.run(work / "ee.py", task="stack_bowls", layout_seed=2, layouts=2, out=tmp_path / "ee")
+    assert [r["task_success"] for r in records] == [True, True] and not dojo.failures(tmp_path / "ee")
     secret = root / "Assets" / "Eval_Layout" / "stack_bowls_0.json"
     (work / "peek.py").write_text(
         "import os, socket, sys\n"
@@ -408,6 +447,23 @@ def test_the_service_runs_only_the_sessions_development_layouts_from_the_first(t
     assert done["ok"] and "1/2 layouts succeeded" in done["stdout"] and ran == [("stack_bowls", 2, 2)]
     assert "not assigned to you" in request([0, 1, 2, 3])["error"]         # more than its development layouts
     assert "from the first" in request([1, 2])["stderr"] and len(ran) == 1
+    # A run past its timeout is said, as the ASPIRE service says it (124); after stop() no simulator starts
+    timed_out = {"value": True}
+
+    def summarized(program, *, task, layout_seed, layouts, out, private=None):
+        if engine_stopped:
+            raise S.dojo.Stopped("stopping")
+        (Path(out) / "records.json").write_text(json.dumps({"timed_out": timed_out["value"], "timeout_s": 5}))
+        return []
+    engine_stopped = False
+    service.engine.run = summarized
+    late = request([0])
+    assert late["code"] == 124 and "stopped after 5 s" in late["stderr"]
+    service.engine.stop = lambda: None
+    service.stop()
+    engine_stopped = True
+    assert "service is stopping" in request([0])["stderr"]
+    service.stopping = False
     other = {**row, "id": "robodojo-other", "benchmark": "libero-pro"}
     service.tasks[other["id"]] = other
     elsewhere = sessions / "rollout" / "robodojo-other-56d9fea2" / "w"

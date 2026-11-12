@@ -11,7 +11,8 @@ RoboDojo's engine (dojo.Engine) in place of cap-harness:
     GET  /health
 
     python dojo_service.py --port 8130 --robodojo-root $ROBODOJO_ROOT --tasks utils/tasks.jsonl --workspaces <logs>
-        --state <dir> [--gpu 0] [--policy-env RoboDojo] [--eval-env RoboDojo]
+        --state <dir> [--gpu 0] [--policy-env RoboDojo] [--eval-env RoboDojo] [--env-cfg arx_x5]
+        [--action-type joint] [--run-timeout 21600] [--nonce <nonce>]
 """
 from __future__ import annotations
 
@@ -53,13 +54,12 @@ class Service(base.Service):
         row = self.tasks[session["task"]]
         if sorted(seeds) != list(range(len(seeds))):
             return 2, "", "bin/sim: layouts are run from the first: --layouts N runs layouts 0..N-1\n"
-        with self.lock:
-            if self.stopping:
-                return 1, "", "bin/sim: the simulator service is stopping\n"
         try:
             records = self.engine.run(program, task=row["suite"], layout_seed=int(row["layout_set"]),
                                       layouts=len(seeds), out=own_out,
                                       private=self.private / own_out.parent.name)
+        except dojo.Stopped:                               # stop(): checked where the simulator would start
+            return 1, "", "bin/sim: the simulator service is stopping\n"
         except ValueError as exc:                          # the program was refused before a simulator started
             return 1, "", f"bin/sim: {exc}\n"
         passed = sum(r["task_success"] for r in records)
@@ -71,7 +71,12 @@ class Service(base.Service):
         if len(records) < len(seeds):
             lines.append(f"{len(seeds) - len(records)} layout(s) have no result (the evaluation ended early)")
         lines.append(f"{passed}/{len(records)} layouts succeeded")
-        return 0, "\n".join(lines) + "\n", ""
+        # As the ASPIRE service reports a run it stopped: 124, and why
+        summary = own_out / "records.json"                 # dojo.Engine.run's account of the run
+        run = json.loads(summary.read_text()) if summary.is_file() else {}
+        if run.get("timed_out"):
+            return 124, "\n".join(lines) + "\n", f"bin/sim: the evaluation was stopped after {run['timeout_s']:.0f} s\n"
+        return int(run.get("returncode") or 0), "\n".join(lines) + "\n", ""
 
 
 def main() -> None:
