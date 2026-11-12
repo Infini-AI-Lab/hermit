@@ -61,11 +61,11 @@ def scrubbed(environ) -> dict:
 # segmentation, Contact-GraspNet, PyRoki and cuRobo. A CAP_HARNESS_*_URL in the environment that moves one is
 # forwarded as well; one on another host goes through an allowlist proxy that reaches only it.
 PROVIDER_PORTS = (8114, 8115, 8116, 8118)
-# What of ASPIRE's checkout a program never sees: its worked solutions, its agents' skills and prompts, its tests,
-# the runs ASPIRE's own CLI leaves (outputs/, their programs' sources), and its git history, which holds them all
-# (cap-harness runs from src/, third_party/, assets/, configs/ and the venvs; without git it records no commit in a
-# run's provenance)
-HIDDEN = ("examples", ".claude", ".agents", ".codex", "tests", "outputs", ".git",
+# What of ASPIRE's checkout a program never sees: its worked solutions, its docs (a benchmark's page names them per
+# task; a session reads the staged pages), its agents' skills and prompts, its tests, the runs ASPIRE's own CLI
+# leaves (outputs/, their programs' sources), and its git history, which holds them all (cap-harness runs from src/,
+# third_party/, assets/, configs/ and the venvs; without git it records no commit in a run's provenance)
+HIDDEN = ("examples", "docs", ".claude", ".agents", ".codex", "tests", "outputs", ".git",
           "third_party/LIBERO-PRO/libero/datasets")              # LIBERO's demonstrations, when downloaded
 
 # What differs between ASPIRE's benchmarks (its fix-loop template's "Benchmark Profiles"): the venv that holds
