@@ -20,8 +20,8 @@ language from `get_task_context()`. A `_swap` and a `_task` suite share their ta
 
 ## Setup and run
 
-As [`aspire_libero/`](../aspire_libero/README.md#setup) (`scripts/bootstrap_libero.sh` in the ASPIRE checkout), from
-this folder:
+As [`aspire_libero/`](../aspire_libero/README.md#setup) (ASPIRE's LIBERO venv, its SAM3 and Contact-GraspNet
+services), from this folder:
 
 ```bash
 cd examples/aspire_libero_pro/aspire
