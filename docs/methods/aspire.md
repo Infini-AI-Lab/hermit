@@ -124,7 +124,7 @@ carry their own seeds.
 | Models | Claude Opus 4.6 (and others) | GLM 5.3 Flash in every role | the first-evaluation row of the framework |
 | Perception | SAM3 | SAM3, or any service with its wire format (`utils/seg_service/`: Grounding-DINO + SAM) | SAM3's weights are gated |
 | Evolutionary search (§2.3) | a separate evosearch subagent for tasks the fix loop leaves below 90%: K = 8 candidates per round from the top 3, stop at 80% or 5 rounds, Stage 2 on its best | the same template, verbatim, as Part 2 of the actor's session; the judge runs Stage 2 on `evosearch_best_code.py` | a decision: one session keeps the task's rollout one call |
-| Not ported | — | LIBERO-Pro's perturbed suites and BEHAVIOR-1K, the real robot | scope |
+| Not ported | — | BEHAVIOR-1K, the real robot | scope |
 
 `examples/aspire_robosuite/aspire/run_direct.yaml` replaces the Codex actor with a structured loop of `direct` calls
 (`utils/agent/agent.py`), which sees a digest of each run instead of the files: a comparison, not the method.
