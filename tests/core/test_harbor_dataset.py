@@ -15,6 +15,10 @@ import yaml
 from hermit.harbor import dataset
 
 
+# What a download leaves in its data directory: the set's directory and the record of its source.
+DOWNLOADED = [".hermit-source.json", "demo"]
+
+
 def write(path: Path, text: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
@@ -145,9 +149,73 @@ def test_a_reused_task_set_that_differs_from_its_lock_is_refused(tmp_path):
     dataset.prepare(file, download_fn=registry, force=True, log=lambda m: None)           # locked anew
     assert dataset.check_lock(tasks, file.parent / "dataset.lock") == []
     other = benchmark(tmp_path, ref="demo@2.0")                       # another version over the same data
+    with pytest.raises(ValueError, match=r"downloaded from \{'ref': 'demo@1.0'\}, the benchmark names \{'ref': "
+                                         r"'demo@2.0'\}"):
+        dataset.prepare(other, download_fn=registry, log=lambda m: None)
+    (tmp_path / "data" / dataset.SOURCE_FILE).unlink()                # tasks of no recorded source: the lock says
     with pytest.raises(ValueError, match="the lock is of demo@1.0"):
         dataset.prepare(other, download_fn=registry, log=lambda m: None)
     assert dataset.main(["prepare", str(other)]) == 1                  # the command says so and fails
+
+
+def test_another_registrys_download_of_the_ref_is_never_taken_for_the_benchmarks_tasks(tmp_path, monkeypatch):
+    """One ref from three sources (the default registry; a git registry, dataset.repo; registry_url and registry_path):
+    each default data directory is its source's own, a data directory two sources share is refused to the one whose
+    download is not there, before its lock or link is written, and the lock names every option that picked the tasks
+    (a lock of another source's is a mismatch, as one of another ref's is)."""
+    monkeypatch.setenv(dataset.TASKS_ROOT_ENV, str(tmp_path / "root"))
+    registry = Registry()
+    files = [benchmark(tmp_path / "plain", data=None),
+             benchmark(tmp_path / "git", data=None, repo="https://example.com/a.git"),
+             benchmark(tmp_path / "url", data=None, registry_url="https://example.com/r.json", registry_path="r.json")]
+    for file in files:
+        dataset.prepare(file, download_fn=registry, log=lambda m: None)
+    assert registry.calls == 3                                        # none took another's download
+    homes = [(f.parent / "tasks").resolve().parent for f in files]
+    assert homes[0] == (tmp_path / "root" / "demo@1.0").resolve() and len(set(homes)) == 3
+    assert json.loads((files[2].parent / "dataset.lock").read_text())["source"] == {
+        "ref": "demo@1.0", "registry_url": "https://example.com/r.json", "registry_path": "r.json"}
+    # one data directory both name: the second source's prepare is refused, and writes nothing beside its file
+    shared = str(tmp_path / "shared")
+    first = benchmark(tmp_path / "a", data=shared, repo="https://example.com/a.git")
+    second = benchmark(tmp_path / "b", data=shared, repo="https://example.com/b.git")
+    dataset.prepare(first, download_fn=registry, log=lambda m: None)
+    with pytest.raises(ValueError, match=r"were downloaded from .*a\.git.*the benchmark names .*b\.git"):
+        dataset.prepare(second, download_fn=registry, log=lambda m: None)
+    assert registry.calls == 4 and not {"dataset.lock", "tasks", "tasks.jsonl"} & {
+        p.name for p in second.parent.iterdir()}
+    # the same source again reuses it; the lock beside a file whose repo changed is a mismatch, unless --force
+    assert dataset.prepare(first, download_fn=registry, log=lambda m: None)["reused"] is True
+    moved = benchmark(tmp_path / "a", data=str(tmp_path / "fresh"), repo="https://example.com/c.git")
+    with pytest.raises(ValueError, match=r"the lock is of .*a\.git.*the benchmark names .*c\.git"):
+        dataset.prepare(moved, download_fn=registry, log=lambda m: None)
+    dataset.prepare(moved, download_fn=registry, force=True, log=lambda m: None)
+    assert json.loads((moved.parent / "dataset.lock").read_text())["source"]["repo"] == "https://example.com/c.git"
+
+
+def test_a_registry_file_of_this_machine_is_named_in_the_lock_by_its_file_name_alone(tmp_path, monkeypatch):
+    """The lock names no path of this machine: a registry_path outside a git registry that is absolute (or under `~`)
+    is recorded there by its file name, `<local>/registry.json`, so the benchmark prepared from another copy of the
+    file (another machine's path) leaves the lock as it is; the download's own record, in this machine's data
+    directory, keeps the whole path, and a relative registry_path, or a repo's, is kept as it is spelled."""
+    monkeypatch.setenv(dataset.TASKS_ROOT_ENV, str(tmp_path / "root"))
+    registry = Registry()
+    alice = str(tmp_path / "alice" / "registry.json")
+    file = benchmark(tmp_path / "bench", data=None, registry_path=alice)
+    dataset.prepare(file, download_fn=registry, log=lambda m: None)
+    lock = (file.parent / "dataset.lock").read_text()
+    assert json.loads(lock)["source"] == {"ref": "demo@1.0", "registry_path": "<local>/registry.json"}
+    assert str(tmp_path) not in lock
+    marker = (file.parent / "tasks").resolve().parent / dataset.SOURCE_FILE
+    assert json.loads(marker.read_text())["registry_path"] == alice
+    benchmark(tmp_path / "bench", data=None, registry_path=str(tmp_path / "bob" / "registry.json"))
+    dataset.prepare(file, download_fn=registry, log=lambda m: None)              # another copy: the same lock
+    assert registry.calls == 2 and (file.parent / "dataset.lock").read_text() == lock
+    assert dataset.lock_source({"ref": "x", "registry_path": "~/r/registry.json"})["registry_path"] == \
+        "<local>/registry.json"
+    for kept in ({"ref": "x", "registry_path": "r/registry.json"},
+                 {"ref": "x", "repo": "https://example.com/a.git", "registry_path": "/registry.json"}):
+        assert dataset.lock_source(kept) == kept
 
 
 def test_an_interrupted_download_is_downloaded_again_not_taken_for_the_task_set(tmp_path):
@@ -182,7 +250,7 @@ def test_an_interrupted_download_is_downloaded_again_not_taken_for_the_task_set(
         assert sorted(json.loads((file.parent / "dataset.lock").read_text())["tasks"]) == ["alpha", "beta", "delta",
                                                                                              "gamma"], case
         assert (file.parent / "tasks").resolve() == (data / "demo").resolve(), case
-        assert [p.name for p in data.iterdir()] == ["demo"] and not os.path.lexists(partial), case
+        assert sorted(p.name for p in data.iterdir()) == DOWNLOADED and not os.path.lexists(partial), case
 
 
 def test_a_directory_in_the_way_of_the_download_is_named_to_be_moved_away_and_left_as_it_is(tmp_path):
@@ -239,7 +307,7 @@ def test_another_entry_of_the_download_in_the_way_is_refused_once_it_returned_an
     (tmp_path / "data" / "notes.txt").rename(tmp_path / "moved.txt")
     written = dataset.prepare(file, download_fn=registry, log=lambda m: None)
     assert registry.calls == 2 and written["rows"] == 4
-    assert sorted(p.name for p in (tmp_path / "data").iterdir()) == ["demo", "notes.txt"]
+    assert sorted(p.name for p in (tmp_path / "data").iterdir()) == [*DOWNLOADED, "notes.txt"]
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root writes in any folder")
@@ -255,7 +323,8 @@ def test_a_data_directory_in_a_folder_the_user_cannot_write_is_downloaded_into_f
     finally:
         shared.chmod(0o755)
     assert written["rows"] == 4 and (file.parent / "tasks").resolve() == (shared / "me" / "demo").resolve()
-    assert [p.name for p in shared.iterdir()] == ["me"] and [p.name for p in (shared / "me").iterdir()] == ["demo"]
+    assert [p.name for p in shared.iterdir()] == ["me"] and sorted(p.name for p in (shared / "me").iterdir()) == \
+        DOWNLOADED
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root writes in any folder")
@@ -307,7 +376,7 @@ def test_a_data_directory_that_is_a_mount_point_is_downloaded_into_on_its_own_fi
     registry = Registry()
     written = dataset.prepare(file, download_fn=registry, log=lambda m: None)
     assert registry.calls == 1 and written["rows"] == 4
-    assert (file.parent / "tasks").resolve() == data / "demo" and [p.name for p in data.iterdir()] == ["demo"]
+    assert (file.parent / "tasks").resolve() == data / "demo" and sorted(p.name for p in data.iterdir()) == DOWNLOADED
 
 
 def test_a_second_prepare_of_the_set_at_the_same_time_is_refused_and_leaves_the_first_ones_download(tmp_path):
@@ -333,7 +402,7 @@ def test_a_second_prepare_of_the_set_at_the_same_time_is_refused_and_leaves_the_
         assert second.calls == 0 and written["rows"] == 4, case
         assert sorted(json.loads((file.parent / "dataset.lock").read_text())["tasks"]) == ["alpha", "beta", "delta",
                                                                                              "gamma"], case
-        assert [p.name for p in (tmp_path / case / "data").iterdir()] == ["demo"], case
+        assert sorted(p.name for p in (tmp_path / case / "data").iterdir()) == DOWNLOADED, case
         assert sorted(p.name for p in (tmp_path / case).iterdir()) == ["data", "utils"], case
 
 
@@ -348,7 +417,8 @@ def test_a_data_directory_on_a_filesystem_that_keeps_no_file_locks_is_prepared_u
         if there:
             (tmp_path / case / "data").mkdir(parents=True)
         written = dataset.prepare(file, download_fn=Registry(), log=lambda m: None)
-        assert written["rows"] == 4 and [p.name for p in (tmp_path / case / "data").iterdir()] == ["demo"], case
+        assert written["rows"] == 4 and sorted(p.name for p in (tmp_path / case / "data").iterdir()) == DOWNLOADED, \
+            case
         assert sorted(p.name for p in (tmp_path / case).iterdir()) == ["data", "utils"], case
 
 

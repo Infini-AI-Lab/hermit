@@ -13,6 +13,7 @@ out the same way for every CLI:
                                          deployment does not replace are removed
     <WORKDIR>/<context file>             Hermit's context first, then the image's own file (captured once per container
                                          in /installed-agent/hermit/original-<name>), within the plan's context_limit
+                                         (the image's text counted as the CLI escapes it: context_escaped)
     <WORKDIR>/.hermit-deploy.json        the deployment's record, always (an adapter's hook runner reads its host there)
     /installed-agent/hermit-home/        the CLI's home as Hermit rendered it: @@HERMIT_WORKDIR@@ filled in in its
                                          files, its sign-in files mode 600, all of it the task's agent user's
@@ -49,27 +50,30 @@ well) leaves the CLI running in the container all the same. A session that ended
 the background running (a server the task asked for), as Harbor's own agents and Hermit's own sessions do. Then the
 copy-back, the collected files and the files returned to the host (a refreshed ChatGPT sign-in) are taken, each on its
 own and from / (Docker refuses an exec in a workdir the session removed), so that none of them hides the session's own
-error, and Harbor's timeout landing in one of them does not keep it or the others from running (the return of the
-files runs once more: its copy may overlap the cancelled one's, a `docker compose cp` left running on this host that
-writes the same file; the cancellation goes on after the last). Once the run is cancelled,
-each of them has AFTER_CANCEL_S at most (a hung container would hold them), and a second cancellation (the job's,
-after Harbor's timeout) goes on at once. A non-zero exit raises Harbor's NonZeroAgentExitCodeError (the verifier still
-runs; Hermit's side reads the session's verdict from its stream). What keeps the session from starting that is not the
-agent's doing (no plan, secrets by name outside a local Docker environment or missing from Harbor's environment, no
-agent user, a CLI that cannot be installed or run there, one of harborside's own steps before the session's exec
-failing: an upload, a chown, a probe of the container; a launch script that cannot enter the workdir; a non-zero exit
-that left no stream, which the launch script makes before the CLI starts (a stream's earlier step's is removed before
-the exec), as when the exec failed in Docker; the session's exec this machine could not run (an OSError: the
-compose client not spawned, EMFILE, EAGAIN), and, after a non-zero exit, a look for its stream it could not run:
-whether the CLI started cannot be told) raises HermitLaunchError, which Hermit's side counts as infra; a context file
-over the CLI's limit once merged with the image's own raises HermitContextLimitError, the adapter's result for the
-task (hermit.harbor.errors).
+error, and Harbor's timeout landing in one of them does not keep the others from running (the one it cut short is
+not run again, but for the return of the files, which runs once more: its copy may overlap the cancelled one's, a
+`docker compose cp` left running on this host that writes the same file), nor does it hide that error: the
+cancellation goes on after the last, unless the session raised an error of its own, which then goes on as it is
+(Harbor's wait_for turns only a cancellation into the agent's timeout, so a launch failure or a non-zero exit is not
+taken for one). Once the run is cancelled, each of them has AFTER_CANCEL_S at most (a hung container would hold
+them), and a second cancellation (the job's, after Harbor's timeout) goes on at once. A non-zero exit raises
+Harbor's NonZeroAgentExitCodeError (the verifier still runs; Hermit's side reads the session's verdict from its
+stream). What keeps the session from starting that is not the agent's doing (no plan, secrets by name outside a local
+Docker environment or missing from Harbor's environment, no agent user, a CLI that cannot be installed or run there, one
+of harborside's own steps before the session's exec failing: an upload, a chown, a probe of the container; a launch
+script that cannot enter the workdir; a non-zero exit that left no stream, which the launch script makes before the CLI
+starts (a stream's earlier step's is removed before the exec), as when the exec failed in Docker; the session's exec
+this machine could not run (an OSError: the compose client not spawned, EMFILE, EAGAIN), and, after a non-zero exit, a
+look for its stream it could not run: whether the CLI started cannot be told) raises HermitLaunchError, which Hermit's
+side counts as infra; a context file over the CLI's limit once merged with the image's own raises
+HermitContextLimitError, the adapter's result for the task (hermit.harbor.errors).
 
 Harbor's model connection is not used: the model, its endpoint and its key are the plan's. MODEL_CONNECTION is None,
 so Harbor resolves no key, infers no endpoint and allowlists no host from one (Hermit's runner names the hosts), and a
 base_url, an API key name or an API format given to the agent is refused. Nor are Harbor's readers of the CLI's own
-logs: `populate_context_post_run` records metadata only (the CLI, the deployment, whether hooks and python3 were there,
-a mounted binary, the exit code, whether the session had to be killed, and the plan's own metadata).
+logs: `populate_context_post_run` records metadata only (the CLI, whether an adapter was deployed and its id, whether
+hooks and python3 were there, a mounted binary, the exit code, whether the session had to be killed, the session's
+stream, the after-steps that failed or were cancelled (after_session_errors), and the plan's own metadata).
 """
 from __future__ import annotations
 
@@ -366,6 +370,9 @@ def plan_problems(plan: dict) -> list[str]:
             limit = deploy.get("context_limit")
             if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0):
                 problems.append("deploy.context_limit must be a positive number of bytes or null")
+            escaped = deploy.get("context_escaped")
+            if escaped is not None and (not isinstance(escaped, str) or not escaped):
+                problems.append("deploy.context_escaped must be the text the CLI escapes by a byte, or null")
             for rel in deploy.get("copy_back") or []:
                 if not isinstance(rel, str) or not _relative(rel):
                     problems.append(f"deploy.copy_back must hold paths relative to the workdir, not {rel!r}")
@@ -593,7 +600,7 @@ class HermitInstalled(BaseInstalledAgent):
         with _setup_step("finding the workdir"):
             workdir = await self._workdir(environment, plan)
         self._facts["workdir"] = workdir
-        cancelled = False
+        cancelled = failed = False
         try:
             with _setup_step("reading the task's agent user"):
                 owner = await self._owner(environment)
@@ -614,8 +621,11 @@ class HermitInstalled(BaseInstalledAgent):
         except asyncio.CancelledError:
             cancelled = True                              # Harbor's timeout: the after-steps have a bounded time
             raise
+        except Exception:
+            failed = True                                 # the session's own error: it stands after the after-steps
+            raise
         finally:
-            await self._after_session(environment, plan, workdir, cancelled=cancelled)
+            await self._after_session(environment, plan, workdir, cancelled=cancelled, failed=failed)
 
     async def _workdir(self, environment: BaseEnvironment, plan: dict) -> str:
         """Where the session runs: the plan's workdir (the task's [environment].workdir), else where Harbor's execs
@@ -717,10 +727,11 @@ class HermitInstalled(BaseInstalledAgent):
 
     async def _place_context(self, environment: BaseEnvironment, deploy: dict, work: Path, root: str) -> None:
         """The context file: Hermit's text first, then the image's own file as the container had it before the first
-        deployment (captured then, once per container), within the plan's context_limit. An image's own file that
-        cannot be read (no base64 or tr there, a read that failed) or captured whole (its copy failed part-way: a full
-        disk) is a launch failure (HermitLaunchError), never taken for none (it would be overwritten) and never kept
-        in part (it would be merged, and put back as the image's own file by a later step without a context file)."""
+        deployment (captured then, once per container), within the plan's context_limit (the image's text a byte
+        longer for each `context_escaped` in it, as the CLI escapes it). An image's own file that cannot be read (no
+        base64 or tr there, a read that failed) or captured whole (its copy failed part-way: a full disk) is a launch
+        failure (HermitLaunchError), never taken for none (it would be overwritten) and never kept in part (it would be
+        merged, and put back as the image's own file by a later step without a context file)."""
         name = deploy["context_file"]
         ours = (work / name).read_text(encoding="utf-8")
         original = f"{STATE}/original-{name}"
@@ -743,12 +754,16 @@ class HermitInstalled(BaseInstalledAgent):
         image = base64.b64decode(value).decode("utf-8", errors="replace")
         merged = ours.rstrip("\n") + "\n\n" + image if image.strip() else ours
         limit = deploy.get("context_limit")
-        size = len(merged.encode("utf-8"))
+        # the image's own text as the CLI counts it, a byte more for each text it escapes (Hermit's own are taken off
+        # the plan's limit: hermit.harbor.launch.context_limit)
+        escaped = deploy.get("context_escaped")
+        extra = image.count(escaped) if escaped and image.strip() else 0
+        size = len(merged.encode("utf-8")) + extra
         if limit is not None and size > int(limit):
             raise HermitContextLimitError(
                 f"hermit: {name} for {plan_label(self._plan)} would be {size} bytes (Hermit's context "
-                f"{len(ours.encode('utf-8'))}, then the image's own {len(image.encode('utf-8'))}), over the CLI's "
-                f"limit of {limit} bytes: shorten the adapter's context")
+                f"{len(ours.encode('utf-8'))}, then the image's own {len(image.encode('utf-8')) + extra}), over the "
+                f"CLI's limit of {limit} bytes: shorten the adapter's context")
         # A link there (an image whose AGENTS.md links its CLAUDE.md) is replaced, not written through
         await self.exec_as_root(environment, command=f"rm -f {_q(target)}")
         await self._upload_text(environment, merged, target)
@@ -972,18 +987,20 @@ class HermitInstalled(BaseInstalledAgent):
     # ----- after the session ------------------------------------------------------------------------------------------
 
     async def _after_session(self, environment: BaseEnvironment, plan: dict, workdir: str, *,
-                             cancelled: bool = False) -> None:
+                             cancelled: bool = False, failed: bool = False) -> None:
         """The kill, the copy-back, the collected files and the returned ones, each on its own and with its execs
         from / (Docker refuses an exec in a workdir the session removed): a failure is logged and recorded
         (after_session_errors), never raised over the session's own outcome. Harbor's timeout landing in one of them
         is recorded as its cancellation, the steps after it still run, and the cancellation goes on after the last
-        one. The return of the files is the one step run once more when the timeout landed in it (a refreshed sign-in
-        still comes back): its copy of a file can overlap the cancelled attempt's (a `docker compose cp` whose wait
-        was cancelled goes on running on this host), the same file written twice, while the copy-back's and the
-        collect's `rm -rf` then `cp -a` could nest a copy inside the other. Once the run is cancelled (there, or
-        earlier in `run`: `cancelled`), each step left (the return run once more included) has AFTER_CANCEL_S at most
-        (a hung container would hold every one), and a second cancellation (the job's, after Harbor's timeout) goes on
-        at once, the steps after it not run."""
+        one, unless the session raised an error of its own (`failed`: a launch failure, a non-zero exit), which then
+        goes on as it is (Harbor's wait_for turns only a cancellation into the agent's timeout, so that error is not
+        taken for one). The return of the files is the one step run once more when the timeout landed in it (a refreshed
+        sign-in still comes back): its copy of a file can overlap the cancelled attempt's (a `docker compose cp` whose
+        wait was cancelled goes on running on this host), the same file written twice, while the copy-back's and the
+        collect's `rm -rf` then `cp -a` could nest a copy inside the other. Once the run is cancelled (there, or earlier
+        in `run`: `cancelled`), each step left (the return run once more included) has AFTER_CANCEL_S at most (a hung
+        container would hold every one), and a second cancellation (the job's, after Harbor's timeout) goes on at once,
+        the steps after it not run."""
         caught: asyncio.CancelledError | None = None
         steps = [self._stop_session, self._copy_back, self._collect, self._return_files]
         while steps:
@@ -1003,7 +1020,7 @@ class HermitInstalled(BaseInstalledAgent):
             except Exception as exc:                       # noqa: BLE001 - the session's own error, if any, goes on
                 self.logger.warning("hermit: %s after the session failed: %s", name, exc)
                 self._facts.setdefault("after_session_errors", []).append(f"{name}: {exc}")
-        if caught is not None:
+        if caught is not None and not failed:             # a session that failed: its own error goes on instead
             raise caught
 
     async def _stop_session(self, environment: BaseEnvironment, plan: dict, workdir: str) -> None:

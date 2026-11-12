@@ -62,7 +62,9 @@ FAILURE_CAUSE: dict[str, str] = {name: cause for cause, names in {
 INFRA_CAUSES = {"sandbox_failed", "model_provider_failed", "verifier_failed", "harbor_failed", "cancelled",
                 "harbor_timeout", "halted", "disk", "stream_lost", "stream_order", "launch_failed",
                 # read from the session's stream by the runner (runner.session_verdict), or met before the trial
-                "session_failed", "tools_failed", "login_failed", "usage_limit", "model_rejected"}
+                "session_failed", "tools_failed", "login_failed", "usage_limit", "model_rejected",
+                # a task Harbor runs for none of Hermit's agents (runner.unsupported): never started
+                "unsupported_task"}
 HALTING = {"ApiUsageLimitError", "AgentAuthenticationError"}       # nothing after this trial can succeed
 # An exception Harbor does not list whose message shows the host failing, not the agent: the agent's setup could not
 # exec in the container (the host's /tmp full, where runc writes each exec's process file; the daemon gone), or the

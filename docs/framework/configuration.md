@@ -64,7 +64,7 @@ Use the same run name for training and evaluation. Unknown configuration keys ar
 | `trainer` | Run name and directories, epochs, budgets, checkpoint frequency, and recovery mode. |
 | `run` | How the run is done: its mode, what the learner is shown of each verdict, a stream's orders and checkpoint tests (below). |
 | `eval.repeats` | Repetitions per test row in `hermit eval`, and in the tests `hermit train` runs itself: `run.mode: split`'s test of the final adapter and the checkpoint tests. |
-| `eval.infra_retries`, `eval.infra_wait_s` | How many times `hermit eval`, and the tests `hermit train` runs itself, run again the rows that were not the agent's result (status `infra`; never a multi-step task's step rows, which run only in their task's stream), and how long they wait before each pass. `hermit check` names them only where the config tests an adapter ([startup](#what-is-checked-at-startup)), on its line for the run block ([check](commands.md#check)). |
+| `eval.infra_retries`, `eval.infra_wait_s` | How many times `hermit eval`, and the tests `hermit train` runs itself, run again the rows that were not the agent's result (status `infra`; never a multi-step task's step rows, which run only in their task's stream, nor a task Harbor runs for none of Hermit's agents, `unsupported_task`), and how long they wait before each pass. `hermit check` names them only where the config tests an adapter ([startup](#what-is-checked-at-startup)), on its line for the run block ([check](commands.md#check)). |
 
 ## How the run is done: `run`
 
@@ -98,9 +98,10 @@ run:
   order is a run of its own (`<run_name>-o<i>`), combined in `<run>/streams.json`: an order file is that order's train
   split, a seed orders the train split (a task's rows together, in the split's order). A split whose order is kept (an
   order file, a stream's train split, one with `data.shuffle: false`, a test or checkpoint split) that lists a step of
-  a multi-step Harbor task ahead of an earlier step of its stream, which it would wait for, is refused before any run
-  that takes it (`hermit eval` refuses its split at start), and `hermit check` reports it for the splits the config's
-  own run takes (a training config's train order, a checkpoint split, the test split under `run.mode` split or eval).
+  a multi-step Harbor task ahead of an earlier step of its stream, which it would wait for, and any split that lists a
+  step but not every earlier step of its stream, are refused before any run that takes them (`hermit eval` refuses
+  its split at start), and `hermit check` reports them for the splits the config's own run takes (a training config's
+  train order, a checkpoint split, the test split under `run.mode` split or eval).
   A checkpoint whose `after` falls inside a step (the step's last row is another) is refused before training, or, when
   an Evolver chooses its tasks, stops the run once it is reached; since a seed moves every row, an `after` other than
   `end` goes with order files, which fix where it falls, or with `data.step_size: 1`. `hermit eval --checkpoints` runs

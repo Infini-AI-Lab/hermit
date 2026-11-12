@@ -158,11 +158,12 @@ deterministically for each epoch (a multi-step Harbor task's rows moved as one, 
 earlier one would wait for it in the task's stream), or kept as the split file gives it when `data.shuffle` is false
 (an ordered stream, such as a continual-learning sequence). An order taken as given (the split's then, an order
 file's, or a seed's, which keeps each task's rows in the split's order) that lists a step of a multi-step Harbor task
-ahead of an earlier step of its stream is refused before training, and `hermit check` reports it. The last batch can
-be smaller. An Evolver that declares `chooses_tasks` may instead name the next step's tasks from those the epoch has
-still to run, a step of a multi-step Harbor task only once each earlier step of its stream has run in the epoch or
-comes before it in the request ([Choosing the next tasks](evolver.md#choosing-the-next-tasks)); the epoch still runs
-every training task once.
+ahead of an earlier step of its stream, and any order that lists a step but not every earlier step of its stream, is
+refused before training, and `hermit check` reports it. The last batch can be smaller. An Evolver that declares
+`chooses_tasks` may instead name the next step's tasks from those the epoch has still to run, a step of a multi-step
+Harbor task only once each earlier step of its stream has run in the epoch or comes before it in the request (one the
+training split leaves out never runs: [Choosing the next tasks](evolver.md#choosing-the-next-tasks)); the epoch still
+runs every training task once.
 Validation tasks are offered to the Evolver rather than included in the Trainer's training batches. Test tasks are
 reserved for `eval`.
 

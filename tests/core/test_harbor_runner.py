@@ -90,7 +90,7 @@ FAKE_HARBOR = textwrap.dedent('''\
     """A stand-in for `harbor run -c job.yaml`: the trial directory a job leaves, with the agent's outputs as harborside
     leaves them from the launch plan (the CLI's stream, the files it collects, a sign-in handed back to this machine;
     the answer agent's one call to the endpoint its plan names)."""
-    import json, os, sys, time, urllib.request, yaml
+    import json, os, sys, time, urllib.error, urllib.request, yaml
     from datetime import datetime, timedelta, timezone
     from pathlib import Path
     args = sys.argv[1:]
@@ -156,6 +156,8 @@ FAKE_HARBOR = textwrap.dedent('''\
                 request, timeout=float(os.environ.get("FAKE_ANSWER_WAIT_S", "30"))).read())
         except TimeoutError:                      # no answer within the agent's time (FAKE_HARBOR_MODE timeout)
             reply = None
+        except urllib.error.HTTPError:            # the model failed: the agent exits non-zero (harborside.answer)
+            reply, mode = None, "agent_exit"
         if reply is not None:
             said = reply["choices"][0]["message"]["content"]
             (trial / "agent" / "answer.json").write_text(json.dumps({"reply": said, "answer": said.split()[-1],
@@ -681,9 +683,10 @@ def test_the_answer_agent_without_its_models_key_is_refused_at_startup(tmp_path,
 
 
 # The spec hermit.isolate.agent_pipeline gives the runner for a model a CLI reaches (endpoint.endpoint_spec): its
-# endpoint's URL, and on a login a timeout that waits out the plan (3600 s and plan_max_wait_s)
+# endpoint's URL, on a login a timeout that waits out the plan (3600 s and plan_max_wait_s), and what a failed
+# session used counted (its error reply says it)
 SERVED = {"base_url": "http://127.0.0.1:9/" + "0" * 32, "model": "gpt-5.6-luna", "api_key_env": None,
-          "key_required": False, "price": None, "timeout": 3600.0 + 12 * 3600}
+          "key_required": False, "price": None, "timeout": 3600.0 + 12 * 3600, "count_error_usage": True}
 
 
 def test_the_answer_agents_attachments_on_a_model_a_cli_reaches_are_refused_at_startup(tmp_path, fake_harbor,
@@ -729,6 +732,37 @@ def test_the_answer_agents_attachments_on_a_model_a_cli_reaches_are_refused_at_s
         pipeline({**harbor, "answer": figures})
 
 
+def test_a_task_harbor_runs_for_none_of_hermits_agents_is_infra_and_never_started(tmp_path, fake_harbor):
+    """Harbor refuses a task that declares MCP servers or a skills folder, or targets a Windows container, for an
+    agent whose capabilities lack them (Trial._validate_agent_capabilities), as harborside's agents' do: its refusal
+    leaves no stream, so such a trial would be an agent error, scored 0. For a table CLI and the answer agent its
+    rollout is infra (`unsupported_task`, naming why), never handed to Harbor, while the task set's other tasks run (a
+    split may leave such tasks out, so the run is not refused); one of Harbor's own agents takes them."""
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "plain")
+    for name, extra in (("mcp", '\n[[environment.mcp_servers]]\nname = "bank"\ntransport = "sse"\n'
+                                'url = "http://bank:8000/sse"\n'),
+                        ("skills", 'skills_dir = "/skills"\n'), ("windows", 'os = "windows"\n')):
+        task = make_task(tasks, name)
+        toml = (task / "task.toml").read_text()
+        (task / "task.toml").write_text(toml.replace("[environment]\n", "[environment]\n" + extra, 1)
+                                        if not extra.startswith("\n[[") else toml + extra)
+    rows = {r["harbor_task"]: r for r in dataset.index(tasks)}
+    agent = make_agent(tmp_path, fake_harbor, tasks)
+    jobs = tmp_path / "jobs"
+    for name, why in (("mcp", "MCP servers"), ("skills", "a skills folder"), ("windows", "a Windows container")):
+        out = agent.run(rows[name], None)
+        assert out.output["status"] == "infra" and out.extra["unscored"] == "unsupported_task", name
+        assert f"it declares {why}" in out.extra["exception_message"] and out.log is None, name
+    assert not jobs.exists() or not any(jobs.glob("*/job.yaml"))       # none was handed to Harbor
+    assert agent.run(rows["plain"], None).output["status"] == "ok"
+    answer = make_agent(tmp_path, fake_harbor, tasks, acting_agent={"cli": "answer"}, web_search=None)
+    assert answer.run(rows["mcp"], None).extra["unscored"] == "unsupported_task"
+    own = make_agent(tmp_path, fake_harbor, tasks, acting_agent={"name": "codex"}, binding=None, model="gpt-5.6-luna")
+    assert own.unsupported(rows["mcp"]) == ["MCP servers"] and own.run(rows["mcp"], None).extra.get("unscored") != \
+        "unsupported_task"                                             # Harbor's own Codex takes them
+
+
 def test_the_answer_agents_model_keeps_the_client_timeout_and_retries_its_spec_gives(tmp_path, fake_harbor):
     """A model a CLI reaches through the pipeline's endpoint keeps that endpoint spec's timeout (one that waits out a
     session and a login's plan) in each trial's relay, which would otherwise cut the request at its client's 600 s
@@ -740,10 +774,10 @@ def test_the_answer_agents_model_keeps_the_client_timeout_and_retries_its_spec_g
     answer = {"acting_agent": {"cli": "answer"}, "web_search": None}
     served = make_agent(tmp_path, fake_harbor, tasks, **answer, binding=None, model=SERVED, model_cli="codex")
     bound = make_agent(tmp_path, fake_harbor, tasks, **answer, binding={**BINDING, "timeout": 1200, "max_retries": 1})
-    for agent, client in ((served, (SERVED["timeout"], 4)), (bound, (1200.0, 1))):
+    for agent, client in ((served, (SERVED["timeout"], 4, True)), (bound, (1200.0, 1, False))):
         relay = ModelEndpoint(agent.answer_model()).start()
         try:
-            assert (relay.client.timeout, relay.client.max_retries) == client
+            assert (relay.client.timeout, relay.client.max_retries, relay.client.count_error_usage) == client
         finally:
             relay.close()
     assert served.answer_model()["timeout"] == SERVED["timeout"] and "max_retries" not in served.answer_model()
@@ -876,6 +910,113 @@ def test_a_harbor_builtins_login_or_effort_is_refused_at_startup(tmp_path, fake_
                    effort="extreme")
     assert make_agent(tmp_path, fake_harbor, tasks, acting_agent={"name": "claude-code"}, binding=None, model="m",
                       effort="high").cli is None
+
+
+def test_harbors_own_claude_code_keeps_harbors_web_rule_per_task_unless_web_search_is_off(tmp_path, fake_harbor):
+    """Any `disable_web_search` Harbor's agent is given overrides Harbor's own rule (WebSearch and WebFetch off where
+    the task's agent network is not public): `web_search: false` turns them off on every task, and true or unset gives
+    Harbor nothing, so a task with no public network never has them; the tools that outlive the session stay denied."""
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    row = dataset.index(tasks)[0]
+
+    def kwargs(**params):
+        return make_agent(tmp_path, fake_harbor, tasks, acting_agent={"name": "claude-code"}, binding=None, model="m",
+                          **params).agent_config(row)["kwargs"]
+    assert kwargs(web_search=False)["disable_web_search"] is True
+    for web in (True, None):
+        given = kwargs(web_search=web)
+        assert "disable_web_search" not in given and "RemoteTrigger" in given["disallowed_tools"], web
+    with pytest.raises(ValueError, match="web_search is true or false"):
+        kwargs(web_search="no")
+
+
+def test_harbors_own_claude_code_is_refused_a_sign_in_it_would_never_be_handed(tmp_path, fake_harbor, monkeypatch):
+    """Harbor's own claude-code is never handed the subscription's token (it would put it on a command line):
+    CLAUDE_FORCE_OAUTH, which asks for it, would bill the key in every trial, and the token as the only sign-in of a
+    model at Anthropic's API would run each one signed out: both refused at startup. A key bills the key, the token
+    beside it or not, as Harbor's claude-code always did; a model elsewhere takes no subscription."""
+    from hermit.agent.base.cli import CLAUDE_BILLING
+    for name in (*CLAUDE_BILLING, "CLAUDE_FORCE_OAUTH", "CLAUDE_CODE_OAUTH_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+
+    def builtin(model="claude-haiku-5-5"):
+        return make_agent(tmp_path, fake_harbor, tasks, acting_agent={"name": "claude-code"}, binding=None,
+                          model=model)
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", TOKEN)
+    for model in ("claude-haiku-5-5", "anthropic/claude-haiku-5-5", normalized("anthropic/claude-haiku-5-5", tasks)):
+        with pytest.raises(ValueError, match="the only sign-in here.*login: claude"):
+            builtin(model)
+    builtin("openrouter/anthropic/claude-haiku-5-5")
+    make_agent(tmp_path, fake_harbor, tasks, binding=None, model="claude-haiku-5-5",      # a bill in the agent's env
+               acting_agent={"name": "claude-code", "env": {"CLAUDE_CODE_USE_BEDROCK": "1"}})
+    own = {"model": "claude-haiku-5-5", "base_url": "https://api.anthropic.com/v1", "api_key_env": "MY_ANTHROPIC_KEY",
+           "messages_url": "https://api.anthropic.com"}                       # a backend with a key variable of its own
+    with pytest.raises(ValueError, match="the only sign-in here"):
+        builtin(own)
+    monkeypatch.setenv("MY_ANTHROPIC_KEY", "sk-ant-mine-0123456789abcdef")
+    builtin(own)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake-0123456789abcdef")
+    env = builtin().harbor_env()
+    assert env["ANTHROPIC_API_KEY"] == "sk-ant-fake-0123456789abcdef" and "CLAUDE_CODE_OAUTH_TOKEN" not in env
+    for on in ("1", "true", "YES"):
+        monkeypatch.setenv("CLAUDE_FORCE_OAUTH", on)
+        with pytest.raises(ValueError, match="CLAUDE_FORCE_OAUTH asks .* bill ANTHROPIC_API_KEY instead"):
+            builtin()
+    monkeypatch.setenv("CLAUDE_FORCE_OAUTH", "0")
+    assert "CLAUDE_FORCE_OAUTH" not in builtin().harbor_env()
+    with pytest.raises(ValueError, match="CLAUDE_FORCE_OAUTH asks"):         # the agent's own env, which Harbor reads
+        make_agent(tmp_path, fake_harbor, tasks, acting_agent={"name": "claude-code", "env": {"CLAUDE_FORCE_OAUTH": 1}},
+                   binding=None, model="claude-haiku-5-5")
+
+
+def normalized(ref: str, tasks: Path, acting: dict | None = None):
+    """The model a loaded config gives one of Harbor's own agents for `ref` (backends.normalize_config): its spec."""
+    from hermit.agent.model.backends import normalize_config
+    data = {"agent": {"name": "harbor", "params": {"tasks_dir": str(tasks), "web_search": False, "model": ref,
+                                                   "acting_agent": acting or {"name": "claude-code"}}}}
+    normalize_config(data)
+    return data["agent"]["params"]["model"]
+
+
+def test_harbors_own_claude_code_is_given_the_messages_root_and_anthropics_own_api_by_name(tmp_path, fake_harbor,
+                                                                                             monkeypatch):
+    """Claude Code appends /v1/messages to its base URL: Harbor's own claude-code on a model a loaded config bound is
+    given the backend's Messages API root (Hermit's own Claude sessions are given it too), and a model at Anthropic's
+    own API by name alone, which Harbor signs in to with its key (no base URL, so no skip_model_parsing); Harbor's
+    own codex is given the endpoint as it is bound."""
+    from hermit.agent.base.cli import CLAUDE_BILLING
+    for name in (*CLAUDE_BILLING, "CLAUDE_FORCE_OAUTH", "CLAUDE_CODE_OAUTH_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+
+    def agent(ref, acting):
+        return make_agent(tmp_path, fake_harbor, tasks, acting_agent=acting, binding=None,
+                          model=normalized(ref, tasks, acting))
+    claude = agent("anthropic/claude-haiku-5-5", {"name": "claude-code"})
+    assert claude.model_fields() == {"model_name": "anthropic/claude-haiku-5-5",
+                                     "model_api_key_name": "ANTHROPIC_API_KEY"}
+    assert "skip_model_parsing" not in claude.agent_config(dataset.index(tasks)[0])
+    deepseek = agent("deepseek/deepseek-chat", {"name": "claude-code"}).model_fields()
+    assert deepseek["base_url"] == "https://api.deepseek.com/anthropic" and deepseek["model_name"] == "deepseek-chat"
+    assert agent("openai/gpt-4o", {"name": "codex"}).model_fields()["base_url"] == "https://api.openai.com/v1"
+
+
+def test_a_harbor_mini_swe_agent_trial_is_refused_at_startup_what_its_base_agent_refuses(tmp_path, fake_harbor):
+    """A Harbor trial's launch plan is rendered without the Base Agent's run, whose checks mini-swe-agent's are: they
+    run on the render too, so web search (mini-swe-agent has none) or a model class whose replies Hermit does not
+    read is refused at startup, not lost in the container."""
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    with pytest.raises(ValueError, match="mini-swe-agent has no web search"):
+        make_agent(tmp_path, fake_harbor, tasks, acting_agent={"cli": "mini-swe-agent"}, web_search=True)
+    with pytest.raises(ValueError, match="model_class 'litellm_response'"):
+        make_agent(tmp_path, fake_harbor, tasks,
+                   acting_agent={"cli": "mini-swe-agent", "settings": {"model_class": "litellm_response"}})
+    make_agent(tmp_path, fake_harbor, tasks, acting_agent={"cli": "mini-swe-agent"})
 
 
 def test_a_verifier_timeout_is_infra_unless_the_verifier_times_the_solution(tmp_path, fake_harbor):
@@ -2996,6 +3137,74 @@ def test_a_login_trials_usage_is_what_every_run_of_it_used(tmp_path, fake_harbor
     assert HarborAgent._attempts(runs[1:]) is runs[1]                        # one run: as it is
 
 
+def relayed_sessions(*streams: Path):
+    """A chat endpoint (started) over Claude Code sessions, as hermit.isolate.agent_pipeline serves the answer agent's
+    model a CLI reaches (cli_endpoint: each request one session): each session plays the next of `streams` (the last
+    one repeats), read as Claude Code's Base Agent reads a session's stream; (the endpoint, the streams played)."""
+    from hermit.agent.base.cli import Claude
+    from hermit.agent.base.endpoint import ChatEndpoint
+    from hermit.agent.base.interface import Result
+    played: list[Path] = []
+
+    class Session(Claude):
+        def _session(self, prompt, **kwargs):
+            stream = streams[min(len(played), len(streams) - 1)]
+            played.append(stream)
+            said = self.outcome(stream.read_text(), stream, None)
+            said.pop("started", None)
+            usage = self.parse(stream, self.settings["model"])[1]
+            return Result(reply=said.pop("reply"), finish_reason=said.pop("finish_reason", None), usage=usage,
+                          exit_code=0 if said.get("served") else 1,
+                          extra={"failed": False, "login_failed": False, "rejected": False, **said})
+    return ChatEndpoint(Session({"model": "claude-haiku-5-5", "web_search": False})).start(), played
+
+
+def test_a_relayed_cli_session_that_failed_gives_the_trial_the_tokens_it_used_and_the_budget_their_cost(
+        tmp_path, fake_harbor, monkeypatch):
+    """The answer agent's model a CLI reaches behind the pipeline's endpoint, which the trial's endpoint relays each
+    request to (a client of its own): a session that failed after it used tokens (Claude Code's model refusal, whose
+    400 reports them: endpoint._no_reply) gives the trial those tokens, priced at the spec's price, and the run's budget
+    is charged them, as it is for a session the relay's client ran again (the provider could not serve it: a 503) and
+    for the served one after it, counted once."""
+    from types import SimpleNamespace
+    from hermit.agent.model import llm
+    from hermit.trainer.budget import Budget
+    from hermit.trainer.rollout import run_tasks
+    waits = []
+    monkeypatch.setattr(llm, "time", SimpleNamespace(sleep=waits.append))         # the relay's client: no wait
+    price = {"input": 1.0, "cached_input": 0.5, "output": 2.0}
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha", image="example/alpha:1")
+    row = dataset.index(tasks)[0]
+    busy = claude_stream("overloaded", tmp_path / "busy.jsonl", 5000, 100)
+    served = claude_stream("text_session", tmp_path / "served.jsonl", 150, 50)      # a session with no tools
+    seen = {}
+    for case, streams in (("refused", [STREAMS / "model_refusal.jsonl"]), ("retried", [busy, served])):
+        sessions, played = relayed_sessions(*streams)
+        (tmp_path / case).mkdir()
+        try:
+            agent = make_agent(tmp_path / case, fake_harbor, tasks, acting_agent={"cli": "answer"}, binding=None,
+                               web_search=None, model_cli="claude",
+                               model={**SERVED, "model": "claude-haiku-5-5", "base_url": sessions.url, "price": price})
+            budget = Budget()
+            [record] = run_tasks([row], None, agent.run, judge.score, concurrency=1, budget=budget)
+        finally:
+            sessions.close()
+        seen[case] = (record, budget, played)
+    record, budget, played = seen["refused"]
+    cost = ((558 - 178) * 1.0 + 178 * 0.5 + 90 * 2.0) / 1e6                  # the refusal's tokens, 178 of them cached
+    assert record["pipeline_extra"]["session"]["statuses"] == [400] and len(played) == 1
+    assert (record["tokens"], record["api_speed"]["model_calls"], budget.tokens["rollout"]) == (648, 1, 648)
+    assert record["cost_usd"] == pytest.approx(cost) and budget.usd["rollout"] == pytest.approx(cost)
+    assert record["pipeline_extra"]["n_cache_tokens"] == 178 and budget.unknown_cost_calls == 0
+    record, budget, played = seen["retried"]
+    assert (record["status"], record["pipeline_extra"]["session"]["statuses"], played) == ("ok", [200], [busy, served])
+    assert waits == [2.0]                                                    # the relay's client ran the session again
+    assert (record["tokens"], record["api_speed"]["model_calls"], budget.tokens["rollout"]) == (5300, 2, 5300)
+    cost = (5000 * 1.0 + 100 * 2.0 + 150 * 1.0 + 50 * 2.0) / 1e6
+    assert record["cost_usd"] == pytest.approx(cost) and budget.usd["rollout"] == pytest.approx(cost)
+
+
 # A Codex session whose turn failed on a dropped stream: a provider that could not serve it
 UNSERVED = ('{"type":"thread.started","thread_id":"th-1"}\n{"type":"turn.started"}\n'
             '{"type":"turn.failed","error":{"message":"stream disconnected before completion: error sending '
@@ -3115,10 +3324,11 @@ def test_the_trial_cache_keys_the_whole_row_and_the_tasks_contents(tmp_path, fak
 
 def test_the_trial_cache_keys_the_adapter_as_deployed_its_files_modes_and_the_files_its_links_lead_to(
         tmp_path, fake_harbor):
-    """A deployment copies each of the adapter's files with its permission bits, and a link inside the adapter as the
-    file it leads to (hermit.hosts.inputs.copy_adapter): a script made executable, or the context's link led to another
-    file, is another adapter, so another trial, which a resumed run does not take from the cache; the same adapter
-    copied elsewhere is the same one."""
+    """A deployment copies each of the adapter's files, executable or not, and a link inside the adapter as the file it
+    leads to (hermit.hosts.inputs.copy_adapter): a script made executable, or the context's link led to another file,
+    is another adapter, so another trial, which a resumed run does not take from the cache; the same adapter copied
+    elsewhere is the same one, and so is the adapter written under another umask (its group's and others' bits, which
+    harborside's deployment, the agent user's, does not keep)."""
     from hermit.harbor.runner import adapter_digest
     adapter = tmp_path / "adapter"
     shutil.copytree(simple_template(), adapter)
@@ -3140,9 +3350,41 @@ def test_the_trial_cache_keys_the_adapter_as_deployed_its_files_modes_and_the_fi
     assert adapter_digest(adapter) != digest and "from_trial_cache" not in run().extra
     script.chmod(mode)
     assert adapter_digest(adapter) == digest
+    for path in (script, adapter / "prompts" / "a.md"):                  # written under umask 002, not 022
+        path.chmod((stat.S_IMODE(path.stat().st_mode) | 0o020) & ~0o004)
+    assert adapter_digest(adapter) == digest and run().extra["from_trial_cache"]
     (adapter / "ADAPTER.md").unlink()
     (adapter / "ADAPTER.md").symlink_to(Path("prompts") / "b.md")        # the context from another file
     assert adapter_digest(adapter) != digest and "from_trial_cache" not in run().extra
+
+
+def test_hermit_checks_probe_runs_the_agent_even_where_the_trial_cache_holds_its_trial(tmp_path, fake_harbor,
+                                                                                        monkeypatch):
+    """With trial_cache on, a run's or an eval's pipeline takes a finished trial of the same row from the cache;
+    hermit check's (the pipeline of role check) takes none and keeps none: its probe is there to run the agent, so a
+    revoked sign-in or a broken Docker is reported, never an [ok] read from a trial an earlier run left."""
+    from types import SimpleNamespace
+    from hermit import isolate
+    from hermit import sandbox as sandbox_module
+    monkeypatch.delenv(sandbox_module.ENV_HIDE, raising=False)          # the pipeline sets the run's (empty) hide list
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha", image="example/alpha:1")
+    row = dataset.index(tasks)[0]
+    params = {"tasks_dir": str(tasks), "jobs_dir": str(tmp_path / "jobs"), "harbor": str(fake_harbor),
+              "disk_gate_gb": 0, "tmp_gate_gb": 0, "model": BINDING["model"], "binding": BINDING,
+              "web_search": False, "trial_cache": True}
+    config = SimpleNamespace(base=tmp_path, data={"sandbox": {"enabled": True}, "environment": {},
+                                                  "agent": {"name": "harbor", "params": params}})
+
+    def trial(role: str) -> dict:
+        run, close = isolate.agent_pipeline(config, role, records=None)
+        try:
+            return run(row, None).extra
+        finally:
+            close()
+    assert "from_trial_cache" not in trial("eval") and trial("eval")["from_trial_cache"]    # cached, then taken
+    assert "from_trial_cache" not in trial("check")                                       # the probe runs it again
+    assert config.data["agent"]["params"]["trial_cache"] is True                          # the config as it was
 
 
 def test_a_link_a_deployment_refuses_keys_the_adapter_by_its_own_text_so_no_run_takes_its_deployable_twins_trial(

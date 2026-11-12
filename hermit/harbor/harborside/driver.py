@@ -21,7 +21,9 @@ HermitLaunchError (infra on Hermit's side).
 The driver writes `driver.json` (pid, socket, trial dir) in the stream directory once it listens and logs to its
 stderr (the client sends that to driver.log); Harbor's trial log, each step's agent/ and verifier/ and the final
 result.json are under the trial directory. Each step's result is also kept as `replies/<index>.json`, for a client
-that asked, lost the connection and asks again (`result`).
+that asked, lost the connection and asks again (`result`). A step whose result cannot be kept (a full disk: its reply's
+file, an aborted step's agent/ moved under the step) is answered with an error, and a log line that cannot be written is
+lost: neither leaves a request unanswered.
 
 Protocol: one JSON object per line, one request per connection (see hermit/harbor/stream.py).
 """
@@ -49,7 +51,10 @@ TRIAL_FIELDS = ("verifier_timeout_multiplier", "environment_build_timeout_multip
 
 
 def log(message: str) -> None:
-    print(f"[driver {time.strftime('%H:%M:%S')}] {message}", file=sys.stderr, flush=True)
+    try:
+        print(f"[driver {time.strftime('%H:%M:%S')}] {message}", file=sys.stderr, flush=True)
+    except OSError:                                         # a full disk: the line is lost, never a request's answer
+        pass
 
 
 class StepDriverTrial(MultiStepTrial):
@@ -115,7 +120,6 @@ class StepDriverTrial(MultiStepTrial):
                 log(f"step {step.name}: {type(exc).__name__}: {exc}")
             stop = self._should_stop_after_step(step, step_result)
             if stop:
-                self._move_agent_dir_to_step(step)
                 self.aborted = (f"step {step.name} failed" if step_result.exception_info and not step_result.verifier_result
                                 else f"step {step.name} under min_reward")
             self.running = None
@@ -123,7 +127,13 @@ class StepDriverTrial(MultiStepTrial):
             reply = {"ok": True, "index": index, "step": step_result.model_dump(mode="json"),
                      "paths": {"trial_dir": str(self.paths.trial_dir), "step_dir": str(self.paths.step_dir(step.name))},
                      "aborted": self.aborted, "last": index >= total}
-            (self.replies_dir / f"{index}.json").write_text(json.dumps(reply, default=str))
+            try:
+                if stop:
+                    self._move_agent_dir_to_step(step)
+                (self.replies_dir / f"{index}.json").write_text(json.dumps(reply, default=str))
+            except OSError as exc:                          # a full disk: answered all the same, as an error
+                reply = {"ok": False, "error": f"step {step.name}'s result could not be kept: {type(exc).__name__}: "
+                                               f"{exc}"}
             self._resolve(future, reply)
             if stop or index >= total:
                 break

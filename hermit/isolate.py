@@ -268,10 +268,16 @@ def _secrets(config) -> tuple[list[Path], Path | None]:
     try:
         out.append(config.run_dir())
         runs = config.run_dir().parent
-        from hermit.adapter.manifest import read_manifest
-        out.append(config.tree_dir(read_manifest(config.template_dir())["template"]["id"]))
-    except Exception:                                    # a config without a template still guards the rest
+    except Exception:
         pass
+    if (d.get("trainer") or {}).get("tree_dir"):         # an eval config's tree, with no template to find it by
+        out.append(config.path(d["trainer"]["tree_dir"]))
+    else:
+        try:
+            from hermit.adapter.manifest import read_manifest
+            out.append(config.tree_dir(read_manifest(config.template_dir())["template"]["id"]))
+        except Exception:                                # a config without a template still guards the rest
+            pass
     keep = lambda p: p is not None and "$" not in str(p)
     return [p for p in out if keep(p)], runs if keep(runs) else None
 
@@ -753,7 +759,8 @@ def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path |
     That agent is told, too, whether its streams are kept for a resume (`keep_streams`: the Trainer's
     pipeline's only, until the run finishes: Trainer._finish turns it off before closing the pipeline), and is closed
     with the pipeline (HarborAgent.close): any other pipeline's close stops the drivers of its streams that did not
-    finish, which it never meets again."""
+    finish, which it never meets again. `hermit check`'s (role check) takes no trial from the trial cache, nor keeps
+    one: its probe is there to run the agent."""
     d = config.data
     set_hidden(hidden_paths(d["sandbox"].get("hide") or []))    # eval and check too: what only the judge may read
     params = dict(d["agent"].get("params") or {})
@@ -797,6 +804,8 @@ def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path |
                     params["run_identity"] = uuid.uuid4().hex
                 params["keep_streams"] = resumes
                 params["deploys_adapters"] = bool(deploys_adapters)     # no adapter: nothing only a deployment reads
+                if role == "check":                          # hermit check's probe runs the agent: no trial cached
+                    params["trial_cache"] = False            # (a revoked sign-in or a broken Docker stays unnoticed)
             host = load_agent(d["agent"]["name"], params, config.base)
             if not harbor:
                 return host.run, stop

@@ -21,7 +21,7 @@ agent:
     model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the backend's endpoint and key go to Codex in the container
     effort: medium
     web_search: false                    # as the Codex route: the answer is in the corpus, not on the web
-    codex_version: "0.134.0"             # the Codex of the GLM 5.3 Flash row (utils/agent/docker/Dockerfile)
+    codex_version: "0.134.0"             # the Codex in run_codex.yaml's image (docker/codex/Dockerfile)
     agent_timeout_sec: 3600              # one session's wall clock, as the Codex route's timeout_s
     environment:
       delete: true

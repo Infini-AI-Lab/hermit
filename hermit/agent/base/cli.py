@@ -780,6 +780,10 @@ class CliAgent(BaseAgent):
         return Binding.from_spec(self.settings["binding"]).key_env_if_set()
 
     # ---------- one call ----------
+    def check_settings(self) -> None:
+        """What every session on these settings would refuse (Unsupported), refused before one starts: by `run`, and
+        by a Harbor trial's launch plan, which is rendered without it (hermit.harbor.launch). None here."""
+
     def run(self, prompt, *, workspace=None, tools: Sequence[Tool] = (), limits: Limits | None = None,
             session: Any = None, roles: Sequence[dict] = ()) -> Result:
         """One session. On a login it first waits while the plan holds sessions back (and again when the plan held
@@ -1088,13 +1092,17 @@ CODEX_FORBIDDEN = re.compile(r"unexpected status 403\b")
 # "Falling back from WebSockets to HTTPS transport. unexpected status 403 Forbidden: ...")
 CODEX_RECOVERY = re.compile(r"\s*(?:Reconnecting\.\.\.|Falling back from WebSockets to HTTPS transport\b)")
 # A record of Codex's own log on its stderr ("<time> <LEVEL> <target>: <message>", its target in group 1), whose
-# target is a Rust path, as every one of Codex's is (codex_core::tools::router, rmcp::transport::worker): a line of
-# that shape whose target is one word (a log file's line a patch quotes, "<time> ERROR auth: ...") starts none; and the
-# targets of its records of the session's tool calls (codex_core::tools), which quote the model's text: a command it
-# refused ("error=exec_command failed: CreateProcess { message: \"Rejected(...<the command>...") or a patch whose lines
-# it did not find ("error=apply_patch verification failed: Failed to find expected lines in <file>:", then those
-# lines, each on a line of its own that starts no record)
-CODEX_RECORD = re.compile(r"\d{4}-\d\d-\d\dT\S+\s+(?:TRACE|DEBUG|INFO|WARN|ERROR)\s+(\w+(?:::\w+)+)[{:]")
+# target is a Rust path (codex_core::tools::router, rmcp::transport::worker), after the spans the record was logged in
+# where their level is on (RUST_LOG=codex_core=info: "<time> ERROR session_loop{thread_id=...}:turn{...}: <target>:",
+# each span a name, dots allowed, with its {fields} or none, then ":", and a space after the last): a line of that
+# shape whose target is no Rust path starts none (a log file's line a patch quotes, "<time> ERROR auth: ..."; Codex's
+# INFO records under another name, feedback_tags or codex_otel.log_only, start none too); and the targets of its
+# records of the session's tool calls (codex_core::tools), which quote the model's text: a command it refused
+# ("error=exec_command failed: CreateProcess { message: \"Rejected(...<the command>...") or a patch whose lines it did
+# not find ("error=apply_patch verification failed: Failed to find expected lines in <file>:", then those lines, each
+# on a line of its own that starts no record)
+CODEX_RECORD = re.compile(r"\d{4}-\d\d-\d\dT\S+\s+(?:TRACE|DEBUG|INFO|WARN|ERROR)\s+"
+                          r"(?:(?:[\w.]+(?:\{[^}]*\})?:)+\s+)?(\w+(?:::\w+)+)[{:]")
 CODEX_TOOLS = re.compile(r"codex_core::tools(?:::|$)")
 
 
@@ -1784,6 +1792,10 @@ class MiniSweAgent(CliAgent):
             raise Unsupported("mini-swe-agent cannot resume a session")
         if roles:
             raise Unsupported("mini-swe-agent has no sub-agents: it takes no roles")
+        self.check_settings()
+        return super().run(prompt, workspace=workspace, tools=tools, limits=limits, session=session, roles=roles)
+
+    def check_settings(self) -> None:
         if self.settings.get("login"):
             raise Unsupported("mini-swe-agent has no login: give a <backend>/<model> reference or a litellm model")
         if self.settings.get("web_search"):
@@ -1801,7 +1813,6 @@ class MiniSweAgent(CliAgent):
             raise Unsupported(f"mini-swe-agent's model_class {model_class!r}: Hermit reads "
                               f"{' and '.join(self.binding_classes)} only; another provider's model goes through "
                               "litellm (openrouter/<model>, ...)")
-        return super().run(prompt, workspace=workspace, tools=tools, limits=limits, session=session, roles=roles)
 
     def prepare_home(self, home, roles, tools_url, tools_name):
         """The task's settings for the runner, in its home: no key (the runner reads the key's variable), of `env`

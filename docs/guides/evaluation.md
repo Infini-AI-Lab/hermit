@@ -72,9 +72,10 @@ is computed. For a 0–100 score or a non-success metric without a `passed`, it 
 benchmark's own definition and raw scores. It is also distinct from mean per-attempt accuracy.
 
 `eval.infra_retries: N` runs the `infra` rows again, up to N passes, `eval.infra_wait_s` before each; a halt (a lost
-login, a usage limit) stops the reruns until a person restores it. A multi-step task's step rows are not run again: a
-step runs only in its task's stream, after the steps before it, and a split that lists one ahead of an earlier step of
-its stream is refused before any run.
+login, a usage limit) stops the reruns until a person restores it. A multi-step task's step rows are not run again (a
+step runs only in its task's stream, after the steps before it), nor is a task Harbor runs for none of Hermit's agents
+(`unsupported_task`: a rerun would be refused the same way). A split that lists a step ahead of an earlier step of its
+stream, or without an earlier step of its stream, is refused before any run.
 
 ## Preserve the artifact and evidence
 

@@ -95,18 +95,26 @@ class Harness2UpstreamEvolver(Evolver):
     def step_scores(self, result: StepResult) -> dict[str, float | None] | None:
         """The paper's score of the step's task: the deliverable upstream chose without the labels, graded after by
         the run's judge (`extra.harness2.judged.score`, on the rollouts' scale); for a deliverable whose execution was
-        not the agent's result (infra, which has no grade) the task maps to None, a row the stream leaves unscored;
-        None when nothing else was graded (the stream takes the rollout's, H0's)."""
+        not the agent's result (infra, which has no grade) the task maps to None, a row the stream leaves unscored.
+        Where upstream chose none (no final candidate's execution delivered an answer: selection's "no candidate
+        produced an artifact"), the task maps to None when every final that ran was infra, else to 0.0: the composed
+        harness delivered nothing, which no H0 success stands in for. None when nothing else was graded, a step whose
+        finals never ran included (the stream takes the rollout's, H0's)."""
         h2 = (result.extra or {}).get("harness2") or {}
         judged = h2.get("judged") or {}
         score = judged.get("score")
-        chosen = (h2.get("runs") or {}).get((h2.get("selection") or {}).get("chosen_label") or "") or {}
-        if h2.get("task") and not judged.get("graded") and chosen.get("unscored"):
-            return {str(h2["task"]): None}
-        if not h2.get("task") or not judged.get("graded") or isinstance(score, bool) or \
-                not isinstance(score, (int, float)):
+        runs = h2.get("runs") or {}
+        label = (h2.get("selection") or {}).get("chosen_label") or ""
+        task = h2.get("task")
+        if task and not judged.get("graded"):
+            if (runs.get(label) or {}).get("unscored"):
+                return {str(task): None}
+            ran = [runs[f] for f in h2.get("finals") or () if isinstance(runs.get(f), dict)]
+            if not label and ran:
+                return {str(task): None if all(r.get("unscored") for r in ran) else 0.0}
+        if not task or not judged.get("graded") or isinstance(score, bool) or not isinstance(score, (int, float)):
             return None
-        return {str(h2["task"]): float(score)}
+        return {str(task): float(score)}
 
     def setup(self, ctx) -> None:
         context = _upstream()[0]

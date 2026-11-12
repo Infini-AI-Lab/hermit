@@ -558,17 +558,32 @@ def _cli_kind(agent: dict, params: dict) -> str:
     return kind
 
 
-def _with_benchmark(params: dict, base, default) -> dict:
+def _bound_ref(value, backends: dict[str, Backend]):
+    """The reference of the model a `model` value binds (as_binding), whatever form names it, or the value itself
+    for one that binds none (a CLI's own model name, an endpoint mapping) or cannot be bound (refused where
+    normalize_config binds it: a benchmark file's model the config replaces never is)."""
+    try:
+        binding = as_binding(value, backends)
+    except (TypeError, ValueError):
+        return value
+    return value if binding is None else binding.ref
+
+
+def _with_benchmark(params: dict, base, default, backends: dict[str, Backend]) -> dict:
     """A Harbor task set's params with what its benchmark file (`benchmark`, relative to `base`, the config's folder)
     holds for the model layer, as hermit.harbor.runner.HarborAgent will merge the file under them: its acting agent,
     under the config's one level deep, its model when the config gives none (no agent.params.model, no top-level
-    `model`), and its price when the config gives none and the model bound is the file's (taken from the file, or the
-    config's and equal to it): else the backend's, which bind_harbor_params fills into the params, would override it
-    in the runner's merge. Another model bound keeps its own backend's price: the file's price is its model's. The
-    sign-in the run's checks read (hermit.agent.base.login.logins_of) comes from the file too, each key the config
-    does not give: `login`, and `login_root` and `claude_bin` as the runner reads them (HarborAgent.login_root and
-    .bin: `~` expanded, made absolute against the working directory, as a config's own are). A file that cannot be
-    read adds nothing: the runner refuses it when it starts."""
+    `model`), and its price when the config gives none (no agent.params.price, no `price` in its model's mapping) and
+    the model bound is the file's (taken from the file, or the config's naming it in any form: the same reference once
+    both are bound against `backends`, as a reference string or an alias, {backend, model}, or {model: <reference>,
+    timeout, ...}): else the backend's, which bind_harbor_params fills into the params, would override it in the
+    runner's merge. Another model keeps its own price (its backend's, or an endpoint mapping's own), and so does a
+    model its own mapping prices: the params' price is None for them, which the runner's merge keeps (it would give
+    them the file's price, over an endpoint mapping's own, which binds no backend). The sign-in
+    the run's checks read (hermit.agent.base.login.logins_of) comes from the file too, each key the config does not
+    give: `login`, and `login_root` and `claude_bin` as the runner reads them (HarborAgent.login_root and .bin: `~`
+    expanded, made absolute against the working directory, as a config's own are). A file that cannot be read adds
+    nothing: the runner refuses it when it starts."""
     if not params.get("benchmark"):
         return params
     path = Path(str(params["benchmark"])).expanduser()
@@ -586,11 +601,13 @@ def _with_benchmark(params: dict, base, default) -> dict:
     elif isinstance(own, dict) and isinstance(theirs, dict):
         out["acting_agent"] = {**theirs, **own}
     model = params.get("model") if params.get("model") is not None else default     # the model normalize_config binds
+    priced = isinstance(model, dict) and model.get("price") is not None             # by the config's own mapping
     if model is None and shared.get("model") is not None:
         out["model"] = model = shared["model"]
-    if params.get("price") is None and shared.get("price") is not None and \
-            shared.get("model") is not None and model == shared["model"]:          # the file's price is its model's
-        out["price"] = shared["price"]
+    if params.get("price") is None and shared.get("price") is not None:            # the file's price is its model's
+        mine = not priced and shared.get("model") is not None and \
+            _bound_ref(model, backends) == _bound_ref(shared["model"], backends)
+        out["price"] = shared["price"] if mine else None    # None: the runner's merge of the file keeps it off
     for key in ("login", "login_root", "claude_bin"):
         if key not in params and shared.get(key):          # a key the config gives, even null, is the runner's
             value = shared[key]
@@ -625,7 +642,7 @@ def normalize_config(data: dict, base: Path | str | None = None) -> None:
     if not isinstance(params, dict):
         params = {}
     if str(agent.get("name") or "") == "harbor":
-        params = _with_benchmark(params, base, default)
+        params = _with_benchmark(params, base, default, backends)
     harbor = harbor_cli(params) if str(agent.get("name") or "") == "harbor" else None   # its acting agent's CLI
     kind = "" if harbor is not None else _cli_kind(agent, params)
     model = params.get("model")

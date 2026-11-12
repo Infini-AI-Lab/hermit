@@ -533,7 +533,8 @@ def cli_endpoint(spec: dict, log_dir=None, *, sandbox=None) -> ChatEndpoint:
 
 def endpoint_spec(endpoint: ChatEndpoint, spec: dict) -> dict:
     """The plain model spec of an endpoint over a CLI, for code that takes a model spec or a base URL (an acting
-    pipeline): it needs no key, and its URL holds the endpoint's token (never written to a run's records)."""
+    pipeline): it needs no key, and its URL holds the endpoint's token (never written to a run's records). A client
+    made from it counts what a failed session used (`count_error_usage`: the tokens _no_reply's error body reports)."""
     settings = endpoint.agent.settings
     model = str(settings.get("model") or spec["cli"])
     timeout = float(spec.get("timeout", 3600))
@@ -545,7 +546,7 @@ def endpoint_spec(endpoint: ChatEndpoint, spec: dict) -> dict:
         wait = settings.get("plan_max_wait_s", MAX_WAIT_S)
         timeout += 30 * 86400 if wait is None else float(wait)
     return {"base_url": endpoint.url, "model": model, "api_key_env": None, "key_required": False,
-            "price": spec.get("price"), "timeout": timeout}
+            "price": spec.get("price"), "timeout": timeout, "count_error_usage": True}
 
 
 def cli_model(spec: dict, log_dir=None, sandbox=None):

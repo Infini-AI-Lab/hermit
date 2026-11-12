@@ -290,11 +290,12 @@ def _merge(base: dict, over: dict) -> dict:
 
 
 def adapter_digest(adapter: Path | None) -> str:
-    """The adapter's files, as one digest: each one's relative path, and the bytes and permission bits a deployment
-    copies (hermit.hosts.inputs.copy_adapter): a link's are those of the file it leads to inside the adapter; any other
-    link (one that leads outside it, to a directory or to no file: refused where a deployment copies it) counts as a
-    link by its own text, so such an adapter is never its deployable twin without the link; none of git's or Python's
-    caches."""
+    """The adapter's files, as one digest: each one's relative path, and the bytes a deployment copies
+    (hermit.hosts.inputs.copy_adapter) and whether it is executable (any x bit: harborside makes the deployment its
+    agent user's, `u+rwX`, so the group's and others' bits, which the umask the adapter was written under sets, change
+    nothing a session does); a link's are those of the file it leads to inside the adapter; any other link (one that
+    leads outside it, to a directory or to no file: refused where a deployment copies it) counts as a link by its own
+    text, so such an adapter is never its deployable twin without the link; none of git's or Python's caches."""
     if adapter is None:
         return "none"
     h = hashlib.sha256()
@@ -307,7 +308,8 @@ def adapter_digest(adapter: Path | None) -> str:
             continue
         source = path.resolve() if path.is_file() else None   # a link: the file it leads to, as a deployment copies it
         if source is not None and source.is_relative_to(inside):
-            h.update(rel.as_posix().encode() + b"\0" + b"%o" % stat.S_IMODE(source.stat().st_mode) + b"\0"
+            executable = bool(stat.S_IMODE(source.stat().st_mode) & 0o111)
+            h.update(rel.as_posix().encode() + b"\0" + (b"x" if executable else b"-") + b"\0"
                      + hashlib.sha256(source.read_bytes()).digest())
         else:                                               # a link a deployment refuses: by its own text
             h.update(rel.as_posix().encode() + b"\0link\0" + hashlib.sha256(os.fsencode(os.readlink(path))).digest())
@@ -406,6 +408,19 @@ class HarborAgent(Agent):
                 continue
         return False
 
+    def unsupported(self, task: dict) -> list[str]:
+        """Why Harbor runs the task for none of Hermit's own agents (a table CLI, the answer agent), or nothing: Harbor
+        refuses a task that declares MCP servers (`[[environment.mcp_servers]]`) or a skills folder
+        (`environment.skills_dir`), or that targets a Windows container (`environment.os`), for an agent whose
+        capabilities lack them (harbor/trial/trial.py, _validate_agent_capabilities), as harborside's agents' do, and
+        its refusal leaves no stream: such a rollout is infra (`unsupported_task`), never started (run). A task.toml
+        that cannot be read says nothing here (its trial says why)."""
+        env = self.task_config(task).get("environment") or {}
+        if not isinstance(env, dict):
+            return []
+        return [w for w, on in (("MCP servers", env.get("mcp_servers")), ("a skills folder", env.get("skills_dir")),
+                                ("a Windows container", str(env.get("os") or "").lower() == "windows")) if on]
+
     @property
     def jobs_dir(self) -> Path:
         return Path(os.path.expanduser(str(self.params.get("jobs_dir") or JOBS_DIR))).resolve()
@@ -479,9 +494,10 @@ class HarborAgent(Agent):
 
     def answer_model(self) -> dict:
         """The answer agent's model as its endpoint serves it: a model a CLI reaches, or the binding's spec with the
-        client settings the model's spec gives beside it (`timeout`, `max_retries`: the spec of a model a CLI reaches
-        through an endpoint of this pipeline, hermit.agent.base.endpoint.endpoint_spec, gives a timeout that waits out
-        a session and a login's plan, which the relay's client would otherwise cut at its own 600 s and send again)."""
+        client settings the model's spec gives beside it (`timeout`, `max_retries`, `count_error_usage`: the spec of a
+        model a CLI reaches through an endpoint of this pipeline, hermit.agent.base.endpoint.endpoint_spec, gives a
+        timeout that waits out a session and a login's plan, which the relay's client would otherwise cut at its own
+        600 s and send again, and counts what a failed session used, which its error reply says)."""
         if self.cli_model is not None:
             return self.cli_model
         if self.binding is None:
@@ -491,7 +507,8 @@ class HarborAgent(Agent):
         # the spec the binding was made from (launch.binding_of): the bound one, else the model's own mapping
         given = bound if isinstance(bound, dict) and bound.get("base_url") and bound.get("model") else model
         if isinstance(given, dict):
-            spec.update({k: given[k] for k in ("timeout", "max_retries") if given.get(k) is not None})
+            spec.update({k: given[k] for k in ("timeout", "max_retries", "count_error_usage")
+                         if given.get(k) is not None})
         return spec
 
     def model_plan(self) -> tuple[Path, bool] | None:
@@ -578,13 +595,22 @@ class HarborAgent(Agent):
 
     def model_fields(self) -> dict:
         """A Harbor built-in's model fields from `model`: a name, or a bound backend's {model, base_url,
-        api_key_env}."""
+        api_key_env}. Harbor's claude-code is given the backend's Messages API root (Claude Code appends /v1/messages
+        to it, as Hermit's own sessions are given it: Binding.claude_env), and a model at Anthropic's own API by name
+        alone (`anthropic/<model>`), as Harbor signs in to it for a model given by name: its key, ANTHROPIC_API_KEY."""
         model = self.params.get("model")
-        if isinstance(model, dict):
-            out = {"model_name": model.get("model"), "base_url": model.get("base_url"),
-                   "model_api_key_name": model.get("api_key_env")}
-            return {k: v for k, v in out.items() if v}
-        return {"model_name": str(model)} if model else {}
+        if not isinstance(model, dict):
+            return {"model_name": str(model)} if model else {}
+        base = model.get("base_url")
+        if base and self.acting_agent.get("name") == "claude-code":
+            base = str(model.get("messages_url") or re.sub(r"/v1/?$", "", str(base))).rstrip("/")
+            from urllib.parse import urlsplit
+            if urlsplit(base).hostname == "api.anthropic.com":       # with its key's variable, which Harbor reads
+                named = {"model_name": f"anthropic/{model.get('model')}",
+                         "model_api_key_name": model.get("api_key_env")}
+                return {k: v for k, v in named.items() if v}
+        out = {"model_name": model.get("model"), "base_url": base, "model_api_key_name": model.get("api_key_env")}
+        return {k: v for k, v in out.items() if v}
 
     def task_dir(self, task: dict) -> Path:
         return self.tasks_dir / str(task.get("harbor_task") or task.get("task") or task["id"])
@@ -636,16 +662,19 @@ class HarborAgent(Agent):
 
     def check_agent(self) -> None:
         """What every trial of the acting agent would refuse, refused before the first one: for a Harbor built-in its
-        kwargs from the run's settings (no login, an effort it takes: builtin_kwargs); for a table CLI its sign-in (a
-        binding with its key set, or its CLI's own login), web search set, a model this machine's containers can
-        reach, the settings its Base Agent renders (a dry render of the launch plan), and for mini-swe-agent the
-        package its adapter's deployment reads on this machine (unless the pipeline deploys no adapter: hermit eval
-        --adapter none, whose pipeline hermit.isolate.agent_pipeline tells so, `deploys_adapters: false`); for the
-        answer agent its model's key, and no attachments on a model a CLI reaches (`model: {cli: ...}`, or the CLI
-        `model_cli` names when hermit.isolate.agent_pipeline serves that model itself), whose sessions take text
-        only."""
+        kwargs from the run's settings (no login, an effort it takes: builtin_kwargs) and, for its claude-code, a
+        sign-in it is handed (check_builtin_sign_in); for a table CLI its sign-in (a binding with its key set, or its
+        CLI's own login), web search set, a model this machine's containers can reach, the settings its Base Agent
+        renders (a dry render of the launch plan), and for mini-swe-agent the package its adapter's deployment reads
+        on this machine (unless the pipeline deploys no adapter: hermit eval --adapter none, whose pipeline
+        hermit.isolate.agent_pipeline tells so, `deploys_adapters: false`); for the answer agent its model's key, and
+        no attachments on a model a CLI reaches (`model: {cli: ...}`, or the CLI `model_cli` names when
+        hermit.isolate.agent_pipeline serves that model itself), whose sessions take text only. A task Harbor runs
+        for none of Hermit's agents is not refused here, as the run may never take it: its rollout is infra
+        (unsupported)."""
         if self.cli is None:
             self.builtin_kwargs()
+            self.check_builtin_sign_in()
             return
         cli, login, binding = self.cli, self.login, self.binding
         model = self.params.get("model")
@@ -831,8 +860,10 @@ class HarborAgent(Agent):
 
     def builtin_kwargs(self) -> dict:
         """A Harbor built-in's kwargs from the run's settings: Codex's and Claude Code's effort and version, Claude
-        Code's web search and the tools that outlive the session denied. Its sign-in is Harbor's own, never a login:
-        Harbor's Claude Code would put the token on a command line."""
+        Code's web search off on every task with `web_search: false` (true, or unset: Harbor's own rule, off where the
+        task's agent network is not public, which any `disable_web_search` Harbor is given would override) and the
+        tools that outlive the session denied. Its sign-in is Harbor's own, never a login: Harbor's Claude Code would
+        put the token on a command line."""
         name = self.acting_agent.get("name")
         out: dict = {}
         if name not in ("codex", "claude-code"):
@@ -857,9 +888,40 @@ class HarborAgent(Agent):
             out["version"] = str(version)
         if name == "claude-code":
             from hermit.agent.base import cli as cli_mod
-            out["disable_web_search"] = not bool(self.params.get("web_search", False))
+            web = self.params.get("web_search")
+            if web is not None and not isinstance(web, bool):
+                raise ValueError(f"agent.params.web_search is true or false, not {web!r}")
+            if web is False:
+                out["disable_web_search"] = True
             out["disallowed_tools"] = ",".join(cli_mod.CLAUDE_BEYOND_SESSION)
         return out
+
+    def check_builtin_sign_in(self) -> None:
+        """Harbor's own claude-code bills the key this process gives it (harbor_env), never the subscription, whose
+        token it would put on a command line: refused at startup, CLAUDE_FORCE_OAUTH (Harbor's switch to the
+        subscription: each trial would bill the key instead, unsaid), and the subscription's token as the only
+        sign-in of a model at Anthropic's API (each trial would run signed out and halt the run). CLAUDE_FORCE_OAUTH,
+        and a bill beside the token (Claude Code's billing variables, the model's own key variable), count in this
+        process's environment and in `acting_agent.env`, which Harbor's agent reads too."""
+        if self.acting_agent.get("name") != "claude-code":
+            return
+        from hermit.agent.base import cli as cli_mod
+        route = ("run acting_agent.cli: claude with login: claude, which hands Claude Code the subscription's token "
+                 "safely")
+        given = {**os.environ, **{str(k): str(v) for k, v in (self.acting_agent.get("env") or {}).items()}}
+        if (given.get("CLAUDE_FORCE_OAUTH") or "").strip().lower() not in ("", "false", "0", "no"):
+            raise ValueError("CLAUDE_FORCE_OAUTH asks Harbor's own claude-code for the subscription's sign-in, whose "
+                             "token Hermit never hands it (it would put it on a command line), so each trial would "
+                             f"bill ANTHROPIC_API_KEY instead: {route}, or unset CLAUDE_FORCE_OAUTH to bill the key")
+        model = self.model_fields()
+        at_anthropic = not model.get("base_url") and "/" not in str(model.get("model_name") or "").removeprefix(
+            "anthropic/")
+        bills = (*cli_mod.CLAUDE_BILLING, *([model["model_api_key_name"]] if model.get("model_api_key_name") else []))
+        if (os.environ.get(subscription.TOKEN_ENV) or "").strip() and at_anthropic and \
+                not any(given.get(n) for n in bills):
+            raise ValueError(f"{subscription.TOKEN_ENV} is the only sign-in here, and Harbor's own claude-code is "
+                             "never handed it (it would put it on a command line), so each trial would run signed "
+                             f"out: {route}, or export the key it is to bill (ANTHROPIC_API_KEY)")
 
     def allowed_hosts(self, task: dict, tools_host: str | None = None) -> list[str]:
         """The hosts a task whose agent phase has no public network must let the CLI reach (Harbor's
@@ -1029,6 +1091,12 @@ class HarborAgent(Agent):
             return stop
         if not self.task_dir(task).is_dir():
             raise ValueError(f"no Harbor task directory {self.task_dir(task)} for {task['id']}")
+        why = self.unsupported(task) if self.cli is not None else []
+        if why:                                              # Harbor would refuse it for this agent: no container
+            return self._output(task, no_trial(
+                "unsupported_task", f"Harbor runs {self.task_dir(task).name} for none of Hermit's agents "
+                f"(acting_agent.cli: {self.cli}): it declares {' and '.join(why)}; leave it out of the split, or run "
+                "it with one of Harbor's own agents (acting_agent.name)"), None, None, started)
         if adapter is not None and self.cli is None:
             self.agent_config(task, deployed={})             # refuses, before anything is staged
         if task.get("step") is not None:

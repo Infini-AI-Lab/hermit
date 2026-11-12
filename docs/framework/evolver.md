@@ -120,9 +120,9 @@ epoch runs again; `progress.remaining` is then empty, so an Evolver that chooses
 was given earlier (the bootstrap is given the first epoch's whole order, and may name the first step's tasks the
 same way). An empty list names nothing. A step of a multi-step Harbor task may be named only when each earlier step of
 its stream (its task's rollout) has run in the epoch or comes before it in the same request (at an epoch's end only the
-latter, since the next epoch runs every step again): any other request is refused, since a task's steps run in order in
-its stream. A request is taken from any step result, a failed step's included; one
-made at the run's last step is recorded and has no step to apply to.
+latter, since the next epoch runs every step again; one the training split leaves out never runs): any other request
+is refused, since a task's steps run in order in its stream. A request is taken from any step result, a failed step's
+included; one made at the run's last step is recorded and has no step to apply to.
 An epoch still runs every training task once: the tasks the Evolver leaves out come later in the epoch, in the
 Trainer's order. The step's record keeps an accepted request as `next_tasks` and a refused one as
 `next_tasks_refused` with the reason, and the next step then runs the order's tasks; a step that ran the Evolver's

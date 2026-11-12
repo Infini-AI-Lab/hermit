@@ -553,6 +553,14 @@ def harbor_side(check: str, scratch: Path) -> dict:
             plan.write_text(json.dumps(data))
             env = FakeEnv(image_context=IMAGE_CONTEXT)
             report[name] = {"raised": run(make("dsh", plan), env), "uploaded": uploaded(env), "order": order(env)}
+        # the image's own text as dsh counts it, each `</system-reminder>` a byte longer, when the plan says it escapes
+        for name, escaped in (("escaped", "</system-reminder>"), ("unescaped", None)):
+            plan = write_plan(scratch / name, "dsh")
+            data = json.loads(plan.read_text())
+            data["deploy"].update(context_limit=124, context_escaped=escaped)
+            plan.write_text(json.dumps(data))
+            env = FakeEnv(image_context=IMAGE_CONTEXT + "</system-reminder>\n" * 3)
+            report[name] = {"raised": run(make("dsh", plan), env), "uploaded": uploaded(env)}
 
     elif check == "every_cli":
         bundle = make_bundle(scratch / "bundle")
@@ -792,6 +800,21 @@ def harbor_side(check: str, scratch: Path) -> dict:
         report["in_return"] = {"raised": run(agent, env, timeout=1.5), "order": order(env),
                                "returned": returned.read_text() if returned.is_file() else None,
                                "metadata": metadata(agent)["metadata"]}
+
+    elif check == "after_own_error":
+        # Harbor's timeout lands in an after-step (the collect hangs into it) of a session that raised its own error: a
+        # launch that left no stream (exit 126: runc could not start the exec), and a CLI that exited 3 with its stream
+        for name, code, failing in (("launch_failed", 126, {"test -e /logs/agent/agent-codex.jsonl": ""}),
+                                    ("non_zero", 3, {})):
+            returned = scratch / name / "return" / "auth.json"
+            plan = write_plan(scratch / name, "codex", deploy=False, return_files=[
+                {"from": "/installed-agent/hermit-home/auth.json", "to": str(returned)}])
+            env = FakeEnv(launch_code=code, failing=failing, hanging=("hermit-collect",),
+                          files={"/installed-agent/hermit-home/auth.json": "{}"})
+            agent = make("codex", plan)
+            report[name] = {"raised": run(agent, env, timeout=1.5), "order": order(env),
+                            "returned": returned.read_text() if returned.is_file() else None,
+                            "metadata": metadata(agent)["metadata"]}
 
     elif check == "after_bounded":
         # Harbor's timeout cancels the session and the container hangs after it (the copy-back and the collect do not
@@ -1661,6 +1684,109 @@ def harbor_side(check: str, scratch: Path) -> dict:
         finally:
             driver.StepDriverTrial.create = create
 
+    elif check == "driver_full_disk":
+        # serve() end to end on a one-step stream, the driver's own step loop on a stand-in of Harbor's trial (its
+        # run(), as Harbor's, records an exception out of the loop and returns the trial's result), whose disk fills
+        # up: the driver's stderr refuses its lines once the step runs (the step fails, and the loop logs it), the
+        # replies/ folder cannot take the step's reply (a file is there), or the failed step's agent/ cannot be moved
+        # under the step. A client asks for the step and reads the answer, then waits for the driver to end.
+        import argparse
+        import io
+        import logging
+        import tempfile
+        from harborside import driver
+
+        class FullDisk(io.TextIOBase):
+            def write(self, text):
+                raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+        def full_disk(step):
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+        def stand_in(case: str, where: Path):
+            trial = driver.StepDriverTrial.__new__(driver.StepDriverTrial)
+            trial.commands, trial.logger = asyncio.Queue(), logging.getLogger("driver_full_disk")
+            trial.prepared, trial.done, trial.error, trial.recorded = asyncio.Event(), asyncio.Event(), None, None
+            trial.running, trial.next_index, trial.aborted = None, 1, None
+            trial.loop_done, trial.finished = False, False
+            trial.replies_dir = where / "replies"
+            if case == "reply":
+                trial.replies_dir.write_text("a file where the replies' folder would be\n")
+            else:
+                trial.replies_dir.mkdir()
+            trial.task = SimpleNamespace(name="demo", config=SimpleNamespace(steps=[SimpleNamespace(name="s1",
+                                                                                                    min_reward=None)]))
+            trial._result = SimpleNamespace(step_results=None, verifier_result=None)
+            trial.paths = SimpleNamespace(trial_dir=where / "trial", step_dir=lambda name: where / "trial" / name,
+                                          cleanup_empty_mount_dirs=lambda: None)
+            trial.agent = SimpleNamespace()                       # an agent that takes no launch plan
+
+            async def run_step(step, step_result, *, index, total):
+                if case == "log":
+                    sys.stderr = FullDisk()                       # the disk fills up while the step runs
+                if case != "reply":
+                    raise RuntimeError("the step's agent failed")
+
+            async def stop_environment():
+                pass
+
+            async def run():                                      # Harbor's Trial.run, as far as serve() sees it
+                try:
+                    await trial._run()
+                except Exception as exc:                          # noqa: BLE001 - recorded, as Harbor records it
+                    trial.recorded = f"{type(exc).__name__}: {exc}"
+                return trial._result
+            trial._run_step, trial._stop_agent_environment, trial.run = run_step, stop_environment, run
+            trial._move_agent_dir_to_step = full_disk if case == "move" else (lambda step: None)
+            trial._select_multi_step_reward = lambda: None
+            return trial
+
+        async def ask(args, where: Path):
+            served = asyncio.ensure_future(driver.serve(args))
+            deadline = time.monotonic() + 10
+            while not (where / "driver.json").is_file() and not served.done() and time.monotonic() < deadline:
+                await asyncio.sleep(0.02)
+            reader, writer = await asyncio.open_unix_connection(args.socket)
+            writer.write((json.dumps({"op": "step", "name": "s1", "index": 1}) + "\n").encode())
+            await writer.drain()
+            try:
+                line = await asyncio.wait_for(reader.readline(), 5)
+                answer = json.loads(line) if line.strip() else "the connection closed without an answer"
+            except asyncio.TimeoutError:
+                answer = "no answer within 5 s"
+            writer.close()
+            try:
+                code = await asyncio.wait_for(served, 5)
+            except asyncio.TimeoutError:
+                code = "still running 5 s after the answer"
+            return answer, code
+
+        create, stderr = vars(driver.StepDriverTrial)["create"], sys.stderr
+        for case in ("log", "reply", "move"):
+            where = scratch / case
+            where.mkdir()
+            # AF_UNIX takes 107 bytes: the socket beside the stream when that path is short enough
+            short = where if len(str(where / "d.sock").encode()) <= 100 else Path(tempfile.mkdtemp(prefix="hd-",
+                                                                                                    dir="/tmp"))
+            trial = stand_in(case, where)
+
+            async def made(cls, config, trial=trial):
+                return trial
+            args = argparse.Namespace(task_dir=str(where / "task"), stream_dir=str(where), name="demo",
+                                      socket=str(short / "d.sock"),
+                                      agent_json=json.dumps({"import_path": "harborside.codex:HermitCodex"}),
+                                      environment_json="{}", verifier_json="{}", trial_json="{}", idle_s=3600.0)
+            driver.StepDriverTrial.create = classmethod(made)
+            try:
+                answer, code = asyncio.run(ask(args, where))
+            finally:
+                sys.stderr, driver.StepDriverTrial.create = stderr, create
+                (short / "d.sock").unlink(missing_ok=True)
+                if short != where:
+                    short.rmdir()
+            report[case] = {"answer": answer, "code": code, "recorded": trial.recorded, "loop_done": trial.loop_done,
+                            "finished": trial.finished}
+
     else:
         raise ValueError(f"unknown check {check}")
     return report
@@ -1668,10 +1794,10 @@ def harbor_side(check: str, scratch: Path) -> dict:
 
 CHECKS = ("codex_plan", "context_limit", "every_cli", "workdir_pwd", "shell_noise", "slash_prompt", "stream_steps",
           "deploy_failed_step", "cancel_fake", "nonzero_exit", "launch_failures", "capture_fails",
-          "launch_exec_failed", "after_cancelled", "after_bounded", "return_check", "workdir_removed", "copy_fails",
-          "shell_session", "shell_cancel", "shell_token", "secrets_refused", "installs", "install_failures",
-          "mount_rejected", "codex_nvm", "mini_swe_agent", "tool_script", "answer", "options", "scripted",
-          "driver_protocol", "driver_plan", "driver_loop", "driver_config")
+          "launch_exec_failed", "after_cancelled", "after_own_error", "after_bounded", "return_check",
+          "workdir_removed", "copy_fails", "shell_session", "shell_cancel", "shell_token", "secrets_refused",
+          "installs", "install_failures", "mount_rejected", "codex_nvm", "mini_swe_agent", "tool_script", "answer",
+          "options", "scripted", "driver_protocol", "driver_plan", "driver_loop", "driver_config", "driver_full_disk")
 
 if __name__ == "__main__":
     sys.path.insert(0, str(HARBORSIDE_ROOT))
@@ -1810,8 +1936,9 @@ def test_secrets_by_name_are_refused_clearly_outside_docker_or_when_harbor_lacks
 
 
 def test_a_context_over_the_clis_limit_fails_the_trial_before_the_session_and_one_within_is_merged(checks):
-    """dsh drops AGENTS.md past its limit without saying so: the merged file (Hermit's, then the image's own) is
-    checked against the plan's context_limit before it is written, and the after-steps still run."""
+    """dsh drops AGENTS.md past its limit without saying so: the merged file (Hermit's, then the image's own, its text
+    counted as dsh escapes it) is checked against the plan's context_limit before it is written, and the after-steps
+    still run."""
     over, within = report(checks, "context_limit")["over"], report(checks, "context_limit")["within"]
     assert over["raised"] == ["HermitContextLimitError",
                               "hermit: AGENTS.md for dsh would be 66 bytes (Hermit's context 16, then the image's own "
@@ -1823,6 +1950,12 @@ def test_a_context_over_the_clis_limit_fails_the_trial_before_the_session_and_on
     assert copy.startswith("exec:mkdir -p /logs/agent/hermit-copy;")
     assert collect.startswith("exec:mkdir -p /logs/agent/hermit-collect;")
     assert within["raised"] is None and within["uploaded"]["/app/AGENTS.md"] == "Hermit context.\n\n" + IMAGE_CONTEXT
+    # 123 bytes merged, within the limit of 124, but 126 as dsh counts them (the image's three tags escaped)
+    escaped, unescaped = report(checks, "context_limit")["escaped"], report(checks, "context_limit")["unescaped"]
+    assert escaped["raised"] == ["HermitContextLimitError",
+                                 "hermit: AGENTS.md for dsh would be 126 bytes (Hermit's context 16, then the image's "
+                                 "own 109), over the CLI's limit of 124 bytes: shorten the adapter's context"]
+    assert unescaped["raised"] is None and len(unescaped["uploaded"]["/app/AGENTS.md"].encode()) == 123
 
 
 def test_every_cli_gets_the_deployment_record_hook_logs_and_its_prompt_where_the_plan_says(checks):
@@ -2111,6 +2244,28 @@ def test_harbors_timeout_landing_in_the_return_of_the_files_still_brings_the_ref
     assert after[5:] == ["download_file:/installed-agent/hermit-home/auth.json"]
     assert r["returned"] == "downloaded /installed-agent/hermit-home/auth.json"
     assert r["metadata"]["after_session_errors"] == ["return_files: cancelled"]
+
+
+def test_a_launch_failure_or_a_non_zero_exit_keeps_its_own_error_when_harbors_timeout_lands_in_an_after_step(checks):
+    """A launch that left no stream (exit 126: runc could not start the exec) and a CLI that exited 3, each followed by
+    a collect that hangs until Harbor's timeout: the cancellation is recorded, the refreshed sign-in still comes back,
+    and the session's own error goes on, not the timeout (Harbor's wait_for lets it through). So the launch failure is
+    still infra (run again), not the agent's timeout scored on a workspace nobody touched, and the non-zero exit still
+    the agent's error read from its stream, not a run that ran out of time."""
+    r = report(checks, "after_own_error")
+    launch, non_zero = r["launch_failed"], r["non_zero"]
+    assert launch["raised"] == ["HermitLaunchError", "hermit: codex did not start: its exec exited with 126 and left "
+                                "no stream (/logs/agent/agent-codex.jsonl)"]
+    assert verdict(launch["raised"]) == ("infra", "launch_failed")
+    assert non_zero["raised"] == ["NonZeroAgentExitCodeError", "hermit: codex exited with 3 (its stream: "
+                                  "/logs/agent/agent-codex.jsonl)"]
+    assert verdict(non_zero["raised"]) == ("agent_error", "unclassified")
+    for name, got in r.items():
+        after = got["order"][got["order"].index("exec:exec bash /installed-agent/hermit/run/launch.sh") + 1:]
+        assert after[2].startswith("exec:mkdir -p /logs/agent/hermit-collect;"), name          # it hung
+        assert after[-1] == "download_file:/installed-agent/hermit-home/auth.json", name    # and the rest still ran
+        assert got["returned"] == "downloaded /installed-agent/hermit-home/auth.json", name
+        assert got["metadata"]["after_session_errors"] == ["collect: cancelled"], name
 
 
 def test_once_the_run_is_cancelled_each_after_step_has_a_bounded_time_and_the_files_still_come_back(checks):
@@ -2692,6 +2847,29 @@ def test_the_driver_gives_the_streams_trial_the_runs_timeout_multipliers(checks)
     assert unknown["multipliers"] is None and unknown["code"] == 2
     assert "agent_timeout_multiplier" in unknown["log"]
     assert "verifier_timeout_multiplier, environment_build_timeout_multiplier" in unknown["log"]
+
+
+def test_a_full_disk_refusing_the_drivers_log_a_steps_reply_or_its_move_still_answers_the_step_and_ends_the_driver(
+        checks):
+    """serve() end to end on a one-step stream whose disk fills up. A log line the driver's stderr refuses is lost: the
+    failed step is answered with its result. A step whose reply cannot be kept in replies/, or whose agent/ cannot be
+    moved under the failed step, is answered with an error saying so (infra on Hermit's side). Either way the request
+    is answered, not left for the client to wait out its time, and the driver ends after its last step, as a stream's
+    driver does, instead of waiting for good on the open connection."""
+    r = report(checks, "driver_full_disk")
+    for name, got in r.items():
+        assert isinstance(got["answer"], dict), (name, got)                       # answered, not left to wait
+    log, reply, move = r["log"]["answer"], r["reply"]["answer"], r["move"]["answer"]
+    assert log["ok"] is True and log["aborted"] == "step s1 failed" and log["last"] is True, log
+    assert log["step"]["exception_info"]["exception_type"] == "RuntimeError"
+    assert reply["ok"] is False and set(reply) == {"ok", "error"}, reply
+    assert reply["error"].startswith("step s1's result could not be kept: NotADirectoryError: [Errno 20] Not a "
+                                     "directory: "), reply
+    assert move == {"ok": False, "error": "step s1's result could not be kept: OSError: [Errno 28] No space left on "
+                                          "device"}
+    for name, got in r.items():
+        assert got["code"] == 0 and got["recorded"] is None, (name, got)
+        assert got["loop_done"] is True and got["finished"] is True, (name, got)
 
 
 def test_harborside_is_harbor_and_stdlib_only():

@@ -159,6 +159,7 @@ def render(cli: str, settings: dict, *, deploy: dict | None, tools_url: str | No
         if backend == "opencode":             # the only skills OpenCode may load: the deployment's
             settings["skills"] = list(deploy.get("skills") or [])
     agent = make(backend, settings)
+    agent.check_settings()                    # what its run() refuses: a trial's plan is rendered without it
     if login == "claude" and not os.environ.get(TOKEN_ENV):
         raise ValueError(NO_TOKEN)
     agent.prepare_home(home, [], tools_url, settings.get("tools_name") or "hermit_tools")
@@ -221,8 +222,9 @@ def _finish(cli, row, agent, settings, command, env, from_host, by_fd, *, home: 
         ours = work / row["context_file"] if row["context_file"] else None
         text = ours.read_text(encoding="utf-8", errors="replace") if ours is not None and ours.is_file() else ""
         deploy_block = {"work_dir": str(work), "adapter_id": deploy["adapter_id"], "context_file": row["context_file"],
-                        "context_limit": context_limit(cli, settings, text), "hooks": bool(deploy.get("hooks")),
-                        "copy_back": copy_back}
+                        "context_limit": context_limit(cli, settings, text),
+                        "context_escaped": row["context_escaped"] if row["context_limit"] else None,
+                        "hooks": bool(deploy.get("hooks")), "copy_back": copy_back}
     for name in [k for k in from_host if k in env]:   # a variable the session's own settings set later wins
         del from_host[name]
     collect = [{"from": f"{CONTAINER_HOME}/{src}", "to": dst}
@@ -292,8 +294,9 @@ def render_answer(settings: dict, *, endpoint: str, job: Path, system: str = "",
 def context_limit(cli: str, settings: dict, text: str = "") -> int | None:
     """The bytes the deployment's context file may hold once merged with the image's own: the table's limit, less a
     byte for each `context_escaped` in `text` (Hermit's own context: dsh escapes each `</system-reminder>` by one more
-    byte, as hermit.hosts.dsh counts it), else Codex's own cap (project_doc_max_bytes, past which Codex would cut the
-    file without a word)."""
+    byte, as hermit.hosts.dsh counts it; the image's own file's are counted where it is merged, the plan's
+    `deploy.context_escaped`), else Codex's own cap (project_doc_max_bytes, past which Codex would cut the file without
+    a word)."""
     row = entry(cli)
     if row["context_limit"]:
         return int(row["context_limit"]) - (text.count(row["context_escaped"]) if row["context_escaped"] else 0)

@@ -472,6 +472,38 @@ def test_a_quoted_line_shaped_like_a_log_record_is_the_quoted_text_only_a_rust_p
     assert said["unavailable"] is True and said["login_failed"] is False and said["failure"] == refresh.strip()
 
 
+def test_codexs_record_of_a_tool_call_inside_its_spans_quotes_the_sessions_work_never_a_lost_sign_in_limit_or_outage():
+    """Where the level of Codex's spans is on (RUST_LOG=codex_core=info, Codex 0.164.0), a record names the spans it
+    was logged in before its target ("session_loop{...}:submission_dispatch{...}:turn{...}: codex_core::tools::router:
+    ..."). The target is the Rust path after them: the record of a patch whose lines Codex did not find is the
+    session's work and so are the lines it quotes, so a session cut off whose patch quoted the words of a lost sign-in,
+    of the plan's limit or of an outage met none of them. Codex's own record after the quote, inside spans whose names
+    hold dots or that have no fields, is its notice."""
+    from hermit.agent.base.cli import Codex
+    codex = Codex({})
+    start = '{"type":"thread.started","thread_id":"t"}\n{"type":"turn.started"}\n' \
+            '{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"I will patch auth.py."}}\n'
+    turn = ('session_loop{thread_id=t}:submission_dispatch{otel.name="op.dispatch.turn_input" submission.id="s" '
+            'codex.op="turn_input"}:turn{otel.name="session_task.turn" thread.id=t turn.id=s model=gpt-5}')
+    patched = (f"2026-11-12T15:15:48.093896Z ERROR {turn}: codex_core::tools::router: error=apply_patch verification "
+               "failed: Failed to find expected lines in /app/server/auth.py:\n"
+               '    raise AuthError("Not logged in")\n')
+    for quoted in (patched, patched + '    if code == "usage_limit_reached":\n',
+                   patched + '    return "503 Service Unavailable"\n'):
+        said = codex.outcome(start + quoted, None, None)
+        assert not said["served"], quoted
+        assert (said["login_failed"], said["refused"], said["unavailable"]) == (False, False, False), quoted
+        assert codex.notices(start + quoted) == "", quoted
+    own = ('2026-11-12T15:15:49.409742Z  WARN app_server.request{otel.name="turn/start" rpc.method="turn/start"}:'
+           'thread_spawn{otel.name="thread_spawn"}:session_init:get_model_info{model="gpt-5"}: '
+           "codex_models_manager::model_info: Unknown model gpt-5 is used. This will use fallback model metadata.\n")
+    retry = (f"2026-11-12T15:15:53.501662Z  WARN {turn}: codex_core::responses_retry: stream connection failed; "
+             "waiting to retry turn_id=s error=Connection failed: error sending request retry_delay=5s\n")
+    assert codex.notices(start + patched + own + retry) == (own + retry).strip()
+    said = codex.outcome(start + patched + own + retry, None, None)
+    assert said["unavailable"] is True and said["login_failed"] is False
+
+
 def test_an_event_whose_text_holds_a_unicode_line_separator_is_one_event_of_the_sessions_work():
     """A CLI's JSON writer leaves U+0085, U+2028 and U+2029 unescaped in an event's strings (Codex's serde_json, Claude
     Code's JSON.stringify), where str.splitlines() ends a line: a message or a command's output that holds one is still
@@ -603,6 +635,63 @@ def test_the_chat_client_waits_as_told_between_retries(monkeypatch):
     with pytest.raises(RuntimeError, match="HTTP 503"):
         client.chat([{"role": "user", "content": "hi"}])
     assert waits == [4.0, 8.0, 16.0, 32.0]                 # SkillOpt's own client: 4 * 2**attempt, at most 60
+
+
+def test_a_client_of_an_endpoint_over_a_cli_counts_what_each_failed_session_used(monkeypatch):
+    """Hermit's endpoint over a CLI answers a session that failed with an error whose body says what the session used
+    (endpoint._no_reply). A client made from that endpoint's spec (endpoint_spec's `count_error_usage`) counts it in its
+    total, each failed attempt's (a retried one's too) priced as a reply's; an error that reports no token, a body that
+    is no JSON and a count that is no number are not counted; a client of any other endpoint counts replies only, as
+    before."""
+    from types import SimpleNamespace
+    from hermit.agent.base.endpoint import endpoint_spec
+    from hermit.agent.model import llm
+    monkeypatch.setattr(llm.time, "sleep", lambda s: None)
+    price = {"input": 1.0, "cached_input": 0.5, "output": 2.0}
+
+    def failed(prompt, completion, cached=0):
+        return json.dumps({"error": {"message": "the codex session gave no reply (exit 1): refused"},
+                           "usage": {"prompt_tokens": prompt, "completion_tokens": completion,
+                                     "total_tokens": prompt + completion,
+                                     "prompt_tokens_details": {"cached_tokens": cached}}}).encode()
+    ok = json.dumps({"choices": [{"index": 0, "finish_reason": "stop",
+                                  "message": {"role": "assistant", "content": "42"}}],
+                     "usage": {"prompt_tokens": 3, "completion_tokens": 1}}).encode()
+    script = {"retried": [(503, failed(100, 10, 40)), (200, ok)], "refused": [(400, failed(30, 0))],
+              "silent": [(503, failed(0, 0)), (503, b"busy"),
+                         (400, b'{"error": {"message": "no"}, "usage": {"prompt_tokens": "many"}}')]}
+
+    def reply(handler, body, upstream):
+        status, out = script[body["model"]].pop(0)
+        _answer(handler, status, out)
+    up = _Upstream(reply)
+    served = SimpleNamespace(url=up.url, agent=SimpleNamespace(settings={"model": "m"}))
+    assert endpoint_spec(served, {"cli": "codex"})["count_error_usage"] is True
+    ask = [{"role": "user", "content": "q"}]
+    try:
+        def client(model, counting=True, retries=0):
+            return llm.ChatClient.from_spec({"base_url": up.url, "model": model, "price": price,
+                                             "count_error_usage": counting}, max_retries=retries)
+        retried = client("retried", retries=1)
+        assert retried.chat(ask)[1].input_tokens == 3                      # the reply's own usage
+        t = retried.total
+        assert (t.input_tokens, t.cached_input_tokens, t.output_tokens, t.calls) == (103, 40, 11, 2)
+        assert t.cost_usd == pytest.approx((60 * 1.0 + 40 * 0.5 + 10 * 2.0 + 3 * 1.0 + 1 * 2.0) / 1e6)
+        refused = client("refused")
+        with pytest.raises(llm.ChatHTTPError):
+            refused.chat(ask)
+        t = refused.total
+        assert (t.input_tokens, t.output_tokens, t.calls) == (30, 0, 1) and t.cost_usd == pytest.approx(30 / 1e6)
+        silent = client("silent", retries=2)
+        with pytest.raises(llm.ChatHTTPError):
+            silent.chat(ask)
+        assert (silent.total.input_tokens, silent.total.calls) == (0, 0) and not script["silent"]
+        script["retried"] = [(503, failed(100, 10, 40)), (200, ok)]
+        plain = client("retried", counting=False, retries=1)
+        plain.chat(ask)
+        assert (plain.total.input_tokens, plain.total.output_tokens, plain.total.calls) == (3, 1, 1)
+    finally:
+        up.server.shutdown()
 
 
 def test_the_chat_endpoint_relays_a_request_as_it_is():

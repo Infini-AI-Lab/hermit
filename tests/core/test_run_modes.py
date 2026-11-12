@@ -5,26 +5,30 @@ task's own pipelines and judges below, one of them shaped like a Harbor trial (t
 hermit/harbor/runner.py `_output` and curate.py, its verifier output holding the gold answer), and small Evolvers.
 
 Covers: validation by command (hermit eval needs no training keys, nor a template but for root on a tree that does
-not exist yet, run.mode eval refuses hermit train, a stream's rules, empty sections, a key of a section left empty or
-left out of a whole section given at once (one it does not have refused, left empty too), the eval section only where
-an eval runs (and on hermit check's run line only there; evaluate()'s own check of eval.repeats), a feedback below
-the Evolver's min_feedback (the tutorial's and the notes example's Evolvers' too) or below what its params make it
-read, a stream's validation rows that are train rows, checkpoints checked against the stream, and every order's,
-before training, a checkpoint's `after` that YAML reads as a number, and one of Harbor's own acting agents, which
-takes no adapter); the feedback policy in the learning material and in run_agent's results (a timeout that is the
-verifier's verdict included), and an Evolver that hides the labels itself; run_agent's scope in a stream, and no step
-of a multi-step training task; a run that is not the agent's result (infra) left out of every mean and counted, and
-run again by eval (a step of a multi-step task never alone, a row with a `steps` field of its own as any row); each
-repeat's rows; pass@k by Harbor task and by step, and what counts as solved; the stream summary and its card (an
-Evolver's own scores, a row its protocol leaves unscored, a stream it leaves wholly unscored, a stream its budget
-stopped); data.shuffle's order of a multi-step task's rows and of any other row (a task named twice included), and an
-Evolver's request of a step ahead of an earlier one refused, and so (before any run, and by hermit check) an order
-taken as given that lists one (an order file, a stream's split, an unshuffled split, a seed's rows of a task) and a
-split an eval or a train tests on that does, hermit.harbor.dataset's splits never, nor an eval config's train split,
-which hermit eval never runs; orders; checkpoint tests after training, during it (outside the training budget's
-hours), resumed by hermit eval --checkpoints, and of a run that recorded no step; a Harbor agent's streams stopped
-with the pipeline of a train that finished, kept by one stopped midway; a stream's final adapter; split mode's test
-of the final adapter; eval on another split; hermit check of an eval config; the run's new secrets.
+not exist yet, run.mode eval refuses hermit train, a stream's rules, a run.orders that is no list of seeds or of
+files, empty sections, a key of a section left empty or left out of a whole section given at once (one it does not
+have refused, left empty too), the eval section only where an eval runs (and on hermit check's run line only there;
+evaluate()'s own check of eval.repeats), a feedback below the Evolver's min_feedback (the tutorial's and the notes
+example's Evolvers' too) or below what its params make it read, a stream's validation rows that are train rows,
+checkpoints checked against the stream, and every order's, before training, a checkpoint's `after` that YAML reads as
+a number, and one of Harbor's own acting agents, which takes no adapter); the feedback policy in the learning
+material and in run_agent's results (a timeout that is the verifier's verdict included), and an Evolver that hides
+the labels itself; run_agent's scope in a stream, and no step of a multi-step training task; a run that is not the
+agent's result (infra) left out of every mean and counted, and run again by eval (a step of a multi-step task never
+alone, a row with a `steps` field of its own as any row); each repeat's rows; pass@k by Harbor task and by step (its
+rollouts and repeats its attempts), and what counts as solved; the stream summary and its card (an Evolver's own
+scores, a row its protocol leaves unscored, a stream it leaves wholly unscored, a stream its budget stopped);
+data.shuffle's order of a multi-step task's rows and of any other row (a task named twice included), and an Evolver's
+request of a step ahead of an earlier one, or of one whose earlier step the training split leaves out, refused, and
+so (before any run, and by hermit check) an order taken as given that lists one (an order file, a stream's split, an
+unshuffled split, a seed's rows of a task), a split an eval or a train tests on that does, any split or order that
+leaves out an earlier step of a stream, and a training config's validation split that does either (but for the train
+split's steps, which run_agent never runs), hermit.harbor.dataset's splits never (one rollout's whole stream alone
+included), nor an eval config's train or validation split, which hermit eval never runs; orders; checkpoint tests
+after training, during it (outside the training budget's hours), resumed by hermit eval --checkpoints, and of a run
+that recorded no step; a Harbor agent's streams stopped with the pipeline of a train that finished, kept by one
+stopped midway; a stream's final adapter; split mode's test of the final adapter; eval on another split; hermit check
+of an eval config; the run's new secrets.
 """
 import json
 import os
@@ -365,6 +369,25 @@ def test_a_stream_names_its_feedback_runs_one_epoch_and_takes_its_rows_in_order(
             load(path, "evolver.name=learn", "run.mode=split", f"run.{key}={value}")
     with pytest.raises(ValueError, match="run.feedback is full, score or none"):
         load(path, "run.feedback=some")
+
+
+def test_a_run_orders_that_is_no_list_of_seeds_or_of_files_is_refused_by_the_configs_error(tmp_path, capsys):
+    """run.orders is a list of seeds or of order files: a number, a flag, a word or a mapping in its place is refused
+    by the config's own error as it loads, before anything reads it as a list (Config.orders, the run's secrets), and
+    hermit check and hermit train say so and stop, as they do for any config error."""
+    path = _task(tmp_path)
+    stream = (*STREAM, "run.feedback=full")
+    shape = ("run.orders is a list of seeds (whole numbers: Hermit orders the train split) or of order files (each an "
+             "order of its own), not a mix")
+    for value in ("3", "true", "o1.txt", "{a: 1}", "[]", "[3, o1.txt]"):
+        with pytest.raises(ValueError, match=re.escape(shape)):
+            load(path, *stream, f"run.orders={value}")
+    with pytest.raises(ValueError, match="run.orders names an order twice"):
+        load(path, *stream, "run.orders=[3, 3]")
+    for command in ("check", "train"):
+        assert main([command, "--config", str(path), *stream, "run.orders=3"]) == 2
+        assert capsys.readouterr().err == f"hermit {command}: {shape}\n"
+    assert not (tmp_path / "runs").exists()
 
 
 def test_an_empty_run_or_eval_section_is_its_defaults_and_eval_repeats_reads_as_hermit_eval_reads_it(tmp_path):
@@ -767,6 +790,19 @@ def test_eval_runs_no_step_of_a_multi_step_task_again_alone(tmp_path):
     assert any("1 infra run(s) are steps of multi-step tasks, not run again" in line for line in lines)
 
 
+def test_eval_runs_no_task_again_that_its_acting_agent_never_runs(tmp_path):
+    """A task Harbor runs for none of Hermit's agents (`unsupported_task`) would be refused the same way on every
+    pass: its infra run is kept, and the log says how many and why, while the other infra runs are run again."""
+    path = _task(tmp_path)
+    (tmp_path / "pipeline.py").write_text(FLAKY)
+    _rows(tmp_path, t7={"flaky": 1}, t8={"flaky": 9, "cause": "unsupported_task"})
+    lines = []
+    result = evaluate(load(path, "eval.infra_retries=2", "eval.infra_wait_s=0"), "none", log=lines.append)
+    attempts = {i: int((tmp_path / ".attempts" / i).read_text()) for i in ("t7", "t8")}
+    assert attempts == {"t7": 2, "t8": 1} and result["unscored"] == 1 and result["infra_rerun"] == 1
+    assert any("1 infra run(s) are of tasks Harbor runs for none of Hermit's agents" in line for line in lines)
+
+
 def test_eval_runs_again_the_infra_run_of_a_row_whose_own_steps_field_makes_no_step_of_a_multi_step_task(tmp_path):
     """A step of a multi-step task is a Harbor row (its `harbor_task`) with `steps` > 1, as the Trainer reads it:
     another task's own `steps` field (t7's) makes no step of one, and eval runs its infra run again, as it always
@@ -870,24 +906,27 @@ def test_a_passed_that_is_no_bool_is_no_verdict_and_the_score_decides(tmp_path):
     assert {k: result[k] for k in ("solved_once", "pass_at_k")} == {"solved_once": 0.25, "pass_at_k": 0.5}
 
 
-def test_a_step_of_a_multi_step_task_is_a_task_of_its_own_whose_attempts_are_its_rollouts(tmp_path):
-    """Two 3-step tasks (rows <task>:<step>, as hermit.harbor.dataset writes them), only m's first step passing, in
-    both repeats: each step is a task, its 2 repeats its attempts (not m one task of 6 attempts, one of them passed)."""
+def test_a_step_of_a_multi_step_task_is_a_task_of_its_own_whose_attempts_are_its_rollouts_and_repeats(tmp_path):
+    """Two 3-step tasks of 2 rollouts each (rows <task>:<step>#<k>, as hermit.harbor.dataset writes them), only m's
+    first step of rollout 1 passing, in both repeats: each step is a task, its 2 rollouts in each of the 2 repeats its
+    4 attempts (not m one task of 12 attempts, one of them passed, nor each row a task of its own)."""
     path = _task(tmp_path)
     with open(tmp_path / "tasks.jsonl", "a") as f:
         for task in ("m", "n"):
-            for i, step in enumerate(("s1", "s2", "s3"), start=1):
-                f.write(json.dumps({"id": f"{task}:{step}", "harbor_task": task, "step": step, "step_index": i,
-                                    "steps": 3}) + "\n")
-    (tmp_path / "ms.txt").write_text("".join(f"{task}:{step}\n" for task in "mn" for step in ("s1", "s2", "s3")))
+            for k in (1, 2):
+                for i, step in enumerate(("s1", "s2", "s3"), start=1):
+                    f.write(json.dumps({"id": f"{task}:{step}#{k}", "harbor_task": task, "step": step,
+                                        "step_index": i, "steps": 3, "rollout": k}) + "\n")
+    (tmp_path / "ms.txt").write_text("".join(f"{task}:{step}#{k}\n" for task in "mn" for k in (1, 2)
+                                             for step in ("s1", "s2", "s3")))
     (tmp_path / "ms.py").write_text("from hermit.task import RunOutput\n\ndef run(task, adapter):\n"
                                     "    return RunOutput(output={'harbor_task': task['harbor_task'], "
-                                    "'step': task['step'], 'reward': float(task['id'] == 'm:s1')})\n")
+                                    "'step': task['step'], 'reward': float(task['id'] == 'm:s1#1')})\n")
     (tmp_path / "ms_judge.py").write_text("def score(task, output):\n    return {'score': output.output['reward']}\n")
     result = evaluate(load(path, "data.test=ms.txt", "agent.name=ms.py:run", "judge.path=ms_judge.py",
                            "eval.repeats=2"), "none", **QUIET)
-    assert {k: result[k] for k in ("k", "pass_at_k", "solved_once")} == {"k": 2, "pass_at_k": 1 / 6,
-                                                                         "solved_once": 1 / 6}
+    assert {k: result[k] for k in ("k", "pass_at_k", "solved_once")} == {"k": 4, "pass_at_k": 1 / 6,
+                                                                         "solved_once": 1 / 12}
 
 
 # ---------- a stream's score ----------
@@ -1055,6 +1094,29 @@ def test_an_evolvers_request_of_a_step_ahead_of_an_earlier_step_of_its_task_is_r
     assert answer([], ["m:s1", "m:s2"]) == {"next_tasks": ["m:s1", "m:s2"]}
 
 
+def test_an_evolvers_request_of_a_step_whose_earlier_step_the_training_split_leaves_out_is_refused(tmp_path):
+    """An earlier step of a stream the training split does not hold never runs (hermit train refuses such a split
+    before it trains), and a step named without it would wait for it in the task's stream (for hours), then end
+    infra: the request is refused, during an epoch and at its end, as one naming a step ahead of an earlier one still
+    to run is, saying so; the split's other tasks are taken."""
+    from hermit.agent.evolver.base import Progress, StepResult
+    path = _task(tmp_path)
+    _multi_step(tmp_path, "m")
+    (tmp_path / "gap.txt").write_text("t0\nm:s2\nt1\nm:s3\n")
+    trainer = Trainer(load(path, "evolver.name=choose", "data.train=gap.txt", "data.step_size=2",
+                           "data.shuffle=false", "trainer.epochs=1"), **QUIET)
+
+    def answer(remaining, wanted):
+        progress = Progress(1, 1, not remaining, remaining=tuple(remaining))
+        return trainer._request(progress, StepResult("done", "chose", next_tasks=wanted))
+    never = " (not in the training split: it never runs)"
+    for remaining in (["m:s2", "t1", "m:s3"], []):                 # t0 ran; at the epoch's end, for the next
+        assert answer(remaining, ["m:s2", "m:s3"])["next_tasks_refused"] == (
+            "['m:s2', 'm:s3']: a step of a multi-step task ahead of an earlier one still to run (a task's steps run in "
+            f"order, in its stream: name the earlier one first): m:s2 ahead of m:s1{never}, m:s3 ahead of m:s1{never}")
+        assert answer(remaining, ["t1"]) == {"next_tasks": ["t1"]}
+
+
 AHEAD = ("lists a step of a multi-step task ahead of an earlier step of its stream, which it would wait for (up to "
          "hours, then ending infra): m:s2 ahead of m:s1 (task m); a task's steps run in order, each after the one "
          "before it: list them in step order")
@@ -1118,6 +1180,10 @@ def test_the_splits_dataset_prepare_writes_list_each_streams_steps_in_step_order
     assert {name: out_of_step(ids, tasks, name) for name, ids in splits.items()} == dict.fromkeys(splits)
     swapped = [*flow[:3], flow[4], flow[3], flow[5]]
     assert "flow:s2#2 ahead of flow:s1#2 (task flow)" in out_of_step(swapped, tasks, "it")
+    # each rollout is a stream of its own: rollout 2's steps alone are one whole; without its first step, not
+    assert out_of_step(flow[3:], tasks, "it") is None
+    assert "flow:s2#2 ahead of flow:s1#2, which it leaves out (task flow)" in out_of_step(flow[:3] + flow[4:], tasks,
+                                                                                         "it")
     harbor = ("data.tasks=utils/tasks.jsonl", "data.train=null", "data.val=null")
     every = "run.orders=[" + ", ".join(f"utils/splits/{n}.txt" for n in ("all", "train", "test", "smoke")) + "]"
     for args in ((*STREAM, "run.feedback=full", every, "data.test=null"),
@@ -1260,6 +1326,26 @@ def test_hermit_eval_checkpoints_runs_only_the_tests_without_results(tmp_path, c
     assert (run / "early" / "checkpoint" / "results.jsonl").stat().st_mtime_ns == kept
 
 
+def test_a_checkpoints_test_a_halt_cut_short_is_not_done_and_hermit_eval_checkpoints_runs_it_again(tmp_path, capsys):
+    """A halt (a lost login, a usage limit) returns the runs after it at once, unrun: the test's summary goes to
+    halted.json, not to summary.json, which would mark it done, and the run's overview leaves it out; hermit eval
+    --checkpoints runs it again once the halt is cleared (t8's one halted attempt spent)."""
+    path = _task(tmp_path)
+    (tmp_path / "pipeline.py").write_text(FLAKY)
+    _rows(tmp_path, t8={"flaky": 1, "cause": "halted"})
+    last = "run.checkpoints=[{name: last, after: end, split: cp.txt, adapters: [final]}]"
+    lines = []
+    summary = Trainer(load(path, *STREAM, "run.feedback=full", last), log=lines.append).train()
+    place = tmp_path / "runs" / "toy-run" / "checkpoints" / "last" / "final"
+    assert not (place / "summary.json").exists() and json.loads((place / "halted.json").read_text())["halted"]
+    assert summary["checkpoint_tests"] == {"last": {}}
+    assert any("eval checkpoint-last-final: halted" in line and "not done" in line for line in lines)
+    assert main(["eval", "--config", str(path), "--checkpoints", *STREAM, "run.feedback=full", last]) == 0
+    assert _printed(capsys) == {"last": {"final": 1.0}}
+    assert (place / "summary.json").is_file() and not (place / "halted.json").exists()
+    assert int((tmp_path / ".attempts" / "t8").read_text()) == 2
+
+
 def test_a_checkpoint_inside_a_chosen_steps_tasks_stops_the_run_until_it_is_fixed(tmp_path):
     """An Evolver that chooses its tasks makes the steps' tasks known only as they run: checked when reached."""
     path = _task(tmp_path)
@@ -1365,6 +1451,80 @@ def test_a_split_that_lists_a_step_ahead_of_an_earlier_one_is_refused_before_any
     assert result["tasks"] == 5 and result["scored"] == 5
 
 
+def _leaves_out(*pairs: tuple[str, str]) -> str:
+    """AHEAD for a list that names each step of `pairs` (the step, the earlier step) of task m but not the earlier."""
+    return AHEAD.replace("m:s2 ahead of m:s1 (task m)",
+                         ", ".join(f"{t} ahead of {e}, which it leaves out (task m)" for t, e in pairs))
+
+
+def test_a_split_or_order_that_leaves_out_an_earlier_step_of_a_stream_is_refused_before_any_eval_or_train(tmp_path):
+    """A step whose stream's earlier step never runs waits for it (for hours: the stream's driver starts at its first
+    step), then ends infra, as one listed ahead of it does: a split that lists m:s2 and m:s3 without m:s1, or m:s1
+    and m:s3 without m:s2, is refused as hermit eval starts (data.test, a --split file), naming the step it leaves
+    out, and hermit check reports it (an eval config's test split, a stream's train split, a checkpoint split);
+    hermit train refuses such a train order before it trains (a stream's, and one data.shuffle takes, which moves a
+    task's rows together but adds none the split leaves out). A split of a stream's first steps alone is
+    evaluated."""
+    path = _task(tmp_path)
+    _multi_step(tmp_path, "m")
+    (tmp_path / "no_s1.txt").write_text("t7\nm:s2\nt8\nm:s3\n")
+    (tmp_path / "no_s2.txt").write_text("t7\nm:s1\nt8\nm:s3\n")
+    (tmp_path / "train_no_s1.txt").write_text("t0\nm:s2\nt1\nm:s3\n")
+    (tmp_path / "first.txt").write_text("t7\nm:s1\nt8\nm:s2\n")
+    no_s1, no_s2 = (tmp_path / "no_s1.txt").resolve(), (tmp_path / "no_s2.txt").resolve()
+    gap = _leaves_out(("m:s2", "m:s1"), ("m:s3", "m:s1"))
+    for overrides, split, named, problem in ((("data.test=no_s1.txt",), None, no_s1, gap),
+                                             ((), no_s2, no_s2, _leaves_out(("m:s3", "m:s2")))):
+        with pytest.raises(SystemExit, match=re.escape(f"eval refuses to start: the split {named} {problem}")):
+            evaluate(load(path, *overrides, command="eval"), "none", split=split, **QUIET)
+    stream = (*STREAM, "run.feedback=full")
+    checkpoint = "run.checkpoints=[{name: early, after: t1, split: no_s1.txt}]"
+    for args, reported in ((("run.mode=eval", "data.test=no_s1.txt"), f"the test split {gap}"),
+                           ((*stream, "data.train=train_no_s1.txt"), f"the train split {gap}"),
+                           ((*stream, checkpoint), f"run.checkpoints early: split {no_s1} {gap}")):
+        lines = []
+        assert not run_check(load(path, *args, command="check"), probe=False, log=lines.append)
+        assert f"    - {reported}" in lines, (args, lines)
+    for args in ((*stream, "data.train=train_no_s1.txt"), ("evolver.name=learn", "data.train=train_no_s1.txt")):
+        with pytest.raises(SystemExit, match=re.escape(f"train refuses to start: the train split {gap}")):
+            train(load(path, *args), **QUIET)
+    assert not (tmp_path / "runs").exists()
+    result = evaluate(load(path, "data.test=first.txt"), "none", **QUIET)
+    assert result["tasks"] == 4 and result["scored"] == 4
+
+
+def test_a_validation_split_that_lists_a_step_ahead_of_an_earlier_one_or_without_it_is_refused_before_training(
+        tmp_path):
+    """GEPA, SkillOpt, ACE, OPRO and EvoSafe give run_agent the validation split's rows in its order, in one call: a
+    step it lists ahead of an earlier step of its stream, or without it, waits for it there (for hours), then ends
+    infra. hermit train refuses such a validation split before it trains, in every training mode, and hermit check
+    reports it; neither checks the validation rows run_agent never runs (the train split's steps), nor an eval
+    config's validation split, which nothing runs."""
+    path = _task(tmp_path)
+    _multi_step(tmp_path, "m")
+    (tmp_path / "ahead.txt").write_text("t6\nm:s2\nm:s1\nm:s3\n")
+    (tmp_path / "gap.txt").write_text("t6\nm:s2\nm:s3\n")
+    gap = _leaves_out(("m:s2", "m:s1"), ("m:s3", "m:s1"))
+    for args, problem in ((("evolver.name=learn", "data.val=ahead.txt"), AHEAD),
+                          (("evolver.name=learn", "run.mode=split", "data.val=gap.txt"), gap),
+                          ((*STREAM, "run.feedback=full", "data.val=gap.txt"), gap)):
+        with pytest.raises(SystemExit, match=re.escape(f"train refuses to start: the validation split {problem}")):
+            train(load(path, *args), **QUIET)
+        lines = []
+        assert not run_check(load(path, *args, command="check"), probe=False, log=lines.append)
+        assert f"    - the validation split {problem}" in lines, (args, lines)
+    assert not (tmp_path / "runs").exists()
+    (tmp_path / "ms.txt").write_text("t0\nt1\nm:s1\nm:s2\nm:s3\nt2\n")
+    (tmp_path / "trained.txt").write_text("t6\nm:s3\n")       # a step of a training task: run_agent never runs it
+    lines = []
+    run_check(load(path, "evolver.name=learn", "run.mode=split", "data.train=ms.txt", "data.val=trained.txt",
+                   command="check"), probe=False, log=lines.append)
+    assert any(line.startswith("[ok] run — ") for line in lines), lines
+    lines = []
+    assert run_check(load(path, "run.mode=eval", "data.val=ahead.txt", command="check"), probe=False,
+                     log=lines.append), lines
+
+
 def test_hermit_check_of_an_eval_config_refuses_no_order_of_the_train_split_hermit_eval_never_runs(tmp_path):
     """An eval config may name a train split (a training config run as run.mode eval), which hermit eval never runs:
     hermit check reports no step of it ahead of an earlier one, though data.shuffle false would take it as it is (its
@@ -1401,3 +1561,16 @@ def test_order_files_checkpoint_splits_a_scorer_and_a_harbor_task_sets_directori
         "sandbox": {"enabled": False}, "run": {"mode": "eval"}}))
     secrets = set(run_secrets(Config.load(tmp_path / "baseline.yaml", command="eval")))
     assert {(tmp_path / "utils" / "tasks").resolve(), (tmp_path / "jobs").resolve()} <= secrets
+
+
+def test_an_eval_configs_tree_is_a_run_secret_with_no_template_to_find_it_by(tmp_path):
+    """An eval config that tests another run's tree names it (trainer.tree_dir) and no template: the tree, which
+    holds every step's adapter and the run's records, is still no path a sandbox or the learner may show."""
+    from hermit.isolate import run_secrets
+    path = _task(tmp_path)
+    Trainer(load(path, *STREAM, "run.feedback=full"), **QUIET).train()
+    tree = tmp_path / "runs" / "trees" / "prompt-only"
+    eval_only = ("template=null", f"trainer.tree_dir={tree}", "run.mode=eval")
+    assert tree.resolve() in set(run_secrets(load(path, *eval_only, command="eval")))
+    with pytest.raises(ValueError, match="overlaps .*prompt-only"):
+        load(path, *eval_only, f"environment.read=[{tree / '.hermit'}]", command="eval")

@@ -620,6 +620,72 @@ def test_a_benchmark_files_price_is_the_runs_only_with_the_files_model(monkeypat
     assert priced("own-other", other, price=mine) == (other, mine, mine)
 
 
+def test_a_benchmark_files_price_is_the_runs_with_its_own_model_in_any_form(monkeypatch, tmp_path):
+    """A config naming a Harbor task set's benchmark-file model in another form than the file's binds the same
+    reference, so it takes the file's price: a mapping with the relay client's `timeout` or with `extra_body`, a
+    {backend, model} mapping, the full id where the file gives a backend's alias, or a string where the file gives a
+    mapping, as agent.params.model or the top-level `model` (a model its backend has no price for is priced so too, not
+    left unknown). Another model in those forms keeps its own backend's price, and a price the config's own model
+    mapping gives is the run's."""
+    user = tmp_path / "backends.yaml"
+    user.write_text(yaml.safe_dump({"fireworks": {"models": {"glm": "accounts/fireworks/models/glm-5p3"}}}))
+    monkeypatch.setenv("HA_BACKENDS", str(user))
+    ours, other = "fireworks/accounts/fireworks/models/glm-5p3", f"fireworks/{GLM}"
+    unpriced = "fireworks/accounts/fireworks/models/unpriced"
+    theirs, mine = {"input": 1.0, "output": 4.0}, {"input": 2.0, "output": 8.0}
+    backend = resolve(other, reg()).price
+    assert resolve(ours, reg()).price not in (None, theirs) and resolve(unpriced, reg()).price is None
+
+    def split(ref, **more):                         # the {backend, model} form
+        name, _, model = ref.partition("/")
+        return {"backend": name, "model": model, **more}
+
+    def priced(name, model=None, file_model=ours, **config):
+        method = _method(tmp_path / name, model=file_model, price=theirs)
+        params = _benchmarked(method, model, **config)["agent"]["params"]
+        shared = yaml.safe_load((method.parent / "utils" / "benchmark.yaml").read_text())
+        # the model bound, its price, and the runner's: the file merged under the params
+        return params["binding"]["ref"], params["price"], {**shared, **params}["price"]
+    relay = {"model": ours, "timeout": 1200}
+    for i, (model, file_model, default) in enumerate([
+            (relay, ours, None), ({"model": ours, "extra_body": {"reasoning_effort": "medium"}}, ours, None),
+            (split(ours), ours, None), (ours, "fireworks/glm", None), (ours, relay, None), (split(ours), relay, None),
+            (None, relay, ours), (None, ours, split(ours))]):
+        assert priced(f"same{i}", model, file_model, default=default) == (ours, theirs, theirs), i
+    assert priced("unpriced", {"model": unpriced, "timeout": 1200}, unpriced) == (unpriced, theirs, theirs)
+    for i, (model, file_model, default) in enumerate([
+            ({"model": other, "timeout": 1200}, ours, None), (split(other), ours, None), (other, relay, None),
+            (None, relay, split(other))]):
+        assert priced(f"other{i}", model, file_model, default=default) == (other, backend, backend), i
+    for i, (model, default) in enumerate([({"model": ours, "price": mine}, None), (split(ours, price=mine), None),
+                                          (None, split(ours, price=mine))]):
+        assert priced(f"own{i}", model, default=default) == (ours, mine, mine), i
+
+
+def test_an_endpoint_models_price_is_its_own_never_the_benchmark_files_model(monkeypatch, tmp_path):
+    """A config that gives the acting model as an endpoint ({base_url, model, api_key_env}, which binds no backend)
+    beside a benchmark file that prices its own model: the trial's binding, as the runner builds it once it merged the
+    file under the loaded params, keeps the endpoint's own price, or none (unknown), never the file's; the file's
+    model, named in the config or not, keeps the file's price."""
+    from hermit.harbor.runner import HarborAgent
+    monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
+    monkeypatch.setenv("B_KEY", "b-key-stand-in-0123456789")
+    monkeypatch.setenv("FIREWORKS_API_KEY", "fw-key-stand-in-0123456789")
+    ours, theirs, own = "fireworks/accounts/fireworks/models/glm-5p3", {"input": 1.0, "output": 4.0}, \
+        {"input": 9.0, "output": 10.0}
+    endpoint = {"base_url": "http://10.0.0.9:8000/v1", "model": "my-b", "api_key_env": "B_KEY"}
+
+    def trial_price(name, model=None):
+        method = _method(tmp_path / name, model=ours, price=theirs)
+        (method.parent / "utils" / "tasks").mkdir()
+        params = _benchmarked(method, model)["agent"]["params"]
+        runner = HarborAgent(params, base=method)
+        return runner.binding.model, runner.binding.price
+    assert trial_price("endpoint-priced", {**endpoint, "price": own}) == ("my-b", own)
+    assert trial_price("endpoint", endpoint) == ("my-b", None)
+    assert trial_price("file") == trial_price("named", ours) == ("accounts/fireworks/models/glm-5p3", theirs)
+
+
 def test_a_harbor_cli_agents_endpoint_model_is_checked_in_the_dialect_of_its_cli(monkeypatch, tmp_path):
     """A HermitXXX's model given as an endpoint (its base_url and id, no backend) is bound by the runner for the CLI
     the trial runs (hermit.harbor.launch.binding_of): it is checked in that CLI's dialect, not as chat completions."""

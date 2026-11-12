@@ -60,7 +60,7 @@ hermit eval --config run.yaml --checkpoints           # the run's checkpoint tes
 |---|---|
 | Data | The test split; `--split <file>` another split file (a path from the working directory; results in `<run>/eval/<adapter>-<its stem>/`); `--checkpoints` each of `run.checkpoints` on its own split (`<run>/checkpoints/<name>/<adapter>/`) |
 | Deployment and scoring | The same pipeline and judge as the training rollouts |
-| Repeats | `eval.repeats`, the attempts per test row; reports the mean, the share of test rows solved at least once (`solved_once`) and of tasks (`pass_at_k`, where a Harbor task's `<task>#1..k` rows are its attempts) |
+| Repeats | `eval.repeats`, the attempts per test row; reports the mean, the share of test rows solved at least once (`solved_once`) and of tasks (`pass_at_k`, where a Harbor task's `<task>#1..k` rows, in every repeat, are its attempts) |
 | Records | Per-task score, cost, time and API speed under `<run>/eval/<adapter>/`; the summary counts runs that errored |
 | `.hermit/CARD.md` | With the literal `--adapter final` selector on the test split, the results are written into the run's final card |
 

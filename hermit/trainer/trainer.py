@@ -184,41 +184,46 @@ def _step_of_many(row: dict) -> bool:
     return bool(row.get("harbor_task")) and isinstance(row.get("steps"), int) and row["steps"] > 1
 
 
-def _ahead(wanted: list[str], to_run, tasks: dict) -> list[tuple[str, str]]:
+def _ahead(wanted: list[str], done, tasks: dict) -> list[tuple[str, str]]:
     """The steps of a multi-step task that `wanted` names ahead of an earlier step of their stream (the task's
-    rollout) still to run (in `to_run`, and not named before them in `wanted`), each with the first such step: a step
-    taken ahead of an earlier one would wait for it in the task's stream."""
+    rollout: its step rows in `tasks`, a smaller `step_index`, `wanted`'s or not) that has neither run (in `done`) nor
+    been named before them in `wanted`, each with the first such step: a step taken ahead of an earlier one would
+    wait for it in the task's stream (for one that never runs, until the step ends infra)."""
     def place(task_id: str) -> tuple[tuple, int]:
         row = tasks[task_id]
         return (row["harbor_task"], row.get("rollout", 1)), int(row.get("step_index") or 0)
-    out = []
-    for i, task_id in enumerate(wanted):
-        if not _step_of_many(tasks[task_id]):
-            continue
-        stream, index = place(task_id)
-        earlier = sorted((place(t)[1], t) for t in set(to_run) - set(wanted[:i])
-                         if _step_of_many(tasks[t]) and place(t)[0] == stream and place(t)[1] < index)
-        if earlier:
-            out.append((task_id, earlier[0][1]))
+    named = {tasks[t]["harbor_task"] for t in wanted if _step_of_many(tasks[t])}
+    if not named:
+        return []
+    streams: dict[tuple, list[tuple[int, str]]] = {}            # the named tasks' streams: (step_index, id) each
+    for task_id, row in tasks.items():
+        if _step_of_many(row) and row["harbor_task"] in named:
+            stream, index = place(task_id)
+            streams.setdefault(stream, []).append((index, task_id))
+    out, before = [], set(done)
+    for task_id in wanted:
+        if _step_of_many(tasks[task_id]):
+            stream, index = place(task_id)
+            earlier = sorted(e for e in streams[stream] if e[0] < index and e[1] not in before)
+            if earlier:
+                out.append((task_id, earlier[0][1]))
+        before.add(task_id)
     return out
 
 
 def out_of_step(ids: list[str], tasks: dict, which: str) -> str | None:
     """Why rows cannot run in this order (`which` names it: a train order, a split an eval runs): it lists a step of a
-    multi-step task ahead of an earlier step of its stream (the task's rollout) that no row before it names (_ahead),
-    which it would wait for in the stream; None when each stream's steps come in step order, as the splits
-    hermit.harbor.dataset writes list them."""
-    # _ahead on each task's steps (it takes each rollout apart): on a whole order it builds a set of it for each step
-    steps: dict[str, list[str]] = {}
-    for task_id in ids:
-        if _step_of_many(tasks[task_id]):
-            steps.setdefault(tasks[task_id]["harbor_task"], []).append(task_id)
-    ahead = [pair for rows in steps.values() for pair in _ahead(rows, rows, tasks)]
+    multi-step task ahead of an earlier step of its stream (the task's rollout, its rows in `tasks`), one it lists
+    after it or not at all (_ahead), which it would wait for in the stream; None when each step it lists comes after
+    every earlier step of its stream, as in the splits hermit.harbor.dataset writes (whole streams, in step order)."""
+    ahead = _ahead(ids, (), tasks)
     if not ahead:
         return None
+    listed = set(ids)
     return (f"{which} lists a step of a multi-step task ahead of an earlier step of its stream, which it would wait "
             "for (up to hours, then ending infra): "
-            + ", ".join(f"{t} ahead of {e} (task {tasks[t]['harbor_task']})" for t, e in ahead[:5])
+            + ", ".join(f"{t} ahead of {e}" + ("" if e in listed else ", which it leaves out")
+                        + f" (task {tasks[t]['harbor_task']})" for t, e in ahead[:5])
             + (f" and {len(ahead) - 5} more" if len(ahead) > 5 else "")
             + "; a task's steps run in order, each after the one before it: list them in step order")
 
@@ -228,8 +233,8 @@ def train_order(config: Config, data: TaskData, epoch: int) -> list[str]:
     run.orders), reshuffled per epoch when data.shuffle is set, a multi-step task's rows moved as one, in step order
     (a step taken ahead of an earlier one would wait for it in the task's stream); an order's seed shuffles the tasks
     instead, each task's rows kept together in the split's order (Harbor's `#k` attempts, a multi-step task's
-    steps). An order taken as given that lists a step ahead of an earlier one is refused before training
-    (run_problems)."""
+    steps). An order taken as given that lists a step ahead of an earlier one, and any order that lists a step
+    without an earlier one, is refused before training (run_problems)."""
     order = list(data.splits["train"])
     seed = (config.order or {}).get("seed")
     if seed is not None:
@@ -272,18 +277,21 @@ def straddle(checkpoint: dict, records: list[dict]) -> str | None:
 def run_problems(config: Config, data: TaskData, deterministic: bool | None) -> list[str]:
     """What the run asks of the data, checked before training: each order the run takes rows in (the train order, but
     an eval config's, which hermit eval never runs; split mode's test split, which its final test runs, and an eval
-    config's; each checkpoint's split) lists a multi-step task's steps in step order (out_of_step); a stream's
-    validation rows are none of its train rows (run_agent runs a validation row at any step, before the stream
-    reaches it); each checkpoint's `after` row is in the train split and, when the steps' chunks are known ahead
-    (`deterministic`: an Evolver that does not choose its tasks), the last row of a step; each checkpoint's split
-    names known tasks."""
+    config's; a training config's validation split, whose rows an Evolver gives run_agent in its order, in one call,
+    less the train split's steps, which run_agent never runs; each checkpoint's split) lists each step of a
+    multi-step task after every earlier step of its stream (out_of_step); a stream's validation rows are none of its
+    train rows (run_agent runs a validation row at any step, before the stream reaches it); each checkpoint's `after`
+    row is in the train split and, when the steps' chunks are known ahead (`deterministic`: an Evolver that does not
+    choose its tasks), the last row of a step; each checkpoint's split names known tasks."""
     out = []
     order = train_order(config, data, 1)       # every epoch's but data.shuffle's, which keeps the steps in step order
     step_size = int(config.data["data"]["step_size"])
     which = f"order {config.order['index']}'s train split" if config.order else "the train split"
     trains = order if config.mode != "eval" else []
     tests = data.splits["test"] if config.mode in ("split", "eval") else []
-    for ids, name in ((trains, which), (tests, "the test split")):
+    steps = {t for t in order if _step_of_many(data.tasks[t])}            # Trainer._steps_trained
+    vals = [t for t in data.splits["val"] if t not in steps] if config.mode != "eval" else []
+    for ids, name in ((trains, which), (tests, "the test split"), (vals, "the validation split")):
         problem = out_of_step(ids, data.tasks, name)
         if problem:
             out.append(problem)
@@ -1167,12 +1175,15 @@ class Trainer:
         {"next_tasks_refused": reason} when not, {} without one. Accepted are distinct task ids, at most
         data.step_size, of progress.remaining, or at an epoch's end (nothing remaining) of the training split, which
         the next epoch runs again; of those, a step of a multi-step task only when each earlier step of its stream
-        among them comes before it in the request (_ahead); and only from an Evolver that chooses_tasks."""
+        has run in the epoch or comes before it in the request (_ahead: one the training split does not hold never
+        runs); and only from an Evolver that chooses_tasks."""
         wanted = result.next_tasks
         if wanted is None or (isinstance(wanted, (list, tuple)) and not wanted):
             return {}                         # no request: an empty list names nothing
         step_size = int(self.config.data["data"]["step_size"])
         allowed = progress.remaining or self.data.splits["train"]
+        # what ran in the epoch: the training split less what remains; at its end nothing (the next epoch runs all)
+        ran = set(self.data.splits["train"]) - set(progress.remaining) if progress.remaining else set()
         if not self.evolver.chooses_tasks:
             problem = "the Evolver does not choose tasks (set chooses_tasks = True on its class)"
         elif not isinstance(wanted, (list, tuple)) or not all(isinstance(t, str) for t in wanted):
@@ -1183,10 +1194,11 @@ class Trainer:
             problem = f"{len(wanted)} tasks, more than data.step_size ({step_size})"
         elif any(t not in allowed for t in wanted):
             problem = f"not training tasks still to run: {[t for t in wanted if t not in allowed][:5]}"
-        elif ahead := _ahead(wanted, allowed, self.data.tasks):
+        elif ahead := _ahead(wanted, ran, self.data.tasks):
             problem = ("a step of a multi-step task ahead of an earlier one still to run (a task's steps run in order, "
                        "in its stream: name the earlier one first): "
-                       + ", ".join(f"{t} ahead of {e}" for t, e in ahead[:5]))
+                       + ", ".join(f"{t} ahead of {e}" + ("" if e in allowed else " (not in the training split: it "
+                                                          "never runs)") for t, e in ahead[:5]))
         else:
             return {"next_tasks": list(wanted)}
         self.log(f"step {progress.step}: next_tasks refused, {problem}")

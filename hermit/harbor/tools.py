@@ -245,8 +245,10 @@ class ModelEndpoint:
 
     @property
     def usage(self):
-        """What the calls used (hermit.agent.model.usage.Usage): the relay's client's total, priced at the spec's price;
-        a CLI's sessions' replies, priced the same way (none on a login). A call given up before its reply, or still
+        """What the calls used (hermit.agent.model.usage.Usage): the relay's client's total, priced at the spec's price
+        (with the spec's `count_error_usage`, a model a CLI reaches through an endpoint of this process, a failed
+        call's too, each attempt's, as its error reply reports it); a CLI's sessions' replies, a failed one's too,
+        priced the same way (none on a login). A call given up before its reply, or still
         in flight when the endpoint closed, is among its calls as one whose tokens no reply reported
         (`unreported_calls`): the cost is then unknown (None), never what the other calls cost."""
         from hermit.agent.base.records import price_usage

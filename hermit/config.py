@@ -374,6 +374,7 @@ class Config:
             raise ValueError("run.mode is eval: this config is for hermit eval; to train, set run.mode to split or "
                              "stream")
         need = command if command in ("train", "eval") else ("eval" if mode == "eval" else "train")
+        self._validate_orders()                 # before what reads them as a list: orders() here, the run's secrets
         orders = self.orders()
         order_files = bool(orders) and all(isinstance(o, str) for o in orders)   # each order its own data.train
         if not d["data"]["tasks"]:
@@ -399,6 +400,17 @@ class Config:
         self._validate_run()
         if need == "eval" or (mode == "split" and d["data"].get("test")) or self.checkpoints():
             self._validate_eval()
+
+    def _validate_orders(self) -> None:
+        orders = (self.data.get("run") or {}).get("orders")
+        if orders is not None:
+            seeds = isinstance(orders, list) and all(isinstance(o, int) and not isinstance(o, bool) for o in orders)
+            files = isinstance(orders, list) and all(isinstance(o, str) and o for o in orders)
+            if not orders or not (seeds or files):
+                raise ValueError("run.orders is a list of seeds (whole numbers: Hermit orders the train split) or of "
+                                 "order files (each an order of its own), not a mix")
+            if len(set(orders)) != len(orders):
+                raise ValueError("run.orders names an order twice")
 
     def _validate_run(self) -> None:
         d, run = self.data, self.data.get("run") or {}
@@ -426,15 +438,6 @@ class Config:
                         "data.shuffle was set to false")
                 if note not in self.notes:
                     self.notes.append(note)
-        orders = run.get("orders")
-        if orders is not None:
-            seeds = isinstance(orders, list) and all(isinstance(o, int) and not isinstance(o, bool) for o in orders)
-            files = isinstance(orders, list) and all(isinstance(o, str) and o for o in orders)
-            if not orders or not (seeds or files):
-                raise ValueError("run.orders is a list of seeds (whole numbers: Hermit orders the train split) or of "
-                                 "order files (each an order of its own), not a mix")
-            if len(set(orders)) != len(orders):
-                raise ValueError("run.orders names an order twice")
         checkpoints = run.get("checkpoints")
         if checkpoints is not None:
             if not isinstance(checkpoints, list) or not checkpoints:

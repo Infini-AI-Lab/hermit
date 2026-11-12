@@ -5,15 +5,16 @@ What a summary reports: `mean_score` over the scored runs (a run that ended `inf
 out and counted in `unscored`); `solved_once`, the share of the test rows (with a scored run) that a scored run
 solved; `pass_at_k`, the same by task: a Harbor task's rows (`<task>#1..k`, named by `output.harbor_task`) and the
 repeats are its k attempts, a step of a multi-step task (`<task>:<step>[#k]`, its row naming the `step`) is a task
-of its own whose attempts are its rollouts, and any other row is a task of its own; `errors`, the runs the pipeline
-or the judge failed (scored 0). "Solved" is the judge's `passed` when it is true or false; a judge that returns
-`passed: None` (a benchmark whose reward is a scale with no pass) leaves every row unknown, a row it gave no verdict
-(an error) included, and neither share is computed; else (no `passed`, or one that is no bool: ASPIRE's count of the
-seeds passed) a score of at least 1. With eval.repeats > 1 each repeat hands the pipeline copies of its rows that
-name it (`repeat`). `eval.infra_retries` runs the infra rows again (`eval.infra_wait_s` before each pass), unless one
-reports a halt (a lost login, a usage limit: a person restores it); a step of a multi-step task is never run again
-alone (its task's stream runs its steps in turn), and a split that lists one ahead of an earlier step of its stream
-is refused before any run (_rows).
+of its own whose rollouts and the repeats are its attempts (k = rollouts x repeats), and any other row is a task of
+its own; `errors`, the runs the pipeline or the judge failed (scored 0). "Solved" is the judge's `passed` when it is
+true or false; a judge that returns `passed: None` (a benchmark whose reward is a scale with no pass) leaves every
+row unknown, a row it gave no verdict (an error) included, and neither share is computed; else (no `passed`, or one
+that is no bool: ASPIRE's count of the seeds passed) a score of at least 1. With eval.repeats > 1 each repeat hands
+the pipeline copies of its rows that name it (`repeat`). `eval.infra_retries` runs the infra rows again
+(`eval.infra_wait_s` before each pass), unless one reports a halt (a lost login, a usage limit: a person restores
+it); a step of a multi-step task is never run again alone (its task's stream runs its steps in turn), nor is a task the
+acting agent never runs (Harbor's `unsupported_task`: it would be refused again), and a split that lists one ahead of an
+earlier step of its stream (one it lists after it or not at all) is refused before any run (_rows).
 """
 from __future__ import annotations
 
@@ -146,7 +147,9 @@ def checkpoint_tests(config: Config, *, names: list[str] | None = None, log=prin
 
 def _checkpoint_test(config: Config, c: dict, adapter: str, commit: str, out: Path, scorer, log) -> dict:
     """One adapter of a checkpoint on its split: its summary (with run.score's scores), written last, which marks it
-    done."""
+    done; unless a run reported a halt (a lost login, a usage limit: the rows after it returned at once, unrun),
+    when the summary goes to halted.json instead and it stays pending: `hermit eval --checkpoints` runs it again once
+    a person has restored what halted."""
     label = f"checkpoint-{c['name']}-{adapter}"
     ref = {"checkpoint": commit, "final": "final", "root": "root"}[adapter]
     tests = _rows(config, c["split"])
@@ -162,6 +165,13 @@ def _checkpoint_test(config: Config, c: dict, adapter: str, commit: str, out: Pa
         if not isinstance(scores, dict):
             raise ValueError(f"run.score returned {type(scores).__name__}, not a mapping of the benchmark's scores")
         summary["score"] = redact_value(scores)
+    if summary.get("halted"):
+        (out / "halted.json").write_text(json.dumps(summary, indent=1, default=str))
+        why = f"halted: {summary['halted']}"
+        log(f"eval {label}: {why}; not done (restore the login or wait for the window, then run hermit eval "
+            "--checkpoints again)")
+        return {"pending": why, "partial": summary}
+    (out / "halted.json").unlink(missing_ok=True)
     (out / "summary.json").write_text(json.dumps(summary, indent=1, default=str))
     return summary
 
@@ -198,8 +208,8 @@ def _environ(overrides: dict):
 
 def _rows(config: Config, split: Path) -> list[dict]:
     """The rows of a split file (its ids checked against data.tasks), in the order they run: refused before any run
-    when it lists a step of a multi-step task ahead of an earlier step of its stream, which it would wait for
-    (hermit.trainer.trainer.out_of_step)."""
+    when it lists a step of a multi-step task ahead of an earlier step of its stream (one it lists after it or not at
+    all), which it would wait for (hermit.trainer.trainer.out_of_step)."""
     from hermit.trainer.trainer import out_of_step
     data = TaskData(config.path(config.data["data"]["tasks"]), None, None, split)
     problem = out_of_step(data.splits["test"], data.tasks, f"the split {split}")
@@ -256,7 +266,8 @@ def _resolve(config: Config, adapter: str, tmp: Path) -> tuple[Path | None, str,
 
 def _run(config: Config, target: Path | None, tests: list[dict], out: Path, *, label: str, log) -> tuple[dict, list]:
     """The tests through the eval pipeline and judge, eval.repeats times, the infra runs again as eval.infra_retries
-    says; (the summary's counts, the results as results.jsonl keeps them)."""
+    says; (the summary's counts, with `halted` when a run reported a halt, the results as results.jsonl keeps
+    them)."""
     d = config.data
     repeats = int(d["eval"]["repeats"])
     retries, wait = int(d["eval"].get("infra_retries") or 0), float(d["eval"].get("infra_wait_s") or 0)
@@ -287,9 +298,14 @@ def _run(config: Config, target: Path | None, tests: list[dict], out: Path, *, l
         if retries and steps:
             log(f"eval {label}: {len(steps)} infra run(s) are steps of multi-step tasks, not run again: a step runs "
                 "only in its task's stream, after the steps before it")
+        # A task the acting agent never runs (Harbor runs it for none of Hermit's agents) is refused again on a rerun.
+        never = {key for key, rec in records.items() if rec["status"] == "infra" and _unrunnable(rec)} - steps
+        if retries and never:
+            log(f"eval {label}: {len(never)} infra run(s) are of tasks Harbor runs for none of Hermit's agents "
+                "(unsupported_task), not run again: each would be refused the same way")
         for attempt in range(1, retries + 1):
             infra = [key for key, rec in records.items() if rec["status"] == "infra"]
-            again = [key for key in infra if key not in steps]
+            again = [key for key in infra if key not in steps and key not in never]
             if not again:
                 break
             halted = next((records[key] for key in infra if _halted(records[key])), None)
@@ -314,6 +330,9 @@ def _run(config: Config, target: Path | None, tests: list[dict], out: Path, *, l
     summary = _counts(tests, list(records.values()), repeats, budget) | {"wall_s": round(time.time() - t0, 1)}
     if retries:
         summary["infra_rerun"] = rerun
+    halted = next((rec for rec in records.values() if rec["status"] == "infra" and _halted(rec)), None)
+    if halted is not None:          # a lost login, a usage limit: the runs after it returned at once, unrun
+        summary["halted"] = str(halted.get("error") or "a halt")
     return summary, rows
 
 
@@ -336,6 +355,12 @@ def _one_step_of_many(row: dict) -> bool:
     """Whether a row is a step of a multi-step task (hermit.harbor.dataset's step rows: a `harbor_task` with `steps`
     > 1, as the Trainer's _step_of_many reads them; another task's own `steps` field is no such thing)."""
     return bool(row.get("harbor_task")) and isinstance(row.get("steps"), int) and row["steps"] > 1
+
+
+def _unrunnable(record: dict) -> bool:
+    """Whether an infra run is of a task its acting agent never runs (hermit.harbor: a task Harbor runs for none of
+    Hermit's agents, `unsupported_task`, never started), which a rerun would only repeat."""
+    return (record.get("pipeline_extra") or {}).get("failure_cause") == "unsupported_task"
 
 
 def _halted(record: dict) -> bool:
@@ -370,7 +395,7 @@ def _share_solved(attempts: dict[str, list]) -> float | None:
 def _task_of(record: dict) -> str:
     """The task a run is an attempt at: its output's `harbor_task`, else its row's, else the row; for a step of a
     multi-step task (its output or its row names the `step`), that task's step, `<task>:<step>`, whose attempts are
-    its rollouts."""
+    its rollouts' runs, one per repeat (_counts counts each record)."""
     output = record.get("output") if isinstance(record.get("output"), dict) else {}
     harbor = output if output.get("harbor_task") else {}         # a Harbor trial's output names its task and step
     row = record.get("input") or {}

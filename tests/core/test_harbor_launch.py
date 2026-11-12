@@ -232,8 +232,8 @@ def test_the_memory_note_goes_with_the_prompt_and_the_notes_come_back(tmp_path):
     plan = plan_of(launch.render("codex", settings("codex"), deploy=staged(job, memory=True), tools_url=None, job=job))
     assert plan["prompt_suffix"] == "\n" + MEMORY_NOTE.format(path="hermit/demo/memory/NOTES.md")
     assert plan["deploy"] == {"work_dir": str((job / "deploy").resolve()), "adapter_id": "demo",
-                              "context_file": "AGENTS.md", "context_limit": 262144, "hooks": False,
-                              "copy_back": ["hermit/demo/memory"]}
+                              "context_file": "AGENTS.md", "context_limit": 262144, "context_escaped": None,
+                              "hooks": False, "copy_back": ["hermit/demo/memory"]}
     plain = plan_of(launch.render("codex", settings("codex"), deploy=staged(tmp_path / "p"), tools_url=None,
                                   job=tmp_path / "p"))
     assert plain["prompt_suffix"] == "" and plain["deploy"]["copy_back"] == []
@@ -242,14 +242,16 @@ def test_the_memory_note_goes_with_the_prompt_and_the_notes_come_back(tmp_path):
 def test_dshs_context_limit_counts_the_byte_dsh_adds_for_each_closing_tag(tmp_path):
     """dsh gives the model the project's instructions in a frame within its cap, each `</system-reminder>` of them
     escaped by one more byte (hermit.hosts.dsh counts it so): the limit a dsh deployment's context gets, with
-    Hermit's text's tags, is a text dsh takes whole and not a byte more."""
+    Hermit's text's tags, is a text dsh takes whole and not a byte more, and the plan names the tag, so the image's
+    own file merged in the container is counted so too (harborside)."""
     from hermit.agent.base.cli import DSH_INSTRUCTION_BYTES, DSH_INSTRUCTION_FRAME
     job = tmp_path / "job"
     deploy = staged(job)
     ours = "# demo\n<system-reminder>a</system-reminder> and <system-reminder>b</system-reminder>\n"
     (Path(deploy["deploy"]) / "AGENTS.md").write_text(ours)
-    limit = plan_of(launch.render("dsh", settings("dsh"), deploy=deploy, tools_url=None, job=job))["deploy"][
-        "context_limit"]
+    given = plan_of(launch.render("dsh", settings("dsh"), deploy=deploy, tools_url=None, job=job))["deploy"]
+    limit = given["context_limit"]
+    assert given["context_escaped"] == "</system-reminder>"
 
     def fits(size: int) -> bool:          # hermit.hosts.dsh's rule, for a text of `size` bytes holding Hermit's tags
         return size + DSH_INSTRUCTION_FRAME + ours.count("</system-reminder>") <= DSH_INSTRUCTION_BYTES

@@ -253,6 +253,40 @@ def test_an_execution_that_is_not_the_agents_result_is_not_graded_and_leaves_the
     assert [r["score"] for r in scores if r["run_id"].endswith("/agg1")] == [None]
 
 
+# The toy pipeline where H0 answers and the composed harness's run (AGENTS.md "Always add the numbers.") delivers
+# nothing: an empty answer, the agent's own; or, with `infra`, a run that was not the agent's result (its provider).
+H0_ANSWERS = PIPELINE.replace('str(task["a"] + task["b"]) if "add the numbers" in text else "?"',
+                              '"" if "add the numbers" in text else str(task["a"] + task["b"])')
+H0_ANSWERS_INFRA = H0_ANSWERS.replace(
+    "tokens=100)", "tokens=100,\n"
+                   "                     extra={\"unscored\": \"model_provider_failed\"} "
+                   "if \"add the numbers\" in text else {})")
+
+
+@pytest.mark.parametrize("infra", [False, True])
+def test_a_composed_harness_that_delivered_nothing_never_takes_h0s_score_in_the_stream(tmp_path, infra):
+    """Upstream chooses no deliverable when no final candidate's execution delivered an answer ("no candidate produced
+    an artifact"): the step's task is then not H0's success (the Trainer's rollout, which answered), but the composed
+    harness's 0 when its execution was the agent's (an empty answer), or a row the stream leaves unscored when every
+    final that ran was infra."""
+    assert H0_ANSWERS != PIPELINE and "model_provider_failed" in H0_ANSWERS_INFRA
+    run_dir = run(tmp_path, pipeline=H0_ANSWERS_INFRA if infra else H0_ANSWERS,
+                  overrides=("run.mode=stream", "run.feedback=none"))
+    steps = [json.loads(l) for l in (run_dir / "steps.jsonl").read_text().splitlines()]
+    assert all(s["rollout"]["mean_score"] == 1.0 for s in steps)          # H0 answered every task
+    result = json.loads((run_dir / "step_0001" / "step_result.json").read_text())["extra"]["harness2"]
+    assert not result["selection"]["chosen_label"] and not result["judged"]["graded"]
+    assert result["runs"]["agg1"]["answered"] is False
+    stream = json.loads((run_dir / "stream_summary.json").read_text())
+    if infra:
+        assert [s["own_scores"] for s in steps] == [{"t0": None}, {"t1": None}, {"t2": None}]
+        assert {k: stream[k] for k in ("scored", "unscored", "mean")} == {"scored": 0, "unscored": 3, "mean": None}
+    else:
+        assert [s["own_scores"] for s in steps] == [{"t0": 0.0}, {"t1": 0.0}, {"t2": 0.0}]
+        assert {k: stream[k] for k in ("scored", "unscored", "mean")} == {"scored": 3, "unscored": 0, "mean": 0.0}
+    assert stream["rollout_mean"] == 1.0                                  # the rollouts' mean stays beside
+
+
 def test_a_harbor_trials_final_message_reads_past_json_nested_deeper_than_the_parser_goes(tmp_path):
     """The container wrote the trial's agent/ files: a Claude Code stream line or an answer record nested past the JSON
     parser's depth is no message (the line is skipped, the record gives none), never an error out of the step."""

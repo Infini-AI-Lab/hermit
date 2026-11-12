@@ -18,8 +18,8 @@ hermit eval --config path/to/run.yaml --adapter final trainer.run_name=trial-02 
 
 Overrides are YAML values; quote shell-sensitive lists and dictionaries. Unknown framework keys are rejected. A key
 of `run` or `eval` left empty (null), in the file or by an override, is its default, and so is one that an override
-giving the whole section leaves out (`'eval={repeats: 3}'` keeps `eval.infra_retries` and `eval.infra_wait_s`, for the
-overrides after it too); either section left empty is all its defaults.
+giving the whole section leaves out (`'eval={repeats: 3}'` sets `eval.infra_retries` and `eval.infra_wait_s` to their
+defaults, not the file's, and an override after it may still name them); either section left empty is all its defaults.
 `evolver.params`, `agent.params`, `pipeline.params`, `llm` and `backends` are free-form mappings at merge time; this is not a
 guarantee that their consumer supports arbitrary fields.
 
@@ -143,7 +143,7 @@ the Base Agent's setting (`hermit/agent/base/cli.py`).
 | `trainer.budget.hours` | number / null | Training wall-time budget |
 | `trainer.call_timeout_min` | number / 60 | Per-call timeout in minutes |
 | `eval.repeats` | integer / 1 | Attempts per test row (a Harbor task indexed with k rollouts is k rows); use a positive value |
-| `eval.infra_retries` | integer / 0 | `hermit eval`, and the tests `hermit train` runs itself (`run.mode: split`'s final test, the checkpoint tests), run the rows that ended `infra` (not the agent's result) again up to this many times, unless one reports a halt; never a multi-step task's step rows |
+| `eval.infra_retries` | integer / 0 | `hermit eval`, and the tests `hermit train` runs itself (`run.mode: split`'s final test, the checkpoint tests), run the rows that ended `infra` (not the agent's result) again up to this many times, unless one reports a halt; never a multi-step task's step rows, nor a task Harbor runs for none of Hermit's agents (`unsupported_task`) |
 | `eval.infra_wait_s` | number / 600 | Seconds before each such pass |
 | `run.mode` | string / null | `eval` (`hermit eval` only), `split` (train, then the final adapter on `data.test`), `stream` (each row scored once, before it is learned from); null: train only ([run modes](../framework/configuration.md#how-the-run-is-done-run)) |
 | `run.feedback` | string / null | `full` (null), `score` or `none`: what the learner is shown of each verdict; a stream must name it; `hermit train` refuses one below the Evolver's `min_feedback` (under its `evolver.params`, for an Evolver whose params decide it) |
