@@ -8,10 +8,11 @@ receives an observation and returns actions. Here the policy is a program: for e
 `policy.py` (`act(obs) -> actions`), develops it against the simulator on the task's development layouts, and the
 harness scores it once on held-out layouts with RoboDojo's own success check.
 
-**Status: a first implementation that has not been run against RoboDojo.** The policy, the engine and the service
-were written from RoboDojo's and XPolicyLab's source (RoboDojo `f57e163`, XPolicyLab `6baccd5`) and are tested
-against a stand-in for `scripts/robodojo.sh` (`utils/tests/`). No Isaac Sim evaluation, smoke or training run has
-been made; what a run may still show is listed under [Not verified](#not-verified).
+**Status: a first implementation.** The policy, the engine and the service were written from RoboDojo's and
+XPolicyLab's source and are tested against a stand-in for `scripts/robodojo.sh` (`utils/tests/`). On RoboDojo
+`f57e163` with its pinned XPolicyLab (`5d0be14`), a program's evaluation runs through the engine with the simulator
+in RoboDojo's container: the program's actions move the robot and RoboDojo's result comes back per layout. No smoke
+or training run has been made; what is left is listed under [Not verified](#not-verified).
 
 | Folder | What it is |
 |---|---|
@@ -68,9 +69,26 @@ seen them elsewhere is outside what a sandbox can hold.
 
 1. RoboDojo, as its documentation installs it (Python 3.11, Isaac Sim 5.1, Isaac Lab 2.3; an NVIDIA GPU with 16 GB
    or more; `bash scripts/init_assets.sh` for the Assets), at the commit above, with its `XPolicyLab` submodule.
-2. The policy server's conda environment (`ROBODOJO_POLICY_ENV`, default the simulator's `RoboDojo`) needs
-   XPolicyLab's server dependencies and numpy. The program itself runs on hermit's Python, which needs numpy.
+2. The policy server's environment (`ROBODOJO_POLICY_ENV`: a conda environment's name, default the simulator's
+   `RoboDojo`, or an environment's path) needs XPolicyLab's server dependencies and numpy. The program itself runs
+   on hermit's Python, which needs numpy.
 3. Codex and bubblewrap, as for the other examples (docs/guides/sandbox.md).
+
+Where Isaac Sim does not install on the host (it needs glibc 2.35: RHEL 9 has 2.34), the simulator runs in
+RoboDojo's container and the policy server, with the program's worker, on the host (`utils/agent/split_eval.sh`,
+RoboDojo's `docker/README.md`). Build the image in the checkout, make the policy server's environment, and name
+both:
+
+```bash
+docker build -t robodojo:f57e163 .                         # in the RoboDojo checkout; about 36 GB
+bash scripts/init_assets.sh && python utils/update_embodiment_config_path.py      # the Assets, about 40 GB
+python3.11 -m venv /path/to/policy-env && /path/to/policy-env/bin/pip install numpy pyyaml \
+  opencv-python-headless h5py 'websockets>=14' msgpack msgpack-numpy pydantic
+export ROBODOJO_IMAGE=robodojo:f57e163 ROBODOJO_POLICY_ENV=/path/to/policy-env
+```
+
+The container is shown every GPU, as RoboDojo's image needs to render, and simulates on `ROBODOJO_GPU`; its caches
+go under `ROBODOJO_CACHE` (default `.cache/hermit-container` in the checkout).
 
 ```bash
 cd examples/robodojo_sim/prompt_only
@@ -81,9 +99,8 @@ ROBODOJO_GPU=0 ./launch.sh                                # the forty-two tasks
 
 ## Not verified
 
-- Any real evaluation: that `scripts/robodojo.sh eval` starts this policy as read from its scripts, that
-  `HERMIT_PROGRAM_WORKER` reaches the policy server through RoboDojo's launcher, and where the result is written
-  (`eval_result/RoboDojo/<task>/hermit_program/<config>/<seed>_ckpt_name=...,action_type=.../<run id>/_result.json`).
-- XPolicyLab was read at its main branch; RoboDojo pins an older commit of it as its submodule.
-- The time an evaluation takes, and with it the configs' timeouts and budgets, which are guesses.
+- `scripts/robodojo.sh eval` on a host with a native install: only the container path was run.
+- The smoke, the service and the judge against the real simulator: only the engine was run, on `stack_bowls`.
+- The configs' timeouts and budgets. Measured on an L40: about four minutes to start the simulator and three
+  minutes for a layout of `stack_bowls` (800 steps).
 - Whether a program can solve any task from RGB alone.

@@ -13,6 +13,9 @@ copies must be byte for byte the ones here, or the evaluation is refused.
 
 An evaluation is a layout set (RoboDojo's `--seed`: a directory of saved layouts) and the first N of its layouts
 (`--eval-num`); development and held-out evaluations use different layout sets (utils/prepare.py).
+
+Where Isaac Sim does not install on the host, the simulator runs in RoboDojo's container (`image`, ROBODOJO_IMAGE)
+and the policy server, with the program's worker, on the host (split_eval.sh): the same policy, the same result.
 """
 from __future__ import annotations
 
@@ -34,6 +37,7 @@ import uuid
 HERE = Path(__file__).resolve().parent
 POLICY = HERE.parent / "policy" / "hermit_program"       # the harness's XPolicyLab policy
 WORKER = HERE.parent / "policy" / "worker.py"
+SPLIT = HERE / "split_eval.sh"                           # the simulator in RoboDojo's container
 NAME = POLICY.name
 BENCH = "RoboDojo"
 # One simulator at a time for a GPU, across the service's sessions and the judge (two processes): Isaac Sim takes
@@ -76,17 +80,23 @@ def check_program(source: str) -> str | None:
 
 class Engine:
     """RoboDojo at `root` (a checkout with its Assets, the simulator's conda environment `eval_env` and a policy
-    environment `policy_env` that has XPolicyLab's server dependencies and numpy)."""
+    environment `policy_env`, a conda environment's name or an environment's path, that has XPolicyLab's server
+    dependencies and numpy). With `image` (default: ROBODOJO_IMAGE) the simulator runs in that container image
+    instead of `eval_env`, its caches under `cache` (default: ROBODOJO_CACHE, or .cache/hermit-container in the
+    checkout)."""
 
     def __init__(self, root: Path | str, *, policy_env: str = "RoboDojo", eval_env: str = "RoboDojo",
                  env_cfg: str = "arx_x5", action_type: str = "joint", gpu: str | int = 0,
-                 timeout_s: float = 6 * 3600, step_timeout_s: float = 60.0):
+                 timeout_s: float = 6 * 3600, step_timeout_s: float = 60.0, image: str | None = None,
+                 cache: Path | str | None = None):
         self.root = Path(root).expanduser().resolve()
         if not (self.root / "scripts" / "robodojo.sh").is_file():
             raise FileNotFoundError(f"{self.root}/scripts/robodojo.sh: not a RoboDojo checkout")
         self.policy_env, self.eval_env, self.env_cfg = policy_env, eval_env, env_cfg
         self.action_type, self.gpu = action_type, str(gpu)
         self.timeout_s, self.step_timeout_s = float(timeout_s), float(step_timeout_s)
+        self.image = image if image is not None else os.environ.get("ROBODOJO_IMAGE") or None
+        self.cache = Path(cache or os.environ.get("ROBODOJO_CACHE") or self.root / ".cache" / "hermit-container")
         self.running: set[subprocess.Popen] = set()
         self._guard = threading.Lock()
 
@@ -160,6 +170,9 @@ class Engine:
                "--ckpt", label, "--policy-env", self.policy_env, "--eval-env", self.eval_env,
                "--eval-num", str(int(layouts)), "--env-cfg", self.env_cfg, "--action-type", self.action_type,
                "--seed", str(int(layout_seed)), "--policy-gpu", self.gpu, "--env-gpu", self.gpu]
+        if self.image:
+            cmd = ["bash", str(SPLIT), self.image, NAME, task, label, self.policy_env, str(int(layouts)),
+                   self.env_cfg, self.action_type, str(int(layout_seed)), self.gpu, run_id, str(self.cache)]
         started = time.time()
         results = self.root / "eval_result" / BENCH / task / NAME
         lock_path = Path(tempfile.gettempdir()) / \

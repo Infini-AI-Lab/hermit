@@ -197,6 +197,42 @@ def test_the_engine_refuses_a_policy_that_is_not_the_harnesss_and_a_program_insi
 
 
 @needs_bwrap
+def test_with_an_image_the_engine_runs_the_simulator_in_the_container(tmp_path, monkeypatch):
+    """The same evaluation through split_eval.sh: the image, the policy's environment, the layouts and the GPU;
+    the policy server takes an environment's path as well as a conda environment's name."""
+    dojo = _load("dojo", UTILS / "agent" / "dojo.py")
+    root = fake_robodojo(tmp_path)
+    dojo.install(root)
+    (tmp_path / "work").mkdir()
+    program = tmp_path / "work" / "policy.py"
+    program.write_text(GOOD)
+    seen = []
+
+    def recorded(cmd, **kwargs):
+        seen.append((cmd, kwargs))
+        raise RuntimeError("recorded")
+
+    monkeypatch.setattr(dojo.subprocess, "Popen", recorded)
+    monkeypatch.setenv("ROBODOJO_IMAGE", "robodojo:test")
+    engine = dojo.Engine(root, policy_env="/envs/policy", gpu=3, cache=tmp_path / "cache")
+    with pytest.raises(RuntimeError, match="recorded"):
+        engine.run(program, task="stack_bowls", layout_seed=2, layouts=5, out=tmp_path / "out")
+    cmd, kwargs = seen[0]
+    assert cmd[:2] == ["bash", str(UTILS / "agent" / "split_eval.sh")] and Path(kwargs["cwd"]) == root.resolve()
+    image, policy, task, ckpt, policy_env, layouts, env_cfg, action_type, seed, gpu, run_id, cache = cmd[2:]
+    assert (image, policy, task, policy_env, layouts, seed, gpu) == \
+        ("robodojo:test", "hermit_program", "stack_bowls", "/envs/policy", "5", "2", "3")
+    assert ckpt.startswith("hermit-") and run_id == kwargs["env"]["ROBODOJO_RUN_ID"] and cache == str(tmp_path / "cache")
+    assert "HERMIT_PROGRAM_WORKER" in kwargs["env"]               # reaches the policy server on the host
+    monkeypatch.delenv("ROBODOJO_IMAGE")
+    with pytest.raises(RuntimeError, match="recorded"):           # without an image: RoboDojo's own launcher
+        dojo.Engine(root).run(program, task="stack_bowls", layout_seed=2, layouts=5, out=tmp_path / "out2")
+    assert seen[1][0][:3] == ["bash", "scripts/robodojo.sh", "eval"]
+    script = (UTILS / "policy" / "hermit_program" / "setup_eval_policy_server.sh").read_text()
+    assert '-x "${policy_conda_env}/bin/python"' in script and "conda activate" in script
+
+
+@needs_bwrap
 def test_a_program_is_scored_by_what_it_does_and_reads_nothing_of_robodojos_checkout(tmp_path):
     """The reward-hacking boundary: RoboDojo's checkout holds the held-out layouts and the success conditions, and
     the policy server runs beside it. The program's worker sees none of it and has no network."""

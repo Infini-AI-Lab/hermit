@@ -8,10 +8,15 @@ policy_gpu_id=${7}; policy_conda_env=${8}; policy_server_port=${9}; policy_serve
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 XPL_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 policy_name="$(basename "${SCRIPT_DIR}")"
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate "${policy_conda_env}"
+python=python
+if [[ -x "${policy_conda_env}/bin/python" ]]; then        # an environment's path: a venv, or a conda prefix
+  python="${policy_conda_env}/bin/python"
+else
+  source "$(conda info --base)/etc/profile.d/conda.sh"
+  conda activate "${policy_conda_env}"
+fi
 exec env PYTHONWARNINGS=ignore::UserWarning CUDA_VISIBLE_DEVICES="${policy_gpu_id}" \
-  python "${XPL_ROOT}/setup_policy_server.py" --config_path "${XPL_ROOT}/policy/${policy_name}/deploy.yml" \
+  "${python}" "${XPL_ROOT}/setup_policy_server.py" --config_path "${XPL_ROOT}/policy/${policy_name}/deploy.yml" \
     --overrides port="${policy_server_port}" host="${policy_server_host}" bench_name="${bench_name}" \
       task_name="${task_name}" ckpt_name="${ckpt_name}" env_cfg_type="${env_cfg_type}" seed="${seed}" \
       policy_name="${policy_name}" action_type="${action_type}"
