@@ -11,6 +11,8 @@ policy_name="$(basename "${SCRIPT_DIR}")"
 python=python
 if [[ -x "${policy_conda_env}/bin/python" ]]; then        # an environment's path: a venv, or a conda prefix
   python="${policy_conda_env}/bin/python"
+elif [[ "${policy_conda_env}" == */* ]]; then
+  echo "setup_eval_policy_server: ${policy_conda_env}/bin/python: no such environment" >&2; exit 2
 else
   source "$(conda info --base)/etc/profile.d/conda.sh"
   conda activate "${policy_conda_env}"

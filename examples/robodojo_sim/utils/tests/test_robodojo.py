@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -29,6 +30,13 @@ def _load(name: str, path: Path):
         return module
     finally:
         sys.path.remove(str(path.parent))
+
+
+@pytest.fixture(autouse=True)
+def _no_container_settings(monkeypatch):
+    """The tests run RoboDojo's own launcher unless one sets an image: a host's ROBODOJO_IMAGE is not theirs."""
+    for name in ("ROBODOJO_IMAGE", "ROBODOJO_CACHE", "ROBODOJO_JUDGE_GPU"):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture
@@ -208,26 +216,101 @@ def test_with_an_image_the_engine_runs_the_simulator_in_the_container(tmp_path, 
     program.write_text(GOOD)
     seen = []
 
+    class Ended:                                   # the evaluation's process: it ends at once, with docker's status
+        pid, returncode = 0, 125
+
+        def wait(self, timeout=None):
+            return self.returncode
+
     def recorded(cmd, **kwargs):
         seen.append((cmd, kwargs))
-        raise RuntimeError("recorded")
+        return Ended()
+
+    docker = []
+
+    def inspected(cmd, **kwargs):                  # docker image inspect, and the container's removal after a run
+        docker.append(cmd)
+        return SimpleNamespace(returncode=1 if "missing:image" in cmd else 0)
 
     monkeypatch.setattr(dojo.subprocess, "Popen", recorded)
+    monkeypatch.setattr(dojo.subprocess, "run", inspected)
+    with pytest.raises(RuntimeError, match="no such image"):       # not layouts with no result, scored as failed
+        dojo.Engine(root, image="missing:image")
     monkeypatch.setenv("ROBODOJO_IMAGE", "robodojo:test")
+    monkeypatch.setenv("ROBODOJO_CACHE", "relative/cache")
+    assert dojo.Engine(root).cache.is_absolute()                   # docker reads a relative path as a volume's name
     engine = dojo.Engine(root, policy_env="/envs/policy", gpu=3, cache=tmp_path / "cache")
-    with pytest.raises(RuntimeError, match="recorded"):
+    with pytest.raises(RuntimeError, match="could not start"):     # a container that did not start is no failed layout
         engine.run(program, task="stack_bowls", layout_seed=2, layouts=5, out=tmp_path / "out")
     cmd, kwargs = seen[0]
     assert cmd[:2] == ["bash", str(UTILS / "agent" / "split_eval.sh")] and Path(kwargs["cwd"]) == root.resolve()
     image, policy, task, ckpt, policy_env, layouts, env_cfg, action_type, seed, gpu, run_id, cache = cmd[2:]
     assert (image, policy, task, policy_env, layouts, seed, gpu) == \
         ("robodojo:test", "hermit_program", "stack_bowls", "/envs/policy", "5", "2", "3")
-    assert ckpt.startswith("hermit-") and run_id == kwargs["env"]["ROBODOJO_RUN_ID"] and cache == str(tmp_path / "cache")
+    assert ckpt.startswith("hermit-") and run_id == kwargs["env"]["ROBODOJO_RUN_ID"] and cache == str(tmp_path / "cache" / "gpu3")
     assert "HERMIT_PROGRAM_WORKER" in kwargs["env"]               # reaches the policy server on the host
+    assert docker[-1] == ["docker", "rm", "-f", f"hermit-robodojo-{run_id}"]      # no container outlives its run
     monkeypatch.delenv("ROBODOJO_IMAGE")
-    with pytest.raises(RuntimeError, match="recorded"):           # without an image: RoboDojo's own launcher
-        dojo.Engine(root).run(program, task="stack_bowls", layout_seed=2, layouts=5, out=tmp_path / "out2")
-    assert seen[1][0][:3] == ["bash", "scripts/robodojo.sh", "eval"]
+    native = dojo.Engine(root).run(program, task="stack_bowls", layout_seed=2, layouts=5, out=tmp_path / "out2")
+    assert native == [] and seen[1][0][:3] == ["bash", "scripts/robodojo.sh", "eval"]    # RoboDojo's own launcher
+
+
+def test_the_container_script_starts_the_server_then_the_client_and_stops_both(tmp_path):
+    """split_eval.sh itself, with a stand-in for docker and for RoboDojo's scripts: what the policy server and the
+    simulator's client are given, that the server does not outlive the script, that what the container left is
+    given back to the caller, and that a container that does not start is reported with docker's status."""
+    root = tmp_path / "RoboDojo"
+    for folder in ("scripts", "XPolicyLab/utils", "XPolicyLab/policy/hermit_program", "Assets"):
+        (root / folder).mkdir(parents=True)
+    (root / "scripts" / "robodojo.sh").write_text(
+        '#!/bin/bash\nprintf "%s\\n" "$@" > server.args\necho $$ > server.pid\nexec sleep 300\n')
+    (root / "XPolicyLab" / "utils" / "get_free_port.sh").write_text("echo 45678\n")
+    (root / "XPolicyLab" / "utils" / "wait_for_policy_server.sh").write_text(
+        'for _ in $(seq 100); do [ -f server.pid ] && exit 0; sleep 0.1; done; exit 1\n')
+    tools = tmp_path / "bin"
+    tools.mkdir()
+    (tools / "docker").write_text(
+        '#!/bin/bash\n{ printf "%s\\n" "$@"; echo ---; } >> "$DOCKER_LOG"\n'
+        'if [ "$1" = run ] && [ "$3" != --network ]; then exit "${DOCKER_RUN_STATUS:-0}"; fi\n')
+    (tools / "docker").chmod(0o755)
+    log = tmp_path / "docker.log"
+    env = {**os.environ, "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}", "DOCKER_LOG": str(log)}
+    argv = ["bash", str(UTILS / "agent" / "split_eval.sh"), "robodojo:test", "hermit_program", "stack_bowls", "ckpt-1",
+            "/envs/policy", "5", "arx_x5", "joint", "2", "3", "run-1", str(tmp_path / "cache")]
+    done = subprocess.run(argv, cwd=root, env=env, capture_output=True, text=True, start_new_session=True, timeout=120)
+    assert done.returncode == 0, done.stderr
+    server = (root / "server.args").read_text().split("\n")
+    for flag, value in (("--policy-env", "/envs/policy"), ("--policy-port", "45678"), ("--bind-host", "127.0.0.1"),
+                        ("--task", "stack_bowls"), ("--ckpt", "ckpt-1"), ("--seed", "2"), ("--policy-gpu", "3")):
+        assert server[server.index(flag) + 1] == value, flag
+    pid = int((root / "server.pid").read_text())
+    for _ in range(50):                                 # the policy server is stopped with the script
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    else:
+        os.kill(pid, 9)
+        raise AssertionError("the policy server outlived split_eval.sh")
+    calls = [c.strip().split("\n") for c in log.read_text().split("---") if c.strip()]
+    run = next(c for c in calls if c[0] == "run" and "--name" in c)
+    resolved = str(root.resolve())
+    assert run[run.index("--name") + 1] == "hermit-robodojo-run-1" and run[run.index("--gpus") + 1] == "all"
+    assert "ROBODOJO_RUN_ID=run-1" in run and f"{resolved}/eval_result:/workspace/RoboDojo/eval_result" in run
+    assert f"{resolved}/XPolicyLab/policy/hermit_program:/workspace/RoboDojo/XPolicyLab/policy/hermit_program:ro" in run
+    assert f"{resolved}/Assets:/workspace/RoboDojo/Assets:ro" in run
+    client = run[run.index("client") + 1:]
+    for flag, value in (("--task", "stack_bowls"), ("--policy-port", "45678"), ("--policy-host", "127.0.0.1"),
+                        ("--eval-num", "5"), ("--seed", "2"), ("--env-gpu", "3"), ("--action-type", "joint")):
+        assert client[client.index(flag) + 1] == value, flag
+    assert ["kill", "hermit-robodojo-run-1"] in calls
+    given = next(c for c in calls if c[0] == "run" and "chown" in c)          # as root in the container: its files
+    assert f"{resolved}/eval_result:/given/eval_result" in given and given[-3] == "-R"
+    (root / "server.pid").unlink()
+    failed = subprocess.run(argv, cwd=root, env={**env, "DOCKER_RUN_STATUS": "125"}, capture_output=True, text=True,
+                            start_new_session=True, timeout=120)
+    assert failed.returncode == 125                     # no container: the engine reports it (dojo.NOT_STARTED)
     script = (UTILS / "policy" / "hermit_program" / "setup_eval_policy_server.sh").read_text()
     assert '-x "${policy_conda_env}/bin/python"' in script and "conda activate" in script
 

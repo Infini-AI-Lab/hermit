@@ -10,9 +10,10 @@ harness scores it once on held-out layouts with RoboDojo's own success check.
 
 **Status: a first implementation.** The policy, the engine and the service were written from RoboDojo's and
 XPolicyLab's source and are tested against a stand-in for `scripts/robodojo.sh` (`utils/tests/`). On RoboDojo
-`f57e163` with its pinned XPolicyLab (`5d0be14`), a program's evaluation runs through the engine with the simulator
-in RoboDojo's container: the program's actions move the robot and RoboDojo's result comes back per layout. No smoke
-or training run has been made; what is left is listed under [Not verified](#not-verified).
+`f57e163` with its pinned XPolicyLab (`5d0be14`), with the simulator in RoboDojo's container, a program's actions
+move the robot and RoboDojo's result comes back per layout through the engine, through the service and `bin/sim`
+on the development layouts, and through the judge on the held-out ones. No session of a model, smoke or training
+run has been made; what is left is listed under [Not verified](#not-verified).
 
 | Folder | What it is |
 |---|---|
@@ -20,6 +21,7 @@ or training run has been made; what is left is listed under [Not verified](#not-
 | `utils/policy/worker.py` | The process that runs the program, in a sandbox of its own |
 | `utils/policy/install.py` | Copies the policy into the RoboDojo checkout (`XPolicyLab/policy/hermit_program`) |
 | `utils/agent/dojo.py` | The engine: one evaluation of a program (`scripts/robodojo.sh eval`), its result per layout |
+| `utils/agent/split_eval.sh` | One evaluation with the simulator in RoboDojo's container (`ROBODOJO_IMAGE`) |
 | `utils/agent/dojo_service.py`, `sim_cli.py` | The simulator service on the host and `bin/sim`, the actor's client of it (the ASPIRE example's service with this engine) |
 | `utils/agent/task.py`, `prompts/`, `docs/interface.md` | The Codex actor's task functions, its prompt and the interface page it is given |
 | `utils/prepare.py` | The forty-two tasks with their development and held-out layouts |
@@ -92,7 +94,9 @@ export ROBODOJO_IMAGE=robodojo:f57e163 ROBODOJO_POLICY_ENV=/path/to/policy-env
 ```
 
 The container is shown every GPU, as RoboDojo's image needs to render, and simulates on `ROBODOJO_GPU`; its caches
-go under `ROBODOJO_CACHE` (default `.cache/hermit-container` in the checkout).
+go under `ROBODOJO_CACHE` (default `.cache/hermit-container` in the checkout), a directory per GPU. One simulator
+runs on a GPU at a time: with `ROBODOJO_JUDGE_GPU` the judge has a GPU of its own and does not wait for the
+sessions' evaluations.
 
 ```bash
 cd examples/robodojo_sim/prompt_only
@@ -104,7 +108,8 @@ ROBODOJO_GPU=0 ./launch.sh                                # the forty-two tasks
 ## Not verified
 
 - `scripts/robodojo.sh eval` on a host with a native install: only the container path was run.
-- The smoke, the service and the judge against the real simulator: only the engine was run, on `stack_bowls`.
+- A session of a model, the smoke and any training run: the engine, the service and the judge were run on
+  `stack_bowls` with programs written by hand.
 - The configs' timeouts and budgets. Measured on an L40: about four minutes to start the simulator and three
   minutes for a layout of `stack_bowls` (800 steps).
 - Whether a program can solve any task from RGB alone.

@@ -38,6 +38,7 @@ HERE = Path(__file__).resolve().parent
 POLICY = HERE.parent / "policy" / "hermit_program"       # the harness's XPolicyLab policy
 WORKER = HERE.parent / "policy" / "worker.py"
 SPLIT = HERE / "split_eval.sh"                           # the simulator in RoboDojo's container
+NOT_STARTED = (70, 125, 126, 127)                        # split_eval.sh: no policy server; docker run's own failures
 NAME = POLICY.name
 BENCH = "RoboDojo"
 # One simulator at a time for a GPU, across the service's sessions and the judge (two processes): Isaac Sim takes
@@ -96,7 +97,16 @@ class Engine:
         self.action_type, self.gpu = action_type, str(gpu)
         self.timeout_s, self.step_timeout_s = float(timeout_s), float(step_timeout_s)
         self.image = image if image is not None else os.environ.get("ROBODOJO_IMAGE") or None
-        self.cache = Path(cache or os.environ.get("ROBODOJO_CACHE") or self.root / ".cache" / "hermit-container")
+        self.cache = Path(cache or os.environ.get("ROBODOJO_CACHE")
+                          or self.root / ".cache" / "hermit-container").expanduser().resolve()
+        if self.image:                     # a missing image would otherwise show as layouts with no result
+            try:
+                found = subprocess.run(["docker", "image", "inspect", self.image], capture_output=True, timeout=120)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise RuntimeError(f"ROBODOJO_IMAGE={self.image}: docker cannot be run ({exc})") from exc
+            if found.returncode != 0:
+                raise RuntimeError(f"ROBODOJO_IMAGE={self.image}: no such image (docker build -t {self.image} . "
+                                   "in the RoboDojo checkout)")
         self.running: set[subprocess.Popen] = set()
         self._guard = threading.Lock()
 
@@ -172,7 +182,8 @@ class Engine:
                "--seed", str(int(layout_seed)), "--policy-gpu", self.gpu, "--env-gpu", self.gpu]
         if self.image:
             cmd = ["bash", str(SPLIT), self.image, NAME, task, label, self.policy_env, str(int(layouts)),
-                   self.env_cfg, self.action_type, str(int(layout_seed)), self.gpu, run_id, str(self.cache)]
+                   self.env_cfg, self.action_type, str(int(layout_seed)), self.gpu, run_id,
+                   str(self.cache / f"gpu{self.gpu}")]      # a GPU's own: two simulators never share a cache
         started = time.time()
         results = self.root / "eval_result" / BENCH / task / NAME
         lock_path = Path(tempfile.gettempdir()) / \
@@ -194,6 +205,9 @@ class Engine:
                 finally:
                     with self._guard:
                         self.running.discard(proc)
+                    if self.image:          # a container the script could not stop itself (it was killed)
+                        subprocess.run(["docker", "rm", "-f", f"hermit-robodojo-{run_id}"], capture_output=True,
+                                       timeout=120, check=False)
             found = sorted(results.glob(f"*/{int(layout_seed)}_ckpt_name={label},*/{run_id}/_result.json"))
             records, summary = [], None
             if found:
@@ -209,6 +223,11 @@ class Engine:
             (out / "records.json").write_text(json.dumps(
                 {"task": task, "layout_seed": int(layout_seed), "layouts": int(layouts), "wall_s": time.time() - started,
                  "returncode": proc.returncode, "found_result": bool(found), "records": records}, indent=1))
+            if self.image and proc.returncode in NOT_STARTED:
+                # The container or the policy server did not start: the host's failure, which no program causes
+                # (its worker starts with the first episode), so it is reported rather than scored as failed
+                raise RuntimeError(f"the evaluation could not start (split_eval.sh exit {proc.returncode}): "
+                                   f"see {private / 'robodojo.log'}")
             return records
         finally:
             box.close()

@@ -7,8 +7,9 @@ one in its place, and a program that could make that happen must not gain by it.
 not counted either.
 
 The engine's settings come from the launcher's environment: ROBODOJO_ROOT (the checkout), ROBODOJO_OUT (where the
-runs go), ROBODOJO_GPU, ROBODOJO_POLICY_ENV and ROBODOJO_EVAL_ENV (the conda environments), ROBODOJO_ENV_CFG,
-ROBODOJO_ACTION_TYPE."""
+runs go), ROBODOJO_GPU (or ROBODOJO_JUDGE_GPU, a GPU of the judge's own, so that it does not wait for the sessions'
+simulator), ROBODOJO_POLICY_ENV and ROBODOJO_EVAL_ENV (the environments), ROBODOJO_ENV_CFG, ROBODOJO_ACTION_TYPE,
+and ROBODOJO_IMAGE and ROBODOJO_CACHE (the simulator in RoboDojo's container: dojo.Engine)."""
 from __future__ import annotations
 
 import hashlib
@@ -39,7 +40,7 @@ def score(task: dict, output) -> dict:
     env = os.environ
     engine = dojo.Engine(env["ROBODOJO_ROOT"], policy_env=env.get("ROBODOJO_POLICY_ENV", "RoboDojo"),
                          eval_env=env.get("ROBODOJO_EVAL_ENV", "RoboDojo"), env_cfg=env.get("ROBODOJO_ENV_CFG", "arx_x5"),
-                         action_type=env.get("ROBODOJO_ACTION_TYPE", "joint"), gpu=env.get("ROBODOJO_GPU", "0"))
+                         action_type=env.get("ROBODOJO_ACTION_TYPE", "joint"), gpu=env.get("ROBODOJO_JUDGE_GPU") or env.get("ROBODOJO_GPU", "0"))
     passed = missing = 0
     per_set = {}
     for layout_set in sets:

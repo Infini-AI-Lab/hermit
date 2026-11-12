@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
-# Train, or evaluate, on RoboDojo-Sim. Run it on the host that has RoboDojo installed (Isaac Sim, its Assets).
+# Train, or evaluate, on RoboDojo-Sim. Run it on the host that has RoboDojo's checkout and Assets, and Isaac Sim
+# installed or RoboDojo's container image (ROBODOJO_IMAGE).
 #
 #   ROBODOJO_ROOT=/path/to/RoboDojo ./launch.sh                   # train run.yaml
 #   ROBODOJO_CONFIG=smoke.yaml ./launch.sh                         # train the smoke (its layouts: ROBODOJO_PRESET=smoke)
 #   ./launch.sh eval --adapter final
 #   ROBODOJO_GPU=0 ./launch.sh                                     # the simulator's GPU (default 0)
-#   ROBODOJO_POLICY_ENV=RoboDojo ROBODOJO_EVAL_ENV=RoboDojo ./launch.sh   # the conda environments of the policy
-#                                                                  # server and of the simulator
+#   ROBODOJO_GPU=0 ROBODOJO_JUDGE_GPU=1 ./launch.sh                # a GPU of the judge's own: it does not wait for
+#                                                                  # the sessions' simulator
+#   ROBODOJO_POLICY_ENV=RoboDojo ROBODOJO_EVAL_ENV=RoboDojo ./launch.sh   # the environments of the policy server (a
+#                                                                  # conda environment's name, or a path) and of
+#                                                                  # the simulator
+#   ROBODOJO_IMAGE=robodojo:f57e163 ./launch.sh                    # the simulator in RoboDojo's container instead
+#                                                                  # (its caches: ROBODOJO_CACHE); the service
+#                                                                  # and the judge read both from the environment
 #   ROBODOJO_OUT=/big/disk/robodojo ./launch.sh                    # the runs, the sessions, the held-out evaluations
 #
 # The launcher writes the layouts into the task rows (utils/prepare.py), installs the harness's XPolicyLab policy
