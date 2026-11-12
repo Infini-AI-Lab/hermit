@@ -674,11 +674,16 @@ def test_an_endpoint_models_price_is_its_own_never_the_benchmark_files_model(mon
     ours, theirs, own = "fireworks/accounts/fireworks/models/glm-5p3", {"input": 1.0, "output": 4.0}, \
         {"input": 9.0, "output": 10.0}
     endpoint = {"base_url": "http://10.0.0.9:8000/v1", "model": "my-b", "api_key_env": "B_KEY"}
+    harbor = tmp_path / "harbor-venv" / "bin" / "harbor"          # a stand-in: the runner's startup checks it is there
+    harbor.parent.mkdir(parents=True)
+    harbor.write_text("#!/bin/sh\nexit 0\n")
+    harbor.chmod(0o755)
+    (harbor.parent / "python").symlink_to(sys.executable)
 
     def trial_price(name, model=None):
         method = _method(tmp_path / name, model=ours, price=theirs)
         (method.parent / "utils" / "tasks").mkdir()
-        params = _benchmarked(method, model)["agent"]["params"]
+        params = _benchmarked(method, model, harbor=str(harbor))["agent"]["params"]
         runner = HarborAgent(params, base=method)
         return runner.binding.model, runner.binding.price
     assert trial_price("endpoint-priced", {**endpoint, "price": own}) == ("my-b", own)
