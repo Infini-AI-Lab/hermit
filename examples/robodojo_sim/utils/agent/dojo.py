@@ -45,6 +45,10 @@ BENCH = "RoboDojo"
 _ONE = threading.Lock()
 
 
+class Stopped(RuntimeError):
+    """The engine was stopped (its service is stopping): no evaluation is started."""
+
+
 def policy_digest(folder: Path) -> str:
     """The digest of a policy directory's files (names and contents; bytecode aside)."""
     digest = hashlib.sha256()
@@ -98,11 +102,13 @@ class Engine:
         self.image = image if image is not None else os.environ.get("ROBODOJO_IMAGE") or None
         self.cache = Path(cache or os.environ.get("ROBODOJO_CACHE") or self.root / ".cache" / "hermit-container")
         self.running: set[subprocess.Popen] = set()
-        self._guard = threading.Lock()
+        self._guard, self.stopping = threading.Lock(), False
 
     def stop(self) -> None:
-        """Stop the evaluations this engine is running (the service's, when it is stopped)."""
+        """Stop the evaluations this engine is running and start no other (the service's, when it is stopped): a
+        run waiting for the GPU is refused once it has it (`run`: Stopped)."""
         with self._guard:
+            self.stopping = True
             for proc in list(self.running):
                 _stop(proc)
 
@@ -146,16 +152,16 @@ class Engine:
         stderr); `private` (default: a directory beside `out`) the rest: RoboDojo's log and the sandbox's record,
         which name host paths."""
         out = Path(out)
-        out.mkdir(parents=True, exist_ok=True)
         private = Path(private) if private else out.parent / f"{out.name}.private"
-        private.mkdir(parents=True, exist_ok=True)
+        for path in (out, private):                 # refused before anything is made there
+            if path.resolve().is_relative_to(self.root):
+                raise ValueError(f"{path} lies inside RoboDojo's checkout {self.root}: keep the runs elsewhere")
         self._installed()
         refused = self.validate(program)
         if refused:
             raise ValueError(refused)
-        for path in (out, private):
-            if path.resolve().is_relative_to(self.root):
-                raise ValueError(f"{path} lies inside RoboDojo's checkout {self.root}: keep the runs elsewhere")
+        out.mkdir(parents=True, exist_ok=True)
+        private.mkdir(parents=True, exist_ok=True)
         run_id = f"hermit-{uuid.uuid4().hex[:12]}"
         code = Path(program).read_bytes()
         label = f"hermit-{hashlib.sha256(code).hexdigest()[:12]}"
@@ -175,14 +181,20 @@ class Engine:
                    self.env_cfg, self.action_type, str(int(layout_seed)), self.gpu, run_id, str(self.cache)]
         started = time.time()
         results = self.root / "eval_result" / BENCH / task / NAME
-        lock_path = Path(tempfile.gettempdir()) / \
-            f"hermit-robodojo-{hashlib.sha256(str(self.root).encode()).hexdigest()[:10]}-gpu{self.gpu}.lock"
+        # The GPU's lock, shared by the service and the judge whatever their TMPDIR: in the checkout (the user's own,
+        # where RoboDojo writes its results), opened without truncating it
+        locks = self.root / ".cache" / "hermit-locks"
+        lock, timed_out = None, False
         try:
-            with _ONE, open(lock_path, "w") as lock, open(private / "robodojo.log", "w") as log:
+            locks.mkdir(parents=True, exist_ok=True)
+            lock = os.open(locks / f"gpu{self.gpu}.lock", os.O_RDWR | os.O_CREAT, 0o600)
+            with _ONE, open(private / "robodojo.log", "w") as log:
                 fcntl.flock(lock, fcntl.LOCK_EX)
-                proc = subprocess.Popen(cmd, cwd=self.root, env=env, stdout=log, stderr=subprocess.STDOUT,
-                                        start_new_session=True)
-                with self._guard:
+                with self._guard:                   # started and listed at once: stop() sees every run
+                    if self.stopping:
+                        raise Stopped("the engine is stopping: no evaluation is started")
+                    proc = subprocess.Popen(cmd, cwd=self.root, env=env, stdout=log, stderr=subprocess.STDOUT,
+                                            start_new_session=True)
                     self.running.add(proc)
                 try:
                     proc.wait(timeout=self.timeout_s)
@@ -190,6 +202,7 @@ class Engine:
                     _stop(proc)             # the policy server and the simulator are its children
                     if not isinstance(sys.exc_info()[1], subprocess.TimeoutExpired):
                         raise
+                    timed_out = True
                     log.write(f"\nthe evaluation was stopped after {self.timeout_s:.0f} s\n")
                 finally:
                     with self._guard:
@@ -208,9 +221,12 @@ class Engine:
             records.sort(key=lambda r: r["layout_id"])
             (out / "records.json").write_text(json.dumps(
                 {"task": task, "layout_seed": int(layout_seed), "layouts": int(layouts), "wall_s": time.time() - started,
-                 "returncode": proc.returncode, "found_result": bool(found), "records": records}, indent=1))
+                 "returncode": proc.returncode, "timed_out": timed_out, "timeout_s": self.timeout_s,
+                 "found_result": bool(found), "records": records}, indent=1))
             return records
         finally:
+            if lock is not None:
+                os.close(lock)
             box.close()
             shutil.rmtree(staged, ignore_errors=True)
 
