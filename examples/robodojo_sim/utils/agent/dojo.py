@@ -50,6 +50,11 @@ class Stopped(RuntimeError):
     """The engine was stopped (its service is stopping): no evaluation is started."""
 
 
+class NotStarted(RuntimeError):
+    """The container or the policy server did not start: the host's failure, which no program causes (its worker
+    starts with the first episode), so it is reported rather than scored as failed layouts."""
+
+
 def policy_digest(folder: Path) -> str:
     """The digest of a policy directory's files (names and contents; bytecode aside)."""
     digest = hashlib.sha256()
@@ -113,6 +118,7 @@ class Engine:
                                    "in the RoboDojo checkout)")
         self.running: set[subprocess.Popen] = set()
         self._guard, self.stopping = threading.Lock(), False
+        self._idle, self._active = threading.Condition(), 0      # the runs that have not finished cleaning up
 
     def stop(self) -> None:
         """Stop the evaluations this engine is running and start no other (the service's, when it is stopped): a
@@ -121,6 +127,12 @@ class Engine:
             self.stopping = True
             for proc in list(self.running):
                 _stop(proc)
+
+    def wait_idle(self, timeout: float | None = None) -> bool:
+        """Wait until no run is left, its cleanup included (the container's removal, nothing of it in the checkout):
+        a service that exits right after stop() would otherwise leave that to chance."""
+        with self._idle:
+            return self._idle.wait_for(lambda: not self._active, timeout)
 
     def validate(self, program: Path) -> str | None:
         return check_program(Path(program).read_text(errors="replace"))
@@ -172,6 +184,17 @@ class Engine:
             raise ValueError(refused)
         out.mkdir(parents=True, exist_ok=True)
         private.mkdir(parents=True, exist_ok=True)
+        with self._idle:
+            self._active += 1
+        try:
+            return self._evaluate(program, task, layout_seed, layouts, out, private)
+        finally:
+            with self._idle:
+                self._active -= 1
+                self._idle.notify_all()
+
+    def _evaluate(self, program: Path, task: str, layout_seed: int, layouts: int, out: Path,
+                  private: Path) -> list[dict]:
         run_id = f"hermit-{uuid.uuid4().hex[:12]}"
         code = Path(program).read_bytes()
         label = f"hermit-{hashlib.sha256(code).hexdigest()[:12]}"
@@ -219,8 +242,11 @@ class Engine:
                     with self._guard:
                         self.running.discard(proc)
                     if self.image:          # a container the script could not stop itself (it was killed)
-                        subprocess.run(["docker", "rm", "-f", f"hermit-robodojo-{run_id}"], capture_output=True,
-                                       timeout=120, check=False)
+                        try:
+                            subprocess.run(["docker", "rm", "-f", f"hermit-robodojo-{run_id}"],
+                                           capture_output=True, timeout=120, check=False)
+                        except (OSError, subprocess.TimeoutExpired):
+                            pass            # docker did not answer: the evaluation's own outcome stands
             found = sorted(results.glob(f"*/{int(layout_seed)}_ckpt_name={label},*/{run_id}/_result.json"))
             records, summary = [], None
             if found:
@@ -238,10 +264,8 @@ class Engine:
                  "returncode": proc.returncode, "timed_out": timed_out, "timeout_s": self.timeout_s,
                  "found_result": bool(found), "records": records}, indent=1))
             if self.image and proc.returncode in NOT_STARTED:
-                # The container or the policy server did not start: the host's failure, which no program causes
-                # (its worker starts with the first episode), so it is reported rather than scored as failed
-                raise RuntimeError(f"the evaluation could not start (split_eval.sh exit {proc.returncode}): "
-                                   f"see {private / 'robodojo.log'}")
+                raise NotStarted(f"the evaluation could not start (split_eval.sh exit {proc.returncode}): "
+                                 f"see {private / 'robodojo.log'}")
             return records
         finally:
             if lock is not None:

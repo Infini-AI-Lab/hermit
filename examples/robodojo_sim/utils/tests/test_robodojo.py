@@ -431,6 +431,9 @@ def test_the_service_runs_only_the_sessions_development_layouts_from_the_first(t
         def validate(self, program):
             return None
 
+        def wait_idle(self, timeout=None):
+            return True
+
         def run(self, program, *, task, layout_seed, layouts, out, private=None):
             assert not Path(private).is_relative_to(sessions)     # RoboDojo's log stays out of the workspace
             ran.append((task, layout_seed, layouts))
@@ -464,6 +467,17 @@ def test_the_service_runs_only_the_sessions_development_layouts_from_the_first(t
     engine_stopped = True
     assert "service is stopping" in request([0])["stderr"]
     service.stopping = False
+    ours = service.engine
+
+    class Unstarted(Engine):                       # the container or the policy server did not start
+        def run(self, program, **options):
+            raise S.dojo.NotStarted(f"the evaluation could not start: see {tmp_path}/private/robodojo.log")
+    service.engine = Unstarted()
+    unstarted = service.run({"workspace": str(work), "cmd": "run-batch", "program": "policy.py", "seeds": [0, 1],
+                             "output_root": "runs/v3"})
+    assert unstarted["ok"] and unstarted["code"] == 3 and "not your program" in unstarted["stderr"]
+    assert str(tmp_path) not in unstarted["stderr"] + unstarted["stdout"]      # the host's paths stay on the host
+    service.engine = ours
     other = {**row, "id": "robodojo-other", "benchmark": "libero-pro"}
     service.tasks[other["id"]] = other
     elsewhere = sessions / "rollout" / "robodojo-other-56d9fea2" / "w"
@@ -476,9 +490,11 @@ def test_the_judge_scores_the_program_on_the_held_out_sets_only(tmp_path, monkey
     J = _load("robodojo_judge", UTILS / "judge.py")
     ran = []
 
+    made = []
+
     class Engine:
         def __init__(self, root, **options):
-            pass
+            made.append(options)
 
         def run(self, program, *, task, layout_seed, layouts, out):
             ran.append((layout_seed, layouts))
@@ -498,6 +514,11 @@ def test_the_judge_scores_the_program_on_the_held_out_sets_only(tmp_path, monkey
     assert "6 with no result" in scored["feedback"]
     assert J.score(row, out({}))["score"] == 0.0 and J.score(row, out({"program": "x = 1\n"}))["score"] == 0.0
     assert len(ran) == 2                                     # neither started a simulator
+    monkeypatch.setenv("ROBODOJO_GPU", "4")
+    J.score(row, out({"program": GOOD}))
+    monkeypatch.setenv("ROBODOJO_JUDGE_GPU", "1")            # a GPU of the judge's own
+    J.score(row, out({"program": GOOD}))
+    assert [options["gpu"] for options in made[-2:]] == ["4", "1"]
 
 
 def test_the_configs_load_and_show_the_task_sandbox_nothing_of_robodojo():

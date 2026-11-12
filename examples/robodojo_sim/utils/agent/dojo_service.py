@@ -41,6 +41,7 @@ class Service(base.Service):
     def stop(self) -> None:                                  # the simulators go with the service
         super().stop()
         self.engine.stop()
+        self.engine.wait_idle(180)                           # and what they left: the container, the checkout's files
 
     def _check_row(self, row: dict) -> None:
         if row.get("benchmark") != "robodojo":
@@ -60,6 +61,10 @@ class Service(base.Service):
                                       private=self.private / own_out.parent.name)
         except dojo.Stopped:                               # stop(): checked where the simulator would start
             return 1, "", "bin/sim: the simulator service is stopping\n"
+        except dojo.NotStarted as exc:                     # the host's failure: said so, without the host's paths
+            print(f"dojo_service: {exc}", file=sys.stderr, flush=True)
+            return 3, "", ("bin/sim: the simulator could not be started on the host. This is not your program's "
+                           "doing and no layout was run: say so in your notes.\n")
         except ValueError as exc:                          # the program was refused before a simulator started
             return 1, "", f"bin/sim: {exc}\n"
         passed = sum(r["task_success"] for r in records)

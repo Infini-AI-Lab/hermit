@@ -17,8 +17,12 @@ root="$(pwd -P)"
 assets="$(cd Assets && pwd -P)"
 container="hermit-robodojo-${run_id}"
 owner="$(id -u):$(id -g)"
+mkdir -p eval_result "$cache/warp" "$cache/ov-share" "$cache/ov-cache" .cache/hermit-locks
+# One evaluation at a time from choosing a port to its server answering there: two that start together (the
+# sessions' and the judge's, on two GPUs) could otherwise choose the same one, and a simulator reach the other's
+# policy server
+if command -v flock >/dev/null 2>&1; then exec 9> .cache/hermit-locks/port.lock; flock 9; fi
 port="$(bash XPolicyLab/utils/get_free_port.sh)"
-mkdir -p eval_result "$cache/warp" "$cache/ov-share" "$cache/ov-cache"
 
 bash scripts/robodojo.sh server --policy-dir "XPolicyLab/policy/${policy}" --task "$task" --ckpt "$ckpt" \
   --policy-env "$policy_env" --policy-port "$port" --bind-host 127.0.0.1 --env-cfg "$env_cfg" \
@@ -37,6 +41,7 @@ stop() {
 trap stop EXIT
 bash XPolicyLab/utils/wait_for_policy_server.sh 127.0.0.1 "$port" "$server" "Policy server" 600 || exit 70
 kill -0 "$server" 2>/dev/null || { echo "split_eval: the policy server on port $port is not running" >&2; exit 70; }
+if command -v flock >/dev/null 2>&1; then flock -u 9; exec 9>&-; fi
 
 # Inside the container. The image names one Vulkan driver file (VK_ICD_FILENAMES), and the NVIDIA runtime writes
 # the host's under the host's own name (nvidia_icd.x86_64.json on RHEL): without the one that exists the renderer
