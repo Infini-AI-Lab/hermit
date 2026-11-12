@@ -12,8 +12,8 @@ harness scores it once on held-out layouts with RoboDojo's own success check.
 XPolicyLab's source and are tested against a stand-in for `scripts/robodojo.sh` (`utils/tests/`). On RoboDojo
 `f57e163` with its pinned XPolicyLab (`5d0be14`), with the simulator in RoboDojo's container, a program's actions
 move the robot and RoboDojo's result comes back per layout through the engine, through the service and `bin/sim`
-on the development layouts, and through the judge on the held-out ones. No session of a model, smoke or training
-run has been made; what is left is listed under [Not verified](#not-verified).
+on the development layouts, and through the judge on the held-out ones; the smoke (`smoke_luna.yaml`) completes.
+No training run has been made; what is left is listed under [Not verified](#not-verified).
 
 | Folder | What it is |
 |---|---|
@@ -108,8 +108,8 @@ ROBODOJO_GPU=0 ./launch.sh                                # the forty-two tasks
 ## Not verified
 
 - `scripts/robodojo.sh eval` on a host with a native install: only the container path was run.
-- A session of a model, the smoke and any training run: the engine, the service and the judge were run on
-  `stack_bowls` with programs written by hand.
-- The configs' timeouts and budgets. Measured on an L40: about four minutes to start the simulator and three
-  minutes for a layout of `stack_bowls` (800 steps).
+- Any training run, and a program that solves a task: both tasks of the smoke score 0/2.
+- The configs' timeouts and budgets. Measured on an L40: three to four minutes to start the simulator and about
+  three minutes for a layout of `stack_bowls` (800 steps); a session's evaluation of one layout takes five to six
+  minutes, and the smoke's two tasks 83 minutes.
 - Whether a program can solve any task from RGB alone.
