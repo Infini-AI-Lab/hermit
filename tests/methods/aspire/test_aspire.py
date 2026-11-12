@@ -559,7 +559,7 @@ def test_the_task_sandbox_is_shown_the_staged_docs_and_never_a_page_that_lost_it
                             "long_rerun.txt"}, (path, name)
 
 
-def test_the_engine_takes_the_benchmarks_venv_and_refuses_one_it_does_not_run(tmp_path):
+def test_the_engine_takes_the_benchmarks_venv_and_refuses_one_it_does_not_run(tmp_path, monkeypatch):
     sim = _sim_module()
     root = fake_aspire(tmp_path)
     engine = sim.Engine(root, benchmark="libero-pro")
@@ -567,6 +567,18 @@ def test_the_engine_takes_the_benchmarks_venv_and_refuses_one_it_does_not_run(tm
     assert engine._env()["LIBERO_CONFIG_PATH"] == str(root.resolve() / ".libero")
     assert sim.init_args("libero-pro") == ["--init-mode", "seeded"] and sim.init_args(None) == []
     assert sim.Engine(root).cli.parent.parent.name == ".venv-robosuite"
+    commands = []                                  # the command line of a sweep, the judge's Stage 2 included
+
+    def recorded(cmd, **_):
+        commands.append(cmd)
+        raise RuntimeError("recorded")
+
+    monkeypatch.setattr(sim, "confine", recorded)
+    for each in (engine, sim.Engine(root)):
+        with pytest.raises(RuntimeError, match="recorded"):
+            each.run(tmp_path / "p.py", suite="s", seeds=[1, 2], out=tmp_path / "o")
+    at = commands[0].index("--init-mode")
+    assert commands[0][at:at + 2] == ["--init-mode", "seeded"] and "--init-mode" not in commands[1]
     shutil.rmtree(root / ".venv-libero")
     with pytest.raises(FileNotFoundError, match="bootstrap_libero.sh"):
         sim.Engine(root, benchmark="libero-pro")
@@ -700,17 +712,22 @@ def test_a_program_that_escaped_the_validator_still_cannot_reach_the_host(tmp_pa
     native = tmp_path / "ASPIRE" / "outputs" / "run-1" / "source" / "program.py"   # a run of ASPIRE's own CLI
     native.parent.mkdir(parents=True)
     native.write_text("result = {'native': 1}\n")
+    page = tmp_path / "ASPIRE" / "docs" / "libero-pro.md"                          # names the worked programs per task
+    demos = tmp_path / "ASPIRE" / "third_party" / "LIBERO-PRO" / "libero" / "datasets" / "demo.hdf5"
+    demos.parent.mkdir(parents=True)
+    demos.write_text("demonstration\n")
+    harness = tmp_path / "ASPIRE" / ".venv-robosuite" / "bin" / "cap-harness"
     targets = {"WRITE": [tmp_path / "planted.txt", tmp_path / "ASPIRE" / "planted.py", work / "planted.txt"],
-               "READ": [secret, stage2, other / "fix_code.py", solution, history, native,
-                        tmp_path / "ASPIRE" / "docs" / "api-reference.md"]}
+               "READ": [secret, stage2, other / "fix_code.py", solution, history, native, page, demos, harness]}
     (work / "p.py").write_text("result = {}\n" + "".join(f"# {w} {p}\n" for w, ps in targets.items() for p in ps))
     ran = _sim(work, "run", "--seed", "101", "--program", "p.py", "--output-root", "out")
     tried = json.loads((work / "out" / "run.json").read_text())["tried"]
     assert ran.returncode == 0, ran.stderr
     assert not (tmp_path / "planted.txt").exists() and not (tmp_path / "ASPIRE" / "planted.py").exists()
     assert tried[str(work / "planted.txt")] != "done" and not (work / "planted.txt").exists()   # its workspace too
-    assert all(tried[str(p)] != "done" for p in (secret, stage2, other / "fix_code.py", solution, history, native))
-    assert tried[str(tmp_path / "ASPIRE" / "docs" / "api-reference.md")] == "done"      # the checkout it runs from
+    assert all(tried[str(p)] != "done"
+               for p in (secret, stage2, other / "fix_code.py", solution, history, native, page, demos))
+    assert tried[str(harness)] == "done"                                             # the checkout it runs from
 
 
 @needs_bwrap

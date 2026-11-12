@@ -36,7 +36,15 @@ with LIBERO's venv instead of Robosuite's in the ASPIRE checkout:
 ```bash
 cd ASPIRE && git checkout fa00f0ef2bc1d91d594b9aa502c22133c9f538f7
 scripts/bootstrap_libero.sh                 # .venv-libero, third_party/LIBERO-PRO, .libero/
+scripts/bootstrap_graspnet.sh               # .venv-graspnet: Contact-GraspNet, LIBERO's default grasp backend
 ```
+
+Serve Contact-GraspNet on 8115 beside the other three (`scripts/supervise_services.sh --providers
+contact_graspnet`). The launcher does not check that port: without the service `generate_grasps` has no backend to
+call.
+
+Segmentation is ASPIRE's SAM3 service (`--providers sam3`): LIBERO's scenes hold several similar objects, which
+the Robosuite example's stand-in does not tell apart.
 
 ## Run
 

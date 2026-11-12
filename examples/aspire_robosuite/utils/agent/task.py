@@ -48,7 +48,7 @@ def settings(task: dict, params: dict) -> dict:
     role = "verifier" if task.get("role") == "verifier" else "actor"     # a rerun is an actor with the final library
     root = params.get("aspire_root") or os.environ.get("ASPIRE_ROOT")
     if not root:
-        raise ValueError("agent.params.aspire_root (or ASPIRE_ROOT): an ASPIRE checkout with .venv-robosuite")
+        raise ValueError("agent.params.aspire_root (or ASPIRE_ROOT): an ASPIRE checkout with its benchmark's venv")
     benchmark = str(task.get("benchmark") or "robosuite")
     return {"role": role, "root": Path(os.path.expandvars(str(root))).expanduser().resolve(),
             "benchmark": benchmark, "doc": sim.profile(benchmark)["doc"], "suite": task["suite"], "task_id": int(task.get("task_id", 0)),

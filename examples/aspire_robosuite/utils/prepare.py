@@ -5,7 +5,7 @@ development 101-125, unseen-check 126-130, held-out 1-100).
     python prepare.py                                  # ASPIRE's seeds
     python prepare.py --preset smoke                   # the smoke's: three development seeds, one unseen, three held-out
     python prepare.py --dev 101-103 --unseen 126 --eval 1-3      # any others
-    # tasks.jsonl, splits/{all,smoke,single_arm,verify,rerun,smoke_rerun}.txt
+    # tasks.jsonl, splits/{all,smoke,single_arm,verify,rerun,smoke_rerun,single_arm_rerun}.txt
 
 The verifier rows (splits/verify.txt) are the Evolver's: a run gives them as `data.val`, so only `run_agent` runs
 them.
