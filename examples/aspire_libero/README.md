@@ -40,8 +40,7 @@ scripts/bootstrap_graspnet.sh               # .venv-graspnet: Contact-GraspNet, 
 ```
 
 Serve Contact-GraspNet on 8115 beside the other three (`scripts/supervise_services.sh --providers
-contact_graspnet`). The launcher does not check that port: without the service `generate_grasps` has no backend to
-call.
+contact_graspnet`); the launcher refuses to start without it, since `generate_grasps` would have no backend to call.
 
 Segmentation is ASPIRE's SAM3 service (`--providers sam3`): LIBERO's scenes hold several similar objects, which
 the Robosuite example's stand-in does not tell apart.
