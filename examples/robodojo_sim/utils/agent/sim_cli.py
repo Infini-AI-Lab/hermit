@@ -5,7 +5,8 @@
 
 It asks the host's simulator service (dojo_service.py), which evaluates the program in RoboDojo on this task's
 development layouts only and writes the run (the per-layout result, the videos, the program's log) into the
-workspace. Paths are relative to this workspace.
+workspace. Paths are relative to this workspace. `run` returns when the evaluation has ended, which takes minutes:
+it says so at once and once a minute after, on stderr, so that a caller who watches it sees that it is running.
 """
 from __future__ import annotations
 
@@ -13,6 +14,8 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import threading
+import time
 import urllib.request
 
 CONFIG = json.loads((Path(__file__).resolve().parent / "sim.json").read_text())
@@ -36,8 +39,23 @@ def main() -> None:
         body.update(output_root=rel(a.output_root), seeds=list(range(max(a.layouts, 0))))
     request = urllib.request.Request(CONFIG["url"].rstrip("/") + "/run", data=json.dumps(body).encode(),
                                      headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(request, timeout=24 * 3600) as reply:
-        answer = json.loads(reply.read())
+    ended = threading.Event()
+    if a.cmd == "run":
+        print(f"bin/sim: evaluating {max(a.layouts, 0)} layout(s): several minutes to start the simulator, then "
+              "several minutes a layout, longer if another evaluation is ahead of it. This command returns when it "
+              f"has ended; {rel(a.output_root)}/records.json is written then. Do not stop it.", file=sys.stderr,
+              flush=True)
+
+        def still_running(started=time.time()):
+            while not ended.wait(60):
+                print(f"bin/sim: still running ({(time.time() - started) / 60:.0f} min)", file=sys.stderr, flush=True)
+
+        threading.Thread(target=still_running, daemon=True).start()
+    try:
+        with urllib.request.urlopen(request, timeout=24 * 3600) as reply:
+            answer = json.loads(reply.read())
+    finally:
+        ended.set()
     if not answer.get("ok"):
         print(f"bin/sim: refused: {answer.get('error')}", file=sys.stderr)
         sys.exit(2)
