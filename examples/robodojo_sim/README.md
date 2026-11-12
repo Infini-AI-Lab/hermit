@@ -65,6 +65,10 @@ What this does not cover: the layouts of a set run in order, so a program can co
 from that without the layout files. The held-out sets are RoboDojo's public evaluation layouts: a model that has
 seen them elsewhere is outside what a sandbox can hold.
 
+In RoboDojo's Assets every task has layouts 0 to 24 in each of the three sets, and the sets differ, except for
+`play_tic_tac_toe`, whose three sets are the same layouts: its held-out layouts are its development layouts, so its
+score is not a held-out score.
+
 ## Setup
 
 1. RoboDojo, as its documentation installs it (Python 3.11, Isaac Sim 5.1, Isaac Lab 2.3; an NVIDIA GPU with 16 GB
