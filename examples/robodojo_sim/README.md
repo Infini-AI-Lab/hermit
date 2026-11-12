@@ -26,7 +26,7 @@ run has been made; what is left is listed under [Not verified](#not-verified).
 | `utils/agent/task.py`, `prompts/`, `docs/interface.md` | The Codex actor's task functions, its prompt and the interface page it is given |
 | `utils/prepare.py` | The forty-two tasks with their development and held-out layouts |
 | `utils/judge.py` | The program on the held-out layout sets, on the host |
-| `prompt_only/` | `run.yaml`, `smoke.yaml`, `launch.sh`: the prompt-only template with the built-in Codex Evolver |
+| `prompt_only/` | `run.yaml`, `smoke.yaml`, `smoke_luna.yaml` (the smoke with GPT-5.6-Luna on the machine's ChatGPT login), `launch.sh`: the prompt-only template with the built-in Codex Evolver |
 
 ## Protocol
 
