@@ -59,7 +59,8 @@ def render_claude_events(path: Path, *, obs_trunc: int, max_chars: int, args_tru
     """Render a Claude Code stream-json file into upstream's shared grammar (`obs_trunc` and `max_chars` as upstream's
     renderers take them, `args_trunc` its Codex substrate's default for a tool's input)."""
     try:
-        raw_lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
+        # U+0085, U+2028 and U+2029 end no line: Claude Code's JSON.stringify leaves them unescaped in an event
+        raw_lines = Path(path).read_text(encoding="utf-8", errors="replace").split("\n")
     except OSError as exc:
         return f"(failed to read trajectory: {exc})"
     lines: list[str] = []

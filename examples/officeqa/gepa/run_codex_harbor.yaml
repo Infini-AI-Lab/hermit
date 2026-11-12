@@ -1,7 +1,8 @@
 # OfficeQA in the SkillOpt paper's setting with the GEPA Evolver, the Codex harness through Harbor: as
-# gepa/run_codex.yaml (GLM 5.3 Flash acts in Codex, the skill as SKILL.md, the whole corpus under docs/), but each
+# gepa/run_codex.yaml (GLM 5.3 Flash acts in Codex, the skill as AGENTS.md, the whole corpus under docs/), but each
 # question is a Harbor task (utils/harbor/build_tasks.py) and the session runs in a container Harbor starts, installs
-# Codex into and verifies (the judge inside the container, utils/harbor/judge.py), instead of environment.image.
+# Codex into and verifies (the judge inside the container, utils/harbor/judge.py), instead of environment.image;
+# HermitCodex deploys the adapter there as hermit deploy --host codex does, its ADAPTER.md (the skill) as AGENTS.md.
 # Before: python examples/officeqa/utils/harbor/build_tasks.py, and export OFFICEQA_DOCS_ROOT as it prints (the corpus,
 # mounted read-only at /app/docs/root_1). The recipe's "Through Harbor" section has the rest.
 data:
@@ -19,7 +20,8 @@ agent:
     tasks_dir: ../utils/.private/harbor_tasks
     model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the backend's endpoint and key go to Codex in the container
     effort: medium
-    codex_version: "0.134.0"             # the Codex of the GLM 5.3 Flash row (utils/agent/docker/Dockerfile)
+    web_search: false                    # as the Codex route: the answer is in the corpus, not on the web
+    codex_version: "0.134.0"             # the Codex in run_codex.yaml's image (docker/codex/Dockerfile)
     agent_timeout_sec: 3600              # one session's wall clock, as the Codex route's timeout_s
     environment:
       delete: true

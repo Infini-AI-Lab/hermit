@@ -1,5 +1,6 @@
 """CommandEvolver and AgentEvolver in the bubblewrap sandbox: tools reachable (and only the allowed ones), task data
-hidden, rollouts and eval sandboxed too."""
+hidden, rollouts and eval sandboxed too; and, with no sandbox, the learning material's README as each CLI Evolver's
+prompt names it."""
 import json
 import os
 from pathlib import Path
@@ -12,7 +13,8 @@ from hermit.config import Config
 from hermit.trainer.trainer import Trainer
 from toy_task import make_sandboxed_task
 
-pytestmark = pytest.mark.skipif(not shutil.which("bwrap"), reason="needs bubblewrap")
+ROOT = Path(__file__).resolve().parents[2]
+NEEDS_BWRAP = pytest.mark.skipif(not shutil.which("bwrap"), reason="needs bubblewrap")
 
 SCRIPT = r'''
 import json, os, sys, urllib.request
@@ -34,6 +36,7 @@ Path(ctx["workspace"]["output"], "step_result.json").write_text(json.dumps({
 '''
 
 
+@NEEDS_BWRAP
 def test_command_evolver_in_sandbox(tmp_path):
     """The learner (its workspace under /w, the paths it is given spelled so) and every rollout and eval call (the
     task sandbox, shown only agent/) each run in a sandbox of their own, every call's isolation checked from
@@ -84,6 +87,7 @@ print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "cach
 '''
 
 
+@NEEDS_BWRAP
 def test_agent_evolver_with_a_fake_codex(tmp_path, monkeypatch):
     """`tools: [check_spec]`: the session's tool server serves only the allowed tools, and the prompt names them and
     no Trainer endpoint."""
@@ -113,3 +117,27 @@ def test_agent_evolver_with_a_fake_codex(tmp_path, monkeypatch):
     assert steps[0]["evolver"]["usage"][0]["cost_usd"] == pytest.approx(150e-6)
 
 
+def test_each_cli_evolvers_start_md_names_the_materials_readme_where_the_trainer_writes_it(tmp_path):
+    """The README that says what the learning material holds is the one hermit.trainer.material writes at the
+    material's root (current/, a link to the step's folder, holds none): each CLI Evolver's prompt (START.md), filled
+    in as the Evolver fills it, names that file, never a README in current/."""
+    import yaml
+    from hermit.agent.evolver.agent import _fill
+    from hermit.agent.evolver.base import Access, Progress, StepContext, Workspace
+    from hermit.trainer.material import Material, readme
+    material = Material(tmp_path / "learning_material")
+    material.write(1, 1, "abc1234", False, [], None)
+    assert (material.root / "README.md").read_text() == readme()
+    assert not (material.root / "current" / "README.md").exists()
+    ws = Workspace(**{name: tmp_path / name for name in ("adapter", "task_info", "history", "state", "scratch",
+                                                         "output")}, learning_material=material.root)
+    ctx = StepContext(workspace=ws, access=Access(), tools={}, params={}, progress=Progress(1, 1, False))
+    methods = ROOT / "hermit" / "agent" / "evolver" / "methods"
+    manifests = {path.parent.name: yaml.safe_load(path.read_text()) for path in methods.glob("*/evolver.yaml")}
+    prompts = {name: manifest["params"]["prompt"] for name, manifest in manifests.items()
+               if manifest.get("class") == "hermit.agent.evolver.agent:AgentEvolver"}
+    assert {"codex", "claude", "pi", "opencode", "dsh"} <= set(prompts)
+    for name, prompt in sorted(prompts.items()):
+        text = " ".join(_fill((methods / name / prompt).read_text(), ctx).split())
+        assert f"({material.root}/current/; {material.root}/README.md says what it holds)" in text, name
+        assert "its README.md" not in text and "current/README.md" not in text, name

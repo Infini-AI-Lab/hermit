@@ -35,6 +35,7 @@ NEXT = "next_tasks.json"
 
 class AspireEvolver(AgentEvolver):
     chooses_tasks = True
+    min_feedback = "score"           # the coordinator reads Stage 2's and the verifier's pass rates (judge.score)
 
     def step(self, ctx: StepContext) -> StepResult:
         result = super().step(ctx)

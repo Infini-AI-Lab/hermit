@@ -456,3 +456,429 @@ def test_a_task_agent_on_a_cli_base_is_bound_and_checked_like_the_cli():
     params = data["agent"]["params"]
     assert params["model"] == "accounts/fireworks/models/glm-5p3-flash" and params["binding"]
     assert [(who, api) for who, _, api in bindings_of(data)] == [("agent (trials.py:TrialCodexAgent)", "responses")]
+
+
+# ---- a Harbor task set's acting agent -------------------------------------------------------------------------------
+
+def _harbor(acting: dict, model, **params) -> dict:
+    """A loaded config of a Harbor task set (agent.name: harbor) whose acting agent is `acting`, normalized."""
+    data = {"model": None, "backends": {}, "llm": None,
+            "agent": {"name": "harbor", "params": {"tasks_dir": "tasks", "acting_agent": acting, "model": model,
+                                                   **params}}}
+    normalize_config(data)
+    return data
+
+
+def test_a_harbor_acting_agents_model_is_bound_for_the_cli_it_runs_in_the_tasks_container(monkeypatch, tmp_path):
+    """agent.name: harbor runs a HermitXXX (one CLI Base Agent) in each task's container: its model is checked in the
+    dialect of the CLI it runs (Claude Code the Messages API, Codex the Responses API, Pi and dsh their pi-ai dialect,
+    OpenCode, mini-swe-agent and the answer-only agent chat completions), which its `cli` or its table import path
+    names (Codex when it names neither), and the params keep the whole binding (its developer_role too), which makes
+    the same binding again for the runner to give the CLI its provider settings; the model is the endpoint's id, and
+    no CLI's settings land among the runner's own. Normalized again, the params stay as they are."""
+    import copy
+    monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
+    monkeypatch.delenv("VLLM_BASE_URL", raising=False)
+    r = reg()
+    cases = [({"cli": "claude"}, "anthropic/claude-haiku-5-5", "claude", "messages"),
+             ({"import_path": "harborside.claude:HermitClaude", "kwargs": {}}, "anthropic/claude-haiku-5-5", "claude",
+              "messages"),
+             ({}, f"fireworks/{GLM}", "codex", "responses"),
+             ({"import_path": "harborside.codex:HermitCodex"}, f"fireworks/{GLM}", "codex", "responses"),
+             ({"cli": "pi"}, "anthropic/claude-haiku-5-5", "pi", "messages"),
+             ({"cli": "dsh"}, f"fireworks/{GLM}", "dsh", "chat"),
+             ({"cli": "opencode"}, "vllm/q", "opencode", "chat"),
+             ({"import_path": "harborside.mini_swe_agent:HermitMiniSweAgent"}, "vllm/openai/gpt-oss-120b",
+              "mini-swe-agent", "chat"),
+             ({"cli": "answer"}, "vllm/q", "answer", "chat")]
+    for acting, ref, cli, api in cases:
+        data = _harbor(acting, ref)
+        params, binding = data["agent"]["params"], resolve(ref, r)
+        assert backends.harbor_cli(params) == cli and params["acting_agent"] == acting
+        assert params["model"] == binding.model and params["binding"] == binding.spec()
+        assert params["price"] == binding.price and not {"args", "env", "provider"} & set(params)
+        [(who, bound, dialect)] = bindings_of(data)
+        assert (who, bound.ref, dialect) == (f"agent (harbor, {cli})", ref, api)
+        assert not [p for p in problems_of(bound, dialect) if " serves " in p], (cli, problems_of(bound, dialect))
+        again = copy.deepcopy(data)
+        normalize_config(again)
+        assert again["agent"] == data["agent"], cli          # the id (openai/gpt-oss-120b) is not bound again
+        assert Binding.from_spec(params["binding"]).spec() == params["binding"]
+    assert _harbor({}, f"fireworks/{GLM}")["agent"]["params"]["binding"]["developer_role"] == "system"
+
+
+def test_a_harbor_models_client_timeout_and_retries_given_beside_it_are_kept_in_its_binding(monkeypatch, tmp_path):
+    """A Harbor task set's model given as a mapping with its client's `timeout` and `max_retries` beside it (the answer
+    agent's relay reads them) keeps them in the params' binding, which still makes the same binding again; a model
+    given without them binds as before."""
+    import copy
+    monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
+    monkeypatch.delenv("VLLM_BASE_URL", raising=False)
+    plain = _harbor({"cli": "answer"}, "vllm/q")["agent"]["params"]
+    data = _harbor({"cli": "answer"}, {"model": "vllm/q", "timeout": 1200, "max_retries": 1})
+    params = data["agent"]["params"]
+    assert params["model"] == "q" and params["binding"] == {**plain["binding"], "timeout": 1200, "max_retries": 1}
+    assert Binding.from_spec(params["binding"]).spec() == plain["binding"] and "timeout" not in plain["binding"]
+    again = copy.deepcopy(data)
+    normalize_config(again)
+    assert again["agent"] == data["agent"]
+
+
+def test_harbors_own_agents_and_a_clis_own_model_name_keep_their_forms(monkeypatch, tmp_path):
+    """One of Harbor's own agents (by name, or a class outside harborside) keeps the endpoint form Harbor is given
+    ({model, base_url, api_key_env} among the spec) and is checked as chat completions; a CLI's own model name (with
+    its login) is no reference and stays as given, with no binding to check; an acting CLI the table has not is
+    refused when the config loads."""
+    monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
+    monkeypatch.delenv("VLLM_BASE_URL", raising=False)
+    for acting in ({"name": "terminus-2"}, {"import_path": "examples.x.agents:MyAgent"},
+                   {"import_path": "x:HermitCodex"}):
+        data = _harbor(acting, "vllm/q")
+        params = data["agent"]["params"]
+        assert backends.harbor_cli(params) is None and "binding" not in params
+        assert params["model"]["model"] == "q" and params["model"]["base_url"] == "http://127.0.0.1:8000/v1"
+        assert [(who, api) for who, _, api in bindings_of(data)] == [("agent (harbor)", "chat")]
+    data = _harbor({"cli": "claude"}, "claude-haiku-5-5", login="claude")
+    assert data["agent"]["params"]["model"] == "claude-haiku-5-5" and "binding" not in data["agent"]["params"]
+    assert bindings_of(data) == []
+    with pytest.raises(ValueError, match="acting_agent.cli must be one of codex, claude, pi"):
+        _harbor({"cli": "claude-code"}, "vllm/q")
+
+
+def _method(root: Path, **shared) -> Path:
+    """A Harbor task set's benchmark file (utils/benchmark.yaml: the params every method's config shares, beside its
+    dataset: block) and the folder of a method's config that names it as ../utils/benchmark.yaml."""
+    (root / "utils").mkdir(parents=True)
+    (root / "utils" / "benchmark.yaml").write_text(yaml.safe_dump({"tasks_dir": "tasks", "dataset": {"ref": "demo@1.0"},
+                                                                   **shared}))
+    (root / "method").mkdir()
+    return root / "method"
+
+
+def _benchmarked(base: Path, model=None, *, default=None, **params) -> dict:
+    """A loaded config of that method (its params naming the benchmark file, `default` its top-level `model`),
+    normalized from its folder."""
+    data = {"model": default, "backends": {}, "llm": None,
+            "agent": {"name": "harbor", "params": {"benchmark": "../utils/benchmark.yaml", "web_search": False,
+                                                   **({"model": model} if model else {}), **params}}}
+    normalize_config(data, base=base)
+    return data
+
+
+def test_a_benchmark_files_acting_agent_and_model_are_bound_as_the_runner_will_run_them(monkeypatch, tmp_path):
+    """A Harbor task set's benchmark file (agent.params.benchmark, relative to the config's folder) may name the acting
+    agent and its model for every method's config, and the runner merges it under the config's own params: the model
+    layer reads it first, so a Claude Code or Pi trial's model is bound and checked in its CLI's dialect (as Codex's,
+    the Messages-only Anthropic backend would be refused), the config's acting_agent keys win one level deep as the
+    runner merges them, the file's model is the one bound when the config gives none, and one of Harbor's own agents
+    named there keeps the endpoint Harbor is given (its URL and its key's variable), not a CLI's model id."""
+    monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
+    monkeypatch.delenv("VLLM_BASE_URL", raising=False)
+    for cli in ("claude", "pi"):
+        data = _benchmarked(_method(tmp_path / cli, acting_agent={"cli": cli, "env": {"A": "1"}}),
+                            "anthropic/claude-haiku-5-5", acting_agent={"env": {"B": "2"}})
+        params = data["agent"]["params"]
+        assert params["acting_agent"] == {"cli": cli, "env": {"B": "2"}} and backends.harbor_cli(params) == cli
+        [(who, bound, dialect)] = bindings_of(data)
+        assert (who, bound.ref, dialect) == (f"agent (harbor, {cli})", "anthropic/claude-haiku-5-5", "messages")
+        assert not [p for p in problems_of(bound, dialect) if " serves " in p], cli
+    data = _benchmarked(_method(tmp_path / "own", acting_agent={"cli": "claude"}, model="anthropic/claude-haiku-5-5"))
+    assert data["agent"]["params"]["model"] == "claude-haiku-5-5"
+    assert [(who, bound.ref, api) for who, bound, api in bindings_of(data)] == \
+        [("agent (harbor, claude)", "anthropic/claude-haiku-5-5", "messages")]
+    data = _benchmarked(_method(tmp_path / "builtin", acting_agent={"name": "terminus-2"}), "vllm/q")
+    params = data["agent"]["params"]
+    assert backends.harbor_cli(params) is None and "binding" not in params
+    assert (params["model"]["model"], params["model"]["base_url"], params["model"]["api_key_env"]) == \
+        ("q", "http://127.0.0.1:8000/v1", "VLLM_API_KEY")
+    assert [(who, api) for who, _, api in bindings_of(data)] == [("agent (harbor)", "chat")]
+
+
+def test_a_benchmark_files_price_is_the_runs_only_with_the_files_model(monkeypatch, tmp_path):
+    """A Harbor task set's benchmark file may name a model and its price for every method's config: the model layer,
+    which fills the backend's price into the params when they give none, takes the file's first when the model bound
+    is the file's (the config names none, or the same), since the params override the file when the runner merges it
+    under them; a config that binds another model (agent.params.model, or the top-level `model`) gets that model's
+    backend price, as it does beside a file's price with no model; a price the config gives is the run's."""
+    monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
+    ours, other = "fireworks/accounts/fireworks/models/glm-5p3", f"fireworks/{GLM}"
+    theirs, mine = {"input": 1.0, "output": 4.0}, {"input": 2.0, "output": 8.0}
+    backend = resolve(other, reg()).price
+    assert backend not in (None, theirs, mine) and resolve(ours, reg()).price not in (None, theirs, backend)
+
+    def priced(name, model=None, file_model=ours, **config):
+        method = _method(tmp_path / name, price=theirs, **({"model": file_model} if file_model else {}))
+        params = _benchmarked(method, model, **config)["agent"]["params"]
+        shared = yaml.safe_load((method.parent / "utils" / "benchmark.yaml").read_text())
+        # the model bound, its price, and the runner's: the file merged under the params
+        return params["binding"]["ref"], params["price"], {**shared, **params}["price"]
+    assert priced("file") == (ours, theirs, theirs)
+    assert priced("same", ours) == priced("same-top", default=ours) == (ours, theirs, theirs)
+    assert priced("other", other) == priced("other-top", default=other) == (other, backend, backend)
+    assert priced("unnamed", other, file_model=None) == (other, backend, backend)
+    assert priced("own", price=mine) == (ours, mine, mine)
+    assert priced("own-other", other, price=mine) == (other, mine, mine)
+
+
+def test_a_benchmark_files_price_is_the_runs_with_its_own_model_in_any_form(monkeypatch, tmp_path):
+    """A config naming a Harbor task set's benchmark-file model in another form than the file's binds the same
+    reference, so it takes the file's price: a mapping with the relay client's `timeout` or with `extra_body`, a
+    {backend, model} mapping, the full id where the file gives a backend's alias, or a string where the file gives a
+    mapping, as agent.params.model or the top-level `model` (a model its backend has no price for is priced so too, not
+    left unknown). Another model in those forms keeps its own backend's price, and a price the config's own model
+    mapping gives is the run's."""
+    user = tmp_path / "backends.yaml"
+    user.write_text(yaml.safe_dump({"fireworks": {"models": {"glm": "accounts/fireworks/models/glm-5p3"}}}))
+    monkeypatch.setenv("HA_BACKENDS", str(user))
+    ours, other = "fireworks/accounts/fireworks/models/glm-5p3", f"fireworks/{GLM}"
+    unpriced = "fireworks/accounts/fireworks/models/unpriced"
+    theirs, mine = {"input": 1.0, "output": 4.0}, {"input": 2.0, "output": 8.0}
+    backend = resolve(other, reg()).price
+    assert resolve(ours, reg()).price not in (None, theirs) and resolve(unpriced, reg()).price is None
+
+    def split(ref, **more):                         # the {backend, model} form
+        name, _, model = ref.partition("/")
+        return {"backend": name, "model": model, **more}
+
+    def priced(name, model=None, file_model=ours, **config):
+        method = _method(tmp_path / name, model=file_model, price=theirs)
+        params = _benchmarked(method, model, **config)["agent"]["params"]
+        shared = yaml.safe_load((method.parent / "utils" / "benchmark.yaml").read_text())
+        # the model bound, its price, and the runner's: the file merged under the params
+        return params["binding"]["ref"], params["price"], {**shared, **params}["price"]
+    relay = {"model": ours, "timeout": 1200}
+    for i, (model, file_model, default) in enumerate([
+            (relay, ours, None), ({"model": ours, "extra_body": {"reasoning_effort": "medium"}}, ours, None),
+            (split(ours), ours, None), (ours, "fireworks/glm", None), (ours, relay, None), (split(ours), relay, None),
+            (None, relay, ours), (None, ours, split(ours))]):
+        assert priced(f"same{i}", model, file_model, default=default) == (ours, theirs, theirs), i
+    assert priced("unpriced", {"model": unpriced, "timeout": 1200}, unpriced) == (unpriced, theirs, theirs)
+    for i, (model, file_model, default) in enumerate([
+            ({"model": other, "timeout": 1200}, ours, None), (split(other), ours, None), (other, relay, None),
+            (None, relay, split(other))]):
+        assert priced(f"other{i}", model, file_model, default=default) == (other, backend, backend), i
+    for i, (model, default) in enumerate([({"model": ours, "price": mine}, None), (split(ours, price=mine), None),
+                                          (None, split(ours, price=mine))]):
+        assert priced(f"own{i}", model, default=default) == (ours, mine, mine), i
+
+
+def test_an_endpoint_models_price_is_its_own_never_the_benchmark_files_model(monkeypatch, tmp_path):
+    """A config that gives the acting model as an endpoint ({base_url, model, api_key_env}, which binds no backend)
+    beside a benchmark file that prices its own model: the trial's binding, as the runner builds it once it merged the
+    file under the loaded params, keeps the endpoint's own price, or none (unknown), never the file's; the file's
+    model, named in the config or not, keeps the file's price."""
+    from hermit.harbor.runner import HarborAgent
+    monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
+    monkeypatch.setenv("B_KEY", "b-key-stand-in-0123456789")
+    monkeypatch.setenv("FIREWORKS_API_KEY", "fw-key-stand-in-0123456789")
+    ours, theirs, own = "fireworks/accounts/fireworks/models/glm-5p3", {"input": 1.0, "output": 4.0}, \
+        {"input": 9.0, "output": 10.0}
+    endpoint = {"base_url": "http://10.0.0.9:8000/v1", "model": "my-b", "api_key_env": "B_KEY"}
+    harbor = tmp_path / "harbor-venv" / "bin" / "harbor"          # a stand-in: the runner's startup checks it is there
+    harbor.parent.mkdir(parents=True)
+    harbor.write_text("#!/bin/sh\nexit 0\n")
+    harbor.chmod(0o755)
+    (harbor.parent / "python").symlink_to(sys.executable)
+
+    def trial_price(name, model=None):
+        method = _method(tmp_path / name, model=ours, price=theirs)
+        (method.parent / "utils" / "tasks").mkdir()
+        params = _benchmarked(method, model, harbor=str(harbor))["agent"]["params"]
+        runner = HarborAgent(params, base=method)
+        return runner.binding.model, runner.binding.price
+    assert trial_price("endpoint-priced", {**endpoint, "price": own}) == ("my-b", own)
+    assert trial_price("endpoint", endpoint) == ("my-b", None)
+    assert trial_price("file") == trial_price("named", ours) == ("accounts/fireworks/models/glm-5p3", theirs)
+
+
+def test_a_harbor_cli_agents_endpoint_model_is_checked_in_the_dialect_of_its_cli(monkeypatch, tmp_path):
+    """A HermitXXX's model given as an endpoint (its base_url and id, no backend) is bound by the runner for the CLI
+    the trial runs (hermit.harbor.launch.binding_of): it is checked in that CLI's dialect, not as chat completions."""
+    monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
+    endpoint = {"base_url": "https://relay.example/v1", "model": "m", "api_key_env": "RELAY_KEY", "key_required": False}
+    for acting, apis, cli, api in (({"cli": "claude"}, ["messages"], "claude", "messages"),
+                                   ({}, ["responses"], "codex", "responses")):
+        data = _harbor(acting, {**endpoint, "apis": apis})
+        assert data["agent"]["params"]["model"]["base_url"] == endpoint["base_url"]        # kept as it is given
+        [(who, bound, dialect)] = bindings_of(data)
+        assert (who, dialect) == (f"agent (harbor, {cli})", api) and problems_of(bound, dialect) == []
+
+
+def test_a_harbor_login_on_this_machines_mounted_claude_is_checked_as_that_cli(monkeypatch, tmp_path):
+    """A Harbor task set's sessions on login: claude run in the task's container on the image's Claude Code, which no
+    check of this machine's CLI says anything of; with claude_bin they run this machine's Claude Code mounted there,
+    whose version is then checked as a session's on this machine is: one too old for the login is refused."""
+    from hermit.agent.base import login as subscription
+    old = tmp_path / "bin" / "claude"
+    old.parent.mkdir()
+    old.write_text("#!/bin/sh\necho '2.1.100 (Claude Code)'\n")
+    old.chmod(0o755)
+    monkeypatch.setenv(subscription.TOKEN_ENV, "a-stand-in-token")
+    params = {"login": "claude", "model": "claude-haiku-5-5", "acting_agent": {"cli": "claude"}, "web_search": False}
+    [(who, login, program, contained, root)] = subscription.logins_of({"agent": {"name": "harbor", "params": params}})
+    assert contained and subscription.problems_of(login, program, contained, root) == []
+    mounted = {"agent": {"name": "harbor", "params": {**params, "claude_bin": str(old)}}}
+    [(who, login, program, contained, root)] = subscription.logins_of(mounted)
+    assert (who, program, contained) == ("agent", str(old), False)
+    assert "needs Claude Code 2.1.248 or later" in subscription.problems_of(login, program, contained, root)[0]
+
+
+def test_a_harbor_claude_bin_under_the_home_or_relative_is_checked_where_the_runner_mounts_it(monkeypatch, tmp_path):
+    """A Harbor task set's claude_bin may name this machine's Claude Code under the home (`~/...`) or relative to the
+    working directory, as the runner reads it (HarborAgent.bin: `~` expanded, made absolute): its version is checked
+    at that path, and the login's check does not refuse the run for a program it looked for on PATH."""
+    from hermit.agent.base import login as subscription
+    home = tmp_path / "home"
+    claude = home / "bin" / "claude"
+    claude.parent.mkdir(parents=True)
+    claude.write_text("#!/bin/sh\necho '2.1.300 (Claude Code)'\n")
+    claude.chmod(0o755)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("PATH", str(tmp_path / "no-such-dir"))           # no other Claude Code to find
+    monkeypatch.setenv(subscription.TOKEN_ENV, "a-stand-in-token")
+    monkeypatch.chdir(claude.parent)
+    params = {"login": "claude", "model": "claude-haiku-5-5", "acting_agent": {"cli": "claude"}, "web_search": False}
+    for given in ("~/bin/claude", "claude", "../bin/claude"):
+        data = {"agent": {"name": "harbor", "params": {**params, "claude_bin": given}}}
+        [(who, login, program, contained, root)] = subscription.logins_of(data)
+        assert (who, program, contained) == ("agent", str(claude.resolve()), False), given
+        assert subscription.problems_of(login, program, contained, root) == [], given
+        assert data["agent"]["params"]["claude_bin"] == given                 # the config itself is left as it is
+
+
+def test_a_harbor_login_root_under_the_home_or_relative_is_checked_where_the_runner_reads_it(monkeypatch, tmp_path):
+    """A Harbor task set's login_root (where the Codex login's shared copy is) may be under the home (`~/...`) or
+    relative to the working directory, as the runner reads it (HarborAgent.login_root: `~` expanded, made absolute):
+    the login's check finds the copy there when the user's own login is not there, and does not refuse the run.
+    Hermit's own Codex sessions take their login_root as it is given."""
+    from hermit.agent.base import login as subscription
+    home = tmp_path / "home"
+    shared = home / "shared"
+    (shared / "login").mkdir(parents=True)
+    (shared / "login" / subscription.FILE).write_text("{}\n")             # a stand-in: no real sign-in is read
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "no-codex-home"))       # the user's own login is not there
+    monkeypatch.chdir(shared / "login")
+    params = {"login": "chatgpt", "model": "gpt-5.5", "acting_agent": {"cli": "codex"}, "web_search": False}
+    for given in ("~/shared", "..", "../../shared"):
+        data = {"agent": {"name": "harbor", "params": {**params, "login_root": given}}}
+        [(who, login, program, contained, root)] = subscription.logins_of(data)
+        assert (who, root) == ("agent", str(shared.resolve())), given
+        assert subscription.problems_of(login, program, contained, root) == [], given
+        assert data["agent"]["params"]["login_root"] == given                 # the config itself is left as it is
+    own = {"login": "chatgpt", "model": "gpt-5.5", "login_root": "~/shared"}
+    [(_, _, _, _, root)] = subscription.logins_of({"agent": {"name": "codex", "params": own}})
+    assert root == "~/shared"
+
+
+def test_a_login_given_only_in_the_benchmark_file_is_checked_before_the_run(monkeypatch, tmp_path):
+    """A Harbor task set's benchmark file may give the sign-in for every method's config, which the runner merges under
+    the config's params: the run's checks (hermit check, train) read it there too, each key the config does not give,
+    so a ChatGPT sign-in that is not there is refused before the run, as the runner refuses it when it starts, and a
+    claude_bin there (this machine's Claude Code, mounted in the task's container) has its version checked; a key the
+    config gives, even as null, is the run's, as the runner merges it."""
+    from hermit.agent.base import login as subscription
+    monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "no-codex-home"))       # the user's own login is not there
+    data = _benchmarked(_method(tmp_path / "chatgpt", login="chatgpt"), "gpt-5.5")
+    [(who, login, program, contained, root)] = subscription.logins_of(data)
+    assert (who, login, contained) == ("agent", "chatgpt", True)
+    assert "there is no Codex login" in subscription.problems_of(login, program, contained, root)[0]
+    old = tmp_path / "bin" / "claude"
+    old.parent.mkdir()
+    old.write_text("#!/bin/sh\necho '2.1.100 (Claude Code)'\n")
+    old.chmod(0o755)
+    monkeypatch.setenv(subscription.TOKEN_ENV, "a-stand-in-token")
+    data = _benchmarked(_method(tmp_path / "claude", claude_bin=str(old)), "claude-haiku-5-5",
+                        acting_agent={"cli": "claude"}, login="claude")
+    [(who, login, program, contained, root)] = subscription.logins_of(data)
+    assert (who, login, program, contained) == ("agent", "claude", str(old.resolve()), False)
+    assert "needs Claude Code 2.1.248 or later" in subscription.problems_of(login, program, contained, root)[0]
+    unset = _benchmarked(_method(tmp_path / "unset", login="claude", claude_bin=str(old)), "claude-haiku-5-5",
+                         acting_agent={"cli": "claude"}, login=None, claude_bin=None)
+    assert subscription.logins_of(unset) == []
+
+
+def test_a_login_root_given_only_in_the_benchmark_file_is_found_where_the_runner_reads_it(monkeypatch, tmp_path):
+    """A Harbor task set's login_root (where the Codex login's shared copy is) given only in its benchmark file is read
+    where the runner reads it (HarborAgent.login_root: `~` expanded, made absolute against the working directory, as
+    a config's own is): the run's checks find the copy there when the user's own login is not there, and do not
+    refuse the run."""
+    from hermit.agent.base import login as subscription
+    home = tmp_path / "home"
+    shared = home / "shared"
+    (shared / "login").mkdir(parents=True)
+    (shared / "login" / subscription.FILE).write_text("{}\n")             # a stand-in: no real sign-in is read
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "no-codex-home"))       # the user's own login is not there
+    monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
+    monkeypatch.chdir(shared / "login")
+    for i, given in enumerate(("~/shared", "..", "../../shared")):
+        data = _benchmarked(_method(tmp_path / f"m{i}", login_root=given), "gpt-5.5", login="chatgpt")
+        [(who, login, program, contained, root)] = subscription.logins_of(data)
+        assert (who, root) == ("agent", str(shared.resolve())), given
+        assert subscription.problems_of(login, program, contained, root) == [], given
+
+
+def test_a_benchmark_files_login_read_into_the_config_leaves_the_runners_sign_in_as_it_was(monkeypatch, tmp_path):
+    """The sign-in the model layer reads from a Harbor task set's benchmark file into the config's params changes
+    nothing of the runner's: built from the normalized config or from the config as it was given (the runner merges
+    the file under its params), HarborAgent signs in with the same login and shared copy, and mounts the same Claude
+    Code, the ones the run's checks read."""
+    from hermit.agent.base import login as subscription
+    from hermit.harbor.runner import HarborAgent
+    home = tmp_path / "home"
+    (home / "shared" / "login").mkdir(parents=True)
+    (home / "shared" / "login" / subscription.FILE).write_text("{}\n")      # a stand-in: no real sign-in is read
+    claude = home / "bin" / "claude"
+    claude.parent.mkdir()
+    claude.write_text("#!/bin/sh\necho '2.1.300 (Claude Code)'\n")
+    claude.chmod(0o755)
+    harbor = tmp_path / "harbor-venv" / "bin" / "harbor"                   # never run here
+    harbor.parent.mkdir(parents=True)
+    harbor.write_text("#!/bin/sh\nexit 1\n")
+    harbor.chmod(0o755)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "no-codex-home"))
+    monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
+    monkeypatch.setenv(subscription.TOKEN_ENV, "a-stand-in-token")
+    monkeypatch.chdir(home)
+    for cli, shared, model in (("codex", {"login": "chatgpt", "login_root": "shared"}, "gpt-5.5"),
+                               ("claude", {"login": "claude", "claude_bin": "~/bin/claude"}, "claude-haiku-5-5")):
+        method = _method(tmp_path / cli, **shared)
+        given = {"benchmark": "../utils/benchmark.yaml", "web_search": False, "model": model, "harbor": str(harbor),
+                 "jobs_dir": str(tmp_path / "jobs"), "acting_agent": {"cli": cli}}
+        data = {"model": None, "backends": {}, "llm": None, "agent": {"name": "harbor", "params": dict(given)}}
+        normalize_config(data, base=method)
+        [(who, login, program, contained, root)] = subscription.logins_of(data)
+        expected = ("chatgpt", None, str((home / "shared").resolve())) if cli == "codex" else \
+            ("claude", str(claude.resolve()), None)
+        assert (login, program, root) == expected, cli
+        for params in (given, data["agent"]["params"]):
+            runner = HarborAgent(params, base=method)
+            assert (runner.login, runner.bin("claude"), runner.login_root) == \
+                (login, Path(program) if program else None, Path(root) if root else subscription.ROOT), cli
+
+
+def test_a_binding_keeps_its_developer_role_through_its_plain_form():
+    """A run records a binding in its plain form (Binding.spec), which Harbor's runner, an Evolver's sessions and the
+    run's checks make a binding again (Binding.from_spec): a backend that refuses the developer role still says so,
+    which Pi's and dsh's provider entries follow; the older endpoint form keeps the role; a spec naming another role
+    is refused."""
+    fw = resolve(f"fireworks/{GLM}", reg())
+    again = Binding.from_spec(fw.spec())
+    assert fw.spec()["developer_role"] == "system" and again.spec() == fw.spec()
+    assert again.pi_provider()["compat"] == {"supportsDeveloperRole": False} == again.dsh_provider()["compat"]
+    assert Binding.from_spec({"base_url": "http://x/v1", "model": "m"}).backend.developer_role == "keep"
+    with pytest.raises(ValueError, match="developer_role must be one of"):
+        Binding.from_spec({**fw.spec(), "developer_role": "user"})
+
+
+def test_the_harbor_acting_agents_this_layer_names_are_the_runners_table():
+    """The model layer names a Harbor task set's acting agents by a copy of hermit.harbor.clis's table (it imports no
+    layer above it): every entry's import path names that entry's CLI, and the copy names every entry."""
+    from hermit.harbor.clis import HARBOR_CLIS
+    assert sorted(HARBOR_CLIS) == sorted(backends.HARBOR_ACTING.values())
+    for cli, entry in HARBOR_CLIS.items():
+        assert backends.harbor_cli({"acting_agent": {"import_path": entry["import_path"]}}) == cli
+        assert backends.harbor_cli({"acting_agent": {"cli": cli}}) == cli

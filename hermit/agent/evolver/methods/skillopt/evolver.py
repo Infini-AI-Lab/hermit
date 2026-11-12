@@ -133,15 +133,17 @@ def paper_view(entries: list[dict], system: str, user: str) -> tuple[list[dict],
 
 def codex_trace(record: dict, step_dir: Path) -> str:
     """The summary of a Codex run SkillOpt's analyst reads: the one SkillOpt's own Codex harness wrote next to its
-    prediction files (codex_trace_summary.txt), else one built from a host agent's Codex stream in the same form."""
+    prediction files (codex_trace_summary.txt), else one built from a host agent's Codex stream in the same form, the
+    stream found where hermit.agent.base.trajectory finds a run's (a Harbor trial's under its agent/ too)."""
     root = step_dir / record["trajectory"] if record.get("trajectory") else None
     if root is None:
         return ""
     if (root / "codex_trace_summary.txt").is_file():
         return (root / "codex_trace_summary.txt").read_text()
-    if not (root / trajectory.CODEX_STREAM).is_file():
+    found = trajectory.find_stream(root)
+    if found is None or found[1] != "codex":
         return ""
-    return trace_summary(trajectory.log_steps(root) or [], record)
+    return trace_summary(trajectory.log_steps(found[0]) or [], record)
 
 
 def trace_summary(steps: list, record: dict) -> str:
@@ -241,6 +243,12 @@ def skillopt_model(agent, params: dict):
 
 
 class SkillOptEvolver(Evolver):
+    @classmethod
+    def min_feedback_for(cls, params: dict) -> str:
+        """full with a soft or mixed gate (gate_metric), whose soft score is the judge's `f1` (rollout_result): shown
+        the score alone, it would gate on the hard score; score otherwise."""
+        return "full" if (params or {}).get("gate_metric", "hard") in ("soft", "mixed") else "score"
+
     def setup(self, ctx) -> None:
         try:
             import skillopt  # noqa: F401

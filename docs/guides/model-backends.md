@@ -30,6 +30,7 @@ hermit train --config run.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8  
 | `agent.params.model` with `agent.name: pi`, the model of any method on `evolver.base: pi` | Pi | chat completions, else the Messages API, else the Responses API: the first the backend serves |
 | `agent.params.model` with `agent.name: opencode`, `evolver.params.model` of the `opencode` Evolver | OpenCode | chat completions |
 | `agent.params.model` with `agent.name: dsh`, `evolver.params.model` of the `dsh` Evolver | DeepSeek Harness | chat completions, else the Messages API, else the Responses API: the first the backend serves |
+| `agent.params.model` with `agent.name: harbor` (else the top-level `model`, else the benchmark file's `model`) | a Harbor task set's acting agent: the CLI of `acting_agent.cli` in the task's container, or the answer agent (`cli: answer`) from Harbor's process ([Benchmarks](../framework/task.md#benchmarks)) | that CLI's, as in the rows above; chat completions for `cli: answer` |
 | `model` (top level) | the default for all of the above when they name none | |
 | the examples' task agents (`agent.params.model`, or the launchers' `MW_MODEL`) | CL-Bench's litellm host, ServeLearnBench's loop, the SkillOpt rollout | chat completions |
 

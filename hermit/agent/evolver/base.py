@@ -105,6 +105,16 @@ class Evolver(ABC):
     # True: the Evolver chooses the next step's tasks (StepResult.next_tasks); only then does it see the epoch's
     # remaining training tasks (Progress.remaining, and in the call's message).
     chooses_tasks: bool = False
+    # The least of each verdict the Evolver's code works with (run.feedback: none < score < full): "score" (the
+    # default) reads each run's score; "none" needs no verdict; "full" reads what else the judge returns. hermit train
+    # refuses, and hermit check reports, a run.feedback below it (min_feedback_for, from the Evolver's params).
+    min_feedback: str = "score"
+
+    @classmethod
+    def min_feedback_for(cls, params: dict) -> str:
+        """The least of each verdict the Evolver works with under `params` (evolver.params over its manifest's), for
+        an Evolver whose settings decide what it reads. Default: `min_feedback`."""
+        return cls.min_feedback
 
     def setup(self, ctx: Context) -> None:
         """Optional: before the first step (for example, initialise Training State)."""
@@ -122,3 +132,11 @@ class Evolver(ABC):
     def finalize(self, ctx: Context) -> FinalResult:
         """Optional: after training. Default: hand back the current adapter."""
         return FinalResult(adapter=ctx.workspace.adapter, summary="current adapter")
+
+    def step_scores(self, result: StepResult) -> dict[str, float | None] | None:
+        """Optional, for a stream (run.mode stream): the Evolver's own score of each of the step's tasks, when its
+        protocol scores a step itself (Harness²: the deliverable it chose without the labels, graded after), which
+        the stream's score takes in place of the step's rollout for those tasks; a task it maps to None is a row its
+        protocol leaves unscored (Harness²: a deliverable whose execution was not the agent's result), which the
+        stream leaves out of its mean and counts. A task it leaves out, and the default None: the rollout's."""
+        return None

@@ -337,6 +337,7 @@ def _in_view(name: str, tool, work: Path, box=None):
 
 class RRSIAdapterEvolver(AgentEvolver):
     supports_resume = False             # every session starts afresh from the files of its round
+    min_feedback = "score"              # a candidate replaces the incumbent by its rollouts' rewards (the scores)
 
     # ---------- configuration ----------
     def _cfg(self, ctx):

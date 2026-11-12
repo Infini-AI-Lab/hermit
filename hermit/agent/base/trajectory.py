@@ -11,8 +11,12 @@ logs, so that every Evolver reads the same steps:
 The streams read: Codex's `codex exec --json` events (`agent-codex.jsonl`), Claude Code's stream-json
 (`agent-claude.jsonl`), Pi's `--mode json` events (`agent-pi.jsonl`), mini-swe-agent's events
 (`agent-mini-swe-agent.jsonl`), OpenCode's `run --format json` events (`agent-opencode.jsonl`) and DeepSeek Harness's
-`--json` events (`agent-dsh.jsonl`), also under another name below a log directory (Harbor's `agent/codex.txt`). A
-normalised message list (`RunOutput.messages`) is the pipeline's own rendering and is left to each Evolver.
+`--json` events (`agent-dsh.jsonl`). A Harbor trial's curated log (hermit.harbor.curate) keeps the same stream under
+`agent/` (`agent/agent-<backend>.jsonl`: the HermitXXX that ran the CLI in the task's container wrote it there, under
+its name in Hermit's own logs); a trial recorded before that keeps Harbor's own output of the CLI (`agent/codex.txt`,
+`agent/claude-code.txt`), and one of Harbor's own agents only its ATIF trajectory (`agent/trajectory.json`), the last
+place a log is read from. A normalised message list (`RunOutput.messages`) is the pipeline's own rendering and is left
+to each Evolver.
 """
 from __future__ import annotations
 
@@ -31,7 +35,16 @@ DSH_STREAM = "agent-dsh.jsonl"
 STREAM_HOSTS = {CODEX_STREAM: "codex", CLAUDE_STREAM: "claude", PI_STREAM: "pi",
                 MINI_SWE_AGENT_STREAM: "mini-swe-agent", OPENCODE_STREAM: "opencode", DSH_STREAM: "dsh"}
 STREAMS = tuple(STREAM_HOSTS)
-OTHER_STREAMS = ("agent/codex.txt", "codex.txt")   # a Harbor trial's Codex events: from the trial or its agent/
+# A Harbor trial's curated log keeps what the agent left in the task's container under agent/: Hermit's stream of
+# the acting CLI there, by its own name (a HermitXXX writes /logs/agent/agent-<backend>.jsonl)
+HARBOR_AGENT = "agent"
+HARBOR_STREAMS = tuple(f"{HARBOR_AGENT}/{name}" for name in STREAMS)
+# Harbor's own output of a CLI, which a trial recorded before Hermit named its stream keeps (Codex's events, Claude
+# Code's stream-json), read by its name: under the trial's agent/, or in that agent/ itself
+HARBOR_OUTPUTS = {"codex.txt": "codex", "claude-code.txt": "claude"}
+OTHER_STREAMS = (*HARBOR_STREAMS, "agent/codex.txt", "codex.txt", "agent/claude-code.txt", "claude-code.txt")
+# Harbor's own record of a trial, ATIF (its agents write it; a HermitXXX does not): the last place a log is read from
+ATIF_FILES = ("agent/trajectory.json", "trajectory.json")
 
 
 @dataclass
@@ -47,16 +60,20 @@ class Step:
     output: str = ""
 
 
-def events(path: Path) -> list[dict]:
-    """The JSON objects of a stream, one per line; other lines (a CLI's own notices) are skipped."""
+def events(path: Path | None) -> list[dict]:
+    """The JSON objects of a stream, one per line (U+0085, U+2028 and U+2029 end no line: an event's strings may hold
+    them unescaped, as JSON need not escape them, where str.splitlines() would end one); other lines (a CLI's own
+    notices) are skipped. None (no stream given) and a missing file have none."""
+    if path is None:
+        return []
     path = Path(path)
     out = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if path.is_file() else []:
+    for line in path.read_text(encoding="utf-8", errors="replace").split("\n") if path.is_file() else []:
         line = line.strip()
         if line.startswith("{"):
             try:
                 out.append(json.loads(line))
-            except ValueError:
+            except (ValueError, RecursionError):        # no JSON, or nested past the parser's depth
                 continue
     return out
 
@@ -383,6 +400,88 @@ def dsh_steps(stream: list[dict]) -> list[Step]:
     return steps
 
 
+ATIF_COMMAND_ARGS = ("command", "cmd", "keystrokes")    # what a tool call that runs a command names it by
+ATIF_FILE_TOOLS = ("write", "edit", "multiedit", "notebookedit", "apply_patch", "str_replace_based_edit_tool")
+
+
+def _content_text(content) -> str:
+    """An ATIF message's or result's text: a string, or its content parts' text (an image or audio part has none)."""
+    if isinstance(content, list):
+        return "\n".join(str(p.get("text") or "") for p in content if isinstance(p, dict) and p.get("text"))
+    return "" if content is None else str(content)
+
+
+def atif_steps(trajectory: dict) -> list[Step]:
+    """Harbor's ATIF trajectory (`agent/trajectory.json`, which Harbor's own agents write; `steps[]` with `source`,
+    `message`, `reasoning_content`, `tool_calls[]` and `observation.results[]`): each agent step's reasoning, message
+    and tool calls, each call completed by the result that names it (`source_call_id`; a result that names no call of
+    its step goes to the step's last call, a step's without calls is what the agent was shown next, a user message): a
+    call with a command line (`command`, `cmd`, a terminal's `keystrokes`) as a command with that result as its output
+    (its exit code unknown, unless the result says whether the call failed, as Claude Code's `tool_result_is_error`
+    does), a write or an edit as a file change, any other as a tool call with its result as `output`; a user step after
+    the agent's first as a user message. The system's steps and the task (the steps before the agent's first) are left
+    out, as the CLIs' streams leave out their prompt."""
+    steps, started = [], False
+    for entry in trajectory.get("steps") or []:
+        if not isinstance(entry, dict):
+            continue
+        source = entry.get("source")
+        if source == "user" and started and _content_text(entry.get("message")).strip():
+            steps.append(Step("message", _content_text(entry["message"]), role="user"))
+        if source != "agent":
+            continue
+        started = True
+        if str(entry.get("reasoning_content") or "").strip():
+            steps.append(Step("reasoning", str(entry["reasoning_content"])))
+        if _content_text(entry.get("message")).strip():
+            steps.append(Step("message", _content_text(entry["message"])))
+        calls: dict = {}
+        for call in entry.get("tool_calls") or []:
+            if not isinstance(call, dict):
+                continue
+            name = str(call.get("function_name") or "")
+            args = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
+            line = next((args[k] for k in ATIF_COMMAND_ARGS if isinstance(args.get(k), (str, list))), None)
+            if line is not None:                # a terminal's keystrokes end with the newline that runs them
+                line = " ".join(map(str, line)) if isinstance(line, list) else line
+                step = Step("command", command=line.rstrip("\n"))
+            elif name.lower() in ATIF_FILE_TOOLS:
+                step = Step("file_change", json.dumps({"tool": name, "path": args.get("file_path") or args.get("path")
+                                                       or args.get("filePath")}, ensure_ascii=False, default=str))
+            else:
+                step = Step("tool_call", json.dumps({"tool": name, "input": args}, ensure_ascii=False, default=str))
+            steps.append(step)
+            calls[call.get("tool_call_id")] = step
+        observation = entry.get("observation") if isinstance(entry.get("observation"), dict) else {}
+        for result in observation.get("results") or []:
+            if not isinstance(result, dict):
+                continue
+            said = _content_text(result.get("content"))
+            step = calls.get(result.get("source_call_id")) or (list(calls.values())[-1] if calls else None)
+            if step is None:
+                if said.strip():
+                    steps.append(Step("message", said, role="user"))
+                continue
+            step.output = f"{step.output}\n{said}" if step.output else said
+            extra = result.get("extra") if isinstance(result.get("extra"), dict) else {}
+            if step.kind == "command" and isinstance(extra.get("tool_result_is_error"), bool):
+                step.exit_code = 1 if extra["tool_result_is_error"] else 0
+    return steps
+
+
+def read_atif(path: Path) -> list[Step] | None:
+    """The steps of an ATIF trajectory file (atif_steps), or None when the file is none (not JSON, no `ATIF-`
+    schema_version or no steps)."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8", errors="replace"))
+    except (OSError, ValueError, RecursionError):
+        return None
+    if not isinstance(data, dict) or not str(data.get("schema_version") or "").startswith("ATIF") or \
+            not isinstance(data.get("steps"), list):
+        return None
+    return atif_steps(data)
+
+
 # Each host's stream: the reader of its events, and the event types that mark it (tried in this order when a stream
 # is found by its events). A host's stream is added here and in STREAM_HOSTS.
 READERS = {"codex": codex_steps, "claude": claude_steps, "pi": pi_steps, "mini-swe-agent": mini_swe_agent_steps,
@@ -401,31 +500,54 @@ def _host(stream: list[dict]) -> str | None:
     return next((host for host, marks in MARKS if kinds & marks), None)
 
 
-def _steps_of(path: Path, name: str | None = None) -> list[Step] | None:
+def host_of(path: Path, stream: list[dict] | None = None) -> str | None:
+    """Which host wrote a stream file: by its name (Hermit's own, STREAM_HOSTS; Harbor's output of a CLI,
+    HARBOR_OUTPUTS, when it holds any event), else by its events (MARKS); None for neither."""
+    path = Path(path)
+    stream = events(path) if stream is None else stream
+    return STREAM_HOSTS.get(path.name) or (HARBOR_OUTPUTS.get(path.name) if stream else None) or _host(stream)
+
+
+def _steps_of(path: Path) -> list[Step] | None:
     stream = events(path)
-    harbor = "codex" if path.name == "codex.txt" and stream else None          # Harbor's Codex events, by name
-    host = STREAM_HOSTS.get(name) or harbor or _host(stream)
+    host = host_of(path, stream)
     if host is None:
         return None
     return READERS[host](stream)
 
 
+def find_stream(log: Path) -> tuple[Path, str] | None:
+    """(the stream file, the host that wrote it) of a log directory: Hermit's own at its top (STREAMS), else a Harbor
+    trial's under agent/ (HARBOR_STREAMS, any CLI's), else Harbor's own output of a CLI (OTHER_STREAMS: Codex's
+    agent/codex.txt, Claude Code's agent/claude-code.txt) that holds that CLI's events; None when it holds none."""
+    log = Path(log)
+    for rel in (*STREAMS, *OTHER_STREAMS):
+        path = log / rel
+        if path.is_file():
+            host = host_of(path)
+            if host is not None:
+                return path, host
+    return None
+
+
 def log_steps(log: Path) -> list[Step] | None:
     """The steps of a log (a directory, or one file): its host stream's, or None when it holds none. A directory's
-    stream is the one at its top under the host's name, else one at a known place of another host's layout (a
-    Harbor trial keeps Codex's events as agent/codex.txt); a file is read by its name, or by its events. Nothing
+    stream is the one at its top under the host's name, else a Harbor trial's (agent/agent-<backend>.jsonl), else one
+    of Harbor's own outputs of a CLI (agent/codex.txt, agent/claude-code.txt: find_stream), else Harbor's ATIF
+    trajectory (agent/trajectory.json); a file is read by its name, by its events, or as an ATIF trajectory. Nothing
     deeper is searched: a directory of several runs gives no one run's steps."""
     log = Path(log)
     if log.is_file():
-        return _steps_of(log, log.name if log.name in STREAMS else None)
+        found = _steps_of(log)
+        return found if found is not None or log.suffix != ".json" else read_atif(log)
     if not log.is_dir():
         return None
-    for name in STREAMS:
-        if (log / name).is_file():
-            return _steps_of(log / name, name)
-    for rel in OTHER_STREAMS:
+    stream = find_stream(log)                       # one under Hermit's own name: its steps, even none
+    if stream is not None:
+        return READERS[stream[1]](events(stream[0]))
+    for rel in ATIF_FILES:
         if (log / rel).is_file():
-            found = _steps_of(log / rel)
+            found = read_atif(log / rel)
             if found is not None:
                 return found
     return None

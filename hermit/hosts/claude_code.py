@@ -11,10 +11,10 @@ import sys
 
 from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, not_portable
 from hermit.hosts.context import PROJECT_CONTEXT, START, append_context
-from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, adapter_files, adapter_folder,
-                                 check_skills, check_workspace, copy_adapter, copy_skills, folder_note, hook_commands,
-                                 native_hooks, render_exports, resources, retire_roles, retire_skills, role_body,
-                                 server_name, source_label, subagent_markdown, subagent_name)
+from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, add_session_flags, adapter_files,
+                                 adapter_folder, check_skills, check_workspace, context_of, copy_adapter, copy_skills,
+                                 folder_note, hook_commands, native_hooks, render_exports, resources, retire_roles,
+                                 retire_skills, role_body, server_name, source_label, subagent_markdown, subagent_name)
 
 NATIVE = {"skills", "agents"}
 HOOK_TYPES = {"command", "prompt"}
@@ -107,5 +107,7 @@ if __name__ == "__main__":
     parser.add_argument("--adapter", type=Path, required=True)
     parser.add_argument("--workspace", "--output", dest="workspace", type=Path, required=True)
     parser.add_argument("--python", default=sys.executable)
+    add_session_flags(parser)
     args = parser.parse_args()
-    print(json.dumps(prepare(args.adapter, args.workspace, str(Path(args.python).absolute())), indent=2))
+    print(json.dumps(prepare(args.adapter, args.workspace, str(Path(args.python).absolute()),
+                             context=context_of(args.context_file), serve_tools=args.serve_tools), indent=2))

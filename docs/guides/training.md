@@ -36,8 +36,9 @@ hermit eval --config run.yaml --adapter root
 hermit eval --config run.yaml --adapter final
 ```
 
-`root` and `final` require the relevant adapter tree. Use the same run-name and output overrides on the related
-commands. Baselines and evaluation are separate from the training budget.
+`final` requires the adapter tree of a finished training run; `root`, the template's own adapter, creates the tree
+from the template when it does not exist yet. Use the same run-name and output overrides on the related commands.
+Baselines and evaluation are separate from the training budget.
 
 ## 4. Inspect one update before scaling
 

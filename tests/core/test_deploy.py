@@ -1,10 +1,15 @@
-"""Deploying the Lean template into Codex, Claude Code, Pi and DeepSeek Harness workspaces."""
+"""Deploying the Lean template into Codex, Claude Code, Pi and DeepSeek Harness workspaces, and an adapter into every
+host's workspace through its command line for a session another process runs (a task's container)."""
+import importlib.util
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tomllib
 
 import pytest
+import yaml
 
 from hermit.hosts.claude_code import prepare as claude_prepare
 from hermit.hosts.codex import prepare as codex_prepare
@@ -14,6 +19,7 @@ from hermit.hosts.pi import prepare as pi_prepare
 
 LEAN = Path(__file__).resolve().parents[2] / "hermit" / "adapter" / "templates" / "lean_collab"
 HARNESS2_CODEX = Path(__file__).resolve().parents[2] / "hermit" / "adapter" / "templates" / "harness2_codex"
+FILE_ADAPTER = Path(__file__).resolve().parents[2] / "docs" / "_examples" / "file_adapter"
 CODEX_TREE = {"AGENTS.md": "Do the work.\n- When a table must be read, read .agents/skills/tables/SKILL.md and follow "
                            "it.\n",
               ".agents/skills/tables/SKILL.md": "---\ndescription: reading a table of a bulletin\n---\nRun `python3 "
@@ -505,6 +511,26 @@ def test_a_hook_type_the_host_does_not_run_is_done_from_the_context_or_refused(t
         pi_prepare(a, tmp_path / "q", sys.executable)
 
 
+def test_a_harbor_trials_workspace_connects_the_hooks_its_hosts_deployment_connects_and_no_others(tmp_path):
+    """A Harbor trial's workspace is the host's deployment with its hooks rewritten for the container
+    (hermit.harbor.staging): the hooks it connects are the ones `hermit deploy` connects for that host (Codex's command
+    hooks, Claude Code's command and prompt hooks), and a hook of a type the host does not run stays in the context
+    only, as there."""
+    from hermit.harbor.staging import stage
+    a = tree_adapter(tmp_path)
+    (a / ".codex/hooks.json").write_text(json.dumps({"hooks": {
+        "Stop": [{"hooks": [{"type": "prompt", "prompt": "Check the answer has units."}]}],
+        "SubagentStop": [{"hooks": [{"type": "agent", "prompt": "Check the reviewer's verdict."}]}],
+        "PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "python3 scripts/stamp.py"}]}]}}))
+    for host, place, events in (("codex", ".codex/hooks.json", {"PostToolUse"}),
+                                ("claude", ".claude/settings.json", {"PostToolUse", "Stop"})):
+        info = stage(a, tmp_path / host, sys.executable, "best_effort", host)
+        deploy = tmp_path / host / "deploy"
+        assert info["hooks"] is True and set(json.loads((deploy / place).read_text())["hooks"]) == events, host
+        assert "check this yourself before you go on: Check the reviewer's verdict." in \
+            (deploy / ("AGENTS.md" if host == "codex" else "CLAUDE.md")).read_text()
+
+
 def test_a_container_session_gets_the_adapters_tools_from_its_own_tool_server(tmp_path):
     from hermit.agent.acting import workspace as cli
     a = Path(__file__).resolve().parents[2] / "docs" / "_examples" / "file_adapter"
@@ -594,3 +620,86 @@ def test_codex_agent_deploys_a_codex_tree_and_writes_the_home(tmp_path):
     config = tomllib.loads((tmp_path / "home2" / "config.toml").read_text())
     assert "multi_agent" not in config["features"] and config["forced_login_method"] == "chatgpt"
     assert config["web_search"] == "disabled"                 # the hosted search would reach past the proxy
+
+
+# Each host's command line (what hermit.harbor.staging runs), the file its context goes into, and whether the
+# workspace names a server for the adapter's tools.
+HOST_COMMANDS = {
+    "codex": ("hermit.hosts.codex", "AGENTS.md",
+              lambda w: "mcp_servers" in tomllib.loads((w / ".codex" / "config.toml").read_text())),
+    "claude-code": ("hermit.hosts.claude_code", "CLAUDE.md",
+                    lambda w: json.loads((w / ".mcp.json").read_text())["mcpServers"] != {}),
+    "pi": ("hermit.hosts.pi", "AGENTS.md",
+           lambda w: json.loads((w / ".pi" / "mcp.json").read_text())["mcpServers"] != {}),
+    "opencode": ("hermit.hosts.opencode", "AGENTS.md",
+                 lambda w: json.loads((w / "opencode.json").read_text())["mcp"]["servers"] != {}),
+    "dsh": ("hermit.hosts.dsh", "AGENTS.md",
+            lambda w: any("insert" in row for row in json.loads((w / ".dsh" / "hermit.patch.yml").read_text()))),
+    "mini-swe-agent": ("hermit.hosts.mini_swe_agent", "mini-swe-agent.yaml",
+                       lambda w: "environment_class" in (yaml.safe_load((w / "mini-swe-agent.yaml").read_text())
+                                                         .get("environment") or {}))}
+NO_MINI = importlib.util.find_spec("minisweagent") is None
+
+
+@pytest.mark.parametrize("host", [pytest.param(h, marks=pytest.mark.skipif(
+    h == "mini-swe-agent" and NO_MINI, reason="needs the mini-swe-agent extra")) for h in HOST_COMMANDS])
+def test_every_hosts_command_line_deploys_a_tasks_context_and_leaves_the_tools_to_its_caller(tmp_path, host):
+    """A workspace for a session another process runs (hermit.harbor.staging: the task's container) is deployed
+    through the host's command line: --context-file is the task's context (UTF-8 text the harness computed), the
+    only way an adapter only Hermit runs (plugin-portable: false) deploys; --no-serve-tools leaves the adapter's tools
+    to the caller, who serves them itself, so the workspace names no server for them, which would otherwise be the
+    caller's server's name."""
+    from hermit.sandbox import framework_env
+    adapter = tmp_path / "adapter"
+    shutil.copytree(FILE_ADAPTER, adapter)
+    manifest = adapter / ".hermit" / "adapter.yaml"
+    manifest.write_text(manifest.read_text() + "plugin-portable: false\n")
+    (tmp_path / "context.md").write_text("Count the words of the task's three paragraphs: ünï.\n", encoding="utf-8")
+    module, context_file, serves = HOST_COMMANDS[host]
+
+    def deploy(workspace, *flags):
+        return subprocess.run([sys.executable, "-m", module, "--adapter", str(adapter), "--workspace",
+                               str(tmp_path / workspace), "--python", sys.executable, *flags],
+                              capture_output=True, text=True, env=framework_env(), cwd=tmp_path)
+    refused = deploy("w0")
+    assert refused.returncode != 0 and "plugin-portable: false" in refused.stderr
+    run = deploy("w", "--context-file", str(tmp_path / "context.md"), "--no-serve-tools")
+    assert run.returncode == 0, run.stderr[-2000:]
+    work = tmp_path / "w"
+    text = (work / context_file).read_text(encoding="utf-8")
+    assert "Count the words of the task's three paragraphs: ünï." in text and "Review the task requirements" not in text
+    assert not serves(work) and json.loads(run.stdout)["adapter_id"] == "file-example"
+    with_tools = deploy("w2", "--context-file", str(tmp_path / "context.md"))      # the host's own server, else
+    assert with_tools.returncode == 0, with_tools.stderr[-2000:]
+    assert serves(tmp_path / "w2")
+
+
+def test_pi_and_dsh_name_no_server_for_the_tools_their_caller_serves(tmp_path):
+    """Pi's and dsh's deployments, called with serve_tools false as the other hosts' are: no server in .pi/mcp.json, no
+    server row in dsh's patch layer (its skills row stays), and then no MCP server name for dsh to refuse (the dsh Base
+    Agent checks the name of its caller's server itself)."""
+    result = pi_prepare(LEAN, tmp_path / "p", sys.executable, serve_tools=False)
+    assert json.loads((tmp_path / "p" / ".pi" / "mcp.json").read_text()) == {"mcpServers": {}}
+    assert result["server"] is None and result["server_name"] is None and result["audit_log"] is None
+    assert (tmp_path / "p" / ".pi" / "skills" / "good-map" / "SKILL.md").is_file()
+    result = dsh_prepare(LEAN, tmp_path / "d", sys.executable, serve_tools=False)
+    layer = json.loads((tmp_path / "d" / ".dsh" / "hermit.patch.yml").read_text())
+    assert layer == [{"id": "skill-filesystem", "config": {"customSkillDirs": [".dsh/skills"]}}]
+    assert result["server"] is None and result["server_name"] is None
+    long_id = tmp_path / "long"
+    shutil.copytree(LEAN, long_id)
+    manifest = long_id / ".hermit" / "adapter.yaml"
+    manifest.write_text(manifest.read_text().replace("id: lean-collab", "id: lean-collab-" + "x" * 30))
+    assert dsh_prepare(long_id, tmp_path / "l", sys.executable, serve_tools=False)["server"] is None
+
+
+def test_a_pi_workspace_deployed_inside_a_run_sandboxes_its_tool_servers_session(tmp_path, monkeypatch):
+    """Deployed inside a run (an acting agent's worker sets HA_ADAPTER_SANDBOX), the tool server Pi's workspace names
+    puts the adapter's Session in a sandbox of its own, as Codex's, Claude Code's and dsh's do: the variables travel
+    in the server's own env, since a host may start it with a cleared environment."""
+    from hermit.adapter.session import ENV_ENFORCE, ENV_PYTHON, ENV_SANDBOX
+    monkeypatch.setenv(ENV_SANDBOX, "1")
+    monkeypatch.setenv(ENV_ENFORCE, "best_effort")
+    pi_prepare(FILE_ADAPTER, tmp_path / "p", sys.executable)
+    env = json.loads((tmp_path / "p" / ".pi" / "mcp.json").read_text())["mcpServers"]["file_example"]["env"]
+    assert env[ENV_SANDBOX] == "1" and env[ENV_ENFORCE] == "best_effort" and env[ENV_PYTHON] == sys.executable

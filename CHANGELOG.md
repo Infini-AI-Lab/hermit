@@ -26,6 +26,24 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   the framework runs in as installed (`hermit-harness[sandbox]` adds numpy, pandas, scipy and torch), never an
   editable install's checkout; `sandbox.hide` covers a module of it in every sandbox but the judge's.
 
+- OfficeQA's Harbor task sets built before need building again (`examples/officeqa/utils/harbor/build_tasks.py`,
+  which copies the judge into each task's `tests/`): HermitCodex now keeps the session's stream in
+  `/logs/agent/agent-codex.jsonl`, and their judge read the final message only from `/logs/agent/codex.txt`, which
+  Harbor's own Codex agent wrote, so every answer given in the final message would score 0. The judge reads that stream,
+  else `codex.txt` (a trial of Harbor's own Codex), skipping a line that is no JSON object (Codex's stderr shares the
+  file). Any verifier that reads Harbor's own output of a CLI
+  (`agent/codex.txt`, `agent/claude-code.txt`) finds a HermitXXX trial's stream at `agent/agent-<backend>.jsonl`.
+
+- Harbor's sign-ins (`agent.name: harbor`): Codex on the ChatGPT sign-in is `login: chatgpt`, with the CLI's model
+  name. The runner's `codex_login` (default true) is gone: a HermitCodex trial with a plain model name and no login is
+  refused at startup, and Harbor's own `codex` agent is no longer given that sign-in (`CODEX_FORCE_AUTH_JSON`). Harbor's
+  own `claude-code` agent is no longer given the subscription's token (`CLAUDE_CODE_OAUTH_TOKEN`) nor
+  `CLAUDE_FORCE_OAUTH` (Harbor would put the token on a command line): it bills the key this process has, and a run
+  that asks it for the subscription (`CLAUDE_FORCE_OAUTH`) or has only the token is refused at startup; the
+  subscription runs with `acting_agent.cli: claude` and `login: claude`. A trial of a CLI of Hermit's table
+  (HermitCodex, the default, included) needs `agent.params.web_search` set, `true` or `false`, and one that passes a key
+  or a token by name runs only on Harbor's local Docker environment.
+
 ### Added
 
 - GPUs in the bubblewrap sandbox: `environment.gpu: [<N>, ...]` shows those NVIDIA GPUs (the N of `/dev/nvidia<N>`) in
@@ -71,17 +89,134 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - Sandbox resource limits (`resources`: memory, file size, CPU time), environment-variable patterns (`MWM_*`), and
   `Sandbox.view` for a method's own view of the run's sandbox.
 
-- Benchmarks through one protocol: `agent.name: harbor` runs any task set in [Harbor](https://github.com/laude-institute/harbor)'s
-  format (`task.toml`, `environment/`, `tests/test.sh` writing the reward) as the acting pipeline. One rollout is
-  one Harbor trial: Harbor starts the task's container, installs the acting agent (Codex by default, with the
-  adapter deployed into the container as `hermit deploy` lays it out: context, skills, roles, hooks), runs the
-  instruction and the task's own verifier; `judge.path: hermit.harbor.judge` reads the reward. A multi-step task
-  (one environment through many steps, each with its instruction and verifier) is a stream: a driver keeps the
-  environment between the Trainer's steps so a learner acts between them, and `harbor run` evaluates the whole
-  stream with a frozen adapter. `python -m hermit.harbor.dataset` downloads a dataset, indexes task directories
-  into `tasks.jsonl` rows (per task, per rollout, per step), writes splits and a content lock. The container-side
-  half (`hermit/harbor/harborside/`: the Codex agent, a scripted agent for smoke tests, the stream driver) runs
-  under Harbor's own venv. A Harbor task set's pipeline runs on the host, the task's container being its sandbox.
+- Benchmarks through one protocol: `agent.name: harbor` runs any task set in
+  [Harbor](https://github.com/laude-institute/harbor)'s format (`task.toml`, `environment/`, `tests/test.sh` writing the
+  reward) as the acting pipeline. One rollout is one Harbor trial: Harbor starts the task's container and the acting
+  agent runs in it, one HermitXXX class per CLI (`acting_agent.cli`: `codex`, the default, `claude`, `pi`, `opencode`,
+  `dsh`, `mini-swe-agent`), installed by Harbor (Codex, on an image with glibc, under the agent user's nvm, which the
+  launch loads) or a binary of this machine mounted read-only (`<cli>_bin`, first on PATH). The session is rendered on
+  Hermit's side by the CLI's own Base Agent (the trial's launch plan: the CLI's home, command and environment) against
+  the adapter deployed as `hermit deploy` lays it out (context, skills, roles, hooks), and read back from the CLI's
+  stream as Hermit reads its own sessions (Harness²'s deliverable of a trial too: the session's final message from its
+  own records, a Claude Code trial's whole final message, as the Claude Base Agent reads the reply); the adapter's tools
+  are served from this machine, an adapter whose context is per task gets the task's, its notes come back after the
+  session (the steps after it run from `/`, so a session that removed its workdir is still killed and what it left still
+  comes back), a key reaches the container by its variable's name only, and `login: chatgpt` (Codex) or `login: claude`
+  (Claude Code) runs on the user's subscription, sharing its plan with Hermit's other sessions (a trial notes the plan's
+  usage, Codex's as Claude Code's, so `MAX_USED` holds trials back, and its usage is every run's, a run the plan refused
+  or the provider could not serve included (the tokens they reported, unknown only when none did, and their model calls;
+  the cost unknown when one run's is); Codex's refreshed sign-in comes back from the container, even when Harbor's
+  timeout lands while it is copied out). The answer-only agent (`cli: answer`) makes one model call for a task whose
+  work is a reply, through an endpoint the runner serves (a request still in flight when the trial ends is given up
+  then, before the trial's usage is read, and leaves the trial's cost unknown; a model a CLI reaches takes text only and
+  keeps its endpoint's timeout, which waits out the session and the login's plan, and a model mapping's `timeout` and
+  `max_retries` are its relay's; on a login, the trial waits for the plan before it starts, and one whose request was
+  unanswered when the agent's time ran out, after its session had itself waited for the plan as the session records its
+  waits (however the plan stands when the trial is read), is infra, `usage_limit`). `judge.path: hermit.harbor.judge`
+  scores the verifier's reward whenever the verifier gave one, a timeout or an agent error included (as Harbor's own job
+  mean does; `pass_reward` says what passes, `verifier_redact` what the learner must not read). A trial that is not the
+  agent's result (infra: the host, the provider, a session that never started, one whose Claude Code, Pi or OpenCode
+  session or answer request the provider refused before serving it for the run's configuration, its key, its permission,
+  its model, its account's bill or a request setting it does not take (by the status its failure writes, never another
+  number in it, or the CLI's words for one; an unsupported parameter or value), or an answer request Hermit's own
+  endpoint refused as one a CLI's session cannot take, `model_rejected`, harborside's own setup failing, the CLI's
+  install, a session exec that failed before the CLI started (it left no stream: one an earlier step of a stream left is
+  removed before the launch), a launch whose exec this machine could not run (an OSError: the compose client
+  not spawned, EMFILE or EAGAIN), or, after its non-zero exit, whose stream it could not look for (whether
+  the CLI started cannot be told), an image's own context file that cannot be read or captured whole (its
+  copy failed part-way), a secret the plan passes by name that Harbor's environment lacks, the answer agent's
+  attachments whose listing exec failed, a figure it cannot read and an answer it cannot keep in `answer.json` (an
+  OSError on this machine) or write (its exec failed, or this machine could not run it: an OSError) included,
+  `launch_failed`; a task Harbor runs for none of Hermit's agents, one that declares MCP servers or a skills folder or
+  targets a Windows container, `unsupported_task`, never handed to Harbor) is never judged, and the Trainer's and
+  `hermit eval`'s means leave it out and count it; a trial that timed out is the agent's result, even after a provider
+  notice its session recovered from, the answer agent's with its model request still in flight too, and so is one whose
+  first request the provider refused for what its input made it (a prompt too long, an invalid request, a content
+  filter). Codex's authentication failure (a 401, an invalid key, not logged in, a refused proxy token, or a 403 its
+  turn failed with; never one in a notice of an error Codex recovers from and goes on, that it is reconnecting or
+  falling back from WebSockets to HTTPS, nor in what Codex's log quotes of the session's work, the model's own text: its
+  records of the session's tool calls, as of a rejected command or a patch whose expected lines it did not find, and
+  every record's further lines; its wordings matched as Codex writes them, case and all) is a lost sign-in, which halts
+  the run, in Hermit's own Codex sessions too, and any other refusal of Codex's, dsh's or mini-swe-agent's requests by
+  the provider is the agent's result; a lost sign-in is never run again. Whether the provider could not serve a Codex
+  session is read from its last failure (any line when no session began), never from such a notice or quote: a trial
+  whose session recovered and then failed for its own reason is the agent's result, not infra. A reference's `price`, in
+  the config or in the benchmark file (its price taken only with the file's own model), prices the HermitXXX trials'
+  usage (Claude Code's own cost kept on Anthropic's API, as everywhere in Hermit) and the answer agent's endpoint; one
+  of Harbor's own agents keeps Harbor's cost, and its `claude-code` Harbor's rule for its web tools (off where the
+  task's agent network is not public) unless `web_search: false` turns them off on every task. The benchmark file's
+  sign-in (`login`, `login_root`, `claude_bin`, each the config does not give) is checked at startup as the config's is.
+  With `trial_cache` a trial's key holds the whole row, the task directory's contents, the model with its price (the
+  answer agent's with its relay's timeout and retries), the adapter's files as a deployment copies them (bytes and
+  whether each is executable, not the bits a umask sets; a link as the file it leads to, one a deployment refuses by its
+  own text) and `context_query`, a cache hit spends nothing (its first cost is kept as provenance), each of
+  `hermit eval`'s repeats is a trial of its own, and `hermit check`'s probe neither takes a trial from the cache nor
+  keeps one. A multi-step task (one environment through many steps, each with its instruction and verifier) is a stream:
+  a driver keeps the environment between the Trainer's steps so a learner acts between them (`data.shuffle` moves the
+  task's rows as one, in step order, a split whose order is kept (an order file, a stream's train split, one with
+  `data.shuffle: false`, a test or checkpoint split) that lists a step ahead of an earlier one of its stream, and any
+  split that lists a step but not every earlier one, is refused before any run that takes it, and `hermit check` reports
+  one the config's own run takes, an Evolver's `next_tasks` naming a step whose earlier one of its stream has neither
+  run in the epoch nor come earlier in the request (one the training split leaves out never runs) is refused, and
+  `run_agent` runs none of its training rows, so Harness² fails such a step before any editor session runs; a step's
+  verifier read as a trial's, with the timeout multipliers; each of `hermit eval`'s repeats a stream of its own, and
+  each run's streams its own: a resume of a training run's directory meets them again while their drivers wait for a
+  next step (`stream.idle_s`), a run started over gets new ones, a training run stops those it left unfinished once it
+  has finished (a finished run is not resumed), and every other run stops them when it ends, fails or is stopped with
+  Ctrl-C; a process killed by a signal leaves them up for `stream.idle_s`), and `harbor run` evaluates the whole stream
+  with a frozen adapter. `python -m hermit.harbor.dataset prepare` makes an example's data from its benchmark file's
+  `dataset:` block (the registry's tasks of the block's source, its ref with `repo`, `registry_url` and `registry_path`,
+  which the lock (a `registry_path` of this machine by its file name) and the download record, a download of another
+  source never reused and the default data directory the source's own, downloaded into `.<name>.partial` in the data
+  directory when it exists, else `<data>.partial` beside it (a second prepare downloading there meanwhile refused on a
+  filesystem that keeps file locks), and moved into place when complete, never over a file where the data directory goes
+  nor a `<name>` in it that holds none of the set's tasks, nor into the `tasks` link it writes or a path in it, nor with
+  anything but a link in that link's place (a directory of its own), each refused before the download (the last two
+  before a reuse too), a relative `data:` being the benchmark file's folder's; rows, splits, smoke rows, a patch, a lock
+  with no absolute path, rewritten only when its tasks or their source change, and one that cannot be read, JSON that is
+  no lock included, refused unless `--force`; the root `.gitignore` ignores the link, `examples/*/utils/tasks`); the
+  module also downloads a dataset, indexes task directories into `tasks.jsonl` rows (per task, per rollout, per step),
+  writes splits and a content lock (hashing a file's executable bit, not its mode). The half that runs in Harbor's
+  process (`hermit/harbor/harborside/`: the HermitXXX agents, a scripted agent for smoke tests, the stream driver) runs
+  under Harbor's own venv (the driver under the interpreter beside `harbor`, or beside the file a link to it names). A
+  Harbor task set's pipeline runs on the host, the task's container being its sandbox: `agent.params.harbor` is a
+  command on PATH or a path (a relative one the working directory's), and a `harbor run` past its wait budget is killed
+  and its trial's compose projects taken down by name, with no compose file or `COMPOSE_*` variable read. Startup
+  refuses what every trial would refuse, mini-swe-agent without its package where the adapter is deployed (the
+  `mini-swe-agent` extra) for a run that deploys adapters (not `hermit eval --adapter none`), the answer agent's
+  attachments with a model a CLI reaches and, for a task set with a multi-step task, a `harbor` with no interpreter
+  beside it for the stream's driver included. An acting agent of Harbor's own, which takes no adapter, is refused by
+  `hermit train`, by `hermit eval` with any adapter but `none` and by `hermit eval --checkpoints`, and `hermit check`
+  reports it for a training config.
+- How a run is done, the config's `run:` block ([configuration](docs/framework/configuration.md)): `mode` `eval`
+  (`hermit eval` only, no training keys; the tree it tests, `trainer.tree_dir` with no template, a run secret as a
+  training run's tree is), `split` (train, then the final adapter on `data.test`) or `stream` (each row
+  scored once, before the learner sees it, then learned from: one epoch, no shuffle, the final adapter the last step's;
+  the prequential score in `stream_summary.json`, overall and by halves, where an Evolver whose protocol scores its own
+  steps gives that score, `Evolver.step_scores`: Harness²'s deliverable (0 for a composed harness that delivered
+  nothing, `None` when every run of it was infra, never the base harness's score), or `None` for a row it leaves
+  unscored, counted in `unscored`; `own_scores` counts the rows it scored, beside the rollouts' mean, and so does the
+  adapter's card). `feedback`: `full`, `score` or `none`, what the learner is shown of each verdict in the learning
+  material, run_agent's results and the logs (under `score` and `none` a Harbor trial's reward, verifier status and
+  files are left out, and a solution its verifier ran out of time on does not say it timed out; a stream names it; an
+  Evolver that hides the labels from its sessions itself, `hides_labels`, gets the full records; one below the Evolver's
+  `min_feedback`, `score` by default, `none` for the CLI Evolvers, a `CommandEvolver`'s program, Harness², MWM,
+  ReHarness and Continual Harness, `full` for AHE, EvoSafeHarness and the documentation's examples that read the judge's
+  feedback, is refused before training, and an Evolver whose params decide it says so in `min_feedback_for(params)`:
+  SkillOpt needs `full` for a soft or mixed gate). `orders`: seeds or order files, one run each, combined in
+  `streams.json`. `checkpoints`: the commit after the step a row ends, tested on a split with `run.state`'s environment
+  and `run.score`'s scores, after training or as it is reached (`checkpoints_during`, spending nothing of
+  `trainer.budget`, its hours included; `hermit eval --checkpoints`); a test a halt cut short (a lost login, a usage
+  limit) is not done: its summary goes to `halted.json`, and `hermit eval --checkpoints` runs it again. A run that is
+  not the agent's result (`RunOutput.extra["unscored"]`, status `infra`) is never judged, and the Trainer's and
+  `hermit eval`'s means leave it out, counting it instead (an Evolver that averages the records itself sees a 0 with
+  status `infra`: GEPA, SkillOpt, ACE, Meta-Harness Adapter, AHE Adapter (an exception trial, in its pass@1) and RRSI
+  Adapter (a missing trial with reward 0, in its score and pass rate); OPRO runs such a row again); `eval.infra_retries`
+  runs those rows again (not a multi-step task's step rows). `hermit eval --split <file>` tests on another split, and
+  `pass_at_k` counts a Harbor task's rows in every repeat as its attempts (a multi-step task's step: one attempt per
+  rollout and repeat). A key of `run:` or `eval:` left empty, or left out of a whole section an override gives
+  (`'eval={repeats: 3}'`, as `hermit eval` took it before), is its default; a key the section does not have is refused,
+  left empty or not, as in the file.
 - A test workflow (`.github/workflows/tests.yml`): a pull request runs the test groups it touches
   (`pytest --changed`); main, a daily schedule and a manual run run the whole suite.
 - Claude Code on the user's subscription, acting and learning, with no API key
@@ -139,6 +274,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   its evolutionary search and the verifier as the Codex acting agent in the task sandbox, which reaches ASPIRE's robot
   execution engine through a simulator service on the host (the sandbox has no GPU) that holds its seed rules; the
   judge runs Stage 2 on the host.
+- Every host's command line (`python -m hermit.hosts.<host>`) takes `--no-serve-tools` (the deployment names no
+  server for the adapter's tools, which its caller serves itself, as a Harbor trial's runner does) and
+  `--context-file` (the adapter's context for one task, in place of the one rendered there).
 
 ### Changed
 
@@ -191,11 +329,55 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - The CLI Base Agents share one runner, `CliAgent` (`hermit/agent/base/cli.py`): what differs per CLI (its command,
   its home, how its event stream is read) is its subclass's hooks, and `CLIS` names every CLI. `codex` and `claude`
   behave as before; a new CLI is one subclass.
-- `Usage` gains `unreported_calls`, the calls whose tokens a CLI did not report (only DeepSeek Harness's reader sets
-  it): a usage that has any keeps an unknown cost, not the price of the tokens reported.
+- `Usage` gains `unreported_calls`, the calls whose tokens a CLI did not report (DeepSeek Harness's reader sets it, and
+  so does a Harbor answer agent's model endpoint for a call it gave up before its reply): a usage that has any keeps an
+  unknown cost, not the price of the tokens reported.
+- A Codex session whose sign-in or key the provider refused (a 401, an invalid key, not logged in, a refused proxy
+  token, or a 403 its turn failed with; never one in a notice of an error Codex recovers from and goes on: that it is
+  reconnecting, `Reconnecting...`, or falling back from WebSockets to HTTPS; nor in what Codex's log quotes of the
+  session's work, the model's own text: its records of the session's tool calls, as of a rejected command or a patch
+  whose expected lines it did not find, and every record's further lines; its wordings matched as Codex writes them,
+  case and all) is a lost sign-in, as a Claude Code login's is: the `codex` acting agent and the agent Evolvers on
+  Codex end the run, which `hermit train` resumes once the sign-in or the key is restored, and a chat request through
+  a Codex session answers 401 (`hermit_login_failed`). Before, the session was one that failed: its task had no
+  answer, or its step failed, and the run went on.
+- Whether the provider could not serve a Codex session is read from the session's last failure (the error its turn
+  failed with, else its last error or stderr line, never what Codex's log quotes of the session's work; any line when no
+  session began, as for a container docker could not start, whose error ends with docker's `--help` hint), as Claude
+  Code's, Pi's, OpenCode's and DeepSeek Harness's are: before, any provider notice in the stream counted, so a session
+  that recovered from one (`Reconnecting...`) and then failed for its own reason was run again as one the provider could
+  not serve. Nor is a ChatGPT plan's refusal (every session on the login held until the plan's window allows, and the
+  session run again) read from what Codex's log quotes of the session's work: before, any line of Codex's that was
+  no event counted, a quoted `usage_limit_reached` included.
+- The chat endpoint of a model a CLI reaches refuses a request a session cannot take (its model contract's 400s: a
+  part that is not text, tool calls, another model, a setting the CLI has not; and settings its Base Agent refuses to
+  start a session with) with the error code `unsupported_request`
+  ([Claude subscription](docs/guides/claude-subscription.md#the-model-contract)).
+- The `run_agent` tool runs training or validation rows only, in a stream (`run.mode: stream`) only the training rows
+  the stream has reached, and never a training row that is a step of a multi-step Harbor task (it runs only in the
+  Trainer's own stream of its task); an id it does not run comes back as a result with status `error`, the reason in
+  `error` and a judge score of 0 (no judge under `run.feedback: none`): before, the whole call raised. Its judge
+  results are what `run.feedback` shows.
+- `hermit eval`'s `solved_once` and `pass_at_k` count a run as solved by its judge's `passed` when the judge returns
+  it as a bool (any judge's, not only the Harbor judge's), and by a score of at least 1.0 only otherwise; a judge that
+  returns `passed: None` (a score scale) leaves both uncomputed.
+- With `eval.repeats` above 1, `hermit eval` hands every pipeline, and so its judge, copies of the test rows that name
+  their repeat (`repeat`), where it handed the rows themselves: a Harbor task set's trial cache runs each repeat anew,
+  and a pipeline that records the whole row records another row in each repeat (AgentDyn's `case_sha256` provenance
+  differs by repeat).
+- `python -m hermit.harbor.dataset lock` hashes of each file's mode only whether it is executable (755 or 644): the
+  group's and others' bits are the umask's at download. A lock `dataset lock` wrote before this change no longer
+  matches its tasks when any file's mode was other than 644 or 755 (written under a umask other than 022, or a file
+  of a mode of its own, as 600): write it again once (`dataset lock`, or `dataset prepare --force`).
+- `hermit eval --adapter root` on a run whose tree does not exist yet starts it from the template, as `hermit train`
+  begins its tree (it needs `template`): before, it failed.
 
 ### Fixed
 
+- An acting agent of Harbor's own `claude-code` on a model the config binds (`<backend>/<model>`) was given the
+  backend's chat base URL (`https://api.anthropic.com/v1`), to which Claude Code appends `/v1/messages`, so its
+  requests went to `/v1/v1/messages`; it is now given the backend's Messages API root, and a model at Anthropic's
+  own API by name alone (`anthropic/<model>`), which Harbor signs in to with its key as for a model given by name.
 - `Sandbox.wrap` ran a virtual environment's interpreter (`<venv>/bin/python`, a link to its base interpreter) by
   its real path, so it started without the environment and its packages failed to import. An interpreter whose
   environment is granted (the sandbox's `readable` or `writable`, the call's, or `interpreters`) now runs by its own
@@ -243,7 +425,43 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   the wrong shape stopped every session. They are now read and written only as regular files of the plan's own (what a
   session left is replaced, never followed), their values are checked (non-finite numbers ignored, resets clamped to 31
   days, `SLOTS` to 0 to 1,024), `plan.json` is replaced whole, and a writer gives the plan's lock up after two minutes.
+- A Codex session on `login: chatgpt` failed after it ended, leaving its copy of the sign-in in its home, when a line of
+  its session log naming `rate_limits` (the only lines parsed: the plan's usage is read from them, `usage_of` in
+  `hermit/agent/base/login.py`) was JSON but no object, or was nested past the parser's depth; such a line is now
+  skipped. A login file or the plan's report nested that deep is read as none, as one that is no JSON object is. A
+  report of the plan's usage that parses but is nested deeper than `plan.json` can be written (Python 3.12's encoder
+  with an indent stops near 1,000 levels, a tenth of the parser's depth) failed a session on either login after it
+  ended, the Codex one leaving its sign-in behind as well, and so did a hold set over a plan's report that deep; such a
+  report is now not written to `plan.json`, as on a full disk, and the session setting such a hold waits as it does when
+  a full disk keeps one from being written.
+- Hermit's readers of a CLI session's usage (`hermit/agent/base/records.py`), of the events in its stream
+  (`cli.py`, `trajectory.py`) and of the usage ledger of a thread it resumes (`cli.py`), RRSI Adapter's reader of a
+  step's file changes (`rrsi_adapter/render.py`), the Harbor runner's readers of Claude Code's tool servers' status,
+  the answer agent's `answer.json`, its model endpoint's replies and a trial's `trajectory.json`
+  (`hermit/harbor/runner.py`, `tools.py`, `curate.py`, `hermit/agent/base/trajectory.py`) and Harness²'s of a trial's
+  final message and answer record (`harness2_upstream/bench.py`) failed on a line or a file nested past the JSON
+  parser's depth (about 10,000 levels), and the task's run with them (an error, its answer lost), and OfficeQA's Harbor
+  judge of a trial's Codex stream (`examples/officeqa/utils/harbor/judge.py`) failed on such a line before it wrote the
+  reward, which the task's `test.sh` then wrote as 0 (a correct answer scored 0); they now read it as one that is no
+  JSON, and an `answer.json` that is JSON but no object as no answer. A Claude Code usage window whose `utilization` is
+  an integer past a float's range failed the reading of the plan's usage from a session's stream (`claude_report`,
+  `hermit/agent/base/login.py`); it is now skipped, as a window that says nothing of its use is.
+- A CLI's event whose strings hold U+0085, U+2028 or U+2029 (which Codex's `serde_json` and Node's `JSON.stringify`
+  leave unescaped) is read as one event: `str.splitlines()` split it into pieces read as the CLI's own lines, so a
+  served Claude Code session whose reply held one read as failed with no reply and lost its usage, and a message's or a
+  command's words could read as a lost sign-in (`LoginFailed`), the plan's limit or an outage. Harness²'s rendering of a
+  Claude Code trajectory for its editors dropped such an event, and MWM's count of a learner session's turns and actions
+  failed the step (a `JSONDecodeError`) on it, or on any line of the CLI's own that starts with `{` but is no JSON,
+  which it now skips. Hermit's own JSONL files are read the same way: a `tasks.jsonl` row holding one unescaped (as
+  `python -m hermit.harbor.dataset prepare` writes them) failed the task set's loading, and a learner's step summary
+  holding one in `steps.jsonl` left a run that could neither resume, finish nor test its checkpoints (a
+  `JSONDecodeError`). OfficeQA's Harbor judge (`utils/harbor/judge.py`) read the message before such a final message, or
+  none, as the final one, so its answer was not scored (a correct one scored 0); a task set built before needs building
+  again (the build copies the judge into each task's `tests/`).
 - An agent Evolver dropped an explicit `plan_max_wait_s: null` (no limit) and waited the default 12 h.
+- A model client of a CLI's chat endpoint (`model: {cli: ...}`: `hermit/agent/model/llm.py`'s `ChatClient` from the
+  endpoint's spec) left out what a session that failed or that the provider refused had used, which the endpoint
+  reports in its error body, so a run's usage and cost left out those sessions; it now counts them, and their calls.
 - Harness²'s editor sessions on a login asked for the one JSON result object, so neither the payer check nor the plan's
   report saw them; they now print the whole event stream. A session the plan never started crashed the channel.
 - EvoSafeHarness's per-role Claude Code sessions turned a lost sign-in into a failed step, and the run went on; it now

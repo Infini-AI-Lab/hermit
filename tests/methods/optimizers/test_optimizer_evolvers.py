@@ -141,6 +141,23 @@ def test_skillopt_learns_the_rules(tmp_path):
     assert evaluate(config, "final", log=lambda *_: None)["mean_score"] == 1.0
 
 
+def test_a_soft_or_mixed_skillopt_gate_needs_the_judges_full_verdict_and_a_hard_one_its_score(tmp_path):
+    """SkillOpt's soft score is the judge's `f1` (rollout_result), which run.feedback: score does not show: a soft or
+    mixed gate would silently gate on the hard score. Its params decide what it reads: hermit train refuses
+    run.feedback score for those gates, and none for a hard gate, which takes the score alone (hermit check's report
+    of a least feedback that depends on the params: tests/core/test_run_modes.py)."""
+    full = "full with these evolver.params): set run.feedback to full"
+    for metric, shown, needs in (("soft", "score", full), ("mixed", "score", full),
+                                 ("hard", "none", "score): set run.feedback to score or full")):
+        (tmp_path / metric).mkdir()
+        config = make_run(tmp_path / metric, "skillopt", {"gate_metric": metric})
+        config.data["run"]["feedback"] = shown
+        with pytest.raises(SystemExit, match=re.escape(f"run.feedback is {shown}, below what the Evolver skillopt "
+                                                       f"reads (its min_feedback {needs}")):
+            Trainer(config, log=lambda *_: None).train()
+        assert not (tmp_path / metric / "runs").exists()
+
+
 def test_optimizer_evolvers_need_validation_data(tmp_path):
     config = make_run(tmp_path, "gepa", {})
     config.data["data"]["val"] = None
@@ -243,6 +260,28 @@ def test_skillopt_shows_the_analyst_a_codex_trace_summary(tmp_path):
         hidden = fmt_minibatch_trajectories([item], str(tmp_path / "predictions"))
     assert "#### Codex Trace Summary\nCodex Trace Summary\n- read SKILL.md: success" in shown
     assert "Codex Trace Summary" not in hidden
+
+
+def test_skillopt_shows_the_analyst_a_harbor_trials_codex_trace_summary_from_where_its_stream_is(tmp_path):
+    """A Harbor trial of HermitCodex keeps Codex's stream under the trial's agent/ (agent/agent-codex.jsonl), one
+    recorded before that Harbor's own output of Codex (agent/codex.txt): SkillOpt's analyst gets that run's Codex
+    trace summary as it gets one of Hermit's own rollouts, the stream found where hermit.agent.base.trajectory finds a
+    run's; a trial of another CLI has none."""
+    from hermit.agent.evolver.methods.skillopt.evolver import codex_trace
+    events = [{"type": "thread.started", "thread_id": "th1"},
+              {"type": "item.completed", "item": {"type": "command_execution", "command": "cat task.md",
+                                                  "exit_code": 0, "aggregated_output": "Which rule?"}},
+              {"type": "item.completed", "item": {"type": "agent_message", "text": "<answer>A</answer>"}},
+              {"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 5}}]
+    for trial, rel in (("hermit-codex", "agent/agent-codex.jsonl"), ("harbor-codex", "agent/codex.txt")):
+        (tmp_path / trial / rel).parent.mkdir(parents=True)
+        (tmp_path / trial / rel).write_text("".join(json.dumps(e) + "\n" for e in events))
+        summary = codex_trace({"trajectory": trial, "judge": {"score": 0.0}}, tmp_path)
+        assert summary.startswith("Codex Trace Summary") and "- read task.md: success" in summary, rel
+        assert "- final answer format: well_formed" in summary and "- final answer label: A" in summary, rel
+    (tmp_path / "claude" / "agent").mkdir(parents=True)
+    (tmp_path / "claude" / "agent" / "agent-claude.jsonl").write_text(json.dumps({"type": "result", "result": "A"}))
+    assert codex_trace({"trajectory": "claude", "judge": {"score": 0.0}}, tmp_path) == ""
 
 
 def test_missing_dependency_requirements_match_pyproject_groups():

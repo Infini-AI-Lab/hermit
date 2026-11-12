@@ -150,6 +150,24 @@ def test_codex_trajectory_and_failure_signatures(tmp_path):
     assert "the session hit its wall clock" in sig and any(s.startswith("no answer delivered") for s in sig)
 
 
+def test_a_verifier_that_ran_out_of_time_on_the_solution_is_said_so_not_as_the_sessions_wall_clock():
+    """Under run.feedback full a Harbor trial whose solution was too slow for its verifier (verifier_timeout: agent)
+    keeps timed_out true, the verifier's verdict (failure_cause solution_timed_out, or the verifier's timeout as its
+    exception when a session fact gave the trial another cause): with feedback it is said as such, without it not at
+    all (as the material shows it under run.feedback score and none); a session out of the agent's time is the wall
+    clock's still."""
+    for cause in ("solution_timed_out", "model_provider_failed"):
+        slow = {**RECORD, "pipeline_extra": {"timed_out": True, "failure_cause": cause,
+                                             "exception_type": "VerifierTimeoutError", "exit_code": 0}}
+        assert "the verifier ran out of time on the solution" in E.failure_signatures(slow, None, feedback=True)
+        assert not any("wall clock" in s for s in E.failure_signatures(slow, None, feedback=True))
+        in_time = {**slow, "pipeline_extra": {"exit_code": 0}}                  # the same run, with no timeout
+        assert E.failure_signatures(slow, None, feedback=False) == E.failure_signatures(in_time, None, feedback=False)
+    session = {**RECORD, "pipeline_extra": {"timed_out": True, "failure_cause": "agent_exhausted_budget",
+                                            "exception_type": "AgentTimeoutError"}}
+    assert "the session hit its wall clock" in E.failure_signatures(session, None, feedback=True)
+
+
 def test_notes_merge_and_render():
     current = E.render_notes([("Layout", "Bulletins are under docs/root_1/transformed."), ("Units", "Millions.")])
     incoming = "# Notes\n\n## units\n\nFigures are in millions of dollars.\n\n## Pitfall\n\nFiscal years end in June.\n"

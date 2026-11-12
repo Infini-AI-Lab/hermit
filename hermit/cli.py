@@ -27,7 +27,10 @@ def main(argv=None) -> int:
         p.add_argument("--config", type=Path, required=True)
         p.add_argument("overrides", nargs="*", help="key.sub=value")
         if name == "eval":
-            p.add_argument("--adapter", required=True, help="final | root | none | a tag | a commit | a local path")
+            p.add_argument("--adapter", help="final | root | none | a tag | a commit | a local path")
+            p.add_argument("--split", type=Path, help="a split file to evaluate on instead of data.test")
+            p.add_argument("--checkpoints", action="store_true",
+                           help="run the run's checkpoint tests (run.checkpoints) that have no results yet")
         if name == "check":
             p.add_argument("--no-probe", action="store_true", help="skip running one task through the pipeline")
     dep = sub.add_parser("deploy", help="deploy an adapter's exports into a Codex, Claude Code, Pi, mini-swe-agent, "
@@ -116,18 +119,34 @@ def main(argv=None) -> int:
             return 2
         print(json.dumps(result, indent=2))
         return 0
+    if args.command == "eval" and bool(args.adapter) == bool(args.checkpoints):
+        parser.error("hermit eval takes --adapter (one adapter on a split) or --checkpoints (the run's checkpoint "
+                     "tests)")
+    if args.command == "eval" and args.checkpoints and args.split:
+        parser.error("--checkpoints tests each checkpoint on its own split; --split goes with --adapter")
     from hermit.config import Config
-    config = Config.load(args.config, args.overrides)
+    try:
+        config = Config.load(args.config, args.overrides, command=args.command)
+    except ValueError as error:
+        print(f"hermit {args.command}: {error}", file=sys.stderr)
+        return 2
     if args.command == "check":
         from hermit.settings_check import run_check
         return 0 if run_check(config, probe=not args.no_probe) else 1
     if args.command == "train":
-        from hermit.trainer.trainer import Trainer
-        summary = Trainer(config).train()
-        print(json.dumps(summary, indent=1))
+        from hermit.trainer.trainer import train
+        print(json.dumps(train(config), indent=1))
         return 0
-    from hermit.evaluate import evaluate
-    print(json.dumps(evaluate(config, args.adapter), indent=1))
+    from hermit.evaluate import checkpoint_tests, evaluate
+    runs = config.order_runs()             # with run.orders, each order's run
+    if args.checkpoints:
+        if not config.checkpoints():
+            print("hermit eval: --checkpoints needs run.checkpoints in the config", file=sys.stderr)
+            return 2
+        results = [checkpoint_tests(cfg)["overview"] for cfg in runs]
+    else:
+        results = [evaluate(cfg, args.adapter, split=args.split) for cfg in runs]
+    print(json.dumps(results[0] if len(results) == 1 else results, indent=1))
     return 0
 
 

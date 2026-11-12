@@ -15,10 +15,12 @@ Nothing is embedded in this question: you must read the files.
 - `trace0i/NNNN-<kind>.md` — the same rollout exploded, one file per step (reasoning, message, command with its exit
   code and output, file change, tool call, error), when present: grep across them; the step index you cite is NNNN.
 - `prompt0i.txt`, `task0i.md` — the prompt rollout i's agent was given, and the task file of its workspace the prompt
-  names (when the task has one).
-- `trace0i.json` — instead, for a rollout Harbor recorded: an ATIF trajectory, `steps[]` with `step_id`,
-  `timestamp`, `source` (`system`, `user`, `agent`), `message`, `tool_calls[].function_name` / `arguments`,
-  `observation.results[].content`, exploded as `trace0i/NNNN-<source>.md`. The step index you cite is `step_id`.
+  names (when the task has one). A rollout Harbor recorded has no `prompt0i.txt`: its `task0i.md` is the task's
+  instruction, which the prompt begins with.
+- `trace0i.json` — instead of the event stream, for a rollout Harbor recorded with an ATIF trajectory (even when it
+  kept the agent's event stream too): the trajectory, `steps[]` with `step_id`, `timestamp`, `source` (`system`,
+  `user`, `agent`), `message`, `tool_calls[].function_name` / `arguments`, `observation.results[].content`, exploded
+  as `trace0i/NNNN-<source>.md`. The step index you cite is `step_id`.
 - `hooks0i.jsonl` — the harness middleware's audit log of rollout i (one line per hook call: event, decision,
   reason), when the middleware was active.
 - `verifier_0i.txt` — the verdict on a non-passing rollout: the judge's feedback (for a rollout Harbor recorded, the

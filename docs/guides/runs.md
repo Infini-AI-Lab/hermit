@@ -13,7 +13,10 @@ against the config file's directory. A shared adapter tree stores versions for r
 | `<run>/checkout/ADAPTER.md` | Current or finalized instructions |
 | `<run>/checkout/.hermit/CARD.md` | Provenance and recorded final evaluation |
 | `<run>/summary.json` | Final selection, stop reason, and checkpoints |
-| `<run>/eval/<selector>/` | Separate evaluation summaries and per-attempt results |
+| `<run>/stream_summary.json` | `run.mode: stream`: the stream's prequential score, overall, by halves and by step |
+| `<run>/checkpoints.json`, `<run>/checkpoints/<name>/<adapter>/` | `run.checkpoints`: each checkpoint's commit and test results, and each tested adapter's summary and per-attempt results |
+| `<output_dir>/<run_name>/streams.json` | `run.orders`: each order's stream score (its run is `<run_name>-o<i>`) and the means over the orders |
+| `<run>/eval/<selector>/` | Evaluation summaries and per-attempt results (`hermit eval`'s, and `run.mode: split`'s test of `final`) |
 | `<output_dir>/trees/<template-id>/` | Default Git tree location; configurable with `trainer.tree_dir` |
 
 For the Quick Start:
@@ -87,8 +90,9 @@ from `parent`; inspect `check` and `repaired` to understand validation and repai
 | `summary.json` appears | The run reached finalization; inspect `stop_reason` and `finalize`, not just the presence of a final tag |
 
 `config.yaml` and setup files appear at run preparation. Step output/state snapshots appear at completed
-boundaries. `summary.json` and the final card are completion artifacts; `eval/` appears only when evaluation is
-run separately. A budget stop may occur before the next step is committed, so the last line in `steps.jsonl`
+boundaries. `summary.json` and the final card are completion artifacts; `eval/` appears when evaluation is run
+separately, or, with `run.mode: split`, when training ends (`eval/final/`, the final adapter on `data.test`). A
+budget stop may occur before the next step is committed, so the last line in `steps.jsonl`
 does not necessarily account for all in-flight work. The final summary reports the stop reason and spending
 known to that process; a resumed process restores accounting from completed records.
 
@@ -107,7 +111,9 @@ does not recreate a benchmark service's external state unless the task integrati
 
 A completed run has `summary.json` and refuses another `train` with the same name. Choose a new run name.
 `trainer.resume_mode=disable` instead starts over after renaming the previous run directory and branch; use it
-only when a restart is intended.
+only when a restart is intended. With `run.orders`, an order's run that finished is kept instead (`disable` starts
+it over too): `train` runs its checkpoint tests that have no results, goes on with the orders that did not finish,
+and combines them all again.
 
 ## Branch an experiment from an adapter
 

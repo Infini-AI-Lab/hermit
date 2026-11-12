@@ -2,6 +2,7 @@
 refused, tools served over MCP."""
 import asyncio
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -213,6 +214,44 @@ def test_a_logs_lines_that_are_json_but_not_objects_are_not_events(tmp_path):
     assert handle == "s1" and (usage.input_tokens, usage.output_tokens, usage.calls) == (5, 2, 2)
 
 
+def test_a_logs_event_whose_text_holds_a_unicode_line_separator_still_gives_its_session_and_usage(tmp_path):
+    """A CLI's JSON writer leaves U+0085, U+2028 and U+2029 unescaped in an event's strings (Claude Code's and Pi's
+    JSON.stringify, mini-swe-agent's json.dumps(ensure_ascii=False)), where str.splitlines() ends a line: parse_log
+    reads such an event whole, so a Claude Code result, a Pi message or a mini-swe-agent response whose text holds one
+    still gives the session and its usage."""
+    from hermit.agent.base.records import parse_log
+    from hermit.agent.model.usage import Usage
+    for sep in ("\x85", "\u2028", "\u2029"):
+        streams = {"claude": [{"type": "result", "subtype": "success", "session_id": "s1", "num_turns": 1,
+                               "result": f"42{sep}done", "usage": {"input_tokens": 5, "output_tokens": 2}}],
+                   "pi": [{"type": "session", "id": "s1"},
+                          {"type": "message_end", "message": {"role": "assistant", "stopReason": "stop",
+                                                              "content": [{"type": "text", "text": f"42{sep}done"}],
+                                                              "usage": {"input": 5, "output": 2}}}],
+                   "mini-swe-agent": [{"type": "session.started", "session": "s1"},
+                                      {"type": "message", "message": {"role": "assistant", "content": f"42{sep}done"},
+                                       "usage": {"input_tokens": 5, "output_tokens": 2}}]}
+        for backend, stream in streams.items():
+            log = tmp_path / f"agent-{backend}.jsonl"
+            log.write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in stream), encoding="utf-8")
+            assert sep in log.read_text(encoding="utf-8")                      # unescaped, as the CLI writes it
+            assert parse_log(log, backend, "m") == ("s1", [Usage("m", input_tokens=5, output_tokens=2, calls=1)]), \
+                (backend, repr(sep))
+
+
+def test_a_logs_lines_nested_past_the_parsers_depth_are_not_events(tmp_path):
+    """parse_log reads the session handle and usage past lines nested past the JSON parser's depth, as past lines that
+    do not parse: never an error that fails the session's or the reader's call."""
+    from hermit.agent.base.records import parse_log
+    nested = "[" * 100_000 + "]" * 100_000
+    codex = tmp_path / "agent-codex.jsonl"
+    done = {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 3}}
+    codex.write_text("\n".join([json.dumps({"type": "thread.started", "thread_id": "t1"}), nested,
+                                '{"type": "turn.completed", "usage": ' + nested + "}", json.dumps(done)]))
+    handle, [usage] = parse_log(codex, "codex", "m")
+    assert handle == "t1" and (usage.input_tokens, usage.output_tokens, usage.calls) == (10, 3, 1)
+
+
 def test_codex_sub_agent_calls_are_steps():
     from hermit.agent.base.trajectory import codex_steps
     spawn = {"type": "item.completed", "item": {"type": "collab_tool_call", "tool": "spawn_agent",
@@ -248,6 +287,324 @@ def test_codex_failed_turns_searches_to_do_lists_and_tool_results_are_steps():
     assert '"tool": "check_spec"' in text(long_call)                  # a long argument does not push the tool out
 
 
+def test_codex_reports_a_refused_sign_in_from_its_own_notices_only():
+    """Codex's 401 for a lost sign-in or a key the provider does not take is `login_failed` (no wait restores it: a
+    session on it stops the run) when the CLI itself reported it and the turn did not complete; a command that only
+    printed those words is the session's own work."""
+    from hermit.agent.base.cli import Codex
+    codex = Codex({})
+    refused = ('{"type":"thread.started","thread_id":"t"}\n{"type":"turn.started"}\n'
+               '{"type":"error","message":"unexpected status 401 Unauthorized: Your authentication token has been '
+               'invalidated. Please try signing in again."}\n'
+               '{"type":"turn.failed","error":{"message":"unexpected status 401 Unauthorized"}}\n')
+    said = codex.outcome(refused, None, None)
+    assert said["login_failed"] is True and not said["served"] and not said["unavailable"]
+    assert codex.outcome('{"type":"error","message":"Incorrect API key provided: sk-...xyz"}\n', None,
+                         None)["login_failed"] is True
+    output = "HTTP/1.1 401 Unauthorized\nunexpected status 401 Unauthorized\nInvalid API key"     # the command's own
+    printed = ('{"type":"thread.started","thread_id":"t"}\n{"type":"turn.started"}\n'
+               + json.dumps({"type": "item.completed", "item": {
+                   "id": "i1", "type": "command_execution", "command": "curl -i https://api.example/v1",
+                   "aggregated_output": output, "exit_code": 0, "status": "completed"}}) + "\n")
+    assert codex.outcome(printed, None, None)["login_failed"] is False          # cut off, its own output alone
+    done = printed + '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}\n'
+    assert codex.outcome(done, None, None)["login_failed"] is False
+
+
+def test_codex_loses_its_sign_in_to_a_403_only_when_the_turn_fails_with_it_and_to_its_own_wordings_as_written():
+    """A 403 is a lost sign-in when the turn failed with it, never for Codex's reconnect notices of one (recovered
+    from, as Harbor's pattern takes it); a proxy's refused token is one too; the wordings are matched as Codex writes
+    them, so another program's lowercase "not logged in" on Codex's stderr is not."""
+    from hermit.agent.base.cli import Codex
+    codex = Codex({})
+    start = '{"type":"thread.started","thread_id":"t"}\n{"type":"turn.started"}\n'
+    reconnect = ''.join(f'{{"type":"error","message":"Reconnecting... {n}/5 (unexpected status 403 Forbidden: '
+                        f'blocked)"}}\n' for n in (1, 2))
+    failed = start + reconnect + '{"type":"turn.failed","error":{"message":"unexpected status 403 Forbidden"}}\n'
+    assert codex.outcome(failed, None, None)["login_failed"] is True
+    timed_out = start + reconnect + '{"type":"item.completed","item":{"id":"i1","type":"agent_message",' \
+                                    '"text":"working"}}\n'                  # recovered, then out of the agent's time
+    assert codex.outcome(timed_out, None, None)["login_failed"] is False
+    proxy = start + '{"type":"error","message":"Invalid proxy server token passed"}\n'
+    assert codex.outcome(proxy, None, None)["login_failed"] is True
+    stderr = start + "gh: not logged in to any GitHub hosts\n"                # another program's line, not an event
+    assert codex.outcome(stderr, None, None)["login_failed"] is False
+
+
+def test_codex_never_loses_its_sign_in_to_a_401_it_reconnected_from_only_to_one_that_lasted():
+    """Codex retries a 401 it meets, as it does a 403 (its reconnect notice, "Reconnecting... 1/5 (unexpected status
+    401 Unauthorized: ...)"): a session that recovered from one and then ran out of its time has not lost its sign-in
+    (which would halt the run). A 401 that lasts fails the turn with it, or is the session's last error: a lost
+    sign-in, as it was."""
+    from hermit.agent.base.cli import Codex
+    codex = Codex({})
+    start = '{"type":"thread.started","thread_id":"t"}\n{"type":"turn.started"}\n'
+    unauthorized = "unexpected status 401 Unauthorized: Missing bearer or basic authentication in header"
+    reconnect = f'{{"type":"error","message":"Reconnecting... 1/5 ({unauthorized})"}}\n'
+    working = '{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"working"}}\n'
+    assert codex.outcome(start + reconnect + working, None, None)["login_failed"] is False
+    failed = start + reconnect + f'{{"type":"turn.failed","error":{{"message":"{unauthorized}"}}}}\n'
+    assert codex.outcome(failed, None, None)["login_failed"] is True
+    last = start + reconnect + f'{{"type":"error","message":"{unauthorized}"}}\n'
+    assert codex.outcome(last, None, None)["login_failed"] is True
+
+
+def test_codex_never_loses_its_sign_in_to_a_401_it_fell_back_to_https_from():
+    """Codex's fall back from a WebSocket the provider refused to HTTPS (an `error` item: "Falling back from WebSockets
+    to HTTPS transport. unexpected status 401 ...") is a notice it goes on from, as a reconnect is: a session that then
+    worked and ran out of its time has not lost its sign-in. A 401 its turn then failed with has."""
+    from hermit.agent.base.cli import Codex
+    codex = Codex({})
+    start = '{"type":"thread.started","thread_id":"t"}\n{"type":"turn.started"}\n'
+    fallback = json.dumps({"type": "item.completed", "item": {
+        "id": "item_0", "type": "error", "message": "Falling back from WebSockets to HTTPS transport. unexpected "
+                                                    "status 401 Unauthorized: Missing bearer or basic authentication "
+                                                    "in header, url: wss://chatgpt.com/backend-api/codex/responses"}})
+    working = '{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"working"}}\n'
+    assert codex.outcome(start + fallback + "\n" + working, None, None)["login_failed"] is False
+    lasted = '{"type":"turn.failed","error":{"message":"unexpected status 401 Unauthorized"}}\n'
+    assert codex.outcome(start + fallback + "\n" + lasted, None, None)["login_failed"] is True
+
+
+def test_codex_reads_a_provider_that_could_not_serve_from_its_last_failure_never_from_a_notice_it_recovered_from():
+    """`unavailable` is read, as Claude Code's, Pi's and OpenCode's readers read it, from the session's last failure:
+    the error its turn failed with, else its last error or line (its stderr), never a notice it recovered from (a
+    reconnect, a fall back to HTTPS). A session that reconnected after a dropped stream, worked on and failed for its
+    own reason (the model's context window) met no provider that could not serve; one whose turn failed on the
+    dropped stream did, and so did one whose last line is the provider's 429."""
+    from hermit.agent.base.cli import Codex
+    codex = Codex({})
+    start = '{"type":"thread.started","thread_id":"t"}\n{"type":"turn.started"}\n'
+    reconnect = '{"type":"error","message":"Reconnecting... 1/5 (stream disconnected before completion: error ' \
+                'sending request for url (https://models.example/v1/responses))"}\n'
+    working = '{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"working"}}\n'
+    full = "Codex ran out of room in the model's context window. Start a new thread or clear earlier history."
+    own = f'{{"type":"error","message":"{full}"}}\n{{"type":"turn.failed","error":{{"message":"{full}"}}}}\n'
+    assert codex.outcome(start + reconnect + working + own, None, None)["unavailable"] is False
+    assert codex.outcome(start + reconnect + working, None, None)["unavailable"] is False    # then out of its time
+    dropped = '{"type":"turn.failed","error":{"message":"stream disconnected before completion: error sending ' \
+              'request"}}\n'
+    assert codex.outcome(start + reconnect + dropped, None, None)["unavailable"] is True
+    refresh = "2026-11-03T02:33:37Z ERROR codex_models_manager::manager: failed to refresh available models: " \
+              "exceeded retry limit, last status: 429 Too Many Requests\n"           # a line beside its events
+    assert codex.outcome(start + refresh + working + own, None, None)["unavailable"] is False
+    assert codex.outcome(start + refresh, None, None)["unavailable"] is True
+    assert codex.outcome("ERROR: unexpected status 429 Too Many Requests\n", None, None)["unavailable"] is True
+
+
+def test_a_codex_container_docker_could_not_start_is_unavailable_though_dockers_help_line_ends_the_stream():
+    """Hermit's own container isolation ({cli: codex, isolation: container}) merges `docker run`'s stderr into the
+    session's stream, and docker ends a failed run's error with its help line (newer docker after a blank line). A
+    stream with no event (no session began) is read in every line, not by its last: the daemon's error, or a daemon
+    docker could not reach, is a container that could not start (`unavailable`: endpoint._no_reply's 503, not a 502).
+    A stream with events keeps its last failure (the last-failure test above)."""
+    from hermit.agent.base.cli import Codex
+    codex = Codex({})
+    refused = 'docker: Error response from daemon: Conflict. The container name "/hermit-x-abc" is already in use by ' \
+              'container "f00". You have to remove (or rename) that container to be able to reuse that name.'
+    unreached = "docker: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon " \
+                "running?"
+    hints = ("\n\nRun 'docker run --help' for more information\n",          # newer docker (29.7.1 here)
+             "\nSee 'docker run --help'.\n")                               # older docker
+    for failed in (refused, unreached):
+        for hint in hints:
+            assert codex.outcome(failed + hint, None, None)["unavailable"] is True, hint
+    for hint in hints:
+        assert codex.outcome(hint.lstrip("\n"), None, None)["unavailable"] is False     # a help line alone says none
+
+
+def test_what_codexs_log_quotes_of_the_sessions_tool_calls_is_the_sessions_work_never_a_lost_sign_in_limit_or_outage():
+    """Codex logs a tool call that failed on its stderr, which the stream holds: a command it refused, with the
+    command's text, and a patch whose lines it did not find, with those lines after the record, one per line. That is
+    the model's own text: a session cut off (no completed turn) whose log quoted the words of a lost sign-in, of the
+    plan's limit or of an outage met none of them. Codex's other records stay its notices, a record that starts after
+    the quoted lines among them."""
+    from hermit.agent.base.cli import Codex
+    codex = Codex({})
+    start = '{"type":"thread.started","thread_id":"t"}\n{"type":"turn.started"}\n' \
+            '{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"editing the handler"}}\n'
+    rejected = ('2026-11-12T01:02:03.456789Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess '
+                '{ message: "Rejected(\\"`/bin/bash -lc \\\\\\"echo Not logged in; echo usage_limit_reached; echo 503 '
+                'Service Unavailable; echo Invalid API key\\\\\\"` rejected: blocked by policy\\")" }\n')
+    patched = ("2026-11-12T01:02:04.5Z ERROR codex_core::tools::router: error=apply_patch verification failed: Failed "
+               "to find expected lines in /app/server/auth.py:\n"
+               '        return jsonify(error="Invalid API key"), 401\n'
+               "\n"
+               '    raise AuthError("Not logged in")\n'
+               "# usage_limit_reached: the plan's limit, as the client reports it\n"
+               "HTTP/1.1 503 Service Unavailable\n")
+    for quoted in (rejected, patched, rejected + patched):
+        said = codex.outcome(start + quoted, None, None)
+        assert not said["served"], quoted
+        assert (said["login_failed"], said["refused"], said["unavailable"]) == (False, False, False), quoted
+        assert "Invalid API key" not in codex.notices(start + quoted), quoted
+    refresh = "2026-11-03T02:33:37Z ERROR codex_models_manager::manager: failed to refresh available models: " \
+              "exceeded retry limit, last status: 429 Too Many Requests\n"           # Codex's own request that failed
+    said = codex.outcome(start + patched + refresh, None, None)
+    assert said["unavailable"] is True and said["login_failed"] is False and "429 Too Many" in said["failure"]
+    assert codex.outcome(start + "Not logged in\n", None, None)["login_failed"] is True   # a line that follows none
+
+
+def test_a_quoted_line_shaped_like_a_log_record_is_the_quoted_text_only_a_rust_path_target_starts_codexs_records():
+    """A patch whose lines Codex did not find may be of a log in the format of Codex's own (a fixture's "<time> ERROR
+    auth: Invalid API key"), each quoted line on a line of its own after the tools record. Codex's records name a Rust
+    path as their target (codex_core::tools::router, rmcp::transport::worker): a quoted line whose target is a plain
+    word starts none, it is the text the record quoted, so a session cut off whose patch quoted the words of a lost
+    sign-in, of an outage or of the plan's limit met none of them. Codex's own record after the quote is its notice."""
+    from hermit.agent.base.cli import Codex
+    codex = Codex({})
+    start = '{"type":"thread.started","thread_id":"t"}\n{"type":"turn.started"}\n' \
+            '{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"fixing the log fixture"}}\n'
+    patched = ("2026-11-12T01:02:04.5Z ERROR codex_core::tools::router: error=apply_patch verification failed: Failed "
+               "to find expected lines in /app/tests/fixtures/server.log:\n"
+               "2024-03-01T12:00:00Z INFO server: listening on :8080\n"
+               "2024-03-01T12:00:05Z ERROR auth: Invalid API key\n"
+               "2024-03-01T12:00:06Z WARN upstream: unexpected status 503 Service Unavailable\n")
+    billing = "2024-03-01T12:00:07Z ERROR billing{org=o1}: usage_limit_reached\n"
+    for quoted in (patched, patched + billing):                         # the 503 line last, or the limit's after it
+        said = codex.outcome(start + quoted, None, None)
+        assert not said["served"], quoted
+        assert (said["login_failed"], said["unavailable"], said["refused"]) == (False, False, False), quoted
+        assert codex.notices(start + quoted) == "", quoted
+    refresh = "2026-11-03T02:33:37Z ERROR codex_models_manager::manager: failed to refresh available models: " \
+              "exceeded retry limit, last status: 429 Too Many Requests\n"           # Codex's own request that failed
+    said = codex.outcome(start + patched + billing + refresh, None, None)
+    assert said["unavailable"] is True and said["login_failed"] is False and said["failure"] == refresh.strip()
+
+
+def test_codexs_record_of_a_tool_call_inside_its_spans_quotes_the_sessions_work_never_a_lost_sign_in_limit_or_outage():
+    """Where the level of Codex's spans is on (RUST_LOG=codex_core=info, Codex 0.164.0), a record names the spans it
+    was logged in before its target ("session_loop{...}:submission_dispatch{...}:turn{...}: codex_core::tools::router:
+    ..."). The target is the Rust path after them: the record of a patch whose lines Codex did not find is the
+    session's work and so are the lines it quotes, so a session cut off whose patch quoted the words of a lost sign-in,
+    of the plan's limit or of an outage met none of them. Codex's own record after the quote, inside spans whose names
+    hold dots or that have no fields, is its notice."""
+    from hermit.agent.base.cli import Codex
+    codex = Codex({})
+    start = '{"type":"thread.started","thread_id":"t"}\n{"type":"turn.started"}\n' \
+            '{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"I will patch auth.py."}}\n'
+    turn = ('session_loop{thread_id=t}:submission_dispatch{otel.name="op.dispatch.turn_input" submission.id="s" '
+            'codex.op="turn_input"}:turn{otel.name="session_task.turn" thread.id=t turn.id=s model=gpt-5}')
+    patched = (f"2026-11-12T15:15:48.093896Z ERROR {turn}: codex_core::tools::router: error=apply_patch verification "
+               "failed: Failed to find expected lines in /app/server/auth.py:\n"
+               '    raise AuthError("Not logged in")\n')
+    for quoted in (patched, patched + '    if code == "usage_limit_reached":\n',
+                   patched + '    return "503 Service Unavailable"\n'):
+        said = codex.outcome(start + quoted, None, None)
+        assert not said["served"], quoted
+        assert (said["login_failed"], said["refused"], said["unavailable"]) == (False, False, False), quoted
+        assert codex.notices(start + quoted) == "", quoted
+    own = ('2026-11-12T15:15:49.409742Z  WARN app_server.request{otel.name="turn/start" rpc.method="turn/start"}:'
+           'thread_spawn{otel.name="thread_spawn"}:session_init:get_model_info{model="gpt-5"}: '
+           "codex_models_manager::model_info: Unknown model gpt-5 is used. This will use fallback model metadata.\n")
+    retry = (f"2026-11-12T15:15:53.501662Z  WARN {turn}: codex_core::responses_retry: stream connection failed; "
+             "waiting to retry turn_id=s error=Connection failed: error sending request retry_delay=5s\n")
+    assert codex.notices(start + patched + own + retry) == (own + retry).strip()
+    said = codex.outcome(start + patched + own + retry, None, None)
+    assert said["unavailable"] is True and said["login_failed"] is False
+
+
+def test_an_event_whose_text_holds_a_unicode_line_separator_is_one_event_of_the_sessions_work():
+    """A CLI's JSON writer leaves U+0085, U+2028 and U+2029 unescaped in an event's strings (Codex's serde_json, Claude
+    Code's JSON.stringify), where str.splitlines() ends a line: a message or a command's output that holds one is still
+    one event, the session's own work. So a session cut off (no completed turn) whose command printed the words of a
+    lost sign-in, of the plan's limit or of an outage met none of them, and none of its words is the CLI's notice."""
+    from hermit.agent.base.cli import Claude, Codex
+    codex, claude = Codex({}), Claude({"login": "claude"})
+    start = '{"type":"thread.started","thread_id":"t"}\n{"type":"turn.started"}\n'
+    for sep in ("\x85", "\u2028", "\u2029"):
+        message = {"type": "item.completed", "item": {"id": "i1", "type": "agent_message",
+                                                      "text": f"The server answers{sep}Invalid API key"}}
+        command = {"type": "item.completed", "item": {
+            "id": "i2", "type": "command_execution", "command": "curl -s https://api.example/v1",
+            "aggregated_output": f"Not logged in{sep}usage_limit_reached{sep}503 Service Unavailable",
+            "exit_code": 0, "status": "completed"}}
+        stream = start + "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in (message, command))
+        assert sep in stream                                                   # unescaped, as Codex writes it
+        said = codex.outcome(stream, None, None)
+        assert not said["served"]
+        assert (said["login_failed"], said["refused"], said["unavailable"]) == (False, False, False), repr(sep)
+        assert codex.notices(stream) == "" and [event for event, _ in codex.lines(stream)] == [
+            {"type": "thread.started", "thread_id": "t"}, {"type": "turn.started"}, message, command]
+        working = [{"type": "system", "subtype": "init", "session_id": "s", "apiKeySource": "none"},
+                   {"type": "assistant", "message": {"role": "assistant", "content": [
+                       {"type": "text", "text": f"The server answers{sep}Not logged in"}]}}]     # then cut off
+        stream = "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in working)
+        said = claude.outcome(stream, None, None)
+        assert not said["served"] and said["login_failed"] is False and claude.notices(stream) == "", repr(sep)
+
+
+def test_a_link_in_place_of_the_last_message_file_is_never_followed_one_left_there_or_put_there_after_a_check(
+        tmp_path, monkeypatch):
+    """Codex's `-o` file and mini-swe-agent's last-message file lie where the session's processes may still write (a
+    Harbor stream's environment outlives its step): a link in the file's place, left there or put there right after
+    the reader looked at the file by its name (stat, lstat), is never followed, so a file of this machine is never the
+    reply (the stream's last message is, or the file's own text)."""
+    from hermit.agent.base.cli import Codex, MiniSweAgent
+    host = tmp_path / "host.txt"
+    host.write_text("a file of this machine\n")
+    streams = {Codex: '{"type":"thread.started","thread_id":"t"}\n'
+                      '{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"from the stream"}}\n',
+               MiniSweAgent: '{"type":"message","message":{"role":"assistant","content":"from the stream"}}\n'}
+    looks = {name: getattr(os, name) for name in ("stat", "lstat")}
+
+    def swapped_after_a_look(path: Path) -> None:
+        """A link to `host` in `path`'s place right after the first stat or lstat of it (a check before it is opened
+        by its name), as a process of the environment may put it there."""
+        done = []
+
+        def look(name):
+            def call(p, *args, **kwargs):
+                seen = looks[name](p, *args, **kwargs)
+                if not done and isinstance(p, (str, os.PathLike)) and os.fspath(p) == str(path):
+                    done.append(name)
+                    os.unlink(path)
+                    os.symlink(host, path)
+                return seen
+            return call
+        for name in looks:
+            monkeypatch.setattr(os, name, look(name))
+    for reader, stream in streams.items():
+        last = tmp_path / reader.name / "last_message.txt"
+        last.parent.mkdir()
+        last.symlink_to(host)                                              # left there
+        assert reader.last_message(None, last, raw=stream) == "from the stream", reader.name
+        last.unlink()
+        last.write_text("the session's own\n")
+        swapped_after_a_look(last)                                         # put there after a check
+        reply = reader.last_message(None, last, raw=stream)
+        monkeypatch.undo()
+        assert reply in ("the session's own\n", "from the stream"), (reader.name, reply)
+
+
+def test_dshs_failure_past_the_context_window_keeps_its_whole_error_line_though_it_holds_a_line_separator():
+    """dsh's failure for a model past its server's context window is dsh's error line, then what to declare: the
+    line read to its "\\n", though the provider's message in it holds a U+2028 (which dsh, on Node, leaves unescaped
+    in its events too)."""
+    from hermit.agent.base.cli import CLIS
+    recorded = Path(__file__).resolve().parents[1] / "fixtures" / "dsh" / "context_window.jsonl"
+    raw = recorded.read_text().replace(" Please reduce the length", "\u2028Please reduce the length")
+    failure = CLIS["dsh"]({"binding": {"ref": "local/m"}}).outcome(raw, None, None)["failure"]
+    assert failure.startswith("dsh: CONTEXT_WINDOW_EXCEEDED: 400: ") and "\u2028Please reduce the length" in failure
+    assert failure.endswith("declare the backend's context_window")
+
+
+def test_opencodes_failure_names_the_http_status_its_error_gives_after_the_errors_own_words():
+    """OpenCode's error event gives the provider's status beside its type and message, which may not name it: the
+    failure ends with it ("... (HTTP 401)"), so a reader of the failure's words (a Harbor trial's verdict) finds a 401
+    or a 402 whose message says nothing of a key or a bill; an error with no status (no request answered) has none."""
+    from hermit.agent.base.cli import OpenCode
+    streams = Path(__file__).resolve().parents[1] / "fixtures" / "opencode"
+    said = OpenCode({}).outcome((streams / "failure_401.jsonl").read_text(), None, None)
+    assert said["rejected"] and said["failure"] == "provider.auth: the model is down (HTTP 401)"
+    bland = '{"type":"error","error":{"type":"provider.unknown","message":"the model is down","status":403}}\n'
+    assert OpenCode({}).outcome(bland, None, None)["failure"] == "provider.unknown: the model is down (HTTP 403)"
+    unreached = OpenCode({}).outcome((streams / "failure_refused.jsonl").read_text(), None, None)
+    assert unreached["unavailable"] and unreached["failure"].startswith("provider.transport: ECONNREFUSED") and \
+        "(HTTP" not in unreached["failure"]
+    assert OpenCode({}).outcome((streams / "success.jsonl").read_text(), None, None)["failure"] == ""
+
+
 def test_a_logs_stream_under_another_name_is_found(tmp_path):
     """A Harbor trial keeps Codex's events as agent/codex.txt; a file named otherwise is read by its events."""
     from hermit.agent.base.trajectory import log_steps
@@ -278,6 +635,63 @@ def test_the_chat_client_waits_as_told_between_retries(monkeypatch):
     with pytest.raises(RuntimeError, match="HTTP 503"):
         client.chat([{"role": "user", "content": "hi"}])
     assert waits == [4.0, 8.0, 16.0, 32.0]                 # SkillOpt's own client: 4 * 2**attempt, at most 60
+
+
+def test_a_client_of_an_endpoint_over_a_cli_counts_what_each_failed_session_used(monkeypatch):
+    """Hermit's endpoint over a CLI answers a session that failed with an error whose body says what the session used
+    (endpoint._no_reply). A client made from that endpoint's spec (endpoint_spec's `count_error_usage`) counts it in its
+    total, each failed attempt's (a retried one's too) priced as a reply's; an error that reports no token, a body that
+    is no JSON and a count that is no number are not counted; a client of any other endpoint counts replies only, as
+    before."""
+    from types import SimpleNamespace
+    from hermit.agent.base.endpoint import endpoint_spec
+    from hermit.agent.model import llm
+    monkeypatch.setattr(llm.time, "sleep", lambda s: None)
+    price = {"input": 1.0, "cached_input": 0.5, "output": 2.0}
+
+    def failed(prompt, completion, cached=0):
+        return json.dumps({"error": {"message": "the codex session gave no reply (exit 1): refused"},
+                           "usage": {"prompt_tokens": prompt, "completion_tokens": completion,
+                                     "total_tokens": prompt + completion,
+                                     "prompt_tokens_details": {"cached_tokens": cached}}}).encode()
+    ok = json.dumps({"choices": [{"index": 0, "finish_reason": "stop",
+                                  "message": {"role": "assistant", "content": "42"}}],
+                     "usage": {"prompt_tokens": 3, "completion_tokens": 1}}).encode()
+    script = {"retried": [(503, failed(100, 10, 40)), (200, ok)], "refused": [(400, failed(30, 0))],
+              "silent": [(503, failed(0, 0)), (503, b"busy"),
+                         (400, b'{"error": {"message": "no"}, "usage": {"prompt_tokens": "many"}}')]}
+
+    def reply(handler, body, upstream):
+        status, out = script[body["model"]].pop(0)
+        _answer(handler, status, out)
+    up = _Upstream(reply)
+    served = SimpleNamespace(url=up.url, agent=SimpleNamespace(settings={"model": "m"}))
+    assert endpoint_spec(served, {"cli": "codex"})["count_error_usage"] is True
+    ask = [{"role": "user", "content": "q"}]
+    try:
+        def client(model, counting=True, retries=0):
+            return llm.ChatClient.from_spec({"base_url": up.url, "model": model, "price": price,
+                                             "count_error_usage": counting}, max_retries=retries)
+        retried = client("retried", retries=1)
+        assert retried.chat(ask)[1].input_tokens == 3                      # the reply's own usage
+        t = retried.total
+        assert (t.input_tokens, t.cached_input_tokens, t.output_tokens, t.calls) == (103, 40, 11, 2)
+        assert t.cost_usd == pytest.approx((60 * 1.0 + 40 * 0.5 + 10 * 2.0 + 3 * 1.0 + 1 * 2.0) / 1e6)
+        refused = client("refused")
+        with pytest.raises(llm.ChatHTTPError):
+            refused.chat(ask)
+        t = refused.total
+        assert (t.input_tokens, t.output_tokens, t.calls) == (30, 0, 1) and t.cost_usd == pytest.approx(30 / 1e6)
+        silent = client("silent", retries=2)
+        with pytest.raises(llm.ChatHTTPError):
+            silent.chat(ask)
+        assert (silent.total.input_tokens, silent.total.calls) == (0, 0) and not script["silent"]
+        script["retried"] = [(503, failed(100, 10, 40)), (200, ok)]
+        plain = client("retried", counting=False, retries=1)
+        plain.chat(ask)
+        assert (plain.total.input_tokens, plain.total.output_tokens, plain.total.calls) == (3, 1, 1)
+    finally:
+        up.server.shutdown()
 
 
 def test_the_chat_endpoint_relays_a_request_as_it_is():
@@ -459,6 +873,37 @@ def test_the_chat_endpoint_passes_errors_on_as_the_upstream_gave_them():
         with pytest.raises(openai.APIConnectionError):                # no answer, as from the upstream itself
             sdk.chat.completions.create(model="cut", messages=messages)
     up.server.shutdown()
+
+
+def test_what_a_cli_session_cannot_take_is_refused_with_hermits_own_error_code():
+    """A request a CLI session cannot take (here a figure; tool calls and another model are the runner tests') is
+    refused before any session: a 400 whose code, endpoint.UNSUPPORTED, says it is the caller's settings, which no
+    retry or other input changes (ahead of its message: a client's error text keeps only the start of the body).
+    Hermit's own client reads it as any 400: no lost sign-in."""
+    from hermit.agent.base import endpoint
+    from hermit.agent.base.interface import login_failure
+    from hermit.agent.model.llm import ChatHTTPError
+    figure = [{"role": "user", "content": [{"type": "text", "text": "What does the figure show?"},
+                                           {"type": "image_url", "image_url": {"url": "data:image/png;base64,AA"}}]}]
+    status, body, headers = endpoint.cli_answer(make("codex", {"model": "gpt-x", "web_search": False}),
+                                                {"messages": figure})
+    error = json.loads(body)["error"]
+    assert (status, list(error)) == (400, ["code", "message"]) and error["code"] == endpoint.UNSUPPORTED
+    assert "not text" in error["message"] and endpoint.UNSUPPORTED in str(ChatHTTPError(status, body, headers))
+    assert login_failure(ChatHTTPError(status, body, headers)) is None
+
+
+def test_a_cli_session_its_own_settings_keep_from_starting_is_refused_with_hermits_own_error_code():
+    """A session the CLI Base Agent will not start for its settings (here web search left unset; an isolation or an
+    effort the CLI does not take is another) is the caller's settings as well, which no retry or other input changes:
+    the endpoint's 400 carries endpoint.UNSUPPORTED ahead of its message, as a request a session cannot take does."""
+    from hermit.agent.base import endpoint
+    text = {"model": "gpt-x", "messages": [{"role": "user", "content": "What is 6 x 7?"}]}
+    with endpoint.ChatEndpoint(make("codex", {"model": "gpt-x"})) as served:
+        status, body, _ = served.answer(text, None)
+    error = json.loads(body)["error"]
+    assert (status, list(error), error["code"]) == (400, ["code", "message"], endpoint.UNSUPPORTED)
+    assert error["message"].startswith("ValueError: ") and "web_search" in error["message"]
 
 
 def test_the_chat_endpoint_says_it_closes_each_connection():

@@ -234,6 +234,10 @@ def evolve_prompt(start_md: str, query: str, scratch: Path) -> Path:
 
 class AHEAdapterEvolver(AgentEvolver):
     supports_resume = False          # a fresh CLI session per step, as run_evolve_agent builds a new agent each loop
+    # A rollout's pass or fail (judge.score >= 1) drives attribution and rollback, and its analysis reads the verifier's
+    # output (the judge's feedback) and the trial's status fields (an agent_error trial is an exception, not a fail):
+    # the full verdict.
+    min_feedback = "full"
 
     def setup(self, ctx: Context) -> None:
         if ctx.params.get("backend", "codex") not in ("codex", "claude", "pi"):

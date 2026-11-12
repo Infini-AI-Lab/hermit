@@ -30,6 +30,7 @@ import shutil
 
 from hermit.agent.base import trajectory
 from hermit.agent.evolver.base import Evolver, ask, FinalResult, StepContext, StepResult
+from hermit.trainer.material import VERIFIER_TIMED_OUT, VERIFIER_TIMEOUT_ERROR
 
 POLICY, SUBAGENTS, SKILLS, MEMORY = "policy", "subagents", "skills", "memory"
 PASSES = (POLICY, SUBAGENTS, SKILLS, MEMORY)
@@ -154,12 +155,17 @@ def trajectory_text(record: dict, traj: Path | None, limit: int) -> str:
 
 def failure_signatures(record: dict, traj: Path | None, feedback: bool) -> list[str]:
     """What went wrong, read from the run itself: status, timeout, failed commands, a missing answer; and, with
-    `feedback`, the judge's verdict on a task scored below 1."""
+    `feedback`, the judge's verdict on a task scored below 1, and a verifier that ran out of time on the solution (a
+    Harbor trial's `timed_out` then: the verifier's verdict, not how the session ended)."""
     out = []
     if record.get("status") and record["status"] != "ok":
         out.append(f"run status {record['status']}" + (f": {_tail(record.get('error'), 200)}" if record.get("error") else ""))
     extra = record.get("pipeline_extra") or {}
-    if extra.get("timed_out") or extra.get("session_timed_out"):       # session_timed_out: logs before the host agent
+    if extra.get("timed_out") and (extra.get("failure_cause") == VERIFIER_TIMED_OUT
+                                   or extra.get("exception_type") == VERIFIER_TIMEOUT_ERROR):
+        if feedback:
+            out.append("the verifier ran out of time on the solution")
+    elif extra.get("timed_out") or extra.get("session_timed_out"):     # session_timed_out: logs before the host agent
         out.append("the session hit its wall clock")
     elif extra.get("exit_code"):
         out.append(f"the session exited with code {extra['exit_code']}")
@@ -283,6 +289,8 @@ def overview(adapter: Path) -> str:
 # ---------- the Refiner ----------
 
 class ContinualHarnessEvolver(Evolver):
+    min_feedback = "none"            # the run's own signatures; a verdict shown (params.feedback) is one signal more
+
     def step(self, ctx: StepContext) -> StepResult:
         p, ws = ctx.params, ctx.workspace
         if ctx.agent is None:

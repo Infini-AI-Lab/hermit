@@ -3,19 +3,27 @@ Trainer's steps.
 
     python -m harborside.driver --task-dir <task> --stream-dir <dir> --name <trial name> --socket <path>
         --agent-json '{"import_path": ..., "model_name": ..., "kwargs": {...}}' --environment-json '{...}'
-        [--verifier-json '{...}'] [--idle-s 14400]
+        [--verifier-json '{...}'] [--trial-json '{"verifier_timeout_multiplier": 2.0, ...}'] [--idle-s 14400]
+
+`--trial-json` holds the run's fields of Harbor's TrialConfig (the verifier's and the environment build's timeout
+multipliers: TRIAL_FIELDS), which the stream's trial takes as a job's trials do; any other key is refused.
 
 Harbor's own `MultiStepTrial` runs every step of a task in one go. This subclass keeps its lifecycle (the
 environment, the agent's install, each step's setup, agent phase, verifier and archive, the trial's result at the
-end) and hands the step loop to whoever connects to the socket: a request names the next step, the driver runs it
-and answers with the step's result; `stop` ends the trial (the aggregate reward, the environment down). Between
+end) and hands the step loop to whoever connects to the socket: a request names the next step (and the launch plan
+Hermit rendered for it, which the agent takes before the step: `set_plan`), the driver runs it and answers with the
+step's result; `stop` ends the trial (the aggregate reward, the environment down). Between
 requests the environment waits; after `--idle-s` without one it stops by itself. Steps run in order; a request for
-another step is refused with the index the driver is at, so concurrent rollouts of one stream queue up outside.
+another step is refused with the index the driver is at, so concurrent rollouts of one stream queue up outside, and
+one for a step the task has not gets an error reply. A step whose launch plan the agent cannot take fails as
+HermitLaunchError (infra on Hermit's side).
 
 The driver writes `driver.json` (pid, socket, trial dir) in the stream directory once it listens and logs to its
 stderr (the client sends that to driver.log); Harbor's trial log, each step's agent/ and verifier/ and the final
 result.json are under the trial directory. Each step's result is also kept as `replies/<index>.json`, for a client
-that asked, lost the connection and asks again (`result`).
+that asked, lost the connection and asks again (`result`). A step whose result cannot be kept (a full disk: its reply's
+file, an aborted step's agent/ moved under the step) is answered with an error, and a log line that cannot be written is
+lost: neither leaves a request unanswered.
 
 Protocol: one JSON object per line, one request per connection (see hermit/harbor/stream.py).
 """
@@ -36,9 +44,17 @@ from harbor.models.trial.config import AgentConfig, EnvironmentConfig, TaskConfi
 from harbor.models.trial.result import ExceptionInfo, StepResult
 from harbor.trial.multi_step import MultiStepTrial
 
+from harborside.hermit import HermitLaunchError
+
+# --trial-json's keys: the run's fields of Harbor's TrialConfig, which a stream's trial takes as a job's trials do
+TRIAL_FIELDS = ("verifier_timeout_multiplier", "environment_build_timeout_multiplier")
+
 
 def log(message: str) -> None:
-    print(f"[driver {time.strftime('%H:%M:%S')}] {message}", file=sys.stderr, flush=True)
+    try:
+        print(f"[driver {time.strftime('%H:%M:%S')}] {message}", file=sys.stderr, flush=True)
+    except OSError:                                         # a full disk: the line is lost, never a request's answer
+        pass
 
 
 class StepDriverTrial(MultiStepTrial):
@@ -85,7 +101,12 @@ class StepDriverTrial(MultiStepTrial):
             if command.get("op") == "stop":
                 self._resolve(future, {"ok": True, "stopped": True})
                 break
-            step = steps[command["name"]]
+            try:
+                step = steps[command["name"]]
+            except KeyError:                                # answered; the loop waits for the next request
+                self._resolve(future, {"ok": False, "error": f"{self.task.name} has no step {command.get('name')!r} "
+                                                             f"(its steps: {', '.join(steps)})"})
+                continue
             index = int(command["index"])
             self.running = step.name
             step_result = StepResult(step_name=step.name)
@@ -99,7 +120,6 @@ class StepDriverTrial(MultiStepTrial):
                 log(f"step {step.name}: {type(exc).__name__}: {exc}")
             stop = self._should_stop_after_step(step, step_result)
             if stop:
-                self._move_agent_dir_to_step(step)
                 self.aborted = (f"step {step.name} failed" if step_result.exception_info and not step_result.verifier_result
                                 else f"step {step.name} under min_reward")
             self.running = None
@@ -107,7 +127,13 @@ class StepDriverTrial(MultiStepTrial):
             reply = {"ok": True, "index": index, "step": step_result.model_dump(mode="json"),
                      "paths": {"trial_dir": str(self.paths.trial_dir), "step_dir": str(self.paths.step_dir(step.name))},
                      "aborted": self.aborted, "last": index >= total}
-            (self.replies_dir / f"{index}.json").write_text(json.dumps(reply, default=str))
+            try:
+                if stop:
+                    self._move_agent_dir_to_step(step)
+                (self.replies_dir / f"{index}.json").write_text(json.dumps(reply, default=str))
+            except OSError as exc:                          # a full disk: answered all the same, as an error
+                reply = {"ok": False, "error": f"step {step.name}'s result could not be kept: {type(exc).__name__}: "
+                                               f"{exc}"}
             self._resolve(future, reply)
             if stop or index >= total:
                 break
@@ -127,11 +153,21 @@ class StepDriverTrial(MultiStepTrial):
             self._resolve(future, reply)
 
     def _apply(self, command: dict) -> None:
-        """What a step changes on the agent: the deployment it runs with."""
-        if hasattr(self.agent, "set_deploy_dir"):
-            self.agent.set_deploy_dir(command.get("deploy_dir"))
-        elif command.get("deploy_dir"):
-            log(f"the agent {type(self.agent).__name__} takes no deploy_dir: step {command['name']} runs without the adapter")
+        """What a step changes on the agent: the launch plan Hermit rendered for it (its deployment, the CLI's home,
+        the command), given as the request's `plan` or in its agent kwargs (the stream client sends the step's). A
+        step that gives none runs with the plan the agent already has; one the agent cannot use fails the step as
+        HermitLaunchError (infra on Hermit's side, not the agent's 0)."""
+        plan = command.get("plan") or (command.get("agent_kwargs") or {}).get("plan")
+        if not plan:
+            log(f"step {command['name']} gives no launch plan: it runs with the agent's current one")
+        elif hasattr(self.agent, "set_plan"):
+            try:
+                self.agent.set_plan(plan)
+            except ValueError as exc:
+                raise HermitLaunchError(str(exc)) from exc
+        else:
+            log(f"the agent {type(self.agent).__name__} takes no launch plan: step {command['name']} runs as "
+                "configured")
 
     @staticmethod
     def _resolve(future: asyncio.Future, value: dict) -> None:
@@ -184,11 +220,15 @@ async def serve(args) -> int:
     agent = json.loads(args.agent_json)
     environment = json.loads(args.environment_json)
     verifier = json.loads(args.verifier_json) if args.verifier_json else {}
+    fields = json.loads(args.trial_json) if args.trial_json else {}
+    if not isinstance(fields, dict) or set(fields) - set(TRIAL_FIELDS):
+        raise ValueError(f"--trial-json takes a JSON object of {', '.join(TRIAL_FIELDS)} (Harbor's TrialConfig "
+                         f"fields), not {args.trial_json}")
     stream_dir = Path(args.stream_dir)
     config = TrialConfig(task=TaskConfig(path=Path(args.task_dir)), trial_name=args.name,
                          trials_dir=stream_dir / "trials", agent=AgentConfig(**agent),
                          environment=EnvironmentConfig(**environment), verifier=VerifierConfig(**verifier),
-                         job_id=uuid4())
+                         job_id=uuid4(), **fields)
     trial = await StepDriverTrial.create(config)
     last_request = time.time()
     pending: list[asyncio.Future] = []
@@ -263,6 +303,7 @@ def main(argv=None) -> int:
     parser.add_argument("--agent-json", required=True)
     parser.add_argument("--environment-json", default="{}")
     parser.add_argument("--verifier-json", default="{}")
+    parser.add_argument("--trial-json", default="{}")
     parser.add_argument("--idle-s", type=float, default=4 * 3600)
     args = parser.parse_args(argv)
     try:

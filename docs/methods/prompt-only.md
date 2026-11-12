@@ -3,8 +3,8 @@
 Prompt-only learns one instruction file. The adapter uses the `prompt-only@1.0` template: a single `ADAPTER.md`
 given to the acting agent as context, with no tools. After every step a fresh session of the built-in Codex
 Evolver reads the step's learning material (each task's input, the agent's output, the judge's score and feedback,
-and the trajectory) and rewrites `ADAPTER.md`. Start here for an instruction-only adapter whose changes are easy to
-inspect.
+and the trajectory; the score alone under `run.feedback: score`, no verdict under `none`) and rewrites `ADAPTER.md`.
+Start here for an instruction-only adapter whose changes are easy to inspect.
 
 ## Setup
 

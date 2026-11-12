@@ -248,26 +248,31 @@ class Binding:
         return LITELLM_KEY_ENV.get(prefix, f"{_env_name(prefix)}_API_KEY")
 
     def spec(self) -> dict:
-        """The plain form: what `llm` and `agent.params.model` hold once the config is loaded."""
+        """The plain form: what `llm` and `agent.params.model` hold once the config is loaded. It keeps every field a
+        consumer reads (from_spec gives the same binding back): Pi's and dsh's provider entries, for one, follow the
+        backend's developer_role."""
         return {"ref": self.ref, "backend": self.backend.name, "model": self.model, "base_url": self.base_url,
                 "api_key_env": self.api_key_env, "key_required": self.backend.key_required,
                 "apis": list(self.backend.apis), "messages_url": self.backend.messages_root,
                 "litellm": self.litellm_model, "price": self.price, "extra_body": dict(self.extra_body),
                 "context_window": self.backend.context_window,
-                "max_output_tokens": self.backend.max_output_tokens}
+                "max_output_tokens": self.backend.max_output_tokens, "developer_role": self.backend.developer_role}
 
     @classmethod
     def from_spec(cls, spec: dict) -> "Binding":
         """A binding back from its plain form, or from the older {base_url, model, api_key_env, price} form."""
         if not isinstance(spec, dict) or not spec.get("base_url") or not spec.get("model"):
             raise ValueError("a model spec needs base_url and model")
+        role = str(spec.get("developer_role") or "keep")
+        if role not in DEVELOPER_ROLES:
+            raise ValueError(f"a model spec's developer_role must be one of {list(DEVELOPER_ROLES)}, not {role!r}")
         name = spec.get("backend") or (urlsplit(spec["base_url"]).hostname or "custom")
         backend = Backend(name=name, base_url=str(spec["base_url"]).rstrip("/"), api_key_env=spec.get("api_key_env"),
                           key_required=bool(spec.get("key_required", True)),
                           apis=tuple(spec.get("apis") or ["chat"]), messages_url=spec.get("messages_url"),
                           litellm=(spec["litellm"].split("/", 1)[0] if spec.get("litellm") else None),
                           context_window=spec.get("context_window"),
-                          max_output_tokens=spec.get("max_output_tokens"))
+                          max_output_tokens=spec.get("max_output_tokens"), developer_role=role)
         return cls(backend, str(spec["model"]), price=spec.get("price"), extra_body=dict(spec.get("extra_body") or {}))
 
     # ---- provider settings for the CLI agents ---------------------------------------------------------------
@@ -473,6 +478,60 @@ def bind_agent_params(params: dict, kind: str, backends: dict[str, Backend], def
     return out
 
 
+# ---- a Harbor task set's acting agent (agent.name: harbor) ------------------------------------------------------
+# The acting agents of hermit.harbor.clis.HARBOR_CLIS (a HermitXXX that runs one CLI Base Agent in the task's
+# container, or the answer-only agent), by the class their import path names (harborside.<module>:<Class>), and their
+# table keys. A copy, not an import: this layer imports none above it (tests/core/test_layers.py), and
+# tests/core/test_backends.py holds the copy to the table.
+HARBOR_ACTING = {"HermitCodex": "codex", "HermitClaude": "claude", "HermitPi": "pi", "HermitOpenCode": "opencode",
+                 "HermitDsh": "dsh", "HermitMiniSweAgent": "mini-swe-agent", "HermitAnswer": "answer"}
+HARBORSIDE = "harborside"                       # the package Harbor imports the HermitXXX classes from
+
+
+def harbor_cli(params: dict) -> str | None:
+    """The CLI a Harbor task set's acting agent runs (`agent.params.acting_agent`): its `cli`, a key of
+    hermit.harbor.clis.HARBOR_CLIS (codex, claude, pi, opencode, dsh, mini-swe-agent, or answer: the answer-only
+    agent), or the CLI of the HermitXXX its `import_path` names; codex for one that names neither (the default); None
+    for one of Harbor's own agents (by `name`, or another class), whose model keeps the endpoint form."""
+    spec = params.get("acting_agent") if isinstance(params, dict) else None
+    spec = spec if isinstance(spec, dict) else {}
+    if spec.get("cli"):
+        if spec["cli"] not in HARBOR_ACTING.values():
+            raise ValueError(f"agent.params.acting_agent.cli must be one of {', '.join(HARBOR_ACTING.values())}, not "
+                             f"{spec['cli']!r}")
+        return str(spec["cli"])
+    if spec.get("import_path"):
+        module, _, name = str(spec["import_path"]).partition(":")
+        return HARBOR_ACTING.get(name) if module.startswith(HARBORSIDE + ".") else None
+    return None if spec.get("name") else "codex"
+
+
+def harbor_dialect(cli: str, binding: Binding) -> str:
+    """The dialect a Harbor task set's acting agent speaks to its model: its CLI's (`needs`), and chat completions for
+    the answer-only agent (a direct Base Agent over the binding)."""
+    return needs("chat" if cli == "answer" else cli, binding)
+
+
+def bind_harbor_params(params: dict, backends: dict[str, Backend], default=None) -> dict:
+    """The params of a Harbor task set whose acting agent is a HermitXXX or the answer-only agent (harbor_cli), with its
+    model bound: `model` becomes the id the endpoint expects, `price` is filled from the backend, and `binding` keeps
+    the whole (Binding.spec, which Binding.from_spec makes the same binding again), from which the runner gives the
+    acting CLI its provider settings in the task's container (hermit.harbor.launch: bind_agent_params for the CLI's
+    own kind), with the client's `timeout` and `max_retries` a model mapping gives beside the model (the answer agent's
+    relay reads them). A `model` that is no reference (a CLI's own model name, with its login) is left alone, and so
+    are params bound already."""
+    if isinstance(params.get("binding"), dict) and params.get("model") == params["binding"].get("model"):
+        return params                               # bound: the id is no reference to bind again
+    given = params.get("model") or default
+    binding = as_binding(given, backends)
+    if binding is None:
+        return params
+    spec = binding.spec()
+    if isinstance(given, dict):
+        spec.update({k: given[k] for k in ("timeout", "max_retries") if given.get(k) is not None})
+    return {**params, "model": binding.model, "price": params.get("price") or binding.price, "binding": spec}
+
+
 # ---- the run config -------------------------------------------------------------------------------------------
 
 CLI_AGENTS = {"codex": "codex", "claude-code": "claude", "claude": "claude", "pi": "pi",
@@ -499,10 +558,70 @@ def _cli_kind(agent: dict, params: dict) -> str:
     return kind
 
 
-def normalize_config(data: dict) -> None:
+def _bound_ref(value, backends: dict[str, Backend]):
+    """The reference of the model a `model` value binds (as_binding), whatever form names it, or the value itself
+    for one that binds none (a CLI's own model name, an endpoint mapping) or cannot be bound (refused where
+    normalize_config binds it: a benchmark file's model the config replaces never is)."""
+    try:
+        binding = as_binding(value, backends)
+    except (TypeError, ValueError):
+        return value
+    return value if binding is None else binding.ref
+
+
+def _with_benchmark(params: dict, base, default, backends: dict[str, Backend]) -> dict:
+    """A Harbor task set's params with what its benchmark file (`benchmark`, relative to `base`, the config's folder)
+    holds for the model layer, as hermit.harbor.runner.HarborAgent will merge the file under them: its acting agent,
+    under the config's one level deep, its model when the config gives none (no agent.params.model, no top-level
+    `model`), and its price when the config gives none (no agent.params.price, no `price` in its model's mapping) and
+    the model bound is the file's (taken from the file, or the config's naming it in any form: the same reference once
+    both are bound against `backends`, as a reference string or an alias, {backend, model}, or {model: <reference>,
+    timeout, ...}): else the backend's, which bind_harbor_params fills into the params, would override it in the
+    runner's merge. Another model keeps its own price (its backend's, or an endpoint mapping's own), and so does a
+    model its own mapping prices: the params' price is None for them, which the runner's merge keeps (it would give
+    them the file's price, over an endpoint mapping's own, which binds no backend). The sign-in
+    the run's checks read (hermit.agent.base.login.logins_of) comes from the file too, each key the config does not
+    give: `login`, and `login_root` and `claude_bin` as the runner reads them (HarborAgent.login_root and .bin: `~`
+    expanded, made absolute against the working directory, as a config's own are). A file that cannot be read adds
+    nothing: the runner refuses it when it starts."""
+    if not params.get("benchmark"):
+        return params
+    path = Path(str(params["benchmark"])).expanduser()
+    path = path if path.is_absolute() else Path(base if base is not None else Path.cwd()) / path
+    try:
+        shared = yaml.safe_load(path.read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return params
+    if not isinstance(shared, dict):
+        return params
+    out = dict(params)
+    own, theirs = params.get("acting_agent"), shared.get("acting_agent")
+    if "acting_agent" not in params and "acting_agent" in shared:
+        out["acting_agent"] = theirs
+    elif isinstance(own, dict) and isinstance(theirs, dict):
+        out["acting_agent"] = {**theirs, **own}
+    model = params.get("model") if params.get("model") is not None else default     # the model normalize_config binds
+    priced = isinstance(model, dict) and model.get("price") is not None             # by the config's own mapping
+    if model is None and shared.get("model") is not None:
+        out["model"] = model = shared["model"]
+    if params.get("price") is None and shared.get("price") is not None:            # the file's price is its model's
+        mine = not priced and shared.get("model") is not None and \
+            _bound_ref(model, backends) == _bound_ref(shared["model"], backends)
+        out["price"] = shared["price"] if mine else None    # None: the runner's merge of the file keeps it off
+    for key in ("login", "login_root", "claude_bin"):
+        if key not in params and shared.get(key):          # a key the config gives, even null, is the runner's
+            value = shared[key]
+            out[key] = value if key == "login" else str(Path(os.path.expanduser(str(value))).resolve())
+    return out
+
+
+def normalize_config(data: dict, base: Path | str | None = None) -> None:
     """Resolve the model references of a loaded run config in place: `llm` and `agent.params.model` become specs
-    (the top-level `model` is the default for both), a Codex or Claude Code acting agent gets its provider
-    settings. The Evolver's model is bound when the Evolver is instantiated (its kind is in its manifest)."""
+    (the top-level `model` is the default for both), a CLI acting agent gets its provider settings, and a Harbor task
+    set's HermitXXX its binding for the CLI it runs in the task's container (bind_harbor_params; one of Harbor's own
+    agents keeps the spec as its endpoint), its acting agent, model, price and sign-in (login, login_root, claude_bin)
+    read with its benchmark file's first (relative to `base`, the config's folder: _with_benchmark). The Evolver's
+    model is bound when the Evolver is instantiated (its kind is in its manifest)."""
     backends = registry(data.get("backends"))
     default = data.get("model")
     if default is not None and not is_ref(default, backends):
@@ -522,7 +641,10 @@ def normalize_config(data: dict) -> None:
     params = agent.get("params")
     if not isinstance(params, dict):
         params = {}
-    kind = _cli_kind(agent, params)
+    if str(agent.get("name") or "") == "harbor":
+        params = _with_benchmark(params, base, default, backends)
+    harbor = harbor_cli(params) if str(agent.get("name") or "") == "harbor" else None   # its acting agent's CLI
+    kind = "" if harbor is not None else _cli_kind(agent, params)
     model = params.get("model")
     if model is None and default is not None:
         model = default
@@ -531,6 +653,8 @@ def normalize_config(data: dict) -> None:
             raise ValueError(f"agent.params.model: cli is a model for an agent that calls a chat API; agent "
                              f"{agent.get('name')} is that CLI itself: give its model a name")
         params = {**params, "model": _cli_model(model, backends, "agent.params.model")}
+    elif model is not None and harbor is not None:
+        params = bind_harbor_params({**params, "model": model}, backends)
     elif model is not None and kind in CLI_KINDS:
         params = bind_agent_params({**params, "model": model}, kind, backends)
     elif model is not None:
@@ -568,12 +692,20 @@ def bindings_of(data: dict, evolver_params: dict | None = None) -> list[tuple[st
             binding = Binding.from_spec(spec["binding"])
             out.append((f"{who} through {spec['cli']}", binding, needs(spec["cli"], binding)))
     kind = _cli_kind(agent, params)
-    if kind in CLI_KINDS and isinstance(params.get("binding"), dict):
+    harbor = harbor_cli(params) if str(agent.get("name") or "") == "harbor" else None
+    if harbor is not None and isinstance(params.get("binding"), dict):
+        # a Harbor task set's HermitXXX speaks its own CLI's dialect to the model, from the task's container
+        binding = Binding.from_spec(params["binding"])
+        out.append((f"agent (harbor, {harbor})", binding, harbor_dialect(harbor, binding)))
+    elif harbor is None and kind in CLI_KINDS and isinstance(params.get("binding"), dict):
         binding = Binding.from_spec(params["binding"])
         out.append((f"agent ({agent['name']})", binding, needs(kind, binding)))
     elif isinstance(params.get("model"), dict) and params["model"].get("base_url") and params["model"].get("model"):
-        # (a model through a CLI has no base_url: its binding is above)
-        out.append((f"agent ({agent['name']})", Binding.from_spec(params["model"]), "chat"))
+        # (a model through a CLI has no base_url: its binding is above); a HermitXXX's endpoint is bound for its CLI by
+        # the runner (hermit.harbor.launch.binding_of), which speaks its own dialect to it
+        binding = Binding.from_spec(params["model"])
+        out.append((f"agent (harbor, {harbor})", binding, harbor_dialect(harbor, binding)) if harbor is not None
+                   else (f"agent ({agent['name']})", binding, "chat"))
     if evolver_params and isinstance(evolver_params.get("binding"), dict):
         binding = Binding.from_spec(evolver_params["binding"])
         out.append(("evolver", binding, needs(evolver_params.get("backend", "codex"), binding)))

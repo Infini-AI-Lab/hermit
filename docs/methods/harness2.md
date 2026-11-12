@@ -32,7 +32,10 @@ task through its benchmark seam. Each step hands the step's task to `harness2.co
 
 1. the reference execution is the Trainer's rollout of the starting adapter H0 on this task;
 2. an INV editor session (how the agent works: tool use, procedure, completion) and a DOM editor session (what a
-   practitioner knows) each edit a copy of H0; each candidate is executed on the same task through `run_agent`;
+   practitioner knows) each edit a copy of H0; each candidate is executed on the same task through `run_agent`, which
+   runs no training row that is a step of a multi-step Harbor task: given one, the step fails, saying why, before any
+   editor session runs, and a stream of them trains with a method that learns from the Trainer's own rollouts
+   ([Known limitations](../reference/compatibility.md#known-limitations));
 3. a composer session reads the reference and both probes and writes one harness; its execution on the same task
    is the task's deliverable (at `k > 1`, k compositions and a blind selection among their deliverables);
 4. a reflection writes a verdict per changed component and at most one transferable lesson; only a task with a
@@ -42,8 +45,10 @@ The adapter is never written, so every task starts from H0; the library lives in
 sessions are upstream's `claude_cli` channel (Claude Code on the bound model, which must serve the Messages API, or
 on your subscription with `evolver.params.login: claude` and a model name; with `evolver.base: pi`, Pi on the bound
 model), each in a sandbox that shows only its evidence and reaches only the model. A task's score is the judge's score of
-its deliverable, in `step_NNNN/step_result.json` (`extra.harness2`), never seen by a session. At `k = 1` a task
-costs four executions and four sessions (two editors, the composer, the reflector).
+its deliverable, in `step_NNNN/step_result.json` (`extra.harness2`), never seen by a session. A deliverable whose
+execution was not the agent's result (status `infra`: the machine, the provider) has no grade: its task is then a row
+the stream leaves unscored (`Evolver.step_scores` maps it to `None`), not H0's score. At `k = 1` a task costs four
+executions and four sessions (two editors, the composer, the reflector).
 
 ## Codex as the acting agent
 

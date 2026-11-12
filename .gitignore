@@ -10,3 +10,6 @@ __pycache__/
 .venv-docs/
 .venv-agentdyn/
 /docs/_build/
+# the link `python -m hermit.harbor.dataset prepare` writes to a benchmark's tasks (a path of this machine); a link,
+# which a pattern ending in / would not match
+examples/*/utils/tasks

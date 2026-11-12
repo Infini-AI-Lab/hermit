@@ -17,15 +17,20 @@ method's template, manifest and packaging); a method's own files (its Evolver, i
 add its group; a shared layer every method is built on (the Base Agents, the acting agents, the Evolver base classes,
 the Trainer, the sandbox, the hosts' deployment, the model bindings, the templates' manifests, the toy task's
 template, the test helpers) and any path the table does not know run every group; documentation runs none, but for
-`docs/_examples/`, which `core/` reads. A new method adds its paths to `METHODS` in `selection.py` and its tests
-under `methods/<name>/`. `core/test_selection.py` fails until it does, when a test file is in no group, and when a
-framework module a shared layer or a method's tests import is not shared.
+`docs/_examples/`, which `core/` reads. An example's own tests (`examples/<benchmark>/utils/tests/`: CL-Bench
+database's, OfficeQA's Harbor judge's) run with the groups a change to that benchmark's `utils/` runs. A new method adds
+its paths to `METHODS` in `selection.py` and its tests under `methods/<name>/`. `core/test_selection.py` fails until
+it does, when a test file is in no group, and when a framework module a shared layer or a method's tests import is not
+shared.
 
 A test marked `integration` runs an agent CLI installed on the machine (`codex`, `claude`, `dsh`) and holds what a
 release of it does; it is skipped unless `--integration` is given (those that run Claude Code in its container also skip
 without Docker and the image `docker/claude/` builds, named by HERMIT_CLAUDE_IMAGE and HERMIT_CLAUDE_NETWORK). Some
 methods' tests (`gepa`, `skillopt`, `harness2`, `rrsi`) skip themselves without the method's dependency group; the
 sandbox and MWM tests need Linux and a working bubblewrap, and some do not yet skip without it (CONTRIBUTING.md).
+The Harbor tests that run Harbor's own code (`core/test_harbor_harborside.py`: the HermitXXX agents under Harbor's
+interpreter) skip without Harbor's venv (`~/.cache/hermit/harbor-venv`, or HERMIT_HARBOR_VENV); those that also start
+containers (`core/test_harbor_smoke.py`) run only with Docker and HERMIT_HARBOR_SMOKE=1.
 
 CI (`.github/workflows/tests.yml`) runs `--changed` on a pull request and the whole suite on main, daily and on
 demand.
@@ -36,7 +41,8 @@ models), `toy_task.py` (the toy task the Trainer tests run on), `claude_stand.py
 `fixtures/claude_streams/`, and the probe for a working bubblewrap, for core's and the methods' Claude tests),
 `pi_stand.py` (the stand-in `pi` that replays `fixtures/pi/`, for the methods' Pi tests),
 `fixtures/` (`pi/`: Pi's recorded streams, read by `core/test_pi_agent.py` and `pi_stand.py`; `opencode/`: OpenCode's,
-read by `core/test_opencode_agent.py`; `dsh/`: DeepSeek Harness's, read by `core/test_dsh_agent.py`).
+read by `core/test_opencode_agent.py`; `dsh/`: DeepSeek Harness's, read by `core/test_dsh_agent.py`; the recorded
+streams are also read as a Harbor trial's by `core/test_trajectory.py` and the harness2 and rrsi_adapter tests).
 
 A new or changed test follows the [test checklist](../.agents/skills/prepare-pr/references/test-checklist.md): where it
 goes, how it is named and documented, what it asserts, and what it may touch.

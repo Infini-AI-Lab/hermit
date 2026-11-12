@@ -12,6 +12,8 @@ HEADING = "# Notes from feedback"
 
 
 class NotesEvolver(Evolver):
+    min_feedback = "full"    # it writes the judge's feedback: hermit train refuses a run.feedback that hides it
+
     def step(self, ctx: StepContext) -> StepResult:
         current = ctx.workspace.learning_material / "current"
         failures = []

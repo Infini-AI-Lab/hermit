@@ -150,8 +150,9 @@ NO_FEEDBACK = "(not shown: this stream gives the learner no verdict, score or re
 
 def outcome_text(record: dict, feedback: bool = True) -> str:
     """The [OUTCOME] block: the judge's score and feedback (the environment's outcome, the paper's footing), or, with
-    `feedback` off, a line saying the learner sees none: the trajectory and the output alone are its evidence."""
-    if not feedback:
+    `feedback` off or a record that holds no verdict (run.feedback: none), a line saying the learner sees none: the
+    trajectory and the output alone are its evidence."""
+    if not feedback or not record.get("judge"):
         lines = [NO_FEEDBACK]
         if record.get("status") and record["status"] != "ok":
             lines.append(f"run status: {record['status']}" + (f" ({record['error']})" if record.get("error") else ""))

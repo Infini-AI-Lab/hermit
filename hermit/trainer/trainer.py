@@ -6,11 +6,19 @@ Run directory (<output_dir>/<run_name>/):
   step_NNNN/           the Evolver's output/, its StepResult, a snapshot of state/
   learning_material/   the material of every step
   summary.json         written at the end
+  stream_summary.json  run.mode stream: the stream's prequential score (stream_summary)
+  checkpoints.json     run.checkpoints: each checkpoint's commit and test results (checkpoints/<name>/<adapter>/)
+  eval/<label>/        hermit eval's results (split mode: eval/final/, run when training ends)
   workspace/           the Evolver's directories for the current call
   access/validation/   validation tasks handed to the Evolver (when data.val is set)
   checkout/            the git worktree of this run's branch
   root/                the template's files, the reference for check_spec
   tools.jsonl          every tool call
+
+How the run is done is the config's `run:` block (hermit/config.py): in a stream each row is scored by the adapter
+the earlier rows taught (its rollout, steps.jsonl's `rollout.scores`) before the learner sees it, run_agent runs only
+rows already reached (and validation rows), and the final adapter is the one the last step left; `orders` makes one
+run per order (`train` below); the learner sees each verdict as run.feedback says (material.shown).
 """
 from __future__ import annotations
 
@@ -35,11 +43,11 @@ import yaml
 from hermit.adapter.manifest import CARD, MANIFEST, read_manifest
 from hermit.agent.base import login as subscription
 from hermit.agent.base.interface import LoginFailed
-from hermit.agent.model.backends import bindings_of, problems_of, registry
+from hermit.agent.model.backends import HARBOR_ACTING, bindings_of, problems_of, registry
 from hermit.config import Config
 from hermit.agent.evolver.base import (Access, Context, Evolver, FinalResult, Progress, StepContext, StepResult, Usage,
                                          Workspace)
-from hermit.agent.evolver.loader import find, instantiate
+from hermit.agent.evolver.loader import find, instantiate, load_class
 from hermit.agent.model.llm import ChatClient
 from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, Recheck, ToolRunner, _cli_kind, _safe, agent_pipeline, \
     cli_sandbox, config_paths, host_pipeline, judge_for, run_secrets, sanitized_copy
@@ -47,12 +55,12 @@ from hermit.redact import redact_name, redact_path, redact_tree, redact_value
 from hermit.sandbox import (AllowlistProxy, Bind, Sandbox, drop_unsafe, hidden_paths, inside_tools, model_access,
                             set_hidden)
 from hermit.spec import check_spec, repair
-from hermit.task import TaskData
+from hermit.task import TaskData, read_ids
 from hermit.tools import FunctionTool, ToolServer, assemble, evolver_agent
 from hermit.trainer import card
 from hermit.trainer.budget import Budget, BudgetExceeded
-from hermit.trainer.material import Material
-from hermit.trainer.rollout import run_tasks
+from hermit.trainer.material import Material, hide_label_files, shown
+from hermit.trainer.rollout import mean_score, run_tasks, scored
 from hermit.tree import INVALID_MARK, ROOT_TAG, Tree
 
 
@@ -90,7 +98,13 @@ def warnings_for(config: Config, val_given: bool) -> list[str]:
                    "command it runs (an adapter's hook, say) can read the token from its parent process and send it "
                    "out. Leave environment.network at no-network (api.anthropic.com is allowed by itself), or give "
                    "each session a container (environment.image).")
-    if acting.get("login") == "claude" and reason and not contained:
+    harbor = str(d["agent"]["name"]) == "harbor"
+    if acting.get("login") == "claude" and harbor:
+        out.append("the acting agent runs on login: claude in each task's container (a Harbor task set): the token "
+                   "reaches the CLI by name and through a descriptor, in no process's environment, but the session's "
+                   "commands run as the CLI's user in that container, the task's sandbox, where a command that read "
+                   "the CLI's memory could find it; the container reaches the network as the task allows.")
+    elif acting.get("login") == "claude" and reason and not contained:
         out.append(f"the acting agent runs on login: claude on the host ({reason}): its sessions run unconfined, with "
                    "the token in their CLI's environment and the machine's files (the test answers among them) in "
                    "reach. With the sandbox on, run it in the task sandbox, or give each session a container "
@@ -111,6 +125,7 @@ def warnings_for(config: Config, val_given: bool) -> list[str]:
     if val_given and d["data"].get("val"):
         out.append("validation data is given to the Evolver with whatever it contains; if it contains answers, the "
                    "Evolver may overfit to the validation split.")
+    out += [n for n in getattr(config, "notes", []) if n not in out]   # what validation set itself (a stream's shuffle)
     return out
 
 
@@ -126,6 +141,279 @@ def needs_errors(config: Config, needs: list[str], supports_resume: bool) -> lis
     if d["evolver"]["resume"] and not supports_resume:
         out.append("evolver.resume is true but this Evolver does not support resume")
     return out
+
+
+def agent_errors(config: Config) -> list[str]:
+    """What training asks of the acting agent: that it takes an adapter. One of Harbor's own agents takes none
+    (Config.harbor_builtin): every rollout of the run would fail."""
+    builtin = config.harbor_builtin()
+    if builtin is None:
+        return []
+    return [f"the acting agent {builtin} (agent.params.acting_agent) is one of Harbor's own agents, which takes no "
+            f"adapter: every rollout would fail; train with acting_agent.cli ({', '.join(HARBOR_ACTING.values())}), "
+            "or evaluate it with hermit eval --adapter none"]
+
+
+SHOWN_ORDER = ("none", "score", "full")          # run.feedback, from what shows the learner least
+
+
+def feedback_errors(config: Config, name: str, cls, params: dict | None = None) -> list[str]:
+    """run.feedback against what the Evolver's code works with under its params (evolver.params over its manifest's:
+    its class's `min_feedback_for`, by default its `min_feedback`): below it, its code would fail on a verdict it is
+    not shown, or read it as 0."""
+    need = cls.min_feedback_for(params or {})
+    if need not in SHOWN_ORDER:
+        return [f"the Evolver {name} declares min_feedback {need!r}, not one of {', '.join(SHOWN_ORDER)}"]
+    if SHOWN_ORDER.index(config.feedback) >= SHOWN_ORDER.index(need):
+        return []
+    which = "" if need == cls.min_feedback else " with these evolver.params"
+    return [f"run.feedback is {config.feedback}, below what the Evolver {name} reads (its min_feedback {need}{which}): "
+            f"set run.feedback to {' or '.join(SHOWN_ORDER[SHOWN_ORDER.index(need):])}"]
+
+
+def _group(task_id: str, tasks: dict) -> str:
+    """The task a row is an attempt (or a step) of: a Harbor row's `harbor_task` (its `<task>#k` rollouts and
+    `<task>:<step>` steps share it), else the row itself."""
+    return str((tasks.get(task_id) or {}).get("harbor_task") or task_id)
+
+
+def _step_of_many(row: dict) -> bool:
+    """Whether a row is a step of a multi-step task (hermit.harbor.dataset's step rows: a `harbor_task` with `steps`
+    > 1; another task's own `steps` field is no such thing): it runs in its task's stream, after the steps before
+    it."""
+    return bool(row.get("harbor_task")) and isinstance(row.get("steps"), int) and row["steps"] > 1
+
+
+def _ahead(wanted: list[str], done, tasks: dict) -> list[tuple[str, str]]:
+    """The steps of a multi-step task that `wanted` names ahead of an earlier step of their stream (the task's
+    rollout: its step rows in `tasks`, a smaller `step_index`, `wanted`'s or not) that has neither run (in `done`) nor
+    been named before them in `wanted`, each with the first such step: a step taken ahead of an earlier one would
+    wait for it in the task's stream (for one that never runs, until the step ends infra)."""
+    def place(task_id: str) -> tuple[tuple, int]:
+        row = tasks[task_id]
+        return (row["harbor_task"], row.get("rollout", 1)), int(row.get("step_index") or 0)
+    named = {tasks[t]["harbor_task"] for t in wanted if _step_of_many(tasks[t])}
+    if not named:
+        return []
+    streams: dict[tuple, list[tuple[int, str]]] = {}            # the named tasks' streams: (step_index, id) each
+    for task_id, row in tasks.items():
+        if _step_of_many(row) and row["harbor_task"] in named:
+            stream, index = place(task_id)
+            streams.setdefault(stream, []).append((index, task_id))
+    out, before = [], set(done)
+    for task_id in wanted:
+        if _step_of_many(tasks[task_id]):
+            stream, index = place(task_id)
+            earlier = sorted(e for e in streams[stream] if e[0] < index and e[1] not in before)
+            if earlier:
+                out.append((task_id, earlier[0][1]))
+        before.add(task_id)
+    return out
+
+
+def out_of_step(ids: list[str], tasks: dict, which: str) -> str | None:
+    """Why rows cannot run in this order (`which` names it: a train order, a split an eval runs): it lists a step of a
+    multi-step task ahead of an earlier step of its stream (the task's rollout, its rows in `tasks`), one it lists
+    after it or not at all (_ahead), which it would wait for in the stream; None when each step it lists comes after
+    every earlier step of its stream, as in the splits hermit.harbor.dataset writes (whole streams, in step order)."""
+    ahead = _ahead(ids, (), tasks)
+    if not ahead:
+        return None
+    listed = set(ids)
+    return (f"{which} lists a step of a multi-step task ahead of an earlier step of its stream, which it would wait "
+            "for (up to hours, then ending infra): "
+            + ", ".join(f"{t} ahead of {e}" + ("" if e in listed else ", which it leaves out")
+                        + f" (task {tasks[t]['harbor_task']})" for t, e in ahead[:5])
+            + (f" and {len(ahead) - 5} more" if len(ahead) > 5 else "")
+            + "; a task's steps run in order, each after the one before it: list them in step order")
+
+
+def train_order(config: Config, data: TaskData, epoch: int) -> list[str]:
+    """The epoch's training rows in the order the Trainer takes them: the split's (an order file's, in a run of
+    run.orders), reshuffled per epoch when data.shuffle is set, a multi-step task's rows moved as one, in step order
+    (a step taken ahead of an earlier one would wait for it in the task's stream); an order's seed shuffles the tasks
+    instead, each task's rows kept together in the split's order (Harbor's `#k` attempts, a multi-step task's
+    steps). An order taken as given that lists a step ahead of an earlier one, and any order that lists a step
+    without an earlier one, is refused before training (run_problems)."""
+    order = list(data.splits["train"])
+    seed = (config.order or {}).get("seed")
+    if seed is not None:
+        groups: dict[str, list[str]] = {}
+        for task_id in order:
+            groups.setdefault(_group(task_id, data.tasks), []).append(task_id)
+        keys = list(groups)
+        random.Random(int(seed)).shuffle(keys)
+        return [task_id for key in keys for task_id in groups[key]]
+    if config.data["data"]["shuffle"]:
+        # a multi-step task's rows under one key (its task's name), in step order; any other row under its place in
+        # the split, each copy of a task the split names twice too (so a set with no multi-step task is shuffled as
+        # it always was, row by row)
+        rows: dict[str | int, list[str]] = {}
+        for i, task_id in enumerate(order):
+            many = _step_of_many(data.tasks[task_id])
+            rows.setdefault(_group(task_id, data.tasks) if many else i, []).append(task_id)
+        keys = list(rows)
+        random.Random(int(config.data["data"]["shuffle_seed"]) + epoch).shuffle(keys)
+        place = lambda t: int(data.tasks[t].get("step_index") or 0) if _step_of_many(data.tasks[t]) else 0
+        return [task_id for key in keys for task_id in sorted(rows[key], key=place)]
+    return order
+
+
+def straddle(checkpoint: dict, records: list[dict]) -> str | None:
+    """Why `checkpoint` has no commit to test in these step records: its `after` row is inside the first step that
+    ran it, not that step's last row (a checkpoint follows a whole step). None when it does not."""
+    for record in records:
+        tasks = record.get("tasks") or []
+        if record.get("bootstrap") or checkpoint["after"] not in tasks:
+            continue
+        if tasks[-1] == checkpoint["after"]:
+            return None
+        return (f"run.checkpoints {checkpoint['name']}: after {checkpoint['after']!r} is inside step "
+                f"{record['step']}'s tasks ({tasks[0]} .. {tasks[-1]}), and a checkpoint follows a whole step: name "
+                f"the step's last task, {tasks[-1]!r}, or remove the checkpoint")
+    return None
+
+
+def run_problems(config: Config, data: TaskData, deterministic: bool | None) -> list[str]:
+    """What the run asks of the data, checked before training: each order the run takes rows in (the train order, but
+    an eval config's, which hermit eval never runs; split mode's test split, which its final test runs, and an eval
+    config's; a training config's validation split, whose rows an Evolver gives run_agent in its order, in one call,
+    less the train split's steps, which run_agent never runs; each checkpoint's split) lists each step of a
+    multi-step task after every earlier step of its stream (out_of_step); a stream's validation rows are none of its
+    train rows (run_agent runs a validation row at any step, before the stream reaches it); each checkpoint's `after`
+    row is in the train split and, when the steps' chunks are known ahead (`deterministic`: an Evolver that does not
+    choose its tasks), the last row of a step; each checkpoint's split names known tasks."""
+    out = []
+    order = train_order(config, data, 1)       # every epoch's but data.shuffle's, which keeps the steps in step order
+    step_size = int(config.data["data"]["step_size"])
+    which = f"order {config.order['index']}'s train split" if config.order else "the train split"
+    trains = order if config.mode != "eval" else []
+    tests = data.splits["test"] if config.mode in ("split", "eval") else []
+    steps = {t for t in order if _step_of_many(data.tasks[t])}            # Trainer._steps_trained
+    vals = [t for t in data.splits["val"] if t not in steps] if config.mode != "eval" else []
+    for ids, name in ((trains, which), (tests, "the test split"), (vals, "the validation split")):
+        problem = out_of_step(ids, data.tasks, name)
+        if problem:
+            out.append(problem)
+    both = sorted(set(order) & set(data.splits["val"]))
+    if config.mode == "stream" and both:
+        out.append(f"run.mode: stream: {which} and the validation split share {len(both)} row(s) (e.g. {both[:3]}): "
+                   "run_agent runs a validation row at any step, before the stream scores it as a train row; name "
+                   "each row in one of the two")
+    for c in config.checkpoints():
+        if c["after"] != "end":
+            if c["after"] not in order:
+                out.append(f"run.checkpoints {c['name']}: after {c['after']!r} is not a row of {which}")
+            elif deterministic:
+                i = order.index(c["after"])
+                chunks = [{"step": n // step_size + 1, "tasks": order[n:n + step_size]}
+                          for n in range(0, len(order), step_size)]
+                problem = straddle(c, chunks[: i // step_size + 1])
+                if problem:
+                    out.append(problem + f" (data.step_size {step_size})")
+        try:
+            ids = read_ids(c["split"]) if c["split"] is not None else []
+        except OSError as exc:
+            out.append(f"run.checkpoints {c['name']}: split {c['split']}: {exc.strerror or exc}")
+            continue
+        missing = [i for i in ids if i not in data.tasks]
+        if not ids:
+            out.append(f"run.checkpoints {c['name']}: split {c['split']} names no task")
+        elif missing:
+            out.append(f"run.checkpoints {c['name']}: split {c['split']} names unknown tasks: {missing[:5]}")
+        elif problem := out_of_step(ids, data.tasks, f"run.checkpoints {c['name']}: split {c['split']}"):
+            out.append(problem)
+    return out
+
+
+def stream_summary(steps: list[dict], order: list[str], stop_reason: str) -> dict:
+    """A stream's score from its step records: each row's score in the order the rows ran, the infra rows left out
+    and counted; the prequential mean, the means of the stream's first and second half (by the planned rows, ⌈n/2⌉
+    first), each step's, and the coverage: rows scored of the rows in the stream (a run stopped early says why). A
+    row's score is its rollout's (scored before the learner saw the row), or the Evolver's own where it gives one
+    (the record's `own_scores`, Evolver.step_scores: Harness²'s deliverable; None, a row its protocol leaves
+    unscored, is left out and counted); then `own_scores` counts the rows it scored and `rollout_mean` is the
+    rollouts' mean beside it."""
+    rows, rollouts, per_step, own_rows = [], [], [], 0
+    for record in steps:
+        if record.get("bootstrap"):
+            continue
+        scores = (record.get("rollout") or {}).get("scores") or {}
+        own = record.get("own_scores") or {}
+        tasks = list(record.get("tasks") or [])
+        mine = [own[t] if t in own else scores.get(t) for t in tasks]
+        own_rows += sum(1 for t in tasks if own.get(t) is not None)
+        got = [v for v in mine if v is not None]
+        per_step.append({"step": record["step"], "tasks": tasks, "mean": _mean(got), "scored": len(got),
+                         "unscored": len(mine) - len(got), **({"own": sorted(t for t in tasks if t in own)}
+                                                               if own else {})})
+        rows += mine
+        rollouts += [scores.get(t) for t in tasks]
+    half = (len(order) + 1) // 2
+    got = [v for v in rows if v is not None]
+    out = {"rows": len(order), "reached": len(rows), "scored": len(got), "unscored": len(rows) - len(got),
+           "mean": _mean(got), "first_half": _mean([v for v in rows[:half] if v is not None]),
+           "second_half": _mean([v for v in rows[half:] if v is not None]),
+           "coverage": round(len(got) / len(order), 4) if order else None}
+    if any("own" in s for s in per_step):              # the Evolver's own verdict on some row, a score or none
+        out |= {"own_scores": own_rows, "rollout_mean": _mean([v for v in rollouts if v is not None])}
+    if stop_reason != "completed all epochs":
+        out["stopped"] = stop_reason
+    return out | {"steps": per_step}
+
+
+STREAM_HEADLINE = ("rows", "reached", "scored", "unscored", "mean", "first_half", "second_half", "coverage",
+                   "own_scores", "rollout_mean", "stopped")
+
+
+def train(config: Config, *, log=print) -> dict:
+    """`hermit train`: the run (Trainer.train), or with run.orders one run per order, `<run_name>-o<i>`, one after
+    the other (an order whose run finished is kept, its checkpoint tests completed; with trainer.resume_mode: disable
+    it is started over, as a run without orders is), and their combined stream score in
+    `<output_dir>/<run_name>/streams.json`: each order's and the mean over the orders. Every order to train is
+    checked before the first one trains (run.feedback against the Evolver, the acting agent, its run block against
+    its train split)."""
+    runs = config.order_runs()
+    if runs == [config]:
+        return Trainer(config, log=log).train()
+    fresh = str(config.data["trainer"]["resume_mode"]) == "disable"
+    spec = find(config.data["evolver"]["name"], config.base)
+    cls = load_class(spec)
+    problems = feedback_errors(config, spec.name, cls, {**spec.params, **(config.data["evolver"]["params"] or {})})
+    problems += agent_errors(config)
+    for cfg in runs:
+        if fresh or not (cfg.run_dir() / "summary.json").is_file():
+            d = cfg.data["data"]
+            data = TaskData(cfg.path(d["tasks"]), cfg.path(d["train"]), cfg.path(d["val"]), cfg.path(d["test"]))
+            problems += [f"order {cfg.order['index']}: {p}"
+                         for p in run_problems(cfg, data, deterministic=not cls.chooses_tasks)]
+    if problems:
+        raise SystemExit("train refuses to start: " + "; ".join(problems))
+    summaries = []
+    for cfg in runs:
+        done = cfg.run_dir() / "summary.json"
+        if done.is_file() and not fresh:
+            log(f"order {cfg.order['index']}: {cfg.run_name()} finished before; kept")
+            if cfg.checkpoints():
+                from hermit.evaluate import checkpoint_tests
+                checkpoint_tests(cfg, log=log)
+            summaries.append(json.loads(done.read_text()))
+        else:
+            summaries.append(Trainer(cfg, log=log).train())
+    orders = []
+    for cfg, summary in zip(runs, summaries):
+        stream = summary.get("stream") or {}
+        orders.append({"order": cfg.order["index"], **{k: cfg.order[k] for k in ("seed", "file") if k in cfg.order},
+                       "run": cfg.run_name(), "stop_reason": summary.get("stop_reason"),
+                       **{k: stream.get(k) for k in STREAM_HEADLINE if k in stream}})
+    combined = {"run": config.run_name(), "orders": orders}
+    for key in ("mean", "first_half", "second_half"):
+        combined[key] = _mean([o.get(key) for o in orders])
+    place = config.run_dir() / "streams.json"
+    place.parent.mkdir(parents=True, exist_ok=True)
+    place.write_text(json.dumps(combined, indent=1))
+    log(f"{len(orders)} orders: mean {combined['mean']} ({place})")
+    return combined
 
 
 def _task_tool_decls(config: Config) -> list[dict]:
@@ -175,6 +463,12 @@ def _sanitize_in_place(path: Path) -> None:
 
 class Trainer:
     def __init__(self, config: Config, *, python: str | None = None, log=print):
+        if config.mode == "eval":
+            raise ValueError("run.mode is eval: this config is for hermit eval; to train, set run.mode to split or "
+                             "stream")
+        if config.orders() and config.order is None:
+            raise ValueError("run.orders makes one run per order: hermit train (hermit.trainer.trainer.train) runs "
+                             "them, or Trainer(config.for_order(i)) one of them")
         self.config = config
         self.python = python or sys.executable
         self.log = log
@@ -197,6 +491,10 @@ class Trainer:
         self.spec = find(d["evolver"]["name"], config.base)
         self.evolver, self.params = instantiate(self.spec, d["evolver"]["params"],
                                                 backends=registry(d.get("backends")), default_model=d.get("model"))
+        # What the learner is shown of each verdict (material.shown): run.feedback, unless the Evolver hides the
+        # labels from its sessions itself (`hides_labels`) and reads the full records in its own process.
+        self.policy = "full" if getattr(self.evolver, "hides_labels", False) else config.feedback
+        self._ran: list[str] = []       # the stream's rows reached so far (a step's, once its rollouts start)
         self.budget = Budget(**{k: d["trainer"]["budget"].get(k) for k in ("usd", "tokens", "hours")})
         if isinstance(d.get("llm"), dict) and d["llm"].get("cli"):     # a model only a CLI reaches
             from hermit.agent.base.endpoint import cli_model
@@ -229,11 +527,14 @@ class Trainer:
     def _prepare(self) -> None:
         d = self.config.data
         errors = needs_errors(self.config, self.spec.needs, self.evolver.supports_resume)
+        errors += feedback_errors(self.config, self.spec.name, type(self.evolver), self.params)
+        errors += agent_errors(self.config)
         for who, binding, api in bindings_of(d, self.params):
             errors += [f"{who}: {p}" for p in problems_of(binding, api)]
         for who, login, program, contained, root in subscription.logins_of(d, self.params):
             errors += [f"{who}: {p}" for p in subscription.problems_of(login, program, contained, root)]
         errors += [f"evolver: {p}" for p in subscription.evolver_problems(self.params)]
+        errors += run_problems(self.config, self.data, deterministic=not self.evolver.chooses_tasks)
         if errors:
             raise SystemExit("train refuses to start: " + "; ".join(errors))
         for w in self.warnings:
@@ -258,7 +559,7 @@ class Trainer:
         start = self._start_ref()
         self.checkout = self.tree.checkout_run(self.branch, start, self.run_dir / "checkout")
         self.start_commit = start
-        self.material = Material(self.run_dir / "learning_material")
+        self.material = Material(self.run_dir / "learning_material", policy=self.policy)
         ws = self.run_dir / "workspace"
         self.ws = Workspace(adapter=ws / "adapter", learning_material=self.material.root,
                             task_info=self.config.path(d["task_info"]) or (ws / "task-info"),
@@ -330,6 +631,8 @@ class Trainer:
                     "start": start, "evolver": {"name": self.spec.name, "directory": str(self.spec.directory),
                                                 "class": self.spec.class_path, "needs": self.spec.needs,
                                                 "params": self.params},
+                    "run": {"mode": self.config.mode, "feedback": self.config.feedback, "shown": self.policy,
+                            **({"order": self.config.order} if self.config.order else {})},
                     "warnings": self.warnings, "python": self.python}
         if not self.resuming:
             (self.run_dir / "config.yaml").write_text(yaml.safe_dump(resolved, sort_keys=False, allow_unicode=True))
@@ -368,6 +671,13 @@ class Trainer:
             raise
         d = self.config.data
         done = self._completed_steps()
+        # A checkpoint whose `after` row a recorded step ran inside its tasks has no commit: refused before more steps
+        # (the steps are kept; a checkpoint that names a step's last task, or none, lets the run go on).
+        problems = [p for c in self.config.checkpoints() for p in [straddle(c, done)] if p]
+        if problems:
+            self._close_sandboxes()
+            raise SystemExit("train refuses to go on: " + "; ".join(problems))
+        self._ran = [t for r in done if not r.get("bootstrap") for t in r["tasks"]]
         if done:
             self._restore(done[-1])
         else:
@@ -405,33 +715,66 @@ class Trainer:
                     step += 1
                     progress = Progress(epoch, step, is_epoch_end=not remaining,
                                         remaining=tuple(remaining) if self.evolver.chooses_tasks else ())
+                    self._ran += chunk            # reached: run_agent may run them from this step on (a stream)
                     record = self._step(progress, chunk, last_feedback, session,
                                         {"chosen_by": "evolver"} if chosen else None)
                     wanted = record.get("next_tasks")
                     last_feedback = record.get("check_feedback_next")
                     session = record.get("session") or session
                     self._checkpoint(record)
+                    self._checkpoint_tests_during(record)
                     if record["status"] == "stop" and d["trainer"]["allow_early_stop"]:
                         raise StopRun("the Evolver stopped the run (allow_early_stop)")
         except StopRun as exc:
             stop_reason = exc.reason
         except BudgetExceeded as exc:
             stop_reason = f"hard budget: {exc}"
-        return self._finish(stop_reason or "completed all epochs")
+        return self._after_training(self._finish(stop_reason or "completed all epochs"))
+
+    def _checkpoint_tests_during(self, record: dict) -> None:
+        """After a step: a checkpoint whose `after` row this step ran must be its last row (checked here when the
+        Evolver chose the tasks; else before the run started), else the run stops, its steps kept; with
+        run.checkpoints_during, the test of each checkpoint this step reached runs now (its final adapter's, and an
+        `end` checkpoint's, after training), outside the training budget: its time, like its cost, is not spent from
+        trainer.budget."""
+        problems = [p for c in self.config.checkpoints() for p in [straddle(c, [record])] if p]
+        if problems:
+            self._close_sandboxes()
+            raise SystemExit("train stops: " + "; ".join(problems) + "; the steps so far are kept: fix run.checkpoints "
+                             "and run hermit train again to go on")
+        reached = [c["name"] for c in self.config.checkpoints()
+                   if c["after"] != "end" and (record.get("tasks") or [None])[-1] == c["after"]]
+        if reached and self.config.data["run"].get("checkpoints_during"):
+            from hermit.evaluate import checkpoint_tests
+            with self.budget.paused():                      # its spending goes to the eval's own budget
+                checkpoint_tests(self.config, names=reached, log=self.log)
+
+    def _after_training(self, summary: dict) -> dict:
+        """What the run mode adds once training ended: split's test of the final adapter on data.test (as `hermit eval
+        --adapter final` runs it), the checkpoint tests not run yet; both kept in summary.json."""
+        from hermit.evaluate import checkpoint_tests, evaluate
+        try:
+            if self.config.mode == "split" and self.config.data["data"].get("test"):
+                summary["test"] = evaluate(self.config, "final", log=self.log)
+            if self.config.checkpoints():
+                summary["checkpoint_tests"] = checkpoint_tests(self.config, log=self.log)["overview"]
+        except BaseException:
+            self.log(f"the run {self.run_name} finished, its tests did not: hermit eval --adapter final (split) or "
+                     "hermit eval --checkpoints (a stream's) runs what is left")
+            raise
+        return summary
 
     def _order(self, epoch: int) -> list[str]:
-        """The epoch's training tasks in the order the Trainer takes them: the split's, reshuffled per epoch unless
-        data.shuffle is false."""
-        order = list(self.data.splits["train"])
-        if self.config.data["data"]["shuffle"]:
-            random.Random(int(self.config.data["data"]["shuffle_seed"]) + epoch).shuffle(order)
-        return order
+        """The epoch's training tasks in the order the Trainer takes them (train_order)."""
+        return train_order(self.config, self.data, epoch)
 
     def _completed_steps(self) -> list[dict]:
         path = self.run_dir / "steps.jsonl"
         if not self.resuming or not path.exists():
             return []
-        steps = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+        # "\n" alone ends a record: U+0085, U+2028 and U+2029 in its strings (a learner's summary) are kept unescaped
+        # (_evolve writes with ensure_ascii=False), where str.splitlines() would cut the record in pieces
+        steps = [json.loads(l) for l in path.read_text().split("\n") if l.strip()]
         if steps:
             self.log(f"resuming {self.run_name} after step {steps[-1]['step']}")
         return steps
@@ -523,38 +866,79 @@ class Trainer:
             shutil.rmtree(raw, ignore_errors=True)
         return dest
 
+    def _run_agent_scope(self) -> tuple[set[str], set[str]]:
+        """(the training rows run_agent may run now, the validation rows): the train split (split mode, and no run
+        mode); in a stream the rows reached so far, this step's included, never one still ahead; in neither set a
+        training row that is a step of a multi-step task (`_steps_trained`), even one the validation split names too."""
+        train = set(self._ran) if self.config.mode == "stream" else set(self.data.splits["train"])
+        steps = self._steps_trained()
+        return train - steps, set(self.data.splits["val"]) - steps
+
+    def _steps_trained(self) -> set[str]:
+        """The training rows that are steps of a multi-step task: each runs in the Trainer's own stream of its task
+        (the same pipeline, the same run), after the steps before it, so run_agent's run of one would find its turn
+        taken, or take the Trainer's (whose step would then be lost)."""
+        return {t for t in self.data.splits["train"] if _step_of_many(self.data.tasks[t])}
+
     def _run_agent_tool(self) -> FunctionTool:
-        """The acting-agent runner: an adapter through the user's pipeline and judge, on train or validation tasks."""
-        allowed = {"train": set(self.data.splits["train"]), "val": set(self.data.splits["val"])}
+        """The acting-agent runner: an adapter through the user's pipeline and judge, on train or validation tasks
+        (_run_agent_scope); a task it may not run comes back as an error result. The results are shown as the run's
+        feedback policy says (material.shown), their logs without the verdict's files."""
+        stream = self.config.mode == "stream"
 
         def run_agent(task_ids: list, adapter: str | None = None, _snapshot=None) -> dict:
-            unknown = [t for t in task_ids if t not in allowed["train"] | allowed["val"]]
-            if unknown:
-                raise ValueError(f"only training or validation tasks may be run: {unknown[:5]}")
+            train, val = self._run_agent_scope()
+            why = ("not a task of this step or an earlier step of the stream, nor a validation task" if stream
+                   else "not a training or validation task")
+            steps = self._steps_trained()
+            refused = {t: f"{t!r} is " + ("a step of a multi-step training task, which runs only in the Trainer's "
+                                          "own stream of that task" if t in steps else why)
+                       + ": run_agent does not run it" for t in task_ids if t not in train | val}
             target = self.sandbox.outside(adapter) if adapter else self.ws.adapter      # a name the learner sees
             if not target.resolve().is_relative_to(self.run_dir.resolve()):
                 raise ValueError("the adapter must be inside the workspace")
-            tasks = [self.data.tasks[t] for t in task_ids]
-            snapshot = (_snapshot or self._snapshot_adapter)(target)     # a caller's narrower view may copy it
-            try:
-                results = run_tasks(tasks, snapshot, self.pipeline, self.judge,
-                                    concurrency=int(self.config["agent"]["concurrency"]), budget=self.budget,
-                                    part="evolver")
-            finally:
-                shutil.rmtree(snapshot, ignore_errors=True)
+            tasks = [self.data.tasks[t] for t in task_ids if t not in refused]
+            results: list[dict] = []
+            if tasks:
+                snapshot = (_snapshot or self._snapshot_adapter)(target)     # a caller's narrower view may copy it
+                try:
+                    results = run_tasks(tasks, snapshot, self.pipeline, self.judge,
+                                        concurrency=int(self.config["agent"]["concurrency"]), budget=self.budget,
+                                        part="evolver")
+                finally:
+                    shutil.rmtree(snapshot, ignore_errors=True)
+            # Each run under the id it was asked by: TaskData names a row by str(id), and the run's record keeps the
+            # row's own id (a number where tasks.jsonl gives one). run_tasks returns a run of each task, or raises (a
+            # budget reached: BudgetExceeded, and so does this whole call, with no results).
+            ran = {str(r["id"]): r for r in results}
             # A training task's run also names its log (the trajectory, when the pipeline keeps one), copied into the
             # run's agent_logs/ (shown read-only at /w/agent-logs); a run that failed says why; and a run whose
             # pipeline reports how its session ended (a CLI agent's exit code and timeout) says so.
             # Scrubbed of model keys: the agent held its own, and the learner's may be another provider's.
-            shown = [{k: r[k] for k in ("id", "status", "output", "judge", "cost_usd", "wall_s")}
-                     | ({"log": self._visible_log(r)} if r["id"] in allowed["train"] else {})
-                     | ({"error": r.get("error")} if r.get("status") == "error" else {})
-                     | {k: (r.get("pipeline_extra") or {})[k] for k in ("exit_code", "timed_out")
-                        if k in (r.get("pipeline_extra") or {})} for r in results]
-            return {"results": redact_value(shown)}
-        return FunctionTool("run_agent", "Run an adapter (default: your working copy) on training or validation "
-                            "tasks through the task's pipeline and judge; returns outputs and scores, and for "
-                            "training tasks the path of each run's log. Its cost counts toward the run's budget.",
+            out = []
+            for t in task_ids:
+                if t in refused:
+                    out.append(shown({"id": t, "status": "error", "error": refused[t], "output": None,
+                                      "judge": {"score": 0.0, "feedback": f"not run: {refused[t]}"},
+                                      "cost_usd": 0.0, "wall_s": 0.0}, self.policy))
+                    continue
+                r = shown(ran[t], self.policy)
+                out.append({k: r[k] for k in ("id", "status", "output", "judge", "cost_usd", "wall_s") if k in r}
+                           | ({"log": self._visible_log(r)} if t in train else {})
+                           | ({"error": r.get("error")} if r.get("status") in ("error", "infra") else {})
+                           | {k: (r.get("pipeline_extra") or {})[k] for k in ("exit_code", "timed_out")
+                              if k in (r.get("pipeline_extra") or {})})
+            return {"results": redact_value(out)}
+        which = ("this step's tasks, an earlier step's tasks or validation tasks" if stream
+                 else "training or validation tasks")
+        if self._steps_trained():
+            which += " (not a step of a multi-step training task)"
+        returns = {"full": "outputs and scores", "score": "outputs and each run's score (no feedback)",
+                   "none": "outputs (no score)"}[self.policy]
+        logs = "tasks of the stream" if stream else "training tasks"
+        return FunctionTool("run_agent", f"Run an adapter (default: your working copy) on {which} through the task's "
+                            f"pipeline and judge; returns {returns}, and for {logs} the path of each run's log. Its "
+                            "cost counts toward the run's budget.",
                             run_agent, source="run",
                             input_schema={"type": "object", "required": ["task_ids"], "additionalProperties": False,
                                           "properties": {"task_ids": {"type": "array", "items": {"type": "string"}},
@@ -562,7 +946,8 @@ class Trainer:
 
     def _visible_log(self, result: dict) -> str | None:
         """A run's log as the learner can open it: a copy (a file read once, never through a link; a directory through
-        the sanitized archive; scrubbed of model keys) in the run's agent_logs/, which the learner's sandbox shows read-only at /w/agent-logs. A host path: a server
+        the sanitized archive, less the verdict's files unless the feedback policy is full; scrubbed of model keys) in
+        the run's agent_logs/, which the learner's sandbox shows read-only at /w/agent-logs. A host path: a server
         that serves the tool to a sandboxed session names it as the sandbox shows it."""
         log = Path(result["log"]) if result.get("log") else None
         if log is None or not os.path.lexists(log):
@@ -571,6 +956,7 @@ class Trainer:
         try:
             if log.is_dir() and not log.is_symlink():
                 sanitized_copy(log.parent, place, [log.name])
+                hide_label_files(place / log.name, getattr(self, "policy", "full"))
             else:
                 # One file, read once (never through a link, only a regular file): a run of the same task going on
                 # beside this one may be rewriting it, which an archive's size check refuses.
@@ -741,10 +1127,15 @@ class Trainer:
         _copy_dir(self.ws.state, step_dir / "state")
         redact_tree(step_dir)                # the learner held its model's key
         (step_dir / "step_result.json").write_text(json.dumps(asdict(result), indent=1, default=str))
+        own = self._own_scores(result, chunk) if what != "bootstrap" else None
         record = {"step": n, "epoch": progress.epoch, "tasks": chunk, **({"bootstrap": True} if what == "bootstrap" else {}),
                   **(selection or {}), "epoch_end": progress.is_epoch_end, **self._request(progress, result),
-                  "rollout": {"mean_score": _mean([r["judge"]["score"] for r in results]),
-                              "scores": {r["id"]: r["judge"]["score"] for r in results},
+                  **({"own_scores": own} if own else {}),
+                  # infra rows (not the agent's result) in no mean: their score is null, and counted
+                  "rollout": {"mean_score": mean_score(results),
+                              "scores": {r["id"]: None if r["status"] == "infra" else r["judge"]["score"]
+                                         for r in results},
+                              "unscored": len(results) - len(scored(results)),
                               "cost_usd": _sum([r["cost_usd"] for r in results]),
                               "unknown_cost_tasks": sum(1 for r in results if r["cost_usd"] is None),
                               "wall_s": round(rollout_s, 1),
@@ -764,16 +1155,35 @@ class Trainer:
                  + (f"; repaired {len(repaired)} file(s)" if repaired else ""))
         return record
 
+    def _own_scores(self, result: StepResult, chunk: list[str]) -> dict | None:
+        """The Evolver's own scores of the step's tasks (Evolver.step_scores), for the step's tasks only: numbers, and
+        None for a row its protocol leaves unscored; None when it gives none (an error in it is a warning: the step is
+        recorded all the same)."""
+        try:
+            scores = self.evolver.step_scores(result)
+        except Exception as exc:                          # noqa: BLE001 - its own scores are an addition
+            self.warnings.append(f"the Evolver's step_scores raised {type(exc).__name__}: {exc}")
+            return None
+        if not isinstance(scores, dict):
+            return None
+        return {t: None if scores[t] is None else float(scores[t]) for t in chunk
+                if t in scores and (scores[t] is None or isinstance(scores[t], (int, float))
+                                    and not isinstance(scores[t], bool))} or None
+
     def _request(self, progress: Progress, result: StepResult) -> dict:
         """The Evolver's choice of the next step's tasks, checked as it is made: {"next_tasks": [...]} when accepted,
         {"next_tasks_refused": reason} when not, {} without one. Accepted are distinct task ids, at most
         data.step_size, of progress.remaining, or at an epoch's end (nothing remaining) of the training split, which
-        the next epoch runs again; and only from an Evolver that chooses_tasks."""
+        the next epoch runs again; of those, a step of a multi-step task only when each earlier step of its stream
+        has run in the epoch or comes before it in the request (_ahead: one the training split does not hold never
+        runs); and only from an Evolver that chooses_tasks."""
         wanted = result.next_tasks
         if wanted is None or (isinstance(wanted, (list, tuple)) and not wanted):
             return {}                         # no request: an empty list names nothing
         step_size = int(self.config.data["data"]["step_size"])
         allowed = progress.remaining or self.data.splits["train"]
+        # what ran in the epoch: the training split less what remains; at its end nothing (the next epoch runs all)
+        ran = set(self.data.splits["train"]) - set(progress.remaining) if progress.remaining else set()
         if not self.evolver.chooses_tasks:
             problem = "the Evolver does not choose tasks (set chooses_tasks = True on its class)"
         elif not isinstance(wanted, (list, tuple)) or not all(isinstance(t, str) for t in wanted):
@@ -784,6 +1194,11 @@ class Trainer:
             problem = f"{len(wanted)} tasks, more than data.step_size ({step_size})"
         elif any(t not in allowed for t in wanted):
             problem = f"not training tasks still to run: {[t for t in wanted if t not in allowed][:5]}"
+        elif ahead := _ahead(wanted, ran, self.data.tasks):
+            problem = ("a step of a multi-step task ahead of an earlier one still to run (a task's steps run in order, "
+                       "in its stream: name the earlier one first): "
+                       + ", ".join(f"{t} ahead of {e}" + ("" if e in allowed else " (not in the training split: it "
+                                                          "never runs)") for t, e in ahead[:5]))
         else:
             return {"next_tasks": list(wanted)}
         self.log(f"step {progress.step}: next_tasks refused, {problem}")
@@ -856,10 +1271,24 @@ class Trainer:
         final: FinalResult | None = box.get("value") if isinstance(box.get("value"), FinalResult) else None
         note = final.summary if final else f"finalize failed ({box.get('error') or stopped}); the last adapter is final"
         note = redact_value(note)            # the final commit, the card and summary.json keep it
-        if final and Path(final.adapter).resolve() != self.ws.adapter.resolve():
+        stream = self.config.mode == "stream"
+        if stream:
+            # A stream picks no final: the adapter its last step left is final; what finalize handed back instead, or
+            # changed in the working copy, is not kept (its summary is).
+            swapped = final is not None and Path(final.adapter).resolve() != self.ws.adapter.resolve()
+            _sanitize_in_place(self.ws.adapter)
+            Tree.sync(self.ws.adapter, self.checkout)
+            edited = self._dirty()
+            Tree.reset(self.checkout, head)
+            self.tree.export(head, self.ws.adapter, history=True)
+            if swapped or edited:
+                self.warnings.append("run.mode is stream: the final adapter is the one the stream's last step left; "
+                                     "the adapter finalize " + ("handed back" if swapped else "wrote") +
+                                     " was not kept")
+        elif final and Path(final.adapter).resolve() != self.ws.adapter.resolve():
             _copy_dir(Path(final.adapter), self.ws.adapter)
-        steps = [json.loads(l) for l in (self.run_dir / "steps.jsonl").read_text().splitlines() if l.strip()] \
-            if (self.run_dir / "steps.jsonl").exists() else []
+        steps = [json.loads(l) for l in (self.run_dir / "steps.jsonl").read_text().split("\n") if l.strip()] \
+            if (self.run_dir / "steps.jsonl").exists() else []          # "\n" alone ends a record (_completed_steps)
         self.material.truncate(steps[-1]["step"] if steps else 0)   # a step stopped midway is discarded
         llm = d.get("llm") if isinstance(d.get("llm"), dict) else {}
         for place in (self.ws.output, self.ws.state, self.ws.scratch,      # the learner's own files the run keeps,
@@ -867,13 +1296,18 @@ class Trainer:
                       *config_paths(self.config, "environment.write", d["environment"].get("write")),  # the agents'
                       *([Path(os.path.expanduser(str(llm["home"])))] if llm.get("home") else [])):   # llm.cli's home
             redact_path(Path(place).resolve())
-        if final:
+        if final and not stream:
             result = StepResult("done", f"finalize: {note}")
             self._commit_step(Progress(steps[-1]["epoch"] if steps else 0, steps[-1]["step"] if steps else 0, True),
                               result, head, label="finalize")
         report = None
         if steps and (self.run_dir / f"step_{steps[-1]['step']:04d}" / "output" / "report.md").exists():
             report = f"step_{steps[-1]['step']:04d}/output/report.md"
+        prequential = None
+        if stream:
+            prequential = stream_summary(steps, self._order(1), reason)
+            (self.run_dir / "stream_summary.json").write_text(json.dumps(prequential, indent=1))
+            prequential = {k: prequential[k] for k in STREAM_HEADLINE if k in prequential}
         self.tree.export(Tree.head(self.checkout), self.ws.adapter)
         text = card.render(template=self.template, run_name=self.run_name, parent=self.start_commit,
                            evolver=self.spec.name, task=str(d["task_info"] or d["data"]["tasks"]),
@@ -882,8 +1316,10 @@ class Trainer:
                            budget=self.budget.snapshot(), settings={
                                "sandbox": d["sandbox"], "environment": d["environment"],
                                "judge_mode": d["judge"].get("mode") or "host", "evolver_access": d["evolver_access"],
-                               "validation_given": bool(d["data"].get("val"))},
-                           warnings=self.warnings, summary=note, report=report)
+                               "validation_given": bool(d["data"].get("val")),
+                               "run": {"mode": self.config.mode, "feedback": self.config.feedback,
+                                       "shown": self.policy}},
+                           warnings=self.warnings, summary=note, report=report, stream=prequential)
         (self.ws.adapter / CARD).parent.mkdir(parents=True, exist_ok=True)
         (self.ws.adapter / CARD).write_text(text)
         redact_tree(self.ws.adapter)
@@ -896,8 +1332,13 @@ class Trainer:
                    "steps": sum(1 for s in steps if not s.get("bootstrap")),
                    "bootstrap": any(s.get("bootstrap") for s in steps), "spending": self.budget.snapshot(),
                    "checkpoints": self._tags(prefix=f"{self.run_name}/ckpt-"), "finalize": note,
-                   "warnings": self.warnings}
+                   "warnings": self.warnings, **({"stream": prequential} if prequential is not None else {})}
         (self.run_dir / "summary.json").write_text(json.dumps(summary, indent=1))
+        # Finished, the run never resumes: a Harbor agent (the pipeline is its bound run: hermit.isolate.agent_pipeline)
+        # kept its streams for a resume, and now stops those left unfinished as it is closed (HarborAgent.close).
+        owner = getattr(self.pipeline, "__self__", None)
+        if getattr(owner, "keep_streams", False):
+            owner.params["keep_streams"] = False
         self._close_sandboxes()
         return summary
 

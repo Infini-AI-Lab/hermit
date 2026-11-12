@@ -99,5 +99,21 @@ trainer:
   save_freq: {steps: null, epochs: 1}
   budget: {usd: null, tokens: null, hours: null}
   call_timeout_min: 60
+run:                           # how the run is done (hermit/config.py RUN_MODES)
+  mode: null                   # null: as before | eval: hermit eval only | split: train, then the test split on the
+                               # final adapter | stream: each row scored once, before it is learned from
+  feedback: null               # what the learner is shown of each verdict: full | score | none; null is full, and a
+                               # stream must name it
+  orders: null                 # stream: [seeds] (Hermit orders the train split, a task's #k rows kept together) or
+                               # [files] (each an order of its own); each order is a run of its own, <run_name>-o<i>
+  checkpoints: null            # stream: [{name, after: <task id> | end, split: <file>, adapters: [checkpoint | final |
+                               # root]}]: the commit after the step that ends with `after`, tested on `split`
+  checkpoints_during: false    # true: a checkpoint's test runs right after the step that reaches it (else after
+                               # training)
+  state: null                  # 'file.py:fn' (run_dir, step record, commit) -> environment overrides for a
+                               # checkpoint's test
+  score: null                  # 'file.py:fn' (records, name) -> the benchmark's own scores of a checkpoint's test
 eval:
   repeats: 1
+  infra_retries: 0             # rows that ended infra (not the agent's result) are run again up to this many times
+  infra_wait_s: 600            # ... this long after each pass

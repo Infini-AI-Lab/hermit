@@ -22,6 +22,9 @@ Settings (given once; `configured(...)` for a call's own):
                     login.PLAN or login.CLAUDE_PLAN)
   plan_max_wait_s   how long a session on a login waits for the plan before it is unavailable (default 12 h;
                     None: no limit)
+  plan_note         a dict the session on a login records its waits for the plan in, as it waits (login.wait:
+                    `waited`, why the plan held it back; `waiting`, the same while it waits): the caller's evidence of
+                    this session's own wait (a chat endpoint's call, hermit.agent.base.endpoint.cli_answer)
   deadline          a time (time.time()) past which no session starts and none runs on: the plan's waits and a
                     refused session's rerun come off its timeout (a caller stopped at that time: a container session's)
   effort            Codex's model_reasoning_effort
@@ -365,19 +368,47 @@ def last_message(backend: str, log: Path, last: Path | None = None) -> str:
     return _of(backend).last_message(log, last)
 
 
+def _last_text(last: Path | None) -> str | None:
+    """The text of the file a CLI wrote its last message to, as Path.read_text(errors="replace") reads it; None when
+    `last` is no regular file this process can open. It is opened at its own name and never through a link there
+    (O_NOFOLLOW), not checked first and then opened by its name: the session's processes may outlive it (a Harbor
+    stream's environment outlives its step) and write the file's folder, and a link put there after a check would read
+    a file of this machine into the reply."""
+    if last is None:
+        return None
+    try:
+        fd = os.open(last, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except OSError:                                 # none there, a link, or unreadable
+        return None
+    if not stat.S_ISREG(os.fstat(fd).st_mode):      # a pipe, a directory
+        os.close(fd)
+        return None
+    with open(fd, errors="replace") as f:           # as Path.read_text: the default encoding, universal newlines
+        return f.read()
+
+
 def _objects(raw: str):
-    """(the JSON objects of a stream, the lines that are none): a CLI's events, and its own messages beside them."""
+    """(the JSON objects of a stream, the lines that are none): a CLI's events, and its own messages beside them.
+    U+0085, U+2028 and U+2029 end no line: an event's strings may hold them unescaped (JSON need not escape them, and
+    serde_json and JSON.stringify do not), where str.splitlines() would end a line and read the event's pieces as the
+    CLI's own lines."""
     objects, other = [], []
-    for line in raw.splitlines():
+    for line in raw.split("\n"):
         try:
             event = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError):        # no JSON, or nested past the parser's depth
             event = None
         if isinstance(event, dict):
             objects.append(event)
         elif line.strip():
             other.append(line)
     return objects, other
+
+
+def _stream_events(log: Path | None, raw: str | None = None) -> list[dict]:
+    """A session's events: from its stream file, else (none given: a caller that has only the stream's text) from the
+    stream's text, `raw`."""
+    return events(log) if log is not None else _objects(raw or "")[0]
 
 
 def _last_result(objects: list[dict]) -> dict | None:
@@ -569,10 +600,10 @@ class CliAgent(BaseAgent):
 
     @classmethod
     def notices(cls, raw: str) -> str:
-        """What the CLI itself reported, apart from the session's own work: its lines that are no event (its stderr),
-        and its error events (`errors`). A message, a command's output or a file the session wrote is not among
-        them, so a session that read the words of an outage or of a usage limit (a log it grepped) is not taken for
-        one that met it."""
+        """What the CLI itself reported, apart from the session's own work: its lines that are no event (its stderr,
+        less what of it quotes the session's work: Codex's log of its tool calls, Codex.notices), and its error events
+        (`errors`). A message, a command's output or a file the session wrote is not among them, so a session that
+        read the words of an outage or of a usage limit (a log it grepped) is not taken for one that met it."""
         objects, other = _objects(raw)
         found = list(other)
         for e in objects:
@@ -585,8 +616,9 @@ class CliAgent(BaseAgent):
         return []
 
     @classmethod
-    def last_message(cls, log: Path, last: Path | None = None) -> str:
-        """The session's last message, from its stream (or the file `last` the CLI wrote it to)."""
+    def last_message(cls, log: Path | None, last: Path | None = None, *, raw: str | None = None) -> str:
+        """The session's last message, from its stream (or the file `last` the CLI wrote it to); with no stream file
+        (`log` None), from the stream's text, `raw` (_stream_events)."""
         raise NotImplementedError
 
     @classmethod
@@ -701,10 +733,13 @@ class CliAgent(BaseAgent):
         """The prompt as the CLI is to read it."""
         return prompt
 
-    def outcome(self, raw: str, stream: Path, last_file: Path) -> dict:
+    def outcome(self, raw: str, stream: Path | None, last_file: Path | None) -> dict:
         """What the session's stream says: `reply`, `served`, `unavailable` (a provider that could not serve), `refused`
         (the plan's limit), and for what stops short of that `failed`, `failure` (why) and the rest of Result.extra;
-        `started` for a CLI that writes an event before it has a session (absent: it started once it wrote one)."""
+        `started` for a CLI that writes an event before it has a session (absent: it started once it wrote one).
+        `raw` is the stream's text; `stream` its file (a Harbor trial's runner gives the copy it read the container's
+        stream into), or None for a caller that has only the text; a missing file, or no text, has no events;
+        `last_file` the CLI's last-message file, if any."""
         raise NotImplementedError
 
     # ---------- the home ----------
@@ -745,9 +780,14 @@ class CliAgent(BaseAgent):
         return Binding.from_spec(self.settings["binding"]).key_env_if_set()
 
     # ---------- one call ----------
+    def check_settings(self) -> None:
+        """What every session on these settings would refuse (Unsupported), refused before one starts: by `run`, and
+        by a Harbor trial's launch plan, which is rendered without it (hermit.harbor.launch). None here."""
+
     def run(self, prompt, *, workspace=None, tools: Sequence[Tool] = (), limits: Limits | None = None,
             session: Any = None, roles: Sequence[dict] = ()) -> Result:
-        """One session. On a login it first waits while the plan holds sessions back, runs in one of the machine's
+        """One session. On a login it first waits while the plan holds sessions back (and again when the plan held
+        it once it had a slot; each wait recorded in the `plan_note` setting, when given), runs in one of the machine's
         session slots, and is run again when the plan refused it (hermit.agent.base.login's plan)."""
         s = self.settings
         login = s.get("login")
@@ -770,7 +810,7 @@ class CliAgent(BaseAgent):
         while True:
             credits = codex_login.opted_in(s.get("usage_credits"))
             waited = codex_login.wait(plan, cancel, say, None if deadline is None else max(0.0, deadline - time.time()),
-                                      credits)
+                                      credits, **({"note": s["plan_note"]} if s.get("plan_note") is not None else {}))
             if waited:
                 return self._not_run(waited, max_s)
             with codex_login.slot(plan, cancel, say, deadline) as got:
@@ -1022,7 +1062,7 @@ class CliAgent(BaseAgent):
         return Result(reply=said.pop("reply"), finish_reason=said.pop("finish_reason", None), trajectory=steps,
                       usage=usage, session=handle, exit_code=code, timed_out=timed_out, log=stream,
                       extra={"failed": False, "login_failed": False, "rejected": False, **said,
-                             "started": any(line.lstrip().startswith("{") for line in raw.splitlines())
+                             "started": any(line.lstrip().startswith("{") for line in raw.split("\n"))
                              if began is None else bool(began),
                              "cancelled": cancelled, "isolation": isolation, "wall_s": round(wall_s, 1),
                              "mounts": placed, "output_tail": raw[-2000:]})
@@ -1035,6 +1075,35 @@ class CliAgent(BaseAgent):
         """This agent for a call that takes `system` as its instructions, where the CLI takes them (system_settings)."""
         settings, prompt = self.system_settings(system, prompt)
         return self.configured(**settings), prompt
+
+
+# Codex's report of a sign-in or a key the provider refused, which no wait restores (the wording of Harbor's
+# AgentAuthenticationError, harbor/agents/installed/base.py ERROR_PATTERNS), matched as Codex writes it: another
+# program's lowercase "not logged in" on Codex's stderr is not the session's sign-in; never in a recovery notice
+# (CODEX_RECOVERY), which Codex goes on from (one that lasts ends in the turn's failure or a last error, which count)
+CODEX_AUTH = re.compile(r"Not logged in|\binvalid_api_key\b|Invalid API key\b|API key is invalid\b|"
+                        r"Incorrect API key provided\b|unexpected status 401 Unauthorized\b|"
+                        r"Invalid proxy server token passed|\btoken_not_found_in_db\b")
+# ... and a 403, only in the error a turn failed with (`turn.failed`, as Harbor's pattern takes it): Codex's reconnect
+# notices of a 403 ("Reconnecting... unexpected status 403") are common, and recovered from
+CODEX_FORBIDDEN = re.compile(r"unexpected status 403\b")
+# Codex's notices of an error it recovers from, the session going on: its retry ("Reconnecting... 2/5 (unexpected
+# status 401 Unauthorized: ...)") and its fall back from a WebSocket the provider refused to HTTPS (an `error` item:
+# "Falling back from WebSockets to HTTPS transport. unexpected status 403 Forbidden: ...")
+CODEX_RECOVERY = re.compile(r"\s*(?:Reconnecting\.\.\.|Falling back from WebSockets to HTTPS transport\b)")
+# A record of Codex's own log on its stderr ("<time> <LEVEL> <target>: <message>", its target in group 1), whose
+# target is a Rust path (codex_core::tools::router, rmcp::transport::worker), after the spans the record was logged in
+# where their level is on (RUST_LOG=codex_core=info: "<time> ERROR session_loop{thread_id=...}:turn{...}: <target>:",
+# each span a name, dots allowed, with its {fields} or none, then ":", and a space after the last): a line of that
+# shape whose target is no Rust path starts none (a log file's line a patch quotes, "<time> ERROR auth: ..."; Codex's
+# INFO records under another name, feedback_tags or codex_otel.log_only, start none too); and the targets of its
+# records of the session's tool calls (codex_core::tools), which quote the model's text: a command it refused
+# ("error=exec_command failed: CreateProcess { message: \"Rejected(...<the command>...") or a patch whose lines it did
+# not find ("error=apply_patch verification failed: Failed to find expected lines in <file>:", then those lines, each
+# on a line of its own that starts no record)
+CODEX_RECORD = re.compile(r"\d{4}-\d\d-\d\dT\S+\s+(?:TRACE|DEBUG|INFO|WARN|ERROR)\s+"
+                          r"(?:(?:[\w.]+(?:\{[^}]*\})?:)+\s+)?(\w+(?:::\w+)+)[{:]")
+CODEX_TOOLS = re.compile(r"codex_core::tools(?:::|$)")
 
 
 class Codex(CliAgent):
@@ -1076,11 +1145,52 @@ class Codex(CliAgent):
         return []
 
     @classmethod
-    def last_message(cls, log, last=None):
-        """Codex's `-o` file (never read through a link the session left), else the last message in its stream."""
-        if last is not None and not last.is_symlink() and last.is_file() and last.read_text(errors="replace").strip():
-            return last.read_text(errors="replace")
-        replies = [s.text for s in codex_steps(events(log)) if s.kind == "message"]
+    def lines(cls, raw: str):
+        """The stream's events and Codex's own lines (its stderr) in their order, as (the event or None, the line),
+        less the lines that are the session's own work: a record of Codex's log of one of the session's tool calls
+        (CODEX_TOOLS) and every line that continues a record (one that starts no record and follows one before the
+        next event: the text the record quoted). A line that starts no record and follows none (codex exec's own
+        error, docker's) and Codex's other records (of its own work: a request that failed, a skill it could not
+        load) are kept. U+0085, U+2028 and U+2029 end no line (_objects)."""
+        record = None                                   # the target of the record since the last event, if any
+        for line in raw.split("\n"):
+            try:
+                event = json.loads(line)
+            except (ValueError, RecursionError):        # no JSON, or nested past the parser's depth
+                event = None
+            if isinstance(event, dict):
+                record = None
+                yield event, line
+                continue
+            if not line.strip():
+                continue
+            started = CODEX_RECORD.match(line)
+            if started is None and record is not None:  # what a record quoted
+                continue
+            if started is not None:
+                record = started.group(1)
+            if not CODEX_TOOLS.match(record or ""):
+                yield None, line
+
+    @classmethod
+    def notices(cls, raw):
+        """CliAgent.notices, less what Codex's log quotes of the session's own work (`lines`)."""
+        other, errors = [], []
+        for event, line in cls.lines(raw):
+            if event is None:
+                other.append(line)
+            else:
+                errors += cls.errors(event)
+        return "\n".join(other + errors)
+
+    @classmethod
+    def last_message(cls, log, last=None, *, raw=None):
+        """Codex's `-o` file (never read through a link the session left, _last_text), else the last message in its
+        stream."""
+        text = _last_text(last)
+        if text is not None and text.strip():
+            return text
+        replies = [s.text for s in codex_steps(_stream_events(log, raw)) if s.kind == "message"]
         return replies[-1] if replies else ""
 
     @classmethod
@@ -1109,10 +1219,31 @@ class Codex(CliAgent):
                 *(["resume", str(session)] if session else []), *(["-"] if s.get("stdin") else [prompt])]
 
     def outcome(self, raw, stream, last_file):
+        """From the CLI's own notices (its error events and lines, never a command's output nor what its log quotes
+        of the session's work, `lines`): a provider that could not serve (`unavailable`: UNAVAILABLE in the session's
+        last failure, the error the turn failed with, else its last error or line, never a notice it recovered from,
+        CODEX_RECOVERY; in any line of a stream with no event, where no session began: a container that could not
+        start, whose `docker run` ends its error with a help line), the plan's limit, and a sign-in or a key the
+        provider refused (`login_failed`: CODEX_AUTH in a notice that is no recovery notice, CODEX_FORBIDDEN in the
+        error the turn failed with), for a turn that did not complete."""
         notes, done = self.notices(raw), self.served(raw)
-        return {"reply": self.last_message(stream, last_file), "served": done,
-                "unavailable": bool(UNAVAILABLE.search(notes)), "refused": codex_login.refused(notes) and not done,
-                "failure": notes[-600:]}
+        # the CLI's notices in the stream's order, none it recovered from; the errors its turn failed with; and
+        # whether any event came (a session began)
+        lasting, failed, began = [], [], False
+        for event, line in self.lines(raw):
+            if event is None:                           # a line of its own (its stderr)
+                lasting.append(line)
+                continue
+            began = True
+            said = [m for m in self.errors(event) if m.strip()]
+            if event.get("type") == "turn.failed":
+                failed += said
+            lasting += [m for m in said if not CODEX_RECOVERY.match(m)]
+        last = failed[-1] if failed else "\n".join(lasting[-1:] if began else lasting)
+        lost = bool(CODEX_AUTH.search("\n".join(lasting)) or CODEX_FORBIDDEN.search("\n".join(failed)))
+        return {"reply": self.last_message(stream, last_file, raw=raw), "served": done,
+                "unavailable": bool(UNAVAILABLE.search(last)), "refused": codex_login.refused(notes) and not done,
+                "login_failed": lost and not done, "failure": notes[-600:]}
 
 
 class Claude(CliAgent):
@@ -1149,10 +1280,10 @@ class Claude(CliAgent):
         return []
 
     @classmethod
-    def last_message(cls, log, last=None):
+    def last_message(cls, log, last=None, *, raw=None):
         """The text of its last `result`."""
         text = ""
-        for event in events(log):
+        for event in _stream_events(log, raw):
             if event.get("type") == "result" and isinstance(event.get("result"), str):
                 text = event["result"]
         return text
@@ -1527,7 +1658,7 @@ class Pi(CliAgent):
             unavailable = not refusal and any(e.get("type") == "auto_retry_end" and not e.get("success")
                                               for e in _objects(raw)[0])
         rejected = not done and (refusal or code is not None and 400 <= code < 500 and code not in (408, 409, 429))
-        return {"reply": self.last_message(stream, last_file), "served": done, "unavailable": unavailable,
+        return {"reply": self.last_message(stream, last_file, raw=raw), "served": done, "unavailable": unavailable,
                 "refused": False, "rejected": rejected, "model_refusal": refusal, "failed": not done or cut,
                 "finish_reason": "length" if cut else ("stop" if done else None),
                 "failure": (notes or ("the reply was cut at its output limit" if cut else "the session did not settle")
@@ -1542,10 +1673,10 @@ class Pi(CliAgent):
         return usage
 
     @classmethod
-    def last_message(cls, log, last=None):
+    def last_message(cls, log, last=None, *, raw=None):
         """The text of the last assistant message."""
         text = ""
-        for event in events(log):
+        for event in _stream_events(log, raw):
             message = event.get("message") if isinstance(event.get("message"), dict) else {}
             if event.get("type") == "message_end" and message.get("role") == "assistant":
                 content = message.get("content")
@@ -1661,6 +1792,10 @@ class MiniSweAgent(CliAgent):
             raise Unsupported("mini-swe-agent cannot resume a session")
         if roles:
             raise Unsupported("mini-swe-agent has no sub-agents: it takes no roles")
+        self.check_settings()
+        return super().run(prompt, workspace=workspace, tools=tools, limits=limits, session=session, roles=roles)
+
+    def check_settings(self) -> None:
         if self.settings.get("login"):
             raise Unsupported("mini-swe-agent has no login: give a <backend>/<model> reference or a litellm model")
         if self.settings.get("web_search"):
@@ -1678,7 +1813,6 @@ class MiniSweAgent(CliAgent):
             raise Unsupported(f"mini-swe-agent's model_class {model_class!r}: Hermit reads "
                               f"{' and '.join(self.binding_classes)} only; another provider's model goes through "
                               "litellm (openrouter/<model>, ...)")
-        return super().run(prompt, workspace=workspace, tools=tools, limits=limits, session=session, roles=roles)
 
     def prepare_home(self, home, roles, tools_url, tools_name):
         """The task's settings for the runner, in its home: no key (the runner reads the key's variable), of `env`
@@ -1738,18 +1872,19 @@ class MiniSweAgent(CliAgent):
         objects = _objects(raw)[0]
         ended = any(e.get("type") == "message" and (e.get("message") or {}).get("role") == "exit" for e in objects)
         broke = any(e.get("type") == "error" for e in objects) or (bool(objects) and not ended)
-        return {"reply": self.last_message(stream, last_file), "served": done,
+        return {"reply": self.last_message(stream, last_file, raw=raw), "served": done,
                 "unavailable": bool(UNAVAILABLE.search(notes)), "refused": False, "failed": broke,
                 "failure": notes[-600:]}
 
     @classmethod
-    def last_message(cls, log, last=None):
-        """The runner's last-message file (never read through a link the session left): the submission, else the
-        last assistant message; else the same from the stream."""
-        if last is not None and _regular(last):
-            return last.read_text(errors="replace")
+    def last_message(cls, log, last=None, *, raw=None):
+        """The runner's last-message file (never read through a link the session left, _last_text): the submission,
+        else the last assistant message; else the same from the stream."""
+        text = _last_text(last)
+        if text is not None:
+            return text
         reply = ""
-        for event in events(log):
+        for event in _stream_events(log, raw):
             message = event.get("message") or {}
             if event.get("type") != "message":
                 continue
@@ -1907,7 +2042,8 @@ class OpenCode(CliAgent):
 
     def outcome(self, raw, stream, last_file):
         """From OpenCode's own error event: its `type` (provider.rate-limit, provider.internal, provider.transport,
-        provider.timeout: a provider that could not serve) and the HTTP status, never its wording."""
+        provider.timeout: a provider that could not serve) and the HTTP status, never its wording. The failure names
+        that status after the error's type and message ("... (HTTP 401)"), which may not name it."""
         objects = _objects(raw)[0]
         notes, done = self.notices(raw), self.served(raw)
         error = next((e["error"] for e in reversed(objects)
@@ -1916,12 +2052,14 @@ class OpenCode(CliAgent):
         status = status if isinstance(status, int) else None
         busy = not done and (kind in OPENCODE_OUTAGES or status == 429 or (status or 0) >= 500)
         cut = self._finish(objects) == "length"
-        return {"reply": self.last_message(stream, last_file), "served": done, "unavailable": busy,
+        failure = notes or ("the reply was cut at its output limit" if cut else "the session ended without an answer")
+        if status is not None:
+            failure += f" (HTTP {status})"
+        return {"reply": self.last_message(stream, last_file, raw=raw), "served": done, "unavailable": busy,
                 "refused": False, "failed": not done,
                 "rejected": not done and not busy and (kind in OPENCODE_REJECTED or status in (400, 401, 403, 404)),
                 "finish_reason": "stop" if done else ("length" if cut else None),
-                "failure": "" if done else (notes or ("the reply was cut at its output limit" if cut else
-                                                      "the session ended without an answer"))[-600:]}
+                "failure": "" if done else failure[-600:]}
 
     def adjust_usage(self, home, handle, usage, resumed):
         """With what the stream leaves out: the model calls of OpenCode's compactions (and of the summaries it writes
@@ -1946,10 +2084,10 @@ class OpenCode(CliAgent):
         return usage
 
     @classmethod
-    def last_message(cls, log, last=None):
+    def last_message(cls, log, last=None, *, raw=None):
         """The text of the last message that has any."""
         texts, current = [], None
-        for event in events(log):
+        for event in _stream_events(log, raw):
             if event.get("type") == "text":
                 part = _part(event)
                 if part.get("messageID") != current:
@@ -2243,9 +2381,9 @@ class Dsh(CliAgent):
             hint = ("; the backend declares no context_window, so dsh sized the model by its own catalog or, for a "
                     "model it does not know, as 1,000,000 tokens with 128,000 output tokens a request, which a smaller "
                     "server refuses: declare the backend's context_window")
-            said = next(line for line in notes.splitlines() if "CONTEXT_WINDOW_EXCEEDED" in line)
+            said = next(line for line in notes.split("\n") if "CONTEXT_WINDOW_EXCEEDED" in line)
             failure = said[:600 - len(hint)] + hint
-        return {"reply": self.last_message(stream, last_file), "served": done,
+        return {"reply": self.last_message(stream, last_file, raw=raw), "served": done,
                 "unavailable": self.outage(raw), "refused": False, "failed": not done or bool(down),
                 "failure": failure[-600:], "started": any(e.get("type") == "session" for e in _objects(raw)[0])}
 
@@ -2266,10 +2404,10 @@ class Dsh(CliAgent):
         return []
 
     @classmethod
-    def last_message(cls, log, last=None):
+    def last_message(cls, log, last=None, *, raw=None):
         """The `final` event's answer (dsh's last assistant text, never cut)."""
         text = ""
-        for event in events(log):
+        for event in _stream_events(log, raw):
             if event.get("type") == "final" and isinstance(event.get("text"), str):
                 text = event["text"]
         return text
@@ -2349,7 +2487,7 @@ def _this_call(home: Path, handle: str, reported, resumed: bool,
     try:
         before = json.loads(ledger.read_text()) if resumed and _regular(ledger) else {}
         before = {f: int(before.get(f, 0)) for f in fields} if isinstance(before, dict) else {}
-    except (OSError, ValueError, TypeError, OverflowError):     # OverflowError: a total of 1e1000
+    except (OSError, ValueError, TypeError, OverflowError, RecursionError):   # a total of 1e1000; nested too deep
         before = {}
     if any(before.get(f, 0) > getattr(reported, f) or before.get(f, 0) < 0 for f in fields):
         before = {}                                 # no earlier total of this thread: the session wrote it

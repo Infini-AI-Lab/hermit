@@ -68,19 +68,21 @@ class ChatClient:
     def from_spec(cls, spec: dict, **kwargs) -> "ChatClient":
         """A client from a model spec: a resolved backend reference (see hermit.agent.model.backends) or the older
         {base_url, model, api_key_env, price, extra_body, timeout} mapping. A key that is optional for the backend
-        and not set sends no Authorization header."""
+        and not set sends no Authorization header. `count_error_usage` (the spec of an endpoint over a CLI,
+        hermit.agent.base.endpoint.endpoint_spec) counts what a failed call's error reply says it used."""
         if not isinstance(spec, dict) or not spec.get("base_url") or not spec.get("model"):
             raise ValueError("a model spec needs base_url and model (a `<backend>/<model>` reference resolves to one)")
         key_env = spec.get("api_key_env")
         if key_env and not spec.get("key_required", True) and not os.environ.get(key_env):
             key_env = None
         kwargs.setdefault("timeout", float(spec.get("timeout", 600)))
+        kwargs.setdefault("count_error_usage", bool(spec.get("count_error_usage")))
         return cls(spec["base_url"], spec["model"], api_key_env=key_env, price=spec.get("price"),
                    extra_body=spec.get("extra_body"), **kwargs)
 
     def __init__(self, base_url: str, model: str, *, api_key_env: str | None = None, price: dict | None = None,
                  timeout: float | None = 600, max_retries: int = 4, extra_body: dict | None = None,
-                 retry_wait: float = 2.0, retry_wait_max: float | None = None):
+                 retry_wait: float = 2.0, retry_wait_max: float | None = None, count_error_usage: bool = False):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.extra_body = dict(extra_body or {})     # sent with every request, e.g. {"reasoning_effort": "medium"}
@@ -89,6 +91,10 @@ class ChatClient:
         self.timeout = timeout
         self.max_retries = max_retries
         self.retry_wait, self.retry_wait_max = retry_wait, retry_wait_max   # the first wait, doubled up to the cap
+        # An error reply that says what it used (Hermit's endpoint over a CLI: a failed session's tokens,
+        # endpoint._no_reply) is counted in `total`, each failed attempt's, a retried one's too; an error reply that
+        # reports no token is not counted, as before
+        self.count_error_usage = count_error_usage
         self._lock = threading.Lock()
         self.total = Usage(model=model, cost_usd=0.0 if price else None)
 
@@ -104,7 +110,8 @@ class ChatClient:
         request fields: `extra_headers` (sent as they are; an Authorization among them replaces the key),
         `return_response` (the whole response body is put in the message as `_response`) and `abort` (a
         threading.Event: once set, the call in flight is given up, its connection closed, and ChatAborted raised).
-        An error status the endpoint gave last raises ChatHTTPError; no answer at all, RuntimeError."""
+        An error status the endpoint gave last raises ChatHTTPError; no answer at all, RuntimeError. With
+        `count_error_usage`, what each error reply says it used is in `total` (never in a returned usage)."""
         extra_headers = dict(kwargs.pop("extra_headers", None) or {})
         return_response = bool(kwargs.pop("return_response", False))
         abort = kwargs.pop("abort", None)
@@ -136,6 +143,9 @@ class ChatClient:
                 retriable = exc.code in (408, 409, 429, 500, 502, 503, 504) and \
                     str((exc.headers or {}).get("x-should-retry") or "").lower() != "false"   # the server says no
                 body = exc.read()
+                spent = _error_usage(body) if self.count_error_usage else None
+                if spent is not None:
+                    self._count(*spent)
                 if not retriable or attempt == self.max_retries:
                     raise ChatHTTPError(exc.code, body, dict(exc.headers or {})) from None
             except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException, OSError) as exc:
@@ -154,18 +164,46 @@ class ChatClient:
         prompt = int(u.get("prompt_tokens", 0))
         cached = int((u.get("prompt_tokens_details") or {}).get("cached_tokens", 0) or 0)
         completion = int(u.get("completion_tokens", 0))
-        usage = Usage(self.model, prompt, cached, completion, 1, self.cost(prompt, cached, completion))
-        with self._lock:
-            t = self.total
-            t.input_tokens += prompt; t.cached_input_tokens += cached; t.output_tokens += completion; t.calls += 1
-            if t.cost_usd is not None and usage.cost_usd is not None:
-                t.cost_usd += usage.cost_usd
+        usage = self._count(prompt, cached, completion)
         choice = (payload.get("choices") or [{}])[0]
         message = dict(choice.get("message") or {})
         message["finish_reason"] = choice.get("finish_reason")
         if return_response:
             message["_response"] = payload
         return message, usage
+
+    def _count(self, prompt: int, cached: int, completion: int) -> Usage:
+        """One call's usage, added to `total`."""
+        usage = Usage(self.model, prompt, cached, completion, 1, self.cost(prompt, cached, completion))
+        with self._lock:
+            t = self.total
+            t.input_tokens += prompt; t.cached_input_tokens += cached; t.output_tokens += completion; t.calls += 1
+            if t.cost_usd is not None and usage.cost_usd is not None:
+                t.cost_usd += usage.cost_usd
+        return usage
+
+
+def _error_usage(body: bytes) -> tuple[int, int, int] | None:
+    """(prompt, cached, completion) tokens an error reply's `usage` reports (Hermit's endpoint over a CLI gives a
+    failed session's, endpoint._no_reply), or None when it reports none: no JSON object, no usage object, a count that
+    is no number, or no token at all."""
+    try:
+        payload = json.loads(body)
+    except (ValueError, TypeError, RecursionError):      # no JSON (or not UTF-8), or nested past the parser's depth
+        return None
+    u = payload.get("usage") if isinstance(payload, dict) else None
+    if not isinstance(u, dict):
+        return None
+    details = u.get("prompt_tokens_details")
+    try:
+        prompt, completion = int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
+        cached = int(details.get("cached_tokens") or 0) if isinstance(details, dict) else 0
+    except (TypeError, ValueError, OverflowError):
+        return None
+    prompt, completion = max(prompt, 0), max(completion, 0)
+    if not prompt and not completion:
+        return None
+    return prompt, min(max(cached, 0), prompt), completion
 
 
 def _abort_watcher(abort, sockets: list):

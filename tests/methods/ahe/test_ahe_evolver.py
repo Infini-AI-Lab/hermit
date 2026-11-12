@@ -429,6 +429,16 @@ def test_the_setup_refuses_another_base_agent_and_an_unset_web_search(tmp_path):
                 log=lambda *_: None).train()
 
 
+def test_a_feedback_below_full_is_refused_as_the_analysis_reads_the_verifiers_output_and_the_trials_status(tmp_path):
+    """The Debugger reads the judge's feedback (the verifier's output) and the trial's status fields (an agent_error
+    trial is an exception, not a fail), which run.feedback: score does not show: hermit train refuses it before
+    anything runs."""
+    with pytest.raises(SystemExit, match=r"run.feedback is score, below what the Evolver ahe_adapter reads \(its "
+                                         r"min_feedback full\): set run.feedback to full"):
+        Trainer(Config.load(_task(tmp_path), ["trainer.epochs=1", "run.feedback=score"]), log=lambda *_: None).train()
+    assert not (tmp_path / "runs").exists()
+
+
 def test_the_evolve_prompt_is_start_md_and_the_query():
     """The evolve prompt reaches Codex on stdin: START.md and the query in one file, however long."""
     import tempfile

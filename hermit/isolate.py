@@ -215,11 +215,51 @@ def validate(config) -> None:
     check_declared(config)
 
 
+HARBOR_JOBS_DIR = "~/.cache/hermit/harbor/jobs"           # hermit.harbor.runner.JOBS_DIR, its default jobs_dir
+
+
+def _harbor_dirs(config) -> list[Path]:
+    """A Harbor task set's directories (`agent.name: harbor`): `tasks_dir`, whose tasks hold their tests and
+    solutions, and `jobs_dir`, where every trial's raw verifier output stays. Resolved as hermit.harbor.runner
+    resolves them (HarborAgent._path, jobs_dir): tasks_dir against the folder of agent.params.benchmark when one is
+    named (its keys under the config's), else the config's; jobs_dir as given (~ expanded), by default
+    HARBOR_JOBS_DIR."""
+    import yaml
+    d = config.data
+    if str(d["agent"].get("name")) != "harbor":
+        return []
+    params, base = dict(d["agent"].get("params") or {}), config.base
+    if params.get("benchmark"):
+        bench = Path(str(params["benchmark"])).expanduser()
+        bench = bench if bench.is_absolute() else (config.base / bench).resolve()
+        try:
+            shared = yaml.safe_load(bench.read_text()) or {}
+        except (OSError, yaml.YAMLError):             # the runner refuses it when it starts; nothing more to hide here
+            shared = {}
+        params = {**(shared if isinstance(shared, dict) else {}), **params}
+        base = bench.parent
+    out = []
+    if params.get("tasks_dir"):
+        tasks = Path(os.path.expandvars(str(params["tasks_dir"]))).expanduser()
+        out.append(tasks if tasks.is_absolute() else (base / tasks).resolve())
+    out.append(Path(os.path.expanduser(str(params.get("jobs_dir") or HARBOR_JOBS_DIR))).resolve())
+    return out
+
+
 def _secrets(config) -> tuple[list[Path], Path | None]:
-    """(what no declared path may overlap: the data and split files, the judge and its tests, this run's directory and
-    the tree; the runs directory, which a declared path may lie inside but neither be nor hold)."""
+    """(what no declared path may overlap: the data and split files (the run's order files and checkpoint splits
+    too), the judge and its tests, a checkpoint's scorer (run.score), a Harbor task set's tasks and jobs directories,
+    this run's directory and the tree; the runs directory, which a declared path may lie inside but neither be nor
+    hold)."""
     d = config.data
     out = [config.path(d["data"].get(k)) for k in ("tasks", "train", "val", "test")]
+    run = d.get("run") or {}
+    out += [config.path(o) for o in run.get("orders") or [] if isinstance(o, str)]
+    out += [config.path(c.get("split")) for c in run.get("checkpoints") or [] if isinstance(c, dict)
+            and isinstance(c.get("split"), str)]
+    if isinstance(run.get("score"), str) and run["score"].partition(":")[0].endswith(".py"):
+        out.append(config.path(run["score"].partition(":")[0]))
+    out += _harbor_dirs(config)
     judge = d.get("judge") or {}
     if judge.get("path") and str(judge["path"]).partition(":")[0].endswith(".py"):
         out.append(config.path(judge["path"]))
@@ -228,10 +268,16 @@ def _secrets(config) -> tuple[list[Path], Path | None]:
     try:
         out.append(config.run_dir())
         runs = config.run_dir().parent
-        from hermit.adapter.manifest import read_manifest
-        out.append(config.tree_dir(read_manifest(config.template_dir())["template"]["id"]))
-    except Exception:                                    # a config without a template still guards the rest
+    except Exception:
         pass
+    if (d.get("trainer") or {}).get("tree_dir"):         # an eval config's tree, with no template to find it by
+        out.append(config.path(d["trainer"]["tree_dir"]))
+    else:
+        try:
+            from hermit.adapter.manifest import read_manifest
+            out.append(config.tree_dir(read_manifest(config.template_dir())["template"]["id"]))
+        except Exception:                                # a config without a template still guards the rest
+            pass
     keep = lambda p: p is not None and "$" not in str(p)
     return [p for p in out if keep(p)], runs if keep(runs) else None
 
@@ -694,13 +740,27 @@ def cli_sandbox(spec: dict, *, records: Path | None = None, enabled: bool = True
     return box, proxy
 
 
-def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path | None = None):
+def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path | None = None,
+                   deploys_adapters: bool = True):
     """(pipeline, close): the agent in the task sandbox; in its own container from a worker on the host
     (`environment.image`); or in this process when the pipeline runs on the host (`host_pipeline`: the sandbox off,
     a Harbor task set, `environment.runner: host`). An agent whose model only a CLI reaches (`agent.params.model:
     {cli: ...}`) gets it as a model endpoint started here, each request one session in a sandbox of its own built as
     the Trainer builds the llm's (cli_sandbox, role agent-model); the pipeline sees a URL and an ordinary model spec,
-    which is never written to the config."""
+    which is never written to the config (a Harbor task set's agent is told the CLI too, `model_cli`: its sessions take
+    text only, which its startup check reads; and the login they run on, `model_login`, `model_plan_dir` and
+    `model_usage_credits`: its trials wait for that plan before they start). A Harbor task set's agent gets what its
+    multi-step tasks' streams are named for (`run_identity`), never in the config either: the Trainer's pipeline (role
+    rollout) its record directory, by its resolved path and its inode (made if absent), so that a resumed run (the same
+    directory) meets its own streams and a run started over (trainer.resume_mode: disable makes another directory at
+    the same path) gets new ones; any other pipeline, which never resumes (hermit eval's, a checkpoint test's, hermit
+    check's probe), one of its own; and whether the pipeline deploys adapters (`deploys_adapters`: false for hermit
+    eval --adapter none, whose trials deploy none, so that its startup check needs nothing only a deployment reads).
+    That agent is told, too, whether its streams are kept for a resume (`keep_streams`: the Trainer's
+    pipeline's only, until the run finishes: Trainer._finish turns it off before closing the pipeline), and is closed
+    with the pipeline (HarborAgent.close): any other pipeline's close stops the drivers of its streams that did not
+    finish, which it never meets again. `hermit check`'s (role check) takes no trial from the trial cache, nor keeps
+    one: its probe is there to run the agent."""
     d = config.data
     set_hidden(hidden_paths(d["sandbox"].get("hide") or []))    # eval and check too: what only the judge may read
     params = dict(d["agent"].get("params") or {})
@@ -726,9 +786,36 @@ def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path |
             return ContainerAgent(config, role, params, work_root=work_root), stop
         if host_pipeline(config):
             from hermit.agent.acting.agent import load_agent
+            harbor = str(d["agent"]["name"]) == "harbor"
             if endpoint is not None:
+                if harbor:                                   # the CLI each request is a session of (its startup check),
+                    model = params["model"]                  # and the login whose plan those sessions wait for
+                    params["model_cli"] = str(model["cli"])
+                    params.update({f"model_{k}": model[k] for k in ("login", "plan_dir", "usage_credits")
+                                   if model.get(k) is not None})
                 params["model"] = endpoint_spec(endpoint, params["model"])
-            return load_agent(d["agent"]["name"], params, config.base).run, stop
+            if harbor:                                       # hermit.harbor.runner's stream names, and their drivers
+                resumes = role == "rollout" and records is not None
+                if resumes:
+                    where = Path(records).resolve()
+                    where.mkdir(parents=True, exist_ok=True)
+                    params["run_identity"] = f"{where}:{where.stat().st_ino}"
+                else:
+                    params["run_identity"] = uuid.uuid4().hex
+                params["keep_streams"] = resumes
+                params["deploys_adapters"] = bool(deploys_adapters)     # no adapter: nothing only a deployment reads
+                if role == "check":                          # hermit check's probe runs the agent: no trial cached
+                    params["trial_cache"] = False            # (a revoked sign-in or a broken Docker stays unnoticed)
+            host = load_agent(d["agent"]["name"], params, config.base)
+            if not harbor:
+                return host.run, stop
+
+            def close_host() -> None:                        # its streams closed with the pipeline (HarborAgent.close)
+                try:
+                    host.close()
+                finally:
+                    stop()
+            return host.run, close_host
         agent = SandboxedAgent(config, role, records=records, work_root=work_root, model_endpoint=endpoint)
     except BaseException:
         stop()                                           # the endpoint started for a pipeline that never came

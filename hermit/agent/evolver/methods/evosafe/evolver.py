@@ -20,6 +20,8 @@ def metrics(ctx, path, ids):
 
 
 class EvoSafeEvolver(Evolver):
+    min_feedback = "full"            # its comparisons read the judge's metrics (judge.extra.metrics), not the score
+
     def step(self, ctx):
         ws = ctx.workspace
         ids = list(ctx.params.get("eval_task_ids") or [])

@@ -95,7 +95,9 @@ only the stdlib: nothing else is installed where the agent runs.
   else. `hook-state/<session_id>.json` beside it holds the final session states. (The runner writes both under
   `.hermit-hooks/` in the session's workspace; each rollout's trajectory carries them at its root, beside the
   agent's event stream: `agent-codex.jsonl` from Codex, `agent-claude.jsonl` from Claude Code, `agent-dsh.jsonl` from
-  DeepSeek Harness.)
+  DeepSeek Harness. In a Harbor trial the runner writes them to Harbor's agent log directory instead, and the
+  trial's trajectory carries them under `agent/`, as `agent/hook-calls.jsonl` and `agent/hook-state/`, beside the
+  CLI's stream there: `agent/agent-codex.jsonl` from Codex, `agent/agent-claude.jsonl` from Claude Code.)
 - A veto's reason is what the model reads: say what to do instead, not only what was blocked. The same holds for
   an `after_tool` note: one or two lines, specific to the command that just ran.
 

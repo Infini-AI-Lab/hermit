@@ -411,6 +411,38 @@ def test_a_trajectory_without_feedback_and_a_codex_event_stream(tmp_path):
     assert trajectory.NO_FEEDBACK in without and "[assistant] <answer>12</answer>" in without
 
 
+def test_a_record_the_run_shows_no_verdict_says_so_as_feedback_false_does(tmp_path):
+    """Under run.feedback: none the learning material's record holds no judge (hermit.trainer.material.shown): its
+    [OUTCOME] is the line feedback: false gives, and the run's status, not an empty reward."""
+    from hermit.agent.evolver.methods.reharness import trajectory
+    from hermit.trainer.material import shown
+    record = {"id": "q1", "input": {"question": "how much debt?"}, "output": "12", "status": "ok",
+              "judge": {"score": 0.0, "feedback": "'12' but expected '13'"}, "trajectory": None}
+    for status, error, line in (("ok", None, ""), ("infra", "model_provider_failed",
+                                                   "\nrun status: infra (model_provider_failed)")):
+        unshown = shown({**record, "status": status, "error": error}, "none")
+        assert "judge" not in unshown
+        assert trajectory.outcome_text(unshown) == trajectory.outcome_text(unshown, feedback=False) == \
+            trajectory.NO_FEEDBACK + line
+        assert "reward" not in trajectory.render(unshown, tmp_path)
+
+
+def test_the_training_state_says_an_instance_had_no_feedback_where_the_run_showed_it_no_verdict(tmp_path):
+    """Each instance's record in state/reharness.json says whether tau_t's [OUTCOME] held the judge's verdict: not
+    under run.feedback: none (the material's records hold no judge), as with feedback: false; under run.feedback:
+    score it held the score."""
+    from hermit.agent.evolver.methods.reharness import trajectory
+    make_run(tmp_path, {"k": 1})
+    (tmp_path / "two.txt").write_text("t00\nt01\n")
+    for name, override, verdict in (("none", "run.feedback=none", False), ("score", "run.feedback=score", True),
+                                    ("param", "evolver.params.feedback=false", False)):
+        train(Config.load(tmp_path / "run.yaml", ["data.train=two.txt", f"trainer.run_name={name}", override]))
+        state = tmp_path / "runs" / name / "workspace" / "state"
+        steps = json.loads((state / "reharness.json").read_text())["steps"]
+        assert [i["feedback"] for s in steps for i in s["instances"]] == [verdict, verdict], name
+        assert (trajectory.NO_FEEDBACK in (state / "trajectories" / "t00.txt").read_text()) is not verdict
+
+
 def test_bm25_a_resumed_run_and_a_stopped_step(tmp_path):
     """Without an embedding endpoint the bank ranks with BM25 (k=1: only the same kind's reflection solves a task).
     State persistence: a run that died after step 2 resumes at step 3 with the bank and the stored source

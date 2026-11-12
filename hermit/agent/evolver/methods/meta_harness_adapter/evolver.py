@@ -129,6 +129,7 @@ def _install(candidate: Path, adapter: Path) -> None:
 
 class MetaHarnessAdapterEvolver(AgentEvolver):
     supports_resume = False             # the paper's proposer starts each iteration afresh, reading the filesystem
+    min_feedback = "score"              # each candidate's mean score on the search set, and finalize's pick by it
 
     # ---------- state ----------
     @staticmethod
