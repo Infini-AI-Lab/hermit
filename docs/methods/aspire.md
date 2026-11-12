@@ -21,7 +21,7 @@ agent:
            answer: ../utils/agent/task.py:answer, collect: ../utils/agent/task.py:collect}
   codex: {codex_sandbox: danger-full-access, shell_env: all, web_search: false}   # the task sandbox is the boundary
 environment:                                  # the task sandbox: its code, ASPIRE's prompts and docs, the service
-  read: [../utils/agent, $ASPIRE_ROOT/docs/api-reference.md, ...]
+  read: [../utils/agent, $ASPIRE_DOCS, ...]
   env: [ASPIRE_SIM_URL]
 judge: {path: ../utils/judge.py}              # on the host: Stage 2
 sandbox: {enabled: true, enforce: required}
