@@ -48,7 +48,7 @@ def reported_models(run):
 
 
 
-def validate_training(run, expected_proposals=None):
+def validate_training(run, expected_proposals=None, method='evosafe'):
     """A successful CLI exit is insufficient: role failures can preserve the parent."""
     paths = sorted(run.glob('step_*/output/selection.json'))
     if not paths:
@@ -72,6 +72,22 @@ def validate_training(run, expected_proposals=None):
                 or selection.get('stop_reason') == 'cancelled'):
             raise RuntimeError('search failed; inspect selection.json before spending on test evaluation')
         trials = selection.get('trials', [])
+        if method == 'she':
+            if selection.get('selection_protocol') != 'upstream_train_best_harness':
+                raise RuntimeError('SHE run does not use official TRAIN best-harness selection')
+            best = selection.get('best_update') or {}
+            ids = selection.get('train_task_ids') or []
+            if not ids or len(ids) != len(set(ids)) or not best.get('acceptance_gate'):
+                raise RuntimeError('SHE round has no measured TRAIN selection record')
+            if not (path.parent / 'paper-ready-metrics.json').is_file():
+                raise RuntimeError('SHE round has no official metric record')
+            if selection.get('proposal_status') == 'pending next TRAIN round; not yet selected':
+                if not selection.get('check', {}).get('passed'):
+                    raise RuntimeError('SHE proposal failed its specification check')
+            elif selection.get('proposal_status') != 'no diagnosed training failures':
+                raise RuntimeError('SHE round did not finish proposal generation')
+            reviewed += int(not selection.get('baseline_initialized'))
+            continue
         if expected_proposals is not None and len(trials) != expected_proposals:
             raise RuntimeError('search did not complete the configured proposal budget')
         for trial in trials:
@@ -98,7 +114,7 @@ def validate_training(run, expected_proposals=None):
                     r.get('approved') and not r.get('required_changes') for r in independent) and not bounded_admission:
                 raise RuntimeError('a promoted candidate has no approving independent review')
             reviewed += len(independent)
-    if not reviewed:
+    if not reviewed and method != 'she':
         raise RuntimeError('no candidate received independent review')
     return {'reviewed_candidates_or_revisions': reviewed, 'static_rejections': static_rejections,
             'final_revisions_without_approval': final_revisions_without_approval,
@@ -186,10 +202,14 @@ def preflight_role(config, directory):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path, required=True)
+    parser.add_argument('--no-sandbox', action='store_true',
+                        help='disable learner sandbox for this run; record the override in the frozen snapshot')
     parser.add_argument('--frozen', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.frozen and args.no_sandbox:
+        parser.error("--no-sandbox must be applied before source freezing")
     path = args.config.resolve()
-    config = Config.load(path)
+    config = Config.load(path, ["sandbox.enabled=false"] if args.no_sandbox else [])
     root = Path(__file__).resolve().parents[3]
     if args.frozen:
         metadata = verify_snapshot(root)
@@ -198,9 +218,10 @@ def main():
         with interruption_handlers():
             run_measured(path, config, metadata)
         return
-    if config.run_dir().exists() or config.tree_dir('evosafe').exists():
+    if config.run_dir().exists() or config.tree_dir(config.data.get('evolver', {}).get('name', 'evosafe')).exists():
         raise SystemExit('choose fresh run and tree paths')
-    metadata = snapshot(root, path, config)
+    metadata = (snapshot(root, path, config, sandbox_enabled=False) if args.no_sandbox
+                else snapshot(root, path, config))
     frozen = Path(metadata['snapshot_root'])
     env = dict(os.environ, PYTHONPATH=str(frozen), PYTHONDONTWRITEBYTECODE='1',
                HERMIT_EPISODE_REGISTRY=str(frozen / '.episode-containers'),
@@ -272,7 +293,7 @@ def run_measured(path, config, snapshot_metadata=None):
         save()
         shutil.copy2(path, artifacts / 'effective-config.yaml')
         shutil.copy2(snapshot_metadata['original_config'] if snapshot_metadata else path, artifacts / 'run.yaml')
-        for package in ('agentdojo', 'hermit-harness', 'mcp', 'pydantic'):
+        for package in ('agentdojo', 'hermit-harness', 'mcp', 'pydantic', 'she-safety-harness-evolution'):
             try:
                 manifest['packages'][package] = importlib.metadata.version(package)
             except importlib.metadata.PackageNotFoundError:
@@ -300,9 +321,16 @@ def run_measured(path, config, snapshot_metadata=None):
         save()
         # Fail before provider spend if the execution boundary is unavailable.
         from isolated_hooks import IsolatedDefense
-        hook = IsolatedDefense(config.template_dir(), image=manifest['hook_image'])
+        hook_runtime = config.data['agent']['params'].get('hook_runtime', 'evosafe')
+        hook = IsolatedDefense(config.template_dir(), image=manifest['hook_image'], runtime=hook_runtime)
         try:
-            assert hook.system_prompt_transform('preflight') == 'preflight'
+            transformed = hook.system_prompt_transform('preflight')
+            assert 'preflight' in transformed
+            if hook_runtime == 'she':
+                assert 'SHE Runtime Harness' in transformed
+                assert hook.prepare_query('Read one public item')
+                assert hook.finalize_response('Ready') == 'Ready'
+                assert hook.export_state()['she_revision']
         finally:
             hook.close()
         execute([sys.executable, str(Path(__file__).with_name('experiment_runtime.py')), str(path)], 'entry-check')
@@ -313,7 +341,8 @@ def run_measured(path, config, snapshot_metadata=None):
         execute([sys.executable, '-m', 'hermit', 'train', '--config', str(path)], 'train')
         export_training_records(run, artifacts)
         manifest['training_audit'] = validate_training(
-            run, expected_proposals=int(config.data['evolver']['params'].get('max_proposals', 2)))
+            run, expected_proposals=int(config.data['evolver']['params'].get('max_proposals', 2)),
+            method=config.data['evolver']['name'])
         save()
         runs = {}
         tasks = read_rows(config.path(config.data['data']['tasks']))

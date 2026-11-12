@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import select
+import shutil
 import subprocess
 import tempfile
 import time
@@ -31,7 +32,11 @@ def remove_container(name):
             raise RuntimeError(f'episode container cleanup incomplete: {name}')
 
 class IsolatedDefense:
-    def __init__(self, adapter, *, image='python:3.12-slim', timeout=90, name=None):
+    def __init__(self, adapter, *, image='python:3.12-slim', timeout=90, name=None, runtime='evosafe'):
+        if runtime not in ('evosafe', 'she'):
+            raise ValueError('unsupported hook runtime')
+        self.runtime = runtime
+        self.artifact_paths = ()
         self.name = name or 'hermit-hook-' + uuid.uuid4().hex
         self.timeout = float(timeout)
         self.buffer = b''
@@ -52,14 +57,32 @@ class IsolatedDefense:
         from hermit.agent.evolver.methods.evosafe import hooks
         (root / 'sdk.py').write_bytes(Path(hooks.__file__).read_bytes())
         (root / 'worker.py').write_bytes(Path(__file__).with_name('hook_worker.py').read_bytes())
+        if runtime == 'she':
+            from hermit.agent.evolver.methods.she import runtime as she_runtime
+            import she
+            self.artifact_paths = tuple('artifacts/' + n for n in she_runtime.ARTIFACTS)
+            (root / 'artifacts').mkdir()
+            for relative in self.artifact_paths:
+                source = Path(adapter) / relative
+                if source.is_symlink() or not source.is_file() or source.stat().st_size > 64000:
+                    raise ValueError('SHE artifacts must be bounded regular files')
+                (root / relative).write_bytes(source.read_bytes())
+            # Only the installed pinned library and trusted bridge are mounted,
+            # never benchmark code, credentials or task/judge data.
+            shutil.copytree(Path(she.__file__).parent, root / 'she', ignore=shutil.ignore_patterns('__pycache__'))
+            (root / 'she_runtime.py').write_bytes(Path(she_runtime.__file__).read_bytes())
         for path in root.iterdir():
-            path.chmod(0o444)
+            path.chmod(0o755 if path.is_dir() else 0o444)
         command = ['docker', 'run', '--rm', '-i', '--name', self.name, '--network=none',
                    '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges',
                    '--pids-limit=32', '--memory=256m', '--cpus=1', '--user=65534:65534',
                    '--log-driver=none', '--tmpfs=/tmp:rw,noexec,nosuid,size=16m']
         for filename in ('defense.py', 'sdk.py', 'worker.py'):
             command += ['--mount', f'type=bind,src={root / filename},dst=/{filename},readonly']
+        if runtime == 'she':
+            for source, target in [('she', '/runtime/she'), ('she_runtime.py', '/runtime/she_runtime.py'),
+                                   ('artifacts', '/artifacts')]:
+                command += ['--mount', f'type=bind,src={root / source},dst={target},readonly']
         command += [image, 'python', '-I', '-B', '-u', '/worker.py']
         try:
             self.proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -132,6 +155,15 @@ class IsolatedDefense:
     def system_prompt_transform(self, prompt):
         return self._call('system_prompt_transform', [prompt])['value']
 
+    def prepare_query(self, query):
+        return self._call('prepare_query', [query])['value'] if self.runtime == 'she' else query
+
+    def finalize_response(self, text):
+        return self._call('finalize_response', [text])['value'] if self.runtime == 'she' else text
+
+    def export_state(self):
+        return self._call('export_state', [])['value'] if self.runtime == 'she' else {}
+
     def on_pre_tool_call(self, ctx):
         structured = isinstance(ctx, ToolCallContext)
         reply = self._call('on_pre_tool_call', [self._context(ctx) if structured else ctx],
@@ -154,6 +186,9 @@ class IsolatedDefense:
                 return value.model_dump(mode='json')
             raise TypeError('unsupported native tool result')
         raw = json.loads(json.dumps(result.raw, default=encode))
+        if self.runtime == 'she':
+            from agentdojo.agent_pipeline.tool_execution import tool_result_to_str
+            raw = tool_result_to_str(result.raw)
         payload = {'raw': raw, 'is_error': result.is_error, 'duration': result.duration,
                    'error': result.error, 'exception': None}
         reply = self._call('on_post_tool_call', [self._context(ctx), payload], ctx.classify_output)

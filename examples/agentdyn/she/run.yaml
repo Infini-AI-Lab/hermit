@@ -1,0 +1,42 @@
+data:
+  tasks: ../utils/data/tasks.jsonl
+  train: ../utils/data/train.txt
+  test: ../utils/data/test.txt
+  step_size: 57
+  shuffle: false
+task_info: ../utils/task-info
+template: she@1.0
+agent:
+  name: ../utils/bridge.py:run
+  concurrency: 1
+  timeout_min: 10
+  params:
+    benchmark_version: v1.2.2
+    max_iters: 25
+    logs: runs/she-episodes
+    hook_runtime: she
+    episode_timeout_s: 900
+  base: direct
+  model: vllm/nvidia/nvidia/nemotron-3.5-lightning
+judge:
+  path: ../utils/judge.py
+evolver:
+  name: she
+  params:
+    proposer: llm
+    debugger: llm
+llm: null
+environment:
+  runner: host
+sandbox:
+  enforce: required
+  evolver:
+    allowed_hosts: [your-model-service.example]
+trainer:
+  allow_early_stop: true
+  run_name: agentdyn-she
+  output_dir: runs
+  epochs: 20
+  call_timeout_min: 30
+  budget:
+    hours: 1

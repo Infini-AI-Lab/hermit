@@ -1,0 +1,16 @@
+description: SHE trajectory diagnosis, artifact attribution and constrained patch evolution on fixed AgentDyn cases.
+class: evolver.py:SHEEvolver
+needs: []
+params:
+  proposer: llm
+  debugger: llm
+  debugger_batch_size: 1
+  max_tokens: 10000
+  evidence_chars_per_case: 8000
+  gate_mode: initial_ua_floor
+  codex_bin: codex
+  codex_model: null
+  codex_timeout_s: 600
+  claude_bin: claude
+  claude_model: null
+  claude_timeout_s: 1200

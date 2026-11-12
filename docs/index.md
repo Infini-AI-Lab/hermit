@@ -82,6 +82,7 @@ methods/ahe_adapter
 methods/rrsi_adapter
 methods/evosafe
 methods/opro
+methods/she
 ```
 
 ```{toctree}
