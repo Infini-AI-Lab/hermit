@@ -1,12 +1,14 @@
 """The five Harbor benchmarks of examples/ (examples/README.md#harbor-benchmarks) hold the protocols their READMEs
-state, read from their committed files alone (each benchmark file's dataset block, its lock, its rows and splits, the
-configs), with no download: the in-sample benchmarks train on every task's rollouts #1 and #2 and test on #3 and #4;
-the SkillOpt benchmarks' splits are `hermit.harbor.dataset.split` of the locked tasks with SkillOpt's 2:1:7 and seed
-42; a method's configs test on the rows of the baseline beside them, share its trial cache (the smoke keeps its own)
-and name their profile's CLI, model, login and effort for the acting agent and every learner. Where a benchmark is
-prepared on this machine (its `utils/tasks.jsonl`), its configs also load as `hermit` loads them."""
+state, read from their committed files alone (each benchmark file, its lock, its rows and splits, the configs), with
+no download: the in-sample benchmarks train on every task's rollouts #1 and #2 and test on #3 and #4; the SkillOpt
+benchmarks' splits are `hermit.harbor.dataset.split` of the locked tasks with SkillOpt's 2:1:7 and seed 42; a method
+trains and validates on no row it is tested on, tests on the rows of the baseline beside it, shares its trial cache
+(the smoke keeps its own, on rows no run takes) and names its profile's CLI, model, login and effort for the acting
+agent and every learner; every learner runs in its sandbox and no agent searches the web; SkillOpt sorts a rollout as
+its benchmark scores it; and every config loads as `hermit` loads it, prepared or not."""
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -23,6 +25,8 @@ METHODS = {"terminal_bench_2_0": "ahe_adapter", "terminal_bench_science": "ahe_a
            "labbench": "skillopt", "swebench_verified": None}
 PROFILES = {"codex": {"cli": "codex", "model": "gpt-5.6-luna", "login": "chatgpt"},
             "claude": {"cli": "claude", "model": "claude-haiku-5-5", "login": "claude"}}
+LEARNS_ON = {"ahe_adapter": ("../utils/rows/train.txt", None),            # (data.train, data.val) of a method's run
+             "skillopt": ("../utils/splits/train.txt", "../utils/splits/val.txt")}
 
 
 def read(path: Path):
@@ -99,7 +103,23 @@ def test_a_method_tests_on_its_baselines_rows_with_its_profiles_models(bench, p)
     assert run["agent"]["params"]["jobs_dir"] == base["agent"]["params"]["jobs_dir"]   # one trial cache
     assert smoke["agent"]["params"]["jobs_dir"] != run["agent"]["params"]["jobs_dir"]
     assert smoke["data"]["train"] == smoke["data"]["test"] == "../utils/splits/smoke.txt"
+    where = EXAMPLES / bench / METHODS[bench]
+    taken = {row for part in ("train", "val", "test") if run["data"].get(part)
+             for row in lines(where / run["data"][part])}
+    assert not set(lines(where / smoke["data"]["test"])) & taken            # the smoke's rows: no run takes them
     assert run["run"] == {"mode": "split"} and base["run"] == {"mode": "eval"}
+
+
+@pytest.mark.parametrize("p", PROFILES)
+@pytest.mark.parametrize("bench", [b for b, m in METHODS.items() if m])
+def test_a_method_trains_and_validates_on_no_row_it_is_tested_on(bench, p):
+    where = EXAMPLES / bench / METHODS[bench]
+    data = read(where / f"run_{p}.yaml")["data"]
+    train, val = LEARNS_ON[METHODS[bench]]
+    assert (data["train"], data.get("val")) == (train, val)
+    learned = set(lines(where / train)) | (set(lines(where / val)) if val else set())
+    tested = set(lines(where / data["test"]))
+    assert learned and tested and not learned & tested
 
 
 def every_config():
@@ -107,13 +127,50 @@ def every_config():
             if path.parent.name != "utils"]
 
 
+@pytest.mark.parametrize("bench", METHODS)
+def test_every_learner_is_sandboxed_and_no_agent_searches_the_web(bench):
+    assert read(EXAMPLES / bench / "utils" / "benchmark.yaml")["web_search"] is False    # the acting agent's, shared
+    for path in sorted((EXAMPLES / bench).glob("*/*.yaml")):
+        if path.parent.name == "utils":
+            continue
+        config = read(path)
+        assert config["agent"]["params"].get("web_search", False) is False, path.name     # no config turns it on
+        if "evolver" in config:
+            sandbox = config["sandbox"]
+            assert sandbox["enabled"] is True and sandbox.get("enforce", "required") == "required", path.name
+        if "llm" in config:
+            assert config["llm"]["isolation"] == "sandbox", path.name
+
+
+def algotune_score(speedup: float) -> float:
+    spec = importlib.util.spec_from_file_location("algotune_judge", EXAMPLES / "algotune" / "utils" / "judge.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.speedup_score(speedup)
+
+
+@pytest.mark.parametrize("p", PROFILES)
+@pytest.mark.parametrize("bench", SKILLOPT_SPLIT)
+def test_skillopt_sorts_a_rollout_as_its_benchmark_scores_it(bench, p):
+    for name in ("run", "smoke"):
+        params = read(EXAMPLES / bench / "skillopt" / f"{name}_{p}.yaml")["evolver"]["params"]
+        assert params["codex_trace_to_optimizer"] is False, name       # the summary is of SkillOpt's own harness
+        if bench == "algotune":                  # a success: a speedup over the reference (the verifier's 4 decimals)
+            assert algotune_score(1.0) < params["success_score"] <= algotune_score(1.0001), name
+            assert params["gate_metric"] == "soft", name
+        else:                                    # the right letter: the verifier's 1
+            assert "success_score" not in params and params["gate_metric"] == "hard", name
+
+
+def test_labbench_new_figure_rows_are_test_questions():
+    rows = EXAMPLES / "labbench" / "utils"
+    new, test = lines(rows / "rows" / "test_new_figures.txt"), lines(rows / "splits" / "test.txt")
+    assert new and set(new) < set(test) and new == [row for row in test if row in set(new)]
+
+
 @pytest.mark.parametrize("path", every_config(), ids=lambda p: f"{p.parts[-3]}/{p.parts[-2]}/{p.name}")
-def test_a_config_loads_where_its_benchmark_is_prepared(path):
-    if not (path.parents[1] / "utils" / "tasks.jsonl").is_file():
-        pytest.skip(f"{path.parts[-3]} is not prepared here (python -m hermit.harbor.dataset prepare)")
-    raw = read(path)
-    if (raw.get("evolver") or {}).get("name") == "skillopt":
-        pytest.importorskip("skillopt")
+def test_a_config_loads_as_hermit_loads_it(path):
+    raw = read(path)                     # no download needed: a config names its benchmark's files, not its tasks
     command = "eval" if raw["run"]["mode"] == "eval" else "train"
     config = Config.load(path, command=command)
     assert config.data["agent"]["name"] == "harbor"

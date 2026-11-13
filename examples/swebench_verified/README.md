@@ -38,22 +38,24 @@ hermit eval --config examples/swebench_verified/baseline/codex.yaml --adapter no
 Why: SWE-bench Verified is where the papers of this framework's methods test a harness they evolved elsewhere; none
 of them trains on it (DGM, SICA and HGM do, and are not ported).
 
-| Method | Evolved on | SWE-bench Verified, once per task |
+| Method | Evolved on | SWE-bench Verified |
 |---|---|---|
 | AHE ([2604.25850](https://arxiv.org/abs/2604.25850)) | Terminal-Bench 2, GPT-5.4 | 75.2 (the seed) to 75.6, with 461K tokens a trial against the seed's 526K |
 | RRSI ([2609.24972](https://arxiv.org/abs/2609.24972)) | Terminal-Bench 2.1, Claude Opus 4.8 | 82.0 (H_0) to 83.8, never scored during the search |
 
-The gains are small at this level; the token cost is the other number to report. With the final adapter of
+The gains are small at this level; the token cost is the other number to report. Neither paper says how many runs a
+task had; here each runs once. With the final adapter of
 [Terminal-Bench 2.0's AHE run](../terminal_bench_2_0/README.md#ahe-adapter) written out as a directory (that README
 says how), the same acting agent tests it:
 
 ```bash
-hermit eval --config examples/swebench_verified/baseline/codex.yaml --adapter "$PWD/ahe-final"
+hermit eval --config examples/swebench_verified/baseline/codex.yaml --adapter "$PWD/examples/terminal_bench_2_0/ahe_adapter/runs/ahe-final-codex"
 hermit eval --config examples/swebench_verified/baseline/codex.yaml --adapter "$PWD/hermit/adapter/templates/ahe"
 ```
 
 The first tests the evolved adapter, the second AHE's seed (the template's own adapter), each in its own
-`runs/codex-baseline/eval/<directory name>/`. A relative `--adapter` path is the config's folder's.
+`runs/codex-baseline/eval/<directory name>/` (`ahe-final-codex/`, `ahe/`). A relative `--adapter` path is the
+config's folder's. The Claude Code configs take `ahe-final-claude`.
 
 ## Known limits
 
@@ -67,7 +69,8 @@ The first tests the evolved adapter, the second AHE's seed (the template's own a
   HTTPS with the 2014 `requests` its repository pins, whose certificates no longer verify: its reference fix scores 0
   here (`SSLError: CERTIFICATE_VERIFY_FAILED`). Harbor's oracle agent finds such tasks before a run spends model calls
   on them: `hermit eval ... --adapter none "agent.params.acting_agent={name: oracle}" agent.params.login=null
-  agent.params.model=null agent.params.effort=null` runs each task's reference fix.
+  agent.params.model=null agent.params.effort=null trainer.run_name=oracle` runs each task's reference fix, in
+  `runs/oracle/` (without the run name it would write over the baseline's `runs/codex-baseline/eval/none/`).
 - Both arms of a comparison meet the same broken tasks, so differences stay comparable; absolute rates are lower
   than the leaderboard's by those tasks.
 

@@ -45,18 +45,20 @@ coding CLI in a task's container, a task's tests after it. With the final adapte
 [Terminal-Bench 2.0's AHE run](../terminal_bench_2_0/README.md#ahe-adapter) written out as a directory:
 
 ```bash
-hermit eval --config examples/terminal_bench_science/baseline/codex.yaml --adapter "$PWD/ahe-final"
+hermit eval --config examples/terminal_bench_science/baseline/codex.yaml --adapter "$PWD/examples/terminal_bench_2_0/ahe_adapter/runs/ahe-final-codex"
 hermit eval --config examples/terminal_bench_science/baseline/codex.yaml --adapter "$PWD/hermit/adapter/templates/ahe"
 ```
 
-The second tests AHE's seed, so that the transfer is read against the seed as well as against no adapter.
+The second tests AHE's seed, so that the transfer is read against the seed as well as against no adapter. The Claude
+Code configs take `ahe-final-claude`.
 
 ## AHE Adapter
 
 No method of this framework reports this benchmark. The AHE Adapter's protocol is the one its paper ran on the
 benchmark nearest to it, Terminal-Bench 2, with the same rows as
 [Terminal-Bench 2.0's](../terminal_bench_2_0/README.md#the-protocol): ten iterations, each over every task's rollouts
-#1 and #2, the best iteration kept, every adapter tested on rollouts #3 and #4. What differs: each task keeps its own
+#1 and #2, the best iteration kept, every adapter tested on rollouts #3 and #4, and the same differences from the
+paper (its protocol table: the port's rollback, the models, the seed). What differs besides: each task keeps its own
 8 hours (the paper's tasks had one hour each).
 
 ```bash

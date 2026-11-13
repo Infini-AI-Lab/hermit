@@ -198,8 +198,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   AHE's seed, as the AHE and RRSI papers test a harness on another benchmark; SkillOpt in its paper's protocol on
   AlgoTune, a trial scored 1 - 1/speedup so that the mean gives AlgoTune's harmonic mean (`utils/judge.py`), and on
   LAB-Bench FigQA, whose download is patched (`utils/patches.py`: the published tasks save the shuffle's seed where
-  the agent reads it, which gives the answer away). Not run yet: the results tables are empty, and the configs were
-  checked on each benchmark's two smoke rows.
+  the agent reads it, which gives the answer away, and their verifier runs a script the agent can rewrite) and
+  whose questions on a figure no training question has are listed for a second score (`utils/rows/`). Not run yet:
+  the results tables are empty, and the configs were checked on each benchmark's two smoke rows.
 - How a run is done, the config's `run:` block ([configuration](docs/framework/configuration.md)): `mode` `eval`
   (`hermit eval` only, no training keys; the tree it tests, `trainer.tree_dir` with no template, a run secret as a
   training run's tree is), `split` (train, then the final adapter on `data.test`) or `stream` (each row

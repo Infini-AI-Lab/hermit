@@ -2,12 +2,15 @@
 # harness rows, SpreadsheetBench's code generation the nearest task): the tasks split 2:1:7 with its seed 42 (31
 # train, 15 validation, 108 test), 4 epochs, every training task each epoch (its rollout batch 40), reflection
 # minibatches of 8, at most 4 edits a step decaying to 2 (cosine), a candidate kept only if it beats the current skill
-# on validation, the slow update and the meta skill at each epoch's end, the best skill handed back.
+# on validation, from the second epoch the slow update and the meta skill at the epoch's end, the best skill handed
+# back.
 # Claude Code runs Claude Haiku 5.5 at medium effort on a Claude subscription (`claude setup-token`, the token
 # exported as CLAUDE_CODE_OAUTH_TOKEN; no API key), as the acting agent in each task's container and as the learner
 # (the paper: GPT-5.5 at medium effort, both). What differs from the paper besides the model: the gate compares the
-# validation tasks' mean score, 1 - 1/speedup (AlgoTune's harmonic mean), as SkillOpt's soft metric: a speedup has no
-# pass or fail for its hard one; the skill is ADAPTER.md of the prompt-only template, which starts empty.
+# validation tasks' mean score, 1 - 1/speedup (AlgoTune's harmonic mean), as SkillOpt's soft metric, a speedup having
+# no pass or fail; a success, by which SkillOpt's analysts and slow update sort the rollouts, is a solver faster than
+# the reference; the analysts get no Codex trace summary (SkillOpt's describes its own harness); the skill is
+# ADAPTER.md of the prompt-only template, which starts with no instructions.
 #
 #   hermit train --config examples/algotune/skillopt/run_claude.yaml   # again to resume
 #   hermit eval  --config examples/algotune/skillopt/run_claude.yaml --adapter root
@@ -35,7 +38,7 @@ agent:
     jobs_dir: ~/.cache/hermit/harbor/jobs/algotune-claude  # the Claude Code configs' trials (and their cache)
 judge:
   path: ../utils/judge.py              # 1 - 1/speedup (utils/judge.py)
-template: prompt-only@1.0              # the skill is ADAPTER.md, which starts empty (`--adapter root`)
+template: prompt-only@1.0              # the skill is ADAPTER.md, with no instructions at first (`--adapter root`)
 evolver:
   name: skillopt
   params:
@@ -48,10 +51,14 @@ evolver:
     lr_scheduler: cosine
     use_gate: true                     # strict: a candidate must beat the current skill on validation
     gate_metric: soft                  # the mean of 1 - 1/speedup
-    slow_update_samples: 20            # the epoch-end slow update compares the two epochs' skills on 20 tasks
-    slow_update_gate: true             # and passes the validation gate too, as in the paper
-    use_meta_skill: true
+    success_score: 0.000001            # a success, for SkillOpt's analysts and slow update: a solver faster
+                                       # than the reference (a score above 0, the verifier's own test)
+    slow_update_samples: 20            # from epoch 2, at its end: the last two epochs' skills on 20 training tasks
+    slow_update_gate: true             # and the slow update passes the validation gate too, as in the paper
+    use_meta_skill: true               # from epoch 2 too: guidance for the learner only, never deployed, not gated
     trajectory_view: paper             # the trajectories as the paper's analyst saw them
+    codex_trace_to_optimizer: false    # SkillOpt's Codex trace summary reads its own harness (task.md, SKILL.md,
+                                       # <answer>), not a Harbor task: off for both CLIs
     promote_final: false               # the paper's code hands back the best skill as it is
     seed: 42
 llm:                                   # the learner: the acting model, one Claude Code session per chat call

@@ -2,12 +2,13 @@
 # Claude Code harness rows, DocVQA's questions about document images and LiveMathematicianBench's multiple choice the
 # nearest tasks): the questions split 2:1:7 with its seed 42 (36 train, 18 validation, 127 test), 4 epochs, every
 # training question each epoch (its rollout batch 40), reflection minibatches of 8, at most 4 edits a step decaying to
-# 2 (cosine), a candidate kept only if it beats the current skill on validation (hard success: the right letter), the
-# slow update and the meta skill at each epoch's end, the best skill handed back.
+# 2 (cosine), a candidate kept only if it beats the current skill on validation (the right letter), from the second
+# epoch the slow update and the meta skill at the epoch's end, the best skill handed back.
 # Claude Code runs Claude Haiku 5.5 at medium effort on a Claude subscription (`claude setup-token`, the token
 # exported as CLAUDE_CODE_OAUTH_TOKEN; no API key), as the acting agent in each question's container and as the
-# learner (the paper: GPT-5.5 at medium effort, both). What differs from the paper besides the model: the skill is
-# ADAPTER.md of the prompt-only template, which starts empty.
+# learner (the paper: GPT-5.5 at medium effort, both). What differs from the paper besides the model: the analysts get
+# no Codex trace summary (SkillOpt's describes its own harness); the skill is ADAPTER.md of the prompt-only template,
+# which starts with no instructions.
 #
 #   hermit train --config examples/labbench/skillopt/run_claude.yaml   # again to resume
 #   hermit eval  --config examples/labbench/skillopt/run_claude.yaml --adapter root
@@ -35,7 +36,7 @@ agent:
     jobs_dir: ~/.cache/hermit/harbor/jobs/labbench-claude  # the Claude Code configs' trials (and their cache)
 judge:
   path: hermit.harbor.judge            # the verifier's reward
-template: prompt-only@1.0              # the skill is ADAPTER.md, which starts empty (`--adapter root`)
+template: prompt-only@1.0              # the skill is ADAPTER.md, with no instructions at first (`--adapter root`)
 evolver:
   name: skillopt
   params:
@@ -48,10 +49,12 @@ evolver:
     lr_scheduler: cosine
     use_gate: true                     # strict: a candidate must beat the current skill on validation
     gate_metric: hard                  # the right letter
-    slow_update_samples: 20            # the epoch-end slow update compares the two epochs' skills on 20 tasks
-    slow_update_gate: true             # and passes the validation gate too, as in the paper
-    use_meta_skill: true
+    slow_update_samples: 20            # from epoch 2, at its end: the last two epochs' skills on 20 training tasks
+    slow_update_gate: true             # and the slow update passes the validation gate too, as in the paper
+    use_meta_skill: true               # from epoch 2 too: guidance for the learner only, never deployed, not gated
     trajectory_view: paper             # the trajectories as the paper's analyst saw them
+    codex_trace_to_optimizer: false    # SkillOpt's Codex trace summary reads its own harness (task.md, SKILL.md,
+                                       # <answer>), not a Harbor task: off for both CLIs
     promote_final: false               # the paper's code hands back the best skill as it is
     seed: 42
 llm:                                   # the learner: the acting model, one Claude Code session per chat call

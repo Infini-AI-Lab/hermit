@@ -25,7 +25,7 @@ agent:
     agent_timeout_sec: 1800            # the smoke's cap on a session; the run keeps each task's own
 judge:
   path: ../utils/judge.py              # 1 - 1/speedup (utils/judge.py)
-template: prompt-only@1.0              # the skill is ADAPTER.md, which starts empty (`--adapter root`)
+template: prompt-only@1.0              # the skill is ADAPTER.md, with no instructions at first (`--adapter root`)
 evolver:
   name: skillopt
   params:
@@ -38,10 +38,12 @@ evolver:
     lr_scheduler: cosine
     use_gate: true
     gate_metric: soft
+    success_score: 0.000001
     slow_update_samples: 2
     slow_update_gate: true
     use_meta_skill: true
     trajectory_view: paper
+    codex_trace_to_optimizer: false
     promote_final: false
     seed: 42
 llm:                                   # the learner: the acting model, one Codex session per chat call

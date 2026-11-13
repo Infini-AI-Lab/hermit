@@ -68,9 +68,11 @@ Claude Haiku 5.5 on a Claude subscription (`*claude*.yaml`), both at medium effo
   token exported as `CLAUDE_CODE_OAUTH_TOKEN`, for the Claude Code configs. Harbor installs the CLI in each task's
   container; a method run also needs it on this machine, where its learners run.
 - Room. No trial starts while Docker's disk has less than 25 GB free (the benchmark files' `disk_gate_gb`); a trial's
-  image is built or pulled for it: Terminal-Bench 2.0's prebuilt images, 120-150 GB in all, each removed after its
-  trial; SWE-bench's image of the issue, one for each of the 500, which stays in Docker's build cache; AlgoTune's
-  8 GB, the same layers for every task. An AlgoTune container takes 8 CPUs and up to 64 GB, six at a time.
+  image is built or pulled for it: Terminal-Bench 2.0's prebuilt images from Docker Hub, 120-150 GB in all, each
+  removed after its trials and so pulled again at every AHE step (sign in with `docker login` for Docker Hub's pull
+  limits, or keep them where the disk holds them: [Terminal-Bench 2.0](terminal_bench_2_0/README.md#prepare));
+  SWE-bench's image of the issue, one for each of the 500, which stays in Docker's build cache; AlgoTune's 8 GB, the
+  same layers for every task. An AlgoTune container takes 8 CPUs and up to 64 GB, six at a time.
 
 **Run a benchmark** from the repository root:
 
@@ -87,7 +89,8 @@ run continues after its last step.
 **Hand a run to someone.** Each run below is one command on one machine and shares nothing with the others but its
 profile's trial cache, so each can go to a different person; it sends back its eval folder,
 `<folder>/<method or baseline>/runs/<run name>/eval/<adapter>/` (`summary.json` and `results.jsonl`, in which no token
-or key is written), whose numbers go into the README's results table. The trials are those of one profile.
+or key is written, though the logs' paths name the sender's machine), whose numbers go into the README's results
+table. The trials are those of one profile.
 
 | Folder | Run | Command | Trials | A trial's limit |
 |---|---|---|---|---|
@@ -96,22 +99,25 @@ or key is written), whose numbers go into the README's results table. The trials
 | | AHE | `hermit train --config ahe_adapter/run_<p>.yaml` | 1,780, then 178 | |
 | `swebench_verified` | baseline | `hermit eval --config baseline/<p>.yaml --adapter none` | 500 | 50 min |
 | | AHE's seed | `... --adapter "$PWD/hermit/adapter/templates/ahe"` | 500 | |
-| | transfer | `... --adapter "$PWD/ahe-final"`, after Terminal-Bench 2.0's AHE run | 500 | |
+| | transfer | `... --adapter "$PWD/<export>"`, after Terminal-Bench 2.0's AHE run | 500 | |
 | `algotune` | baseline | `hermit eval --config baseline/<p>.yaml --adapter none` | 108 | 1 h, and the timing |
 | | the empty skill | `hermit eval --config skillopt/run_<p>.yaml --adapter root` | 108 | |
-| | SkillOpt | `hermit train --config skillopt/run_<p>.yaml` | about 400, then 108 | |
+| | SkillOpt | `hermit train --config skillopt/run_<p>.yaml` | at most 364, then 108 | |
 | `terminal_bench_science` | baseline | `hermit eval --config baseline/<p>.yaml --adapter none` | 140 | 8 h |
 | | AHE's seed | `... --adapter "$PWD/hermit/adapter/templates/ahe"` | 140 | |
-| | transfer | `... --adapter "$PWD/ahe-final"`, after Terminal-Bench 2.0's AHE run | 140 | |
+| | transfer | `... --adapter "$PWD/<export>"`, after Terminal-Bench 2.0's AHE run | 140 | |
 | | AHE | `hermit train --config ahe_adapter/run_<p>.yaml` | 1,400, then 140 | |
 | `labbench` | baseline | `hermit eval --config baseline/<p>.yaml --adapter none` | 127 | 5 min |
 | | the empty skill | `hermit eval --config skillopt/run_<p>.yaml --adapter root` | 127 | |
-| | SkillOpt | `hermit train --config skillopt/run_<p>.yaml` | about 450, then 127 | |
+| | SkillOpt | `hermit train --config skillopt/run_<p>.yaml` | at most 408, then 127 | |
 
 `<p>` is `codex` or `claude`, and a config is `examples/<folder>/...`. Before a long run, its `smoke_<p>.yaml`
 checks the task set, the CLI in the containers and the method's learners together. The transfer runs take
-Terminal-Bench 2.0's final adapter as a directory, which whoever ran that training exports
-([Terminal-Bench 2.0](terminal_bench_2_0/README.md#ahe-adapter) says how) and hands on.
+Terminal-Bench 2.0's final adapter of the same profile as a directory, `<export>`, which whoever ran that training
+writes out (`examples/terminal_bench_2_0/ahe_adapter/runs/ahe-final-<p>`:
+[Terminal-Bench 2.0](terminal_bench_2_0/README.md#ahe-adapter) says how) and hands on. LAB-Bench's runs are also
+reported on its 102 questions with a new figure, from the same trials
+([LAB-Bench FigQA](labbench/README.md#prepare)).
 
 **Another model or CLI.** A config's models are its `agent.params.model` (the acting agent), its learners'
 (`evolver.model` for AHE, `llm.model` for SkillOpt) and their `login`s: copy the config, change them, and give the

@@ -23,9 +23,15 @@ model or CLI.
 python -m hermit.harbor.dataset prepare examples/terminal_bench_2_0/utils/benchmark.yaml
 ```
 
-It downloads the 89 tasks (47 MB; the images, 120-150 GB in all, are pulled by the trials), checks them against the
-lock, and writes `utils/tasks.jsonl` (four rows per task, `<task>#1` to `#4`, and the smoke rows `fix-git#0`,
+It downloads the 89 tasks (47 MB; the images are pulled by the trials), checks them against the lock, and writes
+`utils/tasks.jsonl` (four rows per task, `<task>#1` to `#4`, and the smoke rows `fix-git#0`,
 `log-summary-date-ranges#0`), `utils/splits/` and `utils/image_sizes.json`.
+
+The images are Docker Hub's (`alexgshaw/<task>`), 49 GB compressed and 120-150 GB on disk. The benchmark file
+removes a task's image after its trials (`docker_cleanup: rmi_task_image`), so each AHE step pulls every image again
+(89 images; a second pull when a task's two rollouts do not overlap): sign in to Docker Hub (`docker login`), whose
+pull limits are lower without an account, or, where Docker's disk holds them all, set `docker_cleanup: images_keep`
+in `utils/benchmark.yaml` and pull each image once.
 
 ## The protocol
 
@@ -39,9 +45,11 @@ ran, so the trial cache never hands a test a training trial.
 |---|---|---|
 | Tasks | 89, evolved on and reported on | the same |
 | Rollouts | k = 2 per task and iteration | k = 2 (#1, #2); the test's two (#3, #4) |
-| Time per task | 3,600 s, every task | 3,600 s (`agent_timeout_sec: null` runs the tasks' own 900-12,000 s, as the leaderboard does) |
+| Time per task | 3,600 s, every task | 3,600 s (`agent_timeout_sec: null` runs the tasks' own 600-12,000 s, as the leaderboard does) |
 | Iterations | 10; the best by pass@1 | the same (`best_ever`) |
-| Models | GPT-5.4 (high) for the Code Agent, the Debugger and the Evolve Agent | one model for all three: GPT-5.6-Luna or Claude Haiku 5.5, medium |
+| Rollback | an edit whose predicted fixes do not materialize, reverted file by file (§1, Fig. 8) | the port's (`rollback: auto`): an edit the next step's attribution judges HARMFUL; `rollback_verdicts: [HARMFUL, INEFFECTIVE]` reverts the ineffective ones too |
+| Models | GPT-5.4 for all three: the Code Agent at high, the Evolve Agent at xhigh (Table 4; the Debugger's effort not given) | one model for all three: GPT-5.6-Luna or Claude Haiku 5.5, medium |
+| Seed | NexAU0: a shell tool, no skills, no middleware, no memory | the `ahe` template: three seed rules, an empty memory, a middleware that only hands the memory to the model |
 | Acting agent | NexAU, whose code AHE edits | Codex or Claude Code, fixed; AHE edits the adapter |
 | Concurrency | 96 (E2B) | 6 (one Docker host) |
 | Explore Agent | one-shot skill seeding | not ported |
@@ -58,16 +66,16 @@ hermit eval --config examples/terminal_bench_2_0/baseline/codex.yaml --adapter n
 ## AHE Adapter
 
 Why this method: of the methods in this framework, three report Terminal-Bench 2 numbers, and AHE's is measured on
-this benchmark with the protocol above at the lowest cost.
+this benchmark with the protocol above, at the smaller search of the two whose trials can be counted.
 
 | Method | What its paper reports on Terminal-Bench | Search cost in trials |
 |---|---|---|
 | AHE ([2604.25850](https://arxiv.org/abs/2604.25850)) | 2.0: pass@1 69.7 to 77.0 (+7.3) over its seed, GPT-5.4; Codex 71.9 | 10 x 178 = 1,780 |
-| RRSI ([2609.24972](https://arxiv.org/abs/2609.24972)) | 2.1: 74.2 to 80.2 (+6.0, 95% CI +4.3 to +9.3), Claude Opus 4.8; 64.6 to 78.7 on Gemini 3.5 Flash | 1 + 20 rounds x 2 candidates = 41 x 178 = 7,298 |
-| Meta-Harness ([2603.28052](https://arxiv.org/abs/2603.28052)) | 2.0: 76.4 against Terminus-KIRA's 74.7 (+1.7; Terminus-KIRA and Terminus 2 are its two starting harnesses) on Claude Opus 4.6, 37.6 against 33.7 (+3.9) on Claude Haiku 4.5 | a 10-iteration search, each candidate run on all 89 tasks (trials per task not given) |
+| RRSI ([2609.24972](https://arxiv.org/abs/2609.24972)) | 2.1: 74.2 to 80.2 (+6.0, 95% CI +4.3 to +9.3), Claude Opus 4.8; 64.6 to 78.7 on Gemini 3.5 Flash | about 41 x 178 = 7,298 (1 + 20 rounds x 2 candidates; fewer when its critic rejects a candidate before its evaluation, more with the base harness measured again) |
+| Meta-Harness ([2603.28052](https://arxiv.org/abs/2603.28052)) | 2.0: 76.4 on Claude Opus 4.6, against 74.7 for Terminus-KIRA, one of its two starting harnesses, on the leaderboard (64.4 in the search's own measurement, App. A.2); 37.6 on Claude Haiku 4.5, against the leaderboard's next agent, Goose, at 35.5 (+2.1) | a 10-iteration search, each candidate run on all 89 tasks (trials per task not given) |
 
 [`rrsi_adapter`](../../docs/methods/rrsi_adapter.md) is the choice to try second: its regularizers target the
-overfitting that in-sample selection invites, at four times AHE's cost.
+overfitting that in-sample selection invites, at about four times AHE's trials.
 
 ```bash
 hermit train --config examples/terminal_bench_2_0/ahe_adapter/smoke_codex.yaml   # 2 tasks, 2 steps
@@ -78,14 +86,25 @@ hermit eval  --config examples/terminal_bench_2_0/ahe_adapter/run_codex.yaml --a
 `hermit train` ends by testing the final adapter on the test rows (`runs/codex-ahe/eval/final/`). Report four
 numbers: no adapter (the baseline), the seed (`root`), the final adapter, each on rollouts #3 and #4, and the paper's
 own measure, the best iteration's pass@1 on its training rollouts (`runs/codex-ahe/workspace/state/best_ever.json`);
-the last is selected on the rollouts it reports, so it overstates what the adapter does on fresh ones.
+the last is selected on the rollouts it reports, so it overstates what the adapter does on fresh ones. The two kinds
+count a trial that is not the agent's result (infra) differently: the iteration's pass@1 counts it as a failure, as
+the paper does, and `hermit eval` leaves it out of `mean_score` and counts it in its summary's `unscored`; give that
+count beside each number.
+
+The learners run on the same plan as the acting agent: on the smoke's two tasks, one step's Debugger and Evolve
+Agent read about 450K tokens (Codex) and 840K (Claude Code), and a step of 178 trials gives them more to read. On a
+Claude subscription a learner session waits for the plan's window however long it holds (`plan_max_wait_s: null`).
 
 To test the final adapter on another benchmark (SWE-bench Verified and Terminal-Bench-Science do so), write it out
-as a directory:
+as a directory, one for each profile, under the run's git-ignored `runs/` (`mkdir` refuses a folder that exists, so
+an earlier export is never mixed in):
 
 ```bash
-mkdir -p ahe-final && git -C examples/terminal_bench_2_0/ahe_adapter/runs/trees/codex-ahe archive codex-ahe/final | tar -x -C ahe-final
+mkdir examples/terminal_bench_2_0/ahe_adapter/runs/ahe-final-codex && git -C examples/terminal_bench_2_0/ahe_adapter/runs/trees/codex-ahe archive codex-ahe/final | tar -x -C examples/terminal_bench_2_0/ahe_adapter/runs/ahe-final-codex
 ```
+
+The Claude Code run's is `ahe-final-claude`, from `runs/trees/claude-ahe` and its tag `claude-ahe/final`. Whoever
+runs a transfer elsewhere gets that folder and passes its path to `--adapter`.
 
 ## Results
 

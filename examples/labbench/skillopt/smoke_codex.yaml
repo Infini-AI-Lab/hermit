@@ -24,7 +24,7 @@ agent:
     jobs_dir: ~/.cache/hermit/harbor/jobs/labbench-codex-smoke  # the smoke's trials, apart from the run's
 judge:
   path: hermit.harbor.judge            # the verifier's reward
-template: prompt-only@1.0              # the skill is ADAPTER.md, which starts empty (`--adapter root`)
+template: prompt-only@1.0              # the skill is ADAPTER.md, with no instructions at first (`--adapter root`)
 evolver:
   name: skillopt
   params:
@@ -41,6 +41,7 @@ evolver:
     slow_update_gate: true
     use_meta_skill: true
     trajectory_view: paper
+    codex_trace_to_optimizer: false
     promote_final: false
     seed: 42
 llm:                                   # the learner: the acting model, one Codex session per chat call

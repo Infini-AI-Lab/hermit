@@ -55,19 +55,21 @@ generation, the nearest task to this one: on SpreadsheetBench, where the agent w
 Codex harness goes from 27.5 with no skill to 85.0, and in the Claude Code harness from 22.1 to 80.4. Its skill is a
 text the CLI reads, the kind of general advice (profile first, the compiled packages to reach for, checking outputs
 against the reference) a skill can carry from one AlgoTune task to the next. GEPA is the other candidate: its paper
-searches prompts for kernels that must beat a reference's speed (KernelBench, NPUEval, §5.1), on the task set it
-reports.
+uses it as an inference-time search for kernel code (§5.1: KernelBench, scored by speed over a reference, and
+NPUEval, by vector utilization), on the task set it reports.
 
 | | The SkillOpt paper | Here |
 |---|---|---|
 | Split | train / selection / test 2:1:7, seed 42 | the same: 31 / 15 / 108 tasks |
 | Epochs, batch | 4 epochs, rollout batch 40, reflection minibatch 8 | the same (one step an epoch: 31 tasks) |
 | Edits | learning rate 4, cosine to 2 | the same |
-| Gate | strict, hard success on the selection split | strict, on the mean of 1 - 1/speedup (the soft metric): a speedup has no pass or fail |
-| Epoch end | slow update on 20 tasks and meta skill, gated | the same |
+| Gate | strict: a candidate kept only above the current selection score (ties rejected) | the same, the score the mean of 1 - 1/speedup (SkillOpt's soft metric): a speedup has no pass or fail |
+| Success | a solved task: what the analysts and the slow update sort the rollouts by | a solver faster than the reference, as the verifier's own test has it (`success_score`: any score above 0) |
+| Epoch end | from the second epoch: the slow update on 20 tasks, gated, and the meta skill (the learner's own guidance, never deployed) | the same |
 | Final | the best skill | the same |
 | Models | GPT-5.5 (medium) as student and teacher | one model for both: GPT-5.6-Luna or Claude Haiku 5.5, medium |
-| Starting skill | the benchmark's own | none: the prompt-only template's empty `ADAPTER.md` |
+| Trace summary | SkillOpt's Codex harness gives the analysts a summary of the Codex session | none (`codex_trace_to_optimizer: false`): the summary reads SkillOpt's own harness (`task.md`, `SKILL.md`, `<answer>`), not a Harbor task |
+| Starting skill | the benchmark's own | none: the prompt-only template's `ADAPTER.md`, a placeholder with no instructions |
 
 ```bash
 hermit train --config examples/algotune/skillopt/smoke_codex.yaml   # 2 tasks, 2 epochs
@@ -81,8 +83,10 @@ beside the baseline and the empty skill (`root`), as harmonic means.
 ## Costs
 
 A trial takes the agent's hour at most and the verifier's timing (two minutes to over an hour on a loaded host). A
-container takes 8 CPUs and up to 64 GB, so 6 at a time need 48 CPUs and 384 GB. SkillOpt's run is about 400 training
-and validation trials (each epoch: 31 training, 15 for each gate, 40 for the slow update), then 108 for the test.
+container takes 8 CPUs and up to 64 GB, so 6 at a time need 48 CPUs and 384 GB. SkillOpt's run is at most 364
+training and validation trials, then 108 for the test: 15 for the starting skill's validation; each epoch 31 training
+rollouts and 15 for its gate; from the second epoch, 40 for the slow update's comparison of two skills on 20 tasks
+and 15 for its gate. The trial cache serves a trial it has already run, so a run takes fewer.
 
 ## Results
 

@@ -1,13 +1,14 @@
 # Terminal-Bench-Science with the AHE Adapter, in the AHE paper's protocol on Terminal-Bench 2 (Lin et al.,
 # arXiv:2604.25850, §4.1 and Table 4): ten iterations from the paper's seed harness (the `ahe` template as it is),
 # each iteration one step over every task's k = 2 rollouts (140 trials), the tasks it evolves on being the tasks it
-# reports on, the changes judged HARMFUL reverted file by file (Algorithm 1), the best iteration by pass@1 handed
-# back.
+# reports on, an edit reverted file by file when the next iteration's attribution judges it HARMFUL (the port's
+# reading of Algorithm 1's rollback; the paper's text reverts the edits whose predicted fixes do not materialize, §1
+# and Fig. 8), the best iteration by pass@1 handed back.
 # Codex runs GPT-5.6-Luna at medium effort on the ChatGPT login (`codex login`, no API key), as the acting agent in
 # each task's container and as both learners, the Agent Debugger and the Evolve Agent (the paper: GPT-5.4 for every
-# role). What differs from the paper besides the model and the benchmark: each task's own 8 hours (the paper: an hour,
-# Terminal-Bench 2's tasks being shorter), the acting agent is the CLI with the adapter deployed, not NexAU, 6 trials
-# at a time (96), and no Explore Agent.
+# role, the Code Agent at high effort and the Evolve Agent at xhigh, Table 4). What differs from the paper besides the
+# model and the benchmark: each task's own 8 hours (the paper: an hour, Terminal-Bench 2's tasks being shorter), the
+# acting agent is the CLI with the adapter deployed, not NexAU, 6 trials at a time (96), and no Explore Agent.
 #
 #   hermit train --config examples/terminal_bench_science/ahe_adapter/run_codex.yaml   # again to resume
 #   hermit eval  --config examples/terminal_bench_science/ahe_adapter/run_codex.yaml --adapter root
@@ -41,7 +42,8 @@ evolver:
   params:
     task_field: harbor_task            # a task's k rollouts share it
     k: 2
-    rollback: auto                     # Algorithm 1: the HARMFUL changes reverted file by file
+    rollback: auto                     # an edit the next step judges HARMFUL reverted file by file (the port's
+                                       # reading of the paper's rollback)
   base: codex                          # both learners are sessions of the codex Base Agent
   model: {name: gpt-5.6-luna, login: chatgpt, effort: medium}
   codex: {web_search: false}

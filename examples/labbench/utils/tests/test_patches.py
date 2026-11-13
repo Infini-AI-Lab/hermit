@@ -1,8 +1,9 @@
-"""LAB-Bench's patch (utils/patches.py:drop_seed), which `python -m hermit.harbor.dataset prepare` runs on every
-download: the setup.py each task's container runs at its start saves the shuffle's seed beside the letters, and the
-right choice is the first one before the shuffle, so the seed names the answer. The task directories here are built
-under tmp_path in the published layout (`<task>/environment/workspace/setup.py`), with a setup.py that saves its
-mapping as the published one does."""
+"""LAB-Bench's patch (utils/patches.py:patch_tasks), which `python -m hermit.harbor.dataset prepare` runs on every
+download. The setup.py each task's container runs at its start saves the shuffle's seed beside the letters, and the
+right choice is the first one before the shuffle, so the seed names the answer; the verifier runs /app/setup.py, the
+agent's to rewrite, when the mapping is missing. The task directories here are built under tmp_path in the published
+layout (`<task>/environment/workspace/setup.py`, `<task>/tests/test.sh`), with a setup.py that saves its mapping as
+the published one does and a verifier holding the published fallback."""
 from __future__ import annotations
 
 import importlib.util
@@ -43,11 +44,23 @@ def load():
     return module
 
 
-def task(root: Path, name: str, text: str) -> Path:
-    setup = root / name / "environment" / "workspace" / "setup.py"
-    setup.parent.mkdir(parents=True)
-    setup.write_text(text, encoding="utf-8")
-    return setup
+# The published verifier, reduced to its mapping checks: the fallback block as published, then the check after it;
+# its log directory and mapping file are its arguments here.
+VERIFIER = ('#!/bin/bash\nset -euo pipefail\nLOG_DIR="$1"\nmapping_file="$2"\nmkdir -p "$LOG_DIR"\n\n'
+            + load().FALLBACK[1] + '\nif [[ ! -f "$mapping_file" ]]; then\n'
+            '    echo "letter_mapping.json still missing after setup"\n    echo 0 > "${LOG_DIR}/reward.txt"\n'
+            '    exit 1\nfi\necho 1 > "${LOG_DIR}/reward.txt"\n')
+
+
+def task(root: Path, name: str, setup: str = SETUP, verifier: str | None = VERIFIER) -> Path:
+    """A task directory of the published layout; its setup.py."""
+    path = root / name / "environment" / "workspace" / "setup.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(setup, encoding="utf-8")
+    if verifier is not None:
+        (root / name / "tests").mkdir()
+        (root / name / "tests" / "test.sh").write_text(verifier, encoding="utf-8")
+    return path
 
 
 def run(setup: Path, tmp_path: Path) -> dict:
@@ -57,47 +70,87 @@ def run(setup: Path, tmp_path: Path) -> dict:
     return json.loads(out.read_text())
 
 
+def verify(test_sh: Path, mapping: Path, logs: Path) -> tuple[str, str]:
+    """The verifier's reward and output for a mapping file that may be missing."""
+    proc = subprocess.run(["bash", str(test_sh), str(logs), str(mapping)], capture_output=True, text=True)
+    return (logs / "reward.txt").read_text().strip(), proc.stdout
+
+
 def answer_from_seed(saved: dict) -> str:
-    """What an agent can do with a saved seed: replay the shuffle on the choices' positions; the right choice was at 0."""
+    """What an agent can do with a saved seed: replay the shuffle on the positions; the right choice was at 0."""
     order = list(range(len(saved["mapping"])))
     random.Random(saved["seed"]).shuffle(order)
     return saved["mapping"][chr(ord("A") + order.index(0))]
 
 
 def test_the_published_mapping_gives_the_answer_away(tmp_path):
-    setup = task(tmp_path / "tasks", "figqa-0001", SETUP)
+    setup = task(tmp_path / "tasks", "figqa-0001")
     assert answer_from_seed(run(setup, tmp_path)) == "the right choice"
 
 
 def test_the_patched_setup_saves_the_letters_only(tmp_path):
     tasks = tmp_path / "tasks"
-    setup = task(tasks, "figqa-0001", SETUP)
-    assert load().drop_seed(tasks) == "1 setup.py patched, 0 already patched"
+    setup = task(tasks, "figqa-0001")
+    assert load().patch_tasks(tasks) == "setup.py: 1 patched, 0 already patched; test.sh: 1 patched, 0 already patched"
     saved = run(setup, tmp_path)
     assert set(saved) == {"mapping"}                       # what the verifier reads, and no seed
     assert sorted(saved["mapping"].values()) == sorted(["the right choice", "wrong 1", "wrong 2", "wrong 3", "wrong 4"])
 
 
+def test_the_patched_verifier_runs_no_setup_script_and_scores_a_missing_mapping_0(tmp_path):
+    tasks = tmp_path / "tasks"
+    task(tasks, "figqa-0001")
+    load().patch_tasks(tasks)
+    test_sh = tasks / "figqa-0001" / "tests" / "test.sh"
+    assert "/app/setup.py" not in test_sh.read_text().replace("and /app/setup.py the agent's", "")
+    reward, said = verify(test_sh, tmp_path / "missing.json", tmp_path / "logs-missing")
+    assert reward == "0" and "Running setup.py" not in said and "still missing" in said
+    (tmp_path / "mapping.json").write_text("{}")
+    assert verify(test_sh, tmp_path / "mapping.json", tmp_path / "logs-present")[0] == "1"   # the checks after it run
+
+
 def test_a_second_prepare_finds_the_tasks_patched(tmp_path):
     tasks = tmp_path / "tasks"
-    first, second = task(tasks, "figqa-0001", SETUP), task(tasks, "figqa-0002", SETUP)
+    first, second = task(tasks, "figqa-0001"), task(tasks, "figqa-0002")
     patches = load()
-    assert patches.drop_seed(tasks) == "2 setup.py patched, 0 already patched"
-    patched = first.read_text()
-    assert patches.drop_seed(tasks) == "0 setup.py patched, 2 already patched"
-    assert first.read_text() == second.read_text() == patched
+    assert patches.patch_tasks(tasks) == "setup.py: 2 patched, 0 already patched; test.sh: 2 patched, 0 already patched"
+    patched = first.read_text(), (tasks / "figqa-0001" / "tests" / "test.sh").read_text()
+    assert patches.patch_tasks(tasks) == "setup.py: 0 patched, 2 already patched; test.sh: 0 patched, 2 already patched"
+    assert first.read_text() == second.read_text() == patched[0]
+    assert (tasks / "figqa-0002" / "tests" / "test.sh").read_text() == patched[1]
 
 
-def test_a_setup_the_patch_does_not_know_is_refused_with_no_task_changed(tmp_path):
+def test_tasks_patched_by_the_seed_alone_get_the_verifier_patched(tmp_path):
     tasks = tmp_path / "tasks"
-    known = task(tasks, "figqa-0001", SETUP)                      # patched first, were the patch to write as it reads
-    task(tasks, "figqa-0002", SETUP.replace('"seed": seed', '"seed": seed, "order": all_choices'))
-    with pytest.raises(ValueError, match="figqa-0002"):
-        load().drop_seed(tasks)
+    patches = load()
+    task(tasks, "figqa-0001", setup=SETUP.replace(patches.SEED[1], patches.SEED[2]))   # an earlier prepare's patch
+    assert patches.patch_tasks(tasks) == "setup.py: 0 patched, 1 already patched; test.sh: 1 patched, 0 already patched"
+
+
+@pytest.mark.parametrize("file", ["setup.py", "test.sh"])
+def test_a_file_the_patch_does_not_know_is_refused_with_no_task_changed(tmp_path, file):
+    tasks = tmp_path / "tasks"
+    known = task(tasks, "figqa-0001")                      # patched first, were the patch to write as it reads
+    if file == "setup.py":
+        task(tasks, "figqa-0002", setup=SETUP.replace('"seed": seed', '"seed": seed, "order": all_choices'))
+    else:
+        task(tasks, "figqa-0002", verifier=VERIFIER.replace("python3 /app/setup.py ||", "python3 /app/setup.py -v ||"))
+    with pytest.raises(ValueError, match=f"figqa-0002.*{file}"):
+        load().patch_tasks(tasks)
     assert known.read_text() == SETUP
+    assert (tasks / "figqa-0001" / "tests" / "test.sh").read_text() == VERIFIER
+
+
+def test_a_task_without_its_verifier_is_refused(tmp_path):
+    tasks = tmp_path / "tasks"
+    task(tasks, "figqa-0001")
+    task(tasks, "figqa-0002", verifier=None)
+    with pytest.raises(ValueError, match="not those with"):
+        load().patch_tasks(tasks)
+    assert (tasks / "figqa-0001" / "environment" / "workspace" / "setup.py").read_text() == SETUP
 
 
 def test_a_task_set_with_no_setup_is_refused(tmp_path):
     (tmp_path / "tasks" / "other-task" / "environment").mkdir(parents=True)
     with pytest.raises(ValueError, match="not LAB-Bench's tasks"):
-        load().drop_seed(tmp_path / "tasks")
+        load().patch_tasks(tmp_path / "tasks")

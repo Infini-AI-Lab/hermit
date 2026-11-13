@@ -9,7 +9,8 @@ dataset:
   ref: labbench@1.0                    # 181 multiple-choice questions about figures of biology papers
   split: {train: 36, val: 18, test: rest, seed: 42}  # SkillOpt's split: 2:1:7 with its seed 42 (127 test tasks)
   smoke: [figqa-0001, figqa-0002]      # rows <task>#0 (splits/smoke.txt)
-  patch: patches.py:drop_seed          # the shuffle's seed is not saved where the agent can read it (patches.py)
+  patch: patches.py:patch_tasks        # the shuffle's seed not saved where the agent reads it, and the verifier
+                                       # not running /app/setup.py, the agent's to rewrite (patches.py)
 tasks_dir: tasks                       # the 181 task directories (prepare's link, outside the checkout)
 web_search: false                      # the CLI's web search off: the papers and their figures are public
 agent_timeout_sec: null                # each task's own limit (300 s for every task)
