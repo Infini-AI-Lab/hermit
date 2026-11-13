@@ -44,7 +44,9 @@ each recipe's search/promotion settings are unchanged. The repeated `nvidia/` is
 
 ## Results
 
-Lightning with Codex roles on 186 TEST cases (18 clean, 168 injected), `max_iters: 25`, one evaluation repeat:
+For reference only, not a reported result: the learner ran without Hermit's sandbox (see below), which a reported
+result requires. Lightning with Codex roles on 186 TEST cases (18 clean, 168 injected), `max_iters: 25`, one
+evaluation repeat:
 
 | Adapter | Clean utility ↑ | Clean episode errors | Attack success rate ↓ | Injected episode errors |
 |---|---:|---:|---:|---:|

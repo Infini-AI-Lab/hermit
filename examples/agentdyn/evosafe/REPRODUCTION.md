@@ -55,6 +55,7 @@ with the same victim settings. Clean utility is measured on completed clean case
 ASR is measured on completed injected cases. The [aggregate results](README.md#results) report the
 186-case Lightning comparison for `none`, `root` and `final`, with episode errors and the run's sandbox
 exception stated separately. These measured results use Codex roles; Claude-role results are not yet available.
+They are for reference only: the learner ran without Hermit's sandbox, so they are not a reported result.
 
 For a reproducible comparison, retain the manifest, effective configuration, adapter
 snapshots, and per-task records together in the run's ignored `artifacts/` directory.
