@@ -1,4 +1,4 @@
-"""Deploying the Lean template into Codex, Claude Code and Pi workspaces."""
+"""Deploying the Lean template into Codex, Claude Code, Pi and DeepSeek Harness workspaces."""
 import json
 from pathlib import Path
 import sys
@@ -8,6 +8,7 @@ import pytest
 
 from hermit.hosts.claude_code import prepare as claude_prepare
 from hermit.hosts.codex import prepare as codex_prepare
+from hermit.hosts.dsh import prepare as dsh_prepare
 from hermit.hosts.opencode import prepare as opencode_prepare
 from hermit.hosts.pi import prepare as pi_prepare
 
@@ -50,6 +51,71 @@ def test_pi(tmp_path):
     assert (tmp_path / "p" / "AGENTS.md").read_text().count("hermit:lean-collab:start") == 1
     with pytest.raises(ValueError, match="generated for another host"):
         codex_prepare(LEAN, tmp_path / "p", sys.executable)
+
+
+def test_dsh_gets_the_tools_and_skills_as_rows_of_the_workspaces_patch_layer(tmp_path):
+    """dsh has no project file for MCP servers or skill folders: the tools are an `insert` row of the workspace's
+    patch layer, which a session loads with --patch, and the layer names the workspace's .dsh/skills (dsh reads a
+    project's skills at its root only: the nearest folder with a .git, the working directory included, else the
+    working directory); roles stay files named in AGENTS.md; a context longer than dsh gives the model of a project's
+    instructions is refused."""
+    result = dsh_prepare(LEAN, tmp_path / "d", sys.executable)
+    layer = json.loads((tmp_path / "d" / ".dsh" / "hermit.patch.yml").read_text())
+    [server] = [r for r in layer if "insert" in r]
+    assert {"id": "skill-filesystem", "config": {"customSkillDirs": [".dsh/skills"]}} in layer
+    [row] = server["insert"]
+    assert row["name"] == "@deepseek-ai/dsh-mcp-client" and row["config"]["serverName"] == "lean_collab"
+    assert row["config"]["transport"] == "stdio" and row["config"]["args"][:3] == ["-m", "hermit.runtime.mcp_server",
+                                                                                  "--adapter"]
+    assert row["config"]["toolCallTimeoutMs"] == 120_000           # Codex's tool_timeout_sec, not dsh's 60 s
+    # dsh reports a server that does not start (the dsh acting agent fails the session; dsh runs on)
+    assert row["config"]["failOnStartupError"] is True
+    assert result["patch"] == str(tmp_path / "d" / ".dsh" / "hermit.patch.yml")
+    assert "hermit:lean-collab:start" in (tmp_path / "d" / "AGENTS.md").read_text()
+    assert (tmp_path / "d" / ".dsh" / "skills" / "good-map" / "SKILL.md").exists()
+    assert result["context_injected_via"] == "AGENTS.md" and result["roles"] == {}
+    dsh_prepare(LEAN, tmp_path / "d", sys.executable)
+    assert (tmp_path / "d" / "AGENTS.md").read_text().count("hermit:lean-collab:start") == 1
+    with pytest.raises(ValueError, match="generated for another host"):
+        pi_prepare(LEAN, tmp_path / "d", sys.executable)
+    a = subagent_adapter(tmp_path)
+    result = dsh_prepare(a, tmp_path / "s", sys.executable)
+    assert result["placed"] == {"agents": "files"} and result["patch"] is None      # no tools: no server row
+    assert json.loads((tmp_path / "s" / ".dsh" / "hermit.patch.yml").read_text()) == []
+    assert "`reviewer`: Check a result against the task requirements." in (tmp_path / "s" / "AGENTS.md").read_text()
+    big = subagent_adapter(tmp_path / "big")
+    (big / "ADAPTER.md").write_text("Check the units.\n" * 4000)       # 68,000 bytes
+    with pytest.raises(ValueError, match="past the 65536 bytes dsh gives the model of a project's instructions"):
+        dsh_prepare(big, tmp_path / "b", sys.executable)
+    assert not (tmp_path / "b" / "AGENTS.md").exists()
+
+
+def test_dsh_refuses_an_agents_md_dsh_would_cut_and_a_server_name_it_would_refuse(tmp_path):
+    """dsh's 65,536 bytes are the instructions as the model is given them, in dsh's frame (304 bytes around one
+    AGENTS.md; a `</system-reminder>` in the text one byte longer): an AGENTS.md up to the difference is deployed, one
+    byte more is refused (it was deployed, and dsh cut its end, telling only the model). An adapter id that is no MCP
+    server name dsh takes is refused before anything is written."""
+    import shutil
+    from hermit.agent.base.cli import DSH_INSTRUCTION_BYTES, DSH_INSTRUCTION_FRAME
+    limit = DSH_INSTRUCTION_BYTES - DSH_INSTRUCTION_FRAME
+    edge = subagent_adapter(tmp_path / "edge")
+    dsh_prepare(edge, tmp_path / "e0", sys.executable)
+    rest = len((tmp_path / "e0" / "AGENTS.md").read_bytes()) - len("Check the units.\n")
+    (edge / "ADAPTER.md").write_text("x" * (limit - rest - 1) + "\n")
+    dsh_prepare(edge, tmp_path / "e1", sys.executable)
+    assert len((tmp_path / "e1" / "AGENTS.md").read_bytes()) == limit
+    for text in ("x" * (limit - rest) + "\n", "</system-reminder>" + "x" * (limit - rest - 19) + "\n"):
+        (edge / "ADAPTER.md").write_text(text)
+        with pytest.raises(ValueError, match=f"with the {DSH_INSTRUCTION_FRAME} bytes dsh puts around it"):
+            dsh_prepare(edge, tmp_path / "e2", sys.executable)
+    assert not (tmp_path / "e2" / "AGENTS.md").exists()
+    long_id = tmp_path / "long"
+    shutil.copytree(LEAN, long_id)
+    manifest = long_id / ".hermit" / "adapter.yaml"
+    manifest.write_text(manifest.read_text().replace("id: lean-collab", "id: lean-collab-" + "x" * 30))
+    with pytest.raises(ValueError, match="dsh takes an MCP server name of 32 characters at most"):
+        dsh_prepare(long_id, tmp_path / "l", sys.executable)
+    assert not (tmp_path / "l").exists()
 
 
 def subagent_adapter(tmp_path):
@@ -210,7 +276,8 @@ def test_a_redeployment_replaces_the_copy(tmp_path):
 
 
 @pytest.mark.parametrize("prepare,skills", [(codex_prepare, ".codex/skills"), (claude_prepare, ".claude/skills"),
-                                            (pi_prepare, ".pi/skills"), (opencode_prepare, ".opencode/skills")])
+                                            (pi_prepare, ".pi/skills"), (opencode_prepare, ".opencode/skills"),
+                                            (dsh_prepare, ".dsh/skills")])
 def test_a_redeployment_retires_the_skills_and_drops_the_skill_files_the_adapter_no_longer_has(tmp_path, prepare,
                                                                                                skills):
     """A skill the new version no longer exports leaves the host's discovery (its contents kept in .retired-skills/),

@@ -3,7 +3,7 @@
 | `agent.name` | The agent |
 |---|---|
 | `react` | a chat-completions tool-calling loop over the task's @tool functions and the adapter's tools |
-| `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode` | the agent CLI in a workspace the adapter is deployed in |
+| `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh` | the agent CLI in a workspace the adapter is deployed in |
 | `agent/agent.py:MyAgent` | the task's own `Agent` subclass (a benchmark's loop with the adapter plugged in, ...) |
 | `agent/pipeline.py:run` | a plain `run(task, adapter)` function, wrapped |
 

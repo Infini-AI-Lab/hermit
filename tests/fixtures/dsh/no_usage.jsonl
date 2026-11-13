@@ -1,0 +1,7 @@
+{"type":"session","sessionId":"session-4340185a-604a-41cc-b6f0-460879480637","cwd":"/run/nousage/work"}
+{"type":"status","phase":"turn_start","turn":1}
+{"type":"status","phase":"step_start","turn":1,"step":1}
+{"type":"text","text":"done"}
+{"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":0,"outputTokens":0,"totalTokens":0}}
+{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"completed"}}
+{"type":"final","sessionId":"session-4340185a-604a-41cc-b6f0-460879480637","reason":{"kind":"completed"},"text":"done"}

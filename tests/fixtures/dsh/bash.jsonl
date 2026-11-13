@@ -1,0 +1,43 @@
+{"type":"session","sessionId":"session-9fc3acf0-ab99-4d1f-8770-d448a699fe26","cwd":"/run/bash/work"}
+{"type":"status","phase":"turn_start","turn":1}
+{"type":"status","phase":"step_start","turn":1,"step":1}
+{"type":"tool_call","callId":"call_0","tool":"bash","input":{"command":"exit 3","description":"edge"}}
+{"type":"tool_result","callId":"call_0","status":"completed","result":"(no output)\n[exit code: 3]"}
+{"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":10,"outputTokens":1,"totalTokens":11}}
+{"type":"status","phase":"step_start","turn":1,"step":2}
+{"type":"tool_call","callId":"call_1","tool":"bash","input":{"command":"printf ''","description":"edge"}}
+{"type":"tool_result","callId":"call_1","status":"completed","result":"(no output)"}
+{"type":"status","phase":"step_end","turn":1,"step":2,"usage":{"inputTokens":10,"outputTokens":1,"totalTokens":11}}
+{"type":"status","phase":"step_start","turn":1,"step":3}
+{"type":"tool_call","callId":"call_2","tool":"bash","input":{"command":"true","description":"edge"}}
+{"type":"tool_result","callId":"call_2","status":"completed","result":"(no output)"}
+{"type":"status","phase":"step_end","turn":1,"step":3,"usage":{"inputTokens":10,"outputTokens":1,"totalTokens":11}}
+{"type":"status","phase":"step_start","turn":1,"step":4}
+{"type":"tool_call","callId":"call_3","tool":"bash","input":{"command":"echo out; exit 4","description":"edge"}}
+{"type":"tool_result","callId":"call_3","status":"completed","result":"out\n[exit code: 4]"}
+{"type":"status","phase":"step_end","turn":1,"step":4,"usage":{"inputTokens":10,"outputTokens":1,"totalTokens":11}}
+{"type":"status","phase":"step_start","turn":1,"step":5}
+{"type":"tool_call","callId":"call_4","tool":"bash","input":{"command":"kill -9 $$","description":"edge"}}
+{"type":"tool_result","callId":"call_4","status":"completed","result":"(no output)\n[killed by signal: SIGKILL]"}
+{"type":"status","phase":"step_end","turn":1,"step":5,"usage":{"inputTokens":10,"outputTokens":1,"totalTokens":11}}
+{"type":"status","phase":"step_start","turn":1,"step":6}
+{"type":"tool_call","callId":"call_5","tool":"bash","input":{"command":"printf 'no newline'; exit 5","description":"edge"}}
+{"type":"tool_result","callId":"call_5","status":"completed","result":"no newline\n[exit code: 5]"}
+{"type":"status","phase":"step_end","turn":1,"step":6,"usage":{"inputTokens":10,"outputTokens":1,"totalTokens":11}}
+{"type":"status","phase":"step_start","turn":1,"step":7}
+{"type":"tool_call","callId":"call_6","tool":"bash","input":{"command":"trap 'exit 0' TERM; sleep 5 & wait","timeoutMs":1000,"description":"edge"}}
+{"type":"tool_result","callId":"call_6","status":"completed","result":"(no output)\n[timed out after 1000ms]"}
+{"type":"status","phase":"step_end","turn":1,"step":7,"usage":{"inputTokens":10,"outputTokens":1,"totalTokens":11}}
+{"type":"status","phase":"step_start","turn":1,"step":8}
+{"type":"tool_call","callId":"call_7","tool":"bash","input":{"command":"sleep 5","timeoutMs":1000,"description":"edge"}}
+{"type":"tool_result","callId":"call_7","status":"completed","result":"(no output)\n[timed out after 1000ms]\n[killed by signal: SIGTERM]"}
+{"type":"status","phase":"step_end","turn":1,"step":8,"usage":{"inputTokens":10,"outputTokens":1,"totalTokens":11}}
+{"type":"status","phase":"step_start","turn":1,"step":9}
+{"type":"tool_call","callId":"call_8","tool":"bash","input":{"command":"trap 'exit 0' TERM; sleep 5 & wait","timeoutMs":1000.5,"description":"edge"}}
+{"type":"tool_result","callId":"call_8","status":"completed","result":"(no output)\n[timed out after 1000.5ms]"}
+{"type":"status","phase":"step_end","turn":1,"step":9,"usage":{"inputTokens":10,"outputTokens":1,"totalTokens":11}}
+{"type":"status","phase":"step_start","turn":1,"step":10}
+{"type":"text","text":"done"}
+{"type":"status","phase":"step_end","turn":1,"step":10,"usage":{"inputTokens":10,"outputTokens":1,"totalTokens":11}}
+{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"completed"}}
+{"type":"final","sessionId":"session-9fc3acf0-ab99-4d1f-8770-d448a699fe26","reason":{"kind":"completed"},"text":"done"}

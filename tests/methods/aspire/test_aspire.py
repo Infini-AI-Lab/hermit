@@ -535,6 +535,16 @@ def test_the_task_sandbox_is_shown_the_staged_docs_and_never_a_page_that_lost_it
     assert sorted(p.name for p in staged.iterdir()) == ["api-reference.md", "libero-pro.md", "robosuite.md",
                                                         "run-artifacts.md"]
     assert all("examples/" not in p.read_text() and "microwave" not in p.read_text() for p in staged.iterdir())
+    stage = lambda: subprocess.run([sys.executable, str(EXAMPLE / "agent" / "stage_docs.py"), "--aspire-root",
+                                    str(root), "--tasks", str(tmp_path / "rows.jsonl"), "--out", str(staged)],
+                                   capture_output=True, text=True)
+    before = {p.name: p.stat().st_ino for p in staged.iterdir()}
+    assert stage().returncode == 0 and {p.name: p.stat().st_ino for p in staged.iterdir()} == before   # in place
+    (staged / "extra").mkdir()                                  # anything else there: staged anew, without it
+    (staged / "notes.bin").write_bytes(b"\xff\xfe")
+    assert stage().returncode == 0
+    assert sorted(p.name for p in staged.iterdir()) == ["api-reference.md", "libero-pro.md", "robosuite.md",
+                                                        "run-artifacts.md"]
     (staged / "libero-pro.md").write_text("# the staged page\n")
     work = _workspace(service, LIBERO_ROW)
     T.prepare(LIBERO_ROW, work, {"aspire_root": str(root), "aspire_docs": str(staged)}, tmp_path)

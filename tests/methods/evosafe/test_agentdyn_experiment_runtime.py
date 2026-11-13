@@ -1,4 +1,4 @@
-"""Real subprocess regressions for frozen experiments, entry loading and cancellation."""
+"""Real subprocess checks for frozen inputs, runtime overrides, entry loading and cancellation."""
 import json
 import os
 from pathlib import Path
@@ -18,7 +18,8 @@ from experiment_runtime import snapshot, verify_snapshot
 
 
 @pytest.mark.parametrize('with_validation', [True, False])
-def test_snapshot_survives_changes_to_original_code_config_and_data(tmp_path, monkeypatch, with_validation):
+@pytest.mark.parametrize('disable_sandbox', [True, False])
+def test_snapshot_survives_changes_to_original_code_config_and_data(tmp_path, monkeypatch, with_validation, disable_sandbox):
     root = tmp_path / 'repo'
     root.mkdir()
     (root / 'lazy.py').write_text("VALUE = 'committed'\n")
@@ -29,7 +30,8 @@ def test_snapshot_survives_changes_to_original_code_config_and_data(tmp_path, mo
     import yaml
     config_data = {'data': {k: 'cases.txt' for k in ('tasks', 'train', 'val', 'test')},
                    'agent': {'name': 'worker.py:run', 'params': {}}, 'judge': {'path': 'worker.py'},
-                   'trainer': {}, 'task_info': 'task-info', 'template': 'template'}
+                   'trainer': {}, 'task_info': 'task-info', 'template': 'template', 'sandbox': {'enabled': True},
+                   'evolver': {'name': 'she'}}
     if not with_validation:
         config_data['data'].pop('val')
     config_path = root / 'run.yaml'
@@ -41,11 +43,13 @@ def test_snapshot_survives_changes_to_original_code_config_and_data(tmp_path, mo
     (root / 'cases.txt').write_text('original cases')  # An ignored/untracked prepared input.
     config = SimpleNamespace(data=config_data, run_dir=lambda: tmp_path / 'output/run',
         run_name=lambda: 'run', path=lambda value: (root / value).resolve(),
-        template_dir=lambda: root / 'template', tree_dir=lambda _: tmp_path / 'tree')
+        template_dir=lambda: root / 'template', tree_dir=lambda method: tmp_path / ('tree-' + method))
     backend = tmp_path / 'backends.yaml'
     backend.write_text('fixture: {base_url: https://original.example.invalid}')
     monkeypatch.setenv('HA_BACKENDS', str(backend))
-    meta = snapshot(root, config_path, config)
+    meta = snapshot(root, config_path, config, sandbox_enabled=False if disable_sandbox else None)
+    assert yaml.safe_load(config_path.read_text())["sandbox"]["enabled"] is True
+    assert meta["runtime_overrides"] == ({"sandbox.enabled": False} if disable_sandbox else {})
     backend.write_text('changed backend')
     frozen = Path(meta['snapshot_root'])
     (root / 'lazy.py').write_text("VALUE = 'changed during experiment'\n")
@@ -56,6 +60,8 @@ def test_snapshot_survives_changes_to_original_code_config_and_data(tmp_path, mo
     assert subprocess.check_output([sys.executable, str(frozen / 'worker.py')], cwd=frozen,
                                    env=env, text=True).strip() == 'committed'
     effective = yaml.safe_load(Path(meta['config']).read_text())
+    assert effective['trainer']['tree_dir'] == str(tmp_path / 'tree-she')
+    assert effective['sandbox']['enabled'] is not disable_sandbox
     assert ('val' in effective['data']) == with_validation
     assert Path(effective['data']['tasks']).read_text() == 'original cases'
     assert Path(effective['task_info'], 'info').read_text() == 'committed context'
@@ -196,3 +202,11 @@ def test_snapshot_refuses_a_file_input_outside_the_repository(tmp_path, monkeypa
     monkeypatch.setenv('HA_BACKENDS', str(tmp_path / 'none.yaml'))
     with pytest.raises(ValueError, match='must be committed inside the repository'):
         snapshot(root, config_path, config)
+
+
+def test_a_frozen_run_cannot_receive_an_unrecorded_sandbox_override(tmp_path):
+    result = subprocess.run([sys.executable, str(UTILS / 'run_experiment.py'),
+                             '--config', str(tmp_path / 'absent.yaml'), '--frozen', '--no-sandbox'],
+                            capture_output=True, text=True, timeout=15)
+    assert result.returncode == 2
+    assert '--no-sandbox must be applied before source freezing' in result.stderr

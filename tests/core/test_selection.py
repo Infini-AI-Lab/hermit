@@ -8,7 +8,7 @@ import pytest
 from selection import METHODS, READ_BY, NoBase, changed_paths, groups_for, select
 
 ROOT = Path(__file__).resolve().parents[2]
-BUILT_IN = {"codex", "claude", "pi", "opencode"}   # the generic AgentEvolvers: tests/core
+BUILT_IN = {"codex", "claude", "pi", "opencode", "dsh"}   # the generic AgentEvolvers: tests/core
 NO_METHOD = {"prompt_only", "lean_collab"}       # templates without an Evolver of their own: tests/core
 
 

@@ -1,0 +1,7 @@
+{"type":"session","sessionId":"session-4a46d7a7-7e83-4f43-b5c9-ab2c48c086b8","cwd":"/tmp/r5/work"}
+{"type":"status","phase":"turn_start","turn":1}
+{"type":"status","phase":"step_start","turn":1,"step":1}
+{"type":"text","text":"the answer"}
+{"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":100,"outputTokens":10,"totalTokens":1010}}
+{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"completed"}}
+{"type":"final","sessionId":"session-4a46d7a7-7e83-4f43-b5c9-ab2c48c086b8","reason":{"kind":"completed"},"text":"the answer"}

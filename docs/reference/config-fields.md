@@ -32,13 +32,13 @@ guarantee that their consumer supports arbitrary fields.
 | `data.shuffle` | boolean / true | Shuffle training order; set false for ordered streams |
 | `data.shuffle_seed` | integer / 0 | Training shuffle seed; does not seed every model or method |
 | `task_info` | directory / null | Learner-facing task description; provide `README.md` |
-| `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `harbor` (a benchmark's task set in Harbor's format, see [Benchmarks](../framework/task.md#benchmarks)), an Agent class, or a `file.py:function` / `module:function` |
+| `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `harbor` (a benchmark's task set in Harbor's format, see [Benchmarks](../framework/task.md#benchmarks)), an Agent class, or a `file.py:function` / `module:function` |
 | `agent.concurrency` | integer / 4 | Maximum concurrent rollout/evaluation task executions; use a positive value |
 | `agent.timeout_min` | number / null | A sandboxed task call (its worker) running longer is stopped and recorded as an error; null: no limit |
 | `agent.params` | mapping / {} | Passed to Agent constructors; plain functions receive it when they declare a `params` argument |
-| `agent.base` | string / null | Layer 2 in the per-layer form ([Agent layers](../framework/agent-layers.md#settings-by-layer)): `codex`, `claude`, `pi`, `mini-swe-agent`, `opencode`, `react`, or `direct` (with `agent.name`, a task's own loop); sets `agent.name` when unset |
+| `agent.base` | string / null | Layer 2 in the per-layer form ([Agent layers](../framework/agent-layers.md#settings-by-layer)): `codex`, `claude`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `react`, or `direct` (with `agent.name`, a task's own loop); sets `agent.name` when unset |
 | `agent.model` | string / mapping / null | Layer 1: a `<backend>/<model>` reference, or `{ref` or `name, login, effort, price, ...}`; read into `agent.params` |
-| `agent.codex`, `agent.claude`, `agent.pi`, `agent.mini-swe-agent`, `agent.opencode`, `agent.react`, `agent.direct` | mapping / null | Layer 2's settings for that Base Agent (the one `agent.base` names); read into `agent.params`. A key set in two layers is refused |
+| `agent.codex`, `agent.claude`, `agent.pi`, `agent.mini-swe-agent`, `agent.opencode`, `agent.dsh`, `agent.react`, `agent.direct` | mapping / null | Layer 2's settings for that Base Agent (the one `agent.base` names); read into `agent.params`. A key set in two layers is refused |
 | `pipeline.run` | string / null | Legacy alias for `agent.name`, applied only when `agent.name` is unset |
 | `pipeline.concurrency` | integer / null | Legacy concurrency override when the legacy pipeline alias is used |
 | `pipeline.params` | mapping / {} | Legacy parameters merged into `agent.params` when the pipeline alias is used |
@@ -57,9 +57,9 @@ Task row fields become training material, so private labels require judge-owned 
 | `evolver.name` | string / null; required | Built-in method or directory containing its Evolver definition |
 | `evolver.resume` | boolean / false | Request learner-session continuation; method must support it |
 | `evolver.params` | mapping / {} | Overrides merged with the chosen method's defaults |
-| `evolver.base` | string / null | Layer 2 the method runs on: `codex`, `claude`, `pi` or `opencode` (an agent Evolver: sets `evolver.params.backend`) or `direct` |
+| `evolver.base` | string / null | Layer 2 the method runs on: `codex`, `claude`, `pi`, `opencode` or `dsh` (an agent Evolver: sets `evolver.params.backend`) or `direct`. On a method that calls the run's model, `pi` makes that model Pi (`llm: {cli: pi, ...}`) |
 | `evolver.model` | string / mapping / null | Layer 1, as `agent.model`; with `evolver.base: direct` it is the run's `llm` |
-| `evolver.codex`, `evolver.claude`, `evolver.pi`, `evolver.opencode`, `evolver.direct` | mapping / null | Layer 2's settings, read into `evolver.params` |
+| `evolver.codex`, `evolver.claude`, `evolver.pi`, `evolver.opencode`, `evolver.dsh`, `evolver.direct` | mapping / null | Layer 2's settings, read into `evolver.params` (`evolver.pi` on a method that calls the run's model: into `llm`) |
 | `evolver_access.environment` | list / [] | Granted environment resources; required for MWM's evidence integration |
 | `evolver_access.tools` | list / [] | Task tool declarations offered to the learner |
 | `evolver_access.send_material_out` | boolean / false | Consent declaration checked for methods requesting that need; not a network filter |
@@ -74,15 +74,15 @@ dialects it serves, prices). See [Model backends](../guides/model-backends.md).
 
 | Field | Type / default | Meaning and constraints |
 |---|---|---|
-| `model` | string / null | The run's default model, a `<backend>/<model id>` reference; used by `llm`, `agent.params.model` and the `codex`, `claude` and `mwm` Evolvers' `evolver.params.model` when they name none |
-| `backends` | mapping / {} | Backends declared for this run by name, over `~/.config/hermit/backends.yaml` and the built-ins. Fields: `base_url`, `api_key_env`, `key_required`, `apis`, `messages_url`, `litellm`, `prices`, `extra_body`, `context_window`, `models`, or `from: <other>` to copy one |
+| `model` | string / null | The run's default model, a `<backend>/<model id>` reference; used by `llm`, `agent.params.model` and the `codex`, `claude`, `dsh` and `mwm` Evolvers' `evolver.params.model` when they name none |
+| `backends` | mapping / {} | Backends declared for this run by name, over `~/.config/hermit/backends.yaml` and the built-ins. Fields: `base_url`, `api_key_env`, `key_required`, `apis`, `messages_url`, `litellm`, `prices`, `extra_body`, `context_window`, `max_output_tokens`, `models`, or `from: <other>` to copy one |
 | `llm` | reference, mapping / null | The run's chat-completions `llm` tool: a reference, `{model: <reference>, price, extra_body}`, the endpoint itself (below), or a CLI's sessions, `{cli: ..., ...}` (below) |
 
 `agent.params.model` takes the same forms. For a Codex or Claude Code acting agent or Evolver a reference becomes
-the CLI's provider settings (`args` for Codex, `env` for Claude Code, `provider` for Pi and OpenCode) and the model's
-id; a mini-swe-agent acting agent calls the backend through litellm with the key passed per request. A plain id
-without a backend goes to the CLI's own provider as before (for mini-swe-agent: a litellm model id, its key from
-litellm's usual variable).
+the CLI's provider settings (`args` for Codex, `env` for Claude Code, `provider` for Pi, OpenCode and DeepSeek Harness)
+and the model's id; a mini-swe-agent acting agent calls the backend through litellm with the key passed per request. A
+plain id without a backend goes to the CLI's own provider as before (for mini-swe-agent: a litellm model id, its key
+from litellm's usual variable).
 
 ### Learner model tool
 
@@ -102,12 +102,12 @@ cached-input price falls back to the input price. Supply all applicable prices r
 Per-call arguments override matching `extra_body` fields. The underlying client defaults to a 600-second HTTP timeout and four retries; `llm.timeout` (seconds) is forwarded, `llm.max_retries` is not.
 
 A model only a CLI reaches, as `llm` or as an acting pipeline's `agent.model`: each chat call is one session with no
-tools, which on Claude Code can only reply ([Claude subscription](../guides/claude-subscription.md)). Any other key is
+tools, which on Claude Code or Pi can only reply ([Claude subscription](../guides/claude-subscription.md)). Any other key is
 the Base Agent's setting (`hermit/agent/base/cli.py`).
 
 | Field | Type / default | Meaning |
 |---|---|---|
-| `cli` | `codex`, `claude` | The Base Agent |
+| `cli` | `codex`, `claude`, `pi` | The Base Agent. Pi takes a `<backend>/<model>` reference, `isolation: sandbox` and no `login` |
 | `model` | string | The CLI's model name; required with `login: claude`. A `<backend>/<model id>` reference binds it to that backend's key instead |
 | `login` | `chatgpt`, `claude` | The user's subscription on that CLI |
 | `isolation` | string / `sandbox` | `sandbox`: a bubblewrap sandbox of its own (role `llm`, an acting pipeline's `agent-model`: its empty workspace and home, its model's or login's hosts through a proxy of its own, its key or token, nothing of the run); `container`: a Docker container of its own. With `sandbox.enabled: false` it runs unconfined |

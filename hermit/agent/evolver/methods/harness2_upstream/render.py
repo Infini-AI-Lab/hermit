@@ -147,3 +147,42 @@ def render_claude_events(path: Path, *, obs_trunc: int, max_chars: int, args_tru
     if len(rendered) > max_chars:
         rendered = rendered[:max_chars] + "\n" + TRUNCATED.format(n=len(rendered) - max_chars)
     return rendered
+
+
+def render_pi_events(path: Path, *, obs_trunc: int, max_chars: int, args_trunc: int = 2000) -> str:
+    """Render a Pi `--mode json` stream into upstream's shared grammar: each assistant message's text, thinking and
+    tool calls, and each call's result as Pi reported it (a failed one, an edit's or a read's too, as an error)."""
+    from hermit.agent.base.trajectory import events
+    try:
+        stream = events(path)
+    except OSError as exc:
+        return f"(failed to read trajectory: {exc})"
+    lines: list[str] = []
+    for event in stream:
+        kind = event.get("type")
+        message = event.get("message") if isinstance(event.get("message"), dict) else {}
+        if kind == "message_end" and message.get("role") == "assistant":
+            for block in _blocks(message.get("content")):
+                btype = block.get("type")
+                if btype == "text" and str(block.get("text") or "").strip():
+                    lines.append(f"[ASSISTANT] {clip(block['text'], obs_trunc)}")
+                elif btype == "thinking" and str(block.get("thinking") or "").strip():
+                    lines.append(f"[REASONING] {clip(block['thinking'], obs_trunc)}")
+                elif btype == "toolCall":
+                    name, args = str(block.get("name") or "tool"), block.get("arguments") or {}
+                    lines.append(f"[ACTION] {name}: {_action('Bash' if name == 'bash' else name, args, args_trunc)}")
+            if message.get("stopReason") in ("error", "aborted"):
+                lines.append(f"[ERROR] {clip(message.get('errorMessage') or 'request ' + message['stopReason'], 1000)}")
+        elif kind == "tool_execution_end":
+            result = event.get("result") if isinstance(event.get("result"), dict) else {}
+            structured = result.get("structuredContent") if isinstance(result.get("structuredContent"), dict) else {}
+            said = str(structured["output"]) if event.get("toolName") == "bash" and "output" in structured \
+                else _result_text(result.get("content"))
+            tag = "OBSERVATION ERROR" if event.get("isError") else "OBSERVATION"
+            lines.append(f"[{tag}] {clip(said, obs_trunc)}")
+    rendered = "\n".join(lines).strip()
+    if not rendered:
+        return "(no parseable events in trajectory)"
+    if len(rendered) > max_chars:
+        rendered = rendered[:max_chars] + "\n" + TRUNCATED.format(n=len(rendered) - max_chars)
+    return rendered

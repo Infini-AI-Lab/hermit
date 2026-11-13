@@ -28,6 +28,9 @@ mini-swe-agent = ["mini-swe-agent==2.4.6"]
 # Source-only method dependencies: groups are not included in PyPI package metadata.
 # From the checkout root, use pip >=25.1: python -m pip install -e . --group <method>.
 [dependency-groups]
+she = [
+    "she-safety-harness-evolution @ git+https://github.com/RainbowQTT/SHE@0c656460d9d8acdf406a2271d657f7a7b60bb255",
+]
 gepa = [
     "gepa @ git+https://github.com/gepa-ai/gepa@d771eb21b5dd3228bc3f567293d2ccfc423fc900",
 ]
@@ -45,6 +48,7 @@ rrsi = [
     "rrsi @ git+https://github.com/google-research/rrsi@be50316e1db05914068a973f322770ef08ed7ba1",
 ]
 all = [
+    { include-group = "she" },
     { include-group = "gepa" },
     { include-group = "skillopt" },
     { include-group = "harness2" },

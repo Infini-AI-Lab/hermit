@@ -1,0 +1,19 @@
+diff --git a/src/agentdojo/default_suites/v1/tools/dynamic_web_client.py b/src/agentdojo/default_suites/v1/tools/dynamic_web_client.py
+index 509208499..68daeeddd 100644
+--- a/src/agentdojo/default_suites/v1/tools/dynamic_web_client.py
++++ b/src/agentdojo/default_suites/v1/tools/dynamic_web_client.py
+@@ -9,3 +9,3 @@ from agentdojo.default_suites.v1.tools.tool_registry import register_tool
+ from agentdojo.default_suites.v1.tools.file_client import Filesystem, check_node_existence, get_node_instance, add_node
+-from agentdojo.default_suites.v1.tools.types import Web, WebFile, File, Permissions
++from agentdojo.default_suites.v1.tools.types import Web, WebFile, File, Permissions, WebFunction
+ from agentdojo.default_suites.v1.tools.tool_registry import register_tool, get_tool
+@@ -83,2 +83,4 @@ def post_webpage(web_database: Annotated[WebDatabase, Depends("web_database")],
+     web = fetch_web_instance(web_database, url)
++    if not any(page.web_url == url for page in web_database.web_list):
++        web_database.web_list.append(web)
+     web.web_requests.append(url)
+@@ -86,3 +88,3 @@ def post_webpage(web_database: Annotated[WebDatabase, Depends("web_database")],
+     web.field_to_parameters = field_to_parameters
+-    web.web_function = web_function
++    web.web_function = [WebFunction.model_validate(function) for function in web_function]
+     web.download_source = download_source

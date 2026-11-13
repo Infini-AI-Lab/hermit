@@ -1,0 +1,7 @@
+{"type":"session","sessionId":"session-2fc35b04-2918-404c-97c5-57a1df42f483","cwd":"/run/work"}
+{"type":"status","phase":"turn_start","turn":1}
+{"type":"status","phase":"step_start","turn":1,"step":1}
+{"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":12,"outputTokens":1,"totalTokens":13}}
+{"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"error","error":{"message":"{\"type\": \"error\", \"error\": {\"type\": \"overloaded_error\", \"message\": \"Overloaded\"}}","code":"PI_AI_ERROR"}}}
+{"type":"final","sessionId":"session-2fc35b04-2918-404c-97c5-57a1df42f483","reason":{"kind":"error","error":{"message":"{\"type\": \"error\", \"error\": {\"type\": \"overloaded_error\", \"message\": \"Overloaded\"}}","code":"PI_AI_ERROR"}},"text":""}
+dsh: PI_AI_ERROR: {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}}
