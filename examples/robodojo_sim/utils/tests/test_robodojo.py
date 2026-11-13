@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from types import SimpleNamespace
 
@@ -264,6 +265,8 @@ def test_with_an_image_the_engine_runs_the_simulator_in_the_container(tmp_path, 
 
     def inspected(cmd, **kwargs):                  # docker image inspect, and the container's removal after a run
         docker.append(cmd)
+        if cmd[:2] == ["docker", "rm"]:            # a daemon that refuses to remove it
+            return SimpleNamespace(returncode=1, stderr=b"Error response from daemon: removal in progress")
         return SimpleNamespace(returncode=1 if "missing:image" in cmd else 0)
 
     monkeypatch.setattr(dojo.subprocess, "Popen", recorded)
@@ -274,8 +277,9 @@ def test_with_an_image_the_engine_runs_the_simulator_in_the_container(tmp_path, 
     monkeypatch.setenv("ROBODOJO_CACHE", "relative/cache")
     assert dojo.Engine(root).cache.is_absolute()                   # docker reads a relative path as a volume's name
     engine = dojo.Engine(root, policy_env="/envs/policy", gpu=3, cache=tmp_path / "cache")
-    with pytest.raises(RuntimeError, match="could not start"):     # a container that did not start is no failed layout
+    with pytest.raises(dojo.NotStarted, match="could not start"):  # a container that did not start is no failed layout
         engine.run(program, task="stack_bowls", layout_seed=2, layouts=5, out=tmp_path / "out")
+    assert engine.wait_idle(0)                                     # its cleanup is done
     cmd, kwargs = seen[0]
     assert cmd[:2] == ["bash", str(UTILS / "agent" / "split_eval.sh")] and Path(kwargs["cwd"]) == root.resolve()
     image, policy, task, ckpt, policy_env, layouts, env_cfg, action_type, seed, gpu, run_id, cache = cmd[2:]
@@ -284,9 +288,42 @@ def test_with_an_image_the_engine_runs_the_simulator_in_the_container(tmp_path, 
     assert ckpt.startswith("hermit-") and run_id == kwargs["env"]["ROBODOJO_RUN_ID"] and cache == str(tmp_path / "cache" / "gpu3")
     assert "HERMIT_PROGRAM_WORKER" in kwargs["env"]               # reaches the policy server on the host
     assert docker[-1] == ["docker", "rm", "-f", f"hermit-robodojo-{run_id}"]      # no container outlives its run
+    assert "was not removed: Error response from daemon: removal in progress" in \
+        (tmp_path / "out.private" / "robodojo.log").read_text()     # and one that does is said in the run's log
     monkeypatch.delenv("ROBODOJO_IMAGE")
     native = dojo.Engine(root).run(program, task="stack_bowls", layout_seed=2, layouts=5, out=tmp_path / "out2")
     assert native == [] and seen[1][0][:3] == ["bash", "scripts/robodojo.sh", "eval"]    # RoboDojo's own launcher
+
+
+def test_a_stop_waits_for_a_started_evaluation_to_finish_cleaning_up(tmp_path, monkeypatch):
+    dojo = _load("dojo", UTILS / "agent" / "dojo.py")
+    root = fake_robodojo(tmp_path)
+    dojo.install(root)
+    (tmp_path / "work").mkdir()
+    program = tmp_path / "work" / "policy.py"
+    program.write_text(GOOD)
+    release, begun = threading.Event(), threading.Event()
+
+    class Running:                                 # the evaluation's process: it ends when released
+        pid, returncode = 0, 0
+
+        def wait(self, timeout=None):
+            begun.set()
+            release.wait(10)
+            return self.returncode
+
+    monkeypatch.setattr(dojo.subprocess, "Popen", lambda cmd, **kwargs: Running())
+    engine = dojo.Engine(root)
+    monkeypatch.setattr(engine, "_worker", lambda staged, out, private: (SimpleNamespace(close=lambda: None), "{}"))
+    assert engine.wait_idle(0)                                     # nothing started
+    run = threading.Thread(target=engine.run, args=(program,),
+                           kwargs={"task": "stack_bowls", "layout_seed": 2, "layouts": 1, "out": tmp_path / "out"})
+    run.start()
+    assert begun.wait(10)
+    assert not engine.wait_idle(0.2)                               # a started run holds the stop
+    release.set()
+    assert engine.wait_idle(10)
+    run.join(10)
 
 
 def test_the_container_script_starts_the_server_then_the_client_and_stops_both(tmp_path):
@@ -477,6 +514,15 @@ def test_the_service_runs_only_the_sessions_development_layouts_from_the_first(t
                              "output_root": "runs/v3"})
     assert unstarted["ok"] and unstarted["code"] == 3 and "not your program" in unstarted["stderr"]
     assert str(tmp_path) not in unstarted["stderr"] + unstarted["stdout"]      # the host's paths stay on the host
+
+    class Failed(Engine):                          # anything else the host raises (an OSError naming the checkout)
+        def run(self, program, **options):
+            raise PermissionError(f"[Errno 13] Permission denied: '{tmp_path}/eval_result/RoboDojo/x'")
+    service.engine = Failed()
+    failed = service.run({"workspace": str(work), "cmd": "run-batch", "program": "policy.py", "seeds": [0, 1],
+                          "output_root": "runs/v4"})
+    assert failed["ok"] and failed["code"] == 3 and "failed on the host" in failed["stderr"]
+    assert str(tmp_path) not in json.dumps(failed)
     service.engine = ours
     other = {**row, "id": "robodojo-other", "benchmark": "libero-pro"}
     service.tasks[other["id"]] = other

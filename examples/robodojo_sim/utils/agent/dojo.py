@@ -118,7 +118,7 @@ class Engine:
                                    "in the RoboDojo checkout)")
         self.running: set[subprocess.Popen] = set()
         self._guard, self.stopping = threading.Lock(), False
-        self._idle, self._active = threading.Condition(), 0      # the runs that have not finished cleaning up
+        self._idle, self._active = threading.Condition(), 0      # the started runs not yet cleaned up
 
     def stop(self) -> None:
         """Stop the evaluations this engine is running and start no other (the service's, when it is stopped): a
@@ -129,8 +129,9 @@ class Engine:
                 _stop(proc)
 
     def wait_idle(self, timeout: float | None = None) -> bool:
-        """Wait until no run is left, its cleanup included (the container's removal, nothing of it in the checkout):
-        a service that exits right after stop() would otherwise leave that to chance."""
+        """Wait until no started run is left, its cleanup included (the container's removal, nothing of it in the
+        checkout): a service that exits right after stop() would otherwise leave that to chance. A run still waiting
+        for its GPU has started nothing and is not waited for: it finds the engine stopping when it gets the GPU."""
         with self._idle:
             return self._idle.wait_for(lambda: not self._active, timeout)
 
@@ -184,14 +185,7 @@ class Engine:
             raise ValueError(refused)
         out.mkdir(parents=True, exist_ok=True)
         private.mkdir(parents=True, exist_ok=True)
-        with self._idle:
-            self._active += 1
-        try:
-            return self._evaluate(program, task, layout_seed, layouts, out, private)
-        finally:
-            with self._idle:
-                self._active -= 1
-                self._idle.notify_all()
+        return self._evaluate(program, task, layout_seed, layouts, out, private)
 
     def _evaluate(self, program: Path, task: str, layout_seed: int, layouts: int, out: Path,
                   private: Path) -> list[dict]:
@@ -218,7 +212,7 @@ class Engine:
         # The GPU's lock, shared by the service and the judge whatever their TMPDIR: in the checkout (the user's own,
         # where RoboDojo writes its results), opened without truncating it
         locks = self.root / ".cache" / "hermit-locks"
-        lock, timed_out = None, False
+        lock, timed_out, started_run = None, False, False
         try:
             locks.mkdir(parents=True, exist_ok=True)
             lock = os.open(locks / f"gpu{self.gpu}.lock", os.O_RDWR | os.O_CREAT, 0o600)
@@ -230,6 +224,9 @@ class Engine:
                     proc = subprocess.Popen(cmd, cwd=self.root, env=env, stdout=log, stderr=subprocess.STDOUT,
                                             start_new_session=True)
                     self.running.add(proc)
+                    with self._idle:
+                        self._active += 1
+                    started_run = True
                 try:
                     proc.wait(timeout=self.timeout_s)
                 except BaseException:
@@ -242,11 +239,16 @@ class Engine:
                     with self._guard:
                         self.running.discard(proc)
                     if self.image:          # a container the script could not stop itself (it was killed)
+                        container = f"hermit-robodojo-{run_id}"
                         try:
-                            subprocess.run(["docker", "rm", "-f", f"hermit-robodojo-{run_id}"],
-                                           capture_output=True, timeout=120, check=False)
-                        except (OSError, subprocess.TimeoutExpired):
-                            pass            # docker did not answer: the evaluation's own outcome stands
+                            rm = subprocess.run(["docker", "rm", "-f", container], capture_output=True, timeout=120,
+                                                check=False)
+                            if rm.returncode and b"no such container" not in (rm.stderr or b"").lower():
+                                log.write(f"\ncontainer {container} was not removed: "
+                                          f"{(rm.stderr or b'').decode(errors='replace').strip()}\n")
+                        except (OSError, subprocess.TimeoutExpired) as exc:
+                            # docker did not answer: the evaluation's own outcome stands, and the log says so
+                            log.write(f"\ncontainer {container} was not removed: {exc}\n")
             found = sorted(results.glob(f"*/{int(layout_seed)}_ckpt_name={label},*/{run_id}/_result.json"))
             records, summary = [], None
             if found:
@@ -272,6 +274,10 @@ class Engine:
                 os.close(lock)
             box.close()
             shutil.rmtree(staged, ignore_errors=True)
+            if started_run:
+                with self._idle:
+                    self._active -= 1
+                    self._idle.notify_all()
 
 
 def failures(out: Path) -> list[dict]:

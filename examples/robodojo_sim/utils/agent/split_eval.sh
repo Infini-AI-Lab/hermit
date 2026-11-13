@@ -20,13 +20,17 @@ owner="$(id -u):$(id -g)"
 mkdir -p eval_result "$cache/warp" "$cache/ov-share" "$cache/ov-cache" .cache/hermit-locks
 # One evaluation at a time from choosing a port to its server answering there: two that start together (the
 # sessions' and the judge's, on two GPUs) could otherwise choose the same one, and a simulator reach the other's
-# policy server
-if command -v flock >/dev/null 2>&1; then exec 9> .cache/hermit-locks/port.lock; flock 9; fi
+# policy server. The wait is bounded, and the server is not given the lock's descriptor: a server that hangs and
+# outlives this script would otherwise hold it for every later evaluation
+if command -v flock >/dev/null 2>&1; then
+  exec 9> .cache/hermit-locks/port.lock
+  flock -w 900 9 || { echo "split_eval: another evaluation held the port lock for 15 minutes" >&2; exit 70; }
+fi
 port="$(bash XPolicyLab/utils/get_free_port.sh)"
 
 bash scripts/robodojo.sh server --policy-dir "XPolicyLab/policy/${policy}" --task "$task" --ckpt "$ckpt" \
   --policy-env "$policy_env" --policy-port "$port" --bind-host 127.0.0.1 --env-cfg "$env_cfg" \
-  --action-type "$action_type" --seed "$seed" --policy-gpu "$gpu" &
+  --action-type "$action_type" --seed "$seed" --policy-gpu "$gpu" 9>&- &
 server=$!
 stop() {
   # The policy server and what it started: this script leads its process group when the engine runs it

@@ -67,6 +67,10 @@ class Service(base.Service):
                            "doing and no layout was run: say so in your notes.\n")
         except ValueError as exc:                          # the program was refused before a simulator started
             return 1, "", f"bin/sim: {exc}\n"
+        except Exception as exc:                           # any other failure is the host's: its message names the
+            print(f"dojo_service: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)   # host's paths
+            return 3, "", ("bin/sim: the evaluation failed on the host. This is not your program's doing and its "
+                           "result is not known: say so in your notes.\n")
         passed = sum(r["task_success"] for r in records)
         lines = [f"layout {r['layout_id']}: {'success' if r['task_success'] else 'fail'} (score {r['score']:.2f})"
                  for r in records]
