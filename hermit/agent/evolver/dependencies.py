@@ -8,6 +8,7 @@ tests/methods/optimizers/test_optimizer_evolvers.py checks that these requiremen
 from __future__ import annotations
 
 METHOD_REQUIREMENTS = {
+    "she": ("she-safety-harness-evolution @ git+https://github.com/RainbowQTT/SHE@0c656460d9d8acdf406a2271d657f7a7b60bb255",),
     "gepa": ("gepa @ git+https://github.com/gepa-ai/gepa@d771eb21b5dd3228bc3f567293d2ccfc423fc900",),
     "skillopt": (
         "skillopt @ git+https://github.com/microsoft/SkillOpt@79124b37e9a6371e13b753f8bcd7adb1e493ade1",

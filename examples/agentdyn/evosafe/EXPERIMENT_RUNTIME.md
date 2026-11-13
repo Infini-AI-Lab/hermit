@@ -4,6 +4,11 @@ Run `../utils/run_experiment.py --config run_nemotron_codex.yaml` only after com
 source changes and choosing unused run/tree paths. The runner does not start or resume an experiment merely
 because this document or its tests are read.
 
+On a host without usable bubblewrap, `--no-sandbox` explicitly disables the learner sandbox for this run.
+The launcher records `sandbox.enabled=false` in the frozen effective configuration and `runtime_overrides`
+metadata, while preserving the committed recipe. Learned hooks retain their separate Docker boundary.
+This override must be applied at launch, before source freezing; it cannot modify an existing frozen run.
+
 The launcher exports the exact Git commit into a private directory under `runs/.source-snapshots/`. It copies
 the prepared dataset and splits, uses committed task information and template files, freezes the effective
 configuration and private backend settings, and redirects outputs to the original run/tree/log locations.

@@ -7,6 +7,8 @@ import json
 import sys
 import types
 
+sys.path.insert(0, '/runtime')
+
 wire = sys.stdout
 sys.stdout = sys.stderr  # Candidate prints cannot corrupt protocol framing.
 
@@ -61,10 +63,13 @@ for line in sys.stdin:
     try:
         request = json.loads(line)
         method = request['method']
+        if method not in ('system_prompt_transform', 'prepare_query', 'finalize_response',
+                          'export_state', 'on_pre_tool_call', 'on_post_tool_call'):
+            raise ValueError('unsupported hook method')
         args = request['args']
         ctx = None
         result = None
-        if method != 'system_prompt_transform' and api == 'structured-v1':
+        if method in ('on_pre_tool_call', 'on_post_tool_call') and api == 'structured-v1':
             ctx = context(args[0], request.get('classifier', False))
             args[0] = ctx
             if method == 'on_post_tool_call':

@@ -10,7 +10,7 @@ python -m pytest --integration ...  # also the tests that run an agent CLI insta
 | Group | What it covers |
 |---|---|
 | `core/` | the framework: the Trainer, templates and `check_spec`, deployment and host exporters, the agent layers (Base Agents, CLI agents, model bindings), the sandbox and isolation, the generic AgentEvolvers |
-| `methods/<name>/` | one method: its Evolver, its template and its examples (`ace`, `ahe`, `aspire`, `continual_harness`, `evosafe`, `harness2`, `meta_harness_adapter`, `mwm`, `opro`, `optimizers` for GEPA and SkillOpt, `reharness`, `rrsi_adapter`) |
+| `methods/<name>/` | one method: its Evolver, its template and its examples (`ace`, `ahe`, `aspire`, `continual_harness`, `evosafe`, `harness2`, `meta_harness_adapter`, `mwm`, `opro`, `optimizers` for GEPA and SkillOpt, `reharness`, `rrsi_adapter`, `she`) |
 
 `--changed` reads `selection.py`: `core/` runs for every change but documentation (its tests also read every
 method's template, manifest and packaging); a method's own files (its Evolver, its template, its examples, its tests)

@@ -244,6 +244,7 @@ accepted; a key given in two layers is refused. On the command line a layer's se
 | CL-Bench, ServeLearnBench | Acting Agent running the benchmark's loop | `direct`, per call, through the local endpoint |
 | MWM | Evolver Agent | `codex`, `claude` or `pi`, in a view of the run's sandbox with MWM's native mounts (`/w`, `/evidence`, ...) |
 | Harness² | Evolver Agent: upstream's proposer | `claude`, one call per upstream session (or `codex` or `pi`) |
+| SHE | Evolver Agent: upstream's debugger and Evolve Agent | `direct` (`ctx.agent`), or `codex`, `claude` or `pi`, one session per call |
 
 ## Outside the layers
 

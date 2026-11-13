@@ -77,3 +77,5 @@ side-effect-free classifier that uses the same frozen victim model.
 - Hook code runs in a separate networkless Docker container; native tools and judges remain in the trusted
   episode worker. Docker is required and failures never fall back to host execution. See
   [the execution boundary](evosafe/REPRODUCTION.md#execution-boundary).
+
+For SHE four-artifact evolution, see [SHE](she/README.md).

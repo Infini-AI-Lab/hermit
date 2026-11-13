@@ -28,6 +28,7 @@ def fnmatch(path: str, pattern: str) -> bool:
 METHODS = {
     "aspire": ["hermit/agent/evolver/methods/aspire/*", "hermit/adapter/templates/aspire/*",
                "examples/aspire_robosuite/*"],
+    "she": ["hermit/agent/evolver/methods/she/*", "hermit/adapter/templates/she/*", "examples/*/she/*"],
     "ace": ["hermit/agent/evolver/methods/ace/*", "hermit/adapter/templates/ace/*", "examples/*/ace/*"],
     "ahe": ["hermit/agent/evolver/methods/ahe_adapter/*", "hermit/adapter/templates/ahe/*",
             "examples/*/ahe_adapter/*", "tests/fixtures/ahe_hosts/*",
@@ -52,6 +53,8 @@ METHODS = {
 # group -> the other groups whose tests read its files (tests/core/test_selection.py finds a method's tests naming
 # another group's directory)
 READ_BY = {"optimizers": {"ahe"},                       # the AHE example's configs match GEPA's and SkillOpt's
+           "she": {"evosafe"},                         # AgentDyn runner tests freeze SHE configs
+           "evosafe": {"she"},                         # SHE reuses the CLI roles and verdict contract
            "harness2": {"continual_harness"}}           # Continual Harness deploys with the harness2_codex template
 # what every method is built on: a change here runs every group (tests/core/test_selection.py checks that every
 # framework module these import, or a method's tests import, is here too)

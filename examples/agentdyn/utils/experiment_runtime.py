@@ -110,7 +110,7 @@ def run_owned(command, *, cwd, stream, registry, heartbeat=lambda: None, started
                 cleanup_containers(registry)
 
 
-def snapshot(root, config_path, config):
+def snapshot(root, config_path, config, *, sandbox_enabled=None):
     """Archive the committed tree; never bind live repository files into a measured run."""
     root = Path(root).resolve()
     if subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'], cwd=root, text=True).strip():
@@ -130,6 +130,10 @@ def snapshot(root, config_path, config):
             raise ValueError('source snapshots require regular files, not symlinks')
         source.extractall(frozen, filter='data')
     effective = yaml.safe_load(committed_config)
+    overrides = {}
+    if sandbox_enabled is not None:
+        effective.setdefault("sandbox", {})["enabled"] = sandbox_enabled
+        overrides["sandbox.enabled"] = sandbox_enabled
     inputs = frozen / '.experiment-inputs'
     inputs.mkdir()
     original_config = inputs / 'original-run.yaml'
@@ -170,7 +174,7 @@ def snapshot(root, config_path, config):
                 raise ValueError(f'{section}.{key} must be a committed entry point')
             effective[section][key] = str(target) + (separator + function if separator else '')
     effective['trainer']['output_dir'] = str(config.run_dir().parent)
-    effective['trainer']['tree_dir'] = str(config.tree_dir('evosafe'))
+    effective['trainer']['tree_dir'] = str(config.tree_dir(config.data.get('evolver', {}).get('name', 'evosafe')))
     effective['agent'].setdefault('params', {})['logs'] = str(config.path(
         config.data['agent']['params'].get('logs', 'runs/agentdyn-episodes')))
     destination = frozen / relative
@@ -181,7 +185,8 @@ def snapshot(root, config_path, config):
     hashes = {str(p.relative_to(frozen)): hashlib.sha256(p.read_bytes()).hexdigest()
               for p in frozen.rglob('*') if p.is_file()}
     metadata = {'commit': commit, 'source_root': str(root), 'snapshot_root': str(frozen),
-                'config': str(destination), 'original_config': str(original_config), 'private_backend_file': str(backend_target), 'file_sha256': hashes}
+                'config': str(destination), 'original_config': str(original_config), 'private_backend_file': str(backend_target), 'file_sha256': hashes,
+                'runtime_overrides': overrides}
     (frozen / '.experiment-snapshot.json').write_text(json.dumps(metadata, indent=2) + '\n')
     for p in frozen.rglob('*'):
         if p.is_file():
@@ -208,8 +213,8 @@ def check_entry(config_path):
     config = Config.load(Path(config_path))
     spec = find(config.data['evolver']['name'], config.base)
     evolver, params = instantiate(spec, config.data['evolver']['params'])
-    if spec.name != 'evosafe':
-        raise ValueError('this experiment runner requires the evosafe Evolver')
+    if spec.name not in ('evosafe', 'she'):
+        raise ValueError('this experiment runner requires an AgentDyn defense Evolver')
     if params.get('search_mode', 'single') == 'roles':
         from hermit.agent.evolver.methods.evosafe.roles import run, proposal_schema, REVIEW_SCHEMA, ANALYSIS_SCHEMA
         assert callable(run) and proposal_schema() and REVIEW_SCHEMA and ANALYSIS_SCHEMA

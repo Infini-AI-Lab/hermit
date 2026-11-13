@@ -36,6 +36,16 @@ def metered(usage):
     return tokens, None if usage.get("unknown_cost_calls") else usage.get("cost_usd")
 
 
+def error_details(exc):
+    """Retain bounded code locations, never exception text, source lines or locals."""
+    frames, trace = [], exc.__traceback__
+    while trace is not None:
+        code = trace.tb_frame.f_code
+        frames.append({'file': Path(code.co_filename).name, 'function': code.co_name, 'line': trace.tb_lineno})
+        trace = trace.tb_next
+    return {'error_type': type(exc).__name__, 'frames': frames[-8:]}
+
+
 def encode(value):
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")
@@ -222,6 +232,7 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
     from isolated_hooks import IsolatedDefense
     defense = IsolatedDefense(adapter, image=params.get("hook_image", "python:3.12-slim"),
                               timeout=params.get("hook_timeout_s", 90),
+                              runtime=params.get("hook_runtime", "evosafe"),
                               name=params.get("_hook_container")) if adapter is not None else None
     logs = (base / params.get("logs", "runs/agentdyn-episodes")).resolve()
     if adapter is not None and logs.is_relative_to(adapter.resolve()):
@@ -239,7 +250,11 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
         def record_auditor_call(event):
             with (log / "llm-auditor-calls.jsonl").open("a") as stream:
                 stream.write(json.dumps(event) + "\n")
-        classifier = OutputClassifier(params, base, on_call=record_auditor_call)
+        if params.get("hook_runtime") == "she":
+            from she_judge import SHESelectiveJudge
+            classifier = SHESelectiveJudge(params, base, on_call=record_auditor_call)
+        else:
+            classifier = OutputClassifier(params, base, on_call=record_auditor_call)
     config = PipelineConfig(llm=victim, model_id=None, defense=None,
                             system_message_name=None, system_message=None, suite_name=task["suite"])
     # A hook failure here is the episode's failure: recorded, reported and cleaned up below like any other.
@@ -256,11 +271,13 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
     pipeline = AgentPipeline.from_config(config)
     audit, captured = [], []
     trace_id = uuid.uuid4().hex
+    trusted_query = None
 
     class Executor(ToolsExecutor):
         def query(self, query, runtime, env, messages=(), extra_args=None):
             captured[:] = messages
-            facade = GuardedRuntime(runtime, defense, query, trace_id, tool_result_to_str, audit, task["suite"], classifier)
+            facade = GuardedRuntime(runtime, defense, trusted_query if trusted_query is not None else query,
+                                    trace_id, tool_result_to_str, audit, task["suite"], classifier)
             q, _, e, m, a = super().query(query, facade, env, messages, extra_args or {})
             captured[:] = m
             return q, runtime, e, m, a
@@ -278,6 +295,14 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
     original_query = pipeline.query
 
     def capture(*args, **kwargs):
+        nonlocal trusted_query
+        trusted_query = args[0] if args else kwargs["query"]
+        prepare_query = getattr(defense, "prepare_query", None)
+        if callable(prepare_query):
+            if args:
+                args = (invoke(prepare_query, args[0]), *args[1:])
+            else:
+                kwargs["query"] = invoke(prepare_query, kwargs["query"])
         result = original_query(*args, **kwargs)
         captured[:] = result[3]
         # Native suites retry a missing terminal answer up to three times on the
@@ -286,10 +311,23 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
         if (not captured or captured[-1].get("role") != "assistant" or captured[-1].get("tool_calls")
                 or not captured[-1].get("content")):
             raise RuntimeError("episode did not produce a terminal assistant response")
+        finalize = getattr(defense, "finalize_response", None)
+        if callable(finalize):
+            from agentdojo.types import text_content_block_from_string
+            content = captured[-1]["content"]
+            text = content if isinstance(content, str) else "\n".join(
+                block["content"] for block in content if block.get("type") == "text")
+            revised = invoke(finalize, text)
+            if not isinstance(revised, str) or not revised:
+                raise TypeError("finalize_response must return nonempty str")
+            if revised != text:
+                captured[-1]["content"] = (revised if isinstance(content, str)
+                                             else [text_content_block_from_string(revised)])
         return result
 
     pipeline.query = capture
     started = time.monotonic()
+    failure = None
     try:
         if transform_error is not None:
             raise transform_error
@@ -297,7 +335,7 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
             pipeline, user_task, injection_task, task.get("injections", {}))
     except Exception as exc:
         (log / "failure.json").write_text(json.dumps({"case_id": task.get("id"),
-            "user_task_id": task["user_task_id"], "error_type": type(exc).__name__}))
+            "user_task_id": task["user_task_id"], **error_details(exc)}))
         (log / "trajectory.json").write_text(json.dumps(captured, default=encode))
         (log / "audit.json").write_text(json.dumps(audit))
         reason = "episode did not produce a terminal assistant response" if (
@@ -307,16 +345,30 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
     else:
         failure = None
     finally:
-        if defense is not None:
-            defense.close()
+        finalization_errors = []
+        if defense is not None and params.get('hook_runtime') == 'she':
+            try:
+                (log / 'defense-state.json').write_text(json.dumps(defense.export_state(), indent=2))
+            except Exception as exc:
+                finalization_errors.append({'phase': 'state_export', **error_details(exc)})
+        # A dead hook worker or failed close must not skip the remaining clients
+        # or discard already known usage. The supervisor still owns container cleanup.
+        for phase, resource in [('defense_close', defense), ('auditor_close', classifier), ('victim_close', victim)]:
+            if resource is not None:
+                try:
+                    resource.close()
+                except Exception as exc:
+                    finalization_errors.append({'phase': phase, **error_details(exc)})
         if classifier is not None:
-            classifier.close()
-            (log / "auditor-usage.json").write_text(json.dumps(classifier.usage, indent=2))
-            for key, value in classifier.usage.items():
+            usage = classifier.usage
+            for key, value in usage.items():
                 victim.usage[key] += value
+            (log / 'auditor-usage.json').write_text(json.dumps(usage, indent=2))
         if victim is not None:
-            victim.close()
-            (log / "usage.json").write_text(json.dumps(victim.usage, indent=2))
+            (log / 'usage.json').write_text(json.dumps(victim.usage, indent=2))
+        if finalization_errors:
+            (log / 'finalization-errors.json').write_text(json.dumps(finalization_errors, indent=2))
+            failure = failure or 'episode finalization failed; inspect local failure artifacts'
     # Do not count an exhausted loop or missing terminal answer as a secure result.
     if failure is None and (not captured or captured[-1].get("role") != "assistant"
                             or captured[-1].get("tool_calls") or not captured[-1].get("content")):
@@ -341,7 +393,7 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
     (log / "audit.json").write_text(json.dumps(audit, indent=2))
     digest = hashlib.sha256()
     if adapter is not None:
-        for name in ("ADAPTER.md", "defense.py"):
+        for name in ("ADAPTER.md", "defense.py", *getattr(defense, "artifact_paths", ())):
             digest.update(name.encode() + (adapter / name).read_bytes())
     provenance = {"reference_revision": AGENTDYN_REVISION, "model": params["model"],
                   "generation": {k: params[k] for k in ("max_tokens", "temperature", "top_p", "extra_body", "max_iters") if k in params},
