@@ -1,6 +1,6 @@
 """Offline regression tests for the documented AgentDyn dynamic-webpage patch.
 
-Requires the optional AgentDyn checkout with persist-dynamic-webpages.patch applied.
+Requires the optional AgentDyn checkout with persist-dynamic-webpages.patch applied; skips without it.
 Only local simulated pages, accounts and judges are exercised; no model calls.
 """
 import re
@@ -10,10 +10,15 @@ import pytest
 
 @pytest.fixture
 def web_client():
-    return pytest.importorskip(
+    client = pytest.importorskip(
         "agentdojo.default_suites.v1.tools.dynamic_web_client",
         reason="requires AgentDyn, not upstream AgentDojo",
     )
+    probe = client.WebDatabase(web_list=[], file_list={})
+    client.post_webpage(probe, "https://example.invalid/probe", "probe")
+    if not probe.web_list:  # the pinned revision drops a page that post_webpage creates
+        pytest.skip("requires AgentDyn with examples/agentdyn/patches/persist-dynamic-webpages.patch applied")
+    return client
 
 
 def test_post_new_webpage_persists_content_and_action(web_client):
