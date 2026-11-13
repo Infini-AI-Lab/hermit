@@ -71,7 +71,7 @@ class IsolatedDefense:
             # never benchmark code, credentials or task/judge data.
             shutil.copytree(Path(she.__file__).parent, root / 'she', ignore=shutil.ignore_patterns('__pycache__'))
             (root / 'she_runtime.py').write_bytes(Path(she_runtime.__file__).read_bytes())
-        for path in root.iterdir():
+        for path in root.rglob('*'):      # the container user reads every staged file, whatever the host umask
             path.chmod(0o755 if path.is_dir() else 0o444)
         command = ['docker', 'run', '--rm', '-i', '--name', self.name, '--network=none',
                    '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges',

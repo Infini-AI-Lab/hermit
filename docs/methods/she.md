@@ -78,12 +78,13 @@ carriers remain constrained by upstream patch validation and the fixed execution
 
 ## Execution and verification
 
-Actor and semantic judge use the shared direct `ChatClient`. Codex/Claude diagnosis and proposal use existing
-Base Agents, with shared structured output, authentication, cancellation and metering. Learned artifacts run
+Actor and semantic judge use the shared direct `ChatClient`. Diagnosis and proposal use the run's `llm` or an
+existing Codex, Claude Code or Pi Base Agent, with shared structured output, authentication, cancellation and metering. Learned artifacts run
 in networkless, read-only Docker containers with bounded resources. The callback cannot select endpoints,
 models, prompts, credentials or native judges. The same victim and semantic budget apply to seed and final.
 
-Shell tools and held-out traces are absent from learner sessions. Provider refusals and search errors stop
+Held-out traces are absent from learner sessions. Claude Code and Pi roles get none of their own tools; a Codex
+role runs read-only, and the committed Codex recipes also disable its shell tools. Provider refusals and search errors stop
 further learner calls and preserve measured best. Recipes enable the framework's existing early-stop control.
 The user-authorized local `--no-sandbox` exception is frozen explicitly on machines without usable bubblewrap;
 Docker artifact isolation remains enabled. This platform exception limits claims about learner isolation.
@@ -96,6 +97,7 @@ selection metric is retained separately. One pass is descriptive, with correlate
 Focused tests exercise upstream metric/selector parity, error denominators, unsafe-task utility exclusion,
 TRAIN-only selection, promotion in a subsequent measured round, rejection rollback, measured-best finalization,
 shared CLI/Docker transport and cancellation. A full 20-round official-protocol run completed with five measured promotions, retaining round 9 as best.
+Its numbers are for reference only: the learner ran without Hermit's sandbox, so they are not a reported result.
 On frozen TEST, initial-to-final ASR decreased from 33/155 to 3/153 and safe UA increased from 83/155 to
 92/153; clean task success regressed from 13/17 to 9/16, and errors increased from 14/186 to 17/186.
 The example reports exact denominators, provenance and limitations. These findings establish an observed

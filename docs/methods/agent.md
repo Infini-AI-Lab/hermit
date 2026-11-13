@@ -15,7 +15,7 @@ On the single-file prompt-only template, the Codex learner is the [prompt-only](
 
 | Method | What runs on Pi |
 |---|---|
-| `pi`, Meta-Harness Adapter, ASPIRE, MWM, AHE Adapter, Harness², RRSI Adapter, EvoSafe | The method's own sessions, as on Codex or Claude Code |
+| `pi`, Meta-Harness Adapter, ASPIRE, MWM, AHE Adapter, Harness², RRSI Adapter, EvoSafe, SHE | The method's own sessions, as on Codex or Claude Code |
 | GEPA, SkillOpt, ACE, OPRO, ReHarness, Continual Harness | They call the run's model, so that model becomes Pi: each call is one session with no tools (the same as `llm: {cli: pi, model: <backend>/<model>}`) |
 
 Pi signs in only through the model reference and has no web search. Where the backend speaks an OpenAI-compatible API

@@ -1,7 +1,7 @@
 data:
-  tasks: ../utils/data/tasks.jsonl
-  train: ../utils/data/train.txt
-  test: ../utils/data/test.txt
+  tasks: ../utils/data/full-test-v1/tasks.jsonl
+  train: ../utils/data/full-test-v1/train.txt
+  test: ../utils/data/full-test-v1/test.txt
   step_size: 57
   shuffle: false
 task_info: ../utils/task-info
@@ -16,6 +16,12 @@ agent:
     logs: runs/she-episodes
     hook_runtime: she
     episode_timeout_s: 900
+    auditor:
+      enabled: true
+      max_calls: 8
+      max_chars: 16000
+      max_tokens: 1024
+      timeout_s: 45
   base: direct
   model: vllm/nvidia/nvidia/nemotron-3.5-lightning
 judge:
@@ -25,7 +31,7 @@ evolver:
   params:
     proposer: llm
     debugger: llm
-llm: null
+llm: vllm/nvidia/nvidia/nemotron-3.5-lightning
 environment:
   runner: host
 sandbox:

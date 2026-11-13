@@ -53,8 +53,17 @@ def training_records(workspace, chars):
                         raise ValueError("training trajectory must contain a message list")
                     row = {**row, "messages": messages}
         evidence = summarize_case(row, chars)
-        records.append({**state, "case_id": case_id, "trajectory_id": case_id, "rollout_id": 0,
-                        "condition": "indirect_injection" if injected else "clean",
+        condition = "indirect_injection" if injected else "clean"
+        # Upstream reads a case's condition from its ID (`<case>::<condition>`) and points a failure's regression risk
+        # at `task_<task_id>::clean`: the task is the AgentDyn user task, whose one clean case is named that way.
+        task = row.get("input") or {}
+        group = f"{task['suite']}-{task['user_task_id']}" if task.get("suite") and task.get("user_task_id") else None
+        if group is not None and not re.fullmatch(r"[A-Za-z0-9_.:-]+", group):
+            raise ValueError("training case IDs must be safe filename components")
+        she_id = f"task_{group}::clean" if group and not injected else f"{case_id}::{condition}"
+        records.append({**state, "case_id": she_id, "trajectory_id": she_id, "native_id": case_id,
+                        **({"task_id": group} if group else {}), "rollout_id": 0,
+                        "condition": condition,
                         "attack_success": output.get("attack_success") is True,
                         "failed": failed, "task_completed": not failed and output.get("utility") is True,
                         "unsafe": injected and not failed and output.get("attack_success") is True,
@@ -76,8 +85,8 @@ def call_model(ctx, messages, name, usage, schema=None):
         response = (ask(ctx.agent, messages, **sampling) if ctx.agent is not None
                     else ctx.tools["llm"](messages=messages, **sampling))
         return response["content"]
-    if proposer not in {"codex", "claude"}:
-        raise ValueError("proposer must be llm, codex or claude")
+    if proposer not in {"codex", "claude", "pi"}:
+        raise ValueError("proposer must be llm, codex, claude or pi")
     # A string envelope lets the two CLIs enforce JSON output without narrowing
     # SHE's upstream patch language. The inner JSON is validated by SHE itself.
     envelope = schema is None
@@ -88,6 +97,8 @@ def call_model(ctx, messages, name, usage, schema=None):
                     'Wrap the requested JSON as a string in {"payload": "..."}.'}]
     if proposer == "codex":
         from hermit.agent.evolver.methods.evosafe.codex import call_role
+    elif proposer == "pi":
+        from hermit.agent.evolver.methods.evosafe.pi_agent import call_role
     else:
         from hermit.agent.evolver.methods.evosafe.claude_code import call_role
     response, used, error = call_role(ctx, messages, schema, name)
@@ -202,9 +213,27 @@ def history_summary(state):
 
 
 class SHEEvolver(Evolver):
+    def setup(self, ctx):
+        """A setting the first round would reach only after its TRAIN episodes is refused here."""
+        params = ctx.params
+        proposer = params.get("backend") or params.get("proposer", "llm")
+        if proposer not in {"llm", "direct", "codex", "claude", "pi"}:
+            raise ValueError("proposer must be llm, codex, claude or pi")
+        if proposer == "pi" and not params.get("provider"):
+            raise ValueError("proposer pi takes its model from evolver.base: pi and evolver.model (a "
+                             "<backend>/<model> reference)")
+        if proposer in ("llm", "direct") and ctx.agent is None and "llm" not in ctx.tools:
+            raise ValueError("the SHE learner needs a model: set the run's llm, or evolver.base (codex, claude or pi)")
+        if params.get("debugger", "llm") not in {"llm", "deterministic"}:
+            raise ValueError("debugger must be llm or deterministic")
+        if not 1 <= int(params.get("debugger_batch_size", 1)) <= 16:
+            raise ValueError("debugger_batch_size must be between 1 and 16")
+        if params.get("gate_mode", "initial_ua_floor") not in {"initial_ua_floor", "strict_best"}:
+            raise ValueError("gate_mode must be initial_ua_floor or strict_best")
+
     def step(self, ctx):
         ws, usage = ctx.workspace, []
-        records, applied_manifests, patch = [], [], None
+        records, applied_manifests, patch, previous = [], [], None, {}
         feedback_path = ws.state / "she-feedback.json"
         experiment = ws.state / "she-official"
         report = {"accepted": False, "she_revision": SHE_REVISION,
@@ -217,6 +246,10 @@ class SHEEvolver(Evolver):
                 (ws.output / "selection.json").write_text(json.dumps(report, indent=2))
                 return StepResult("stop", "SHE search remains stopped after error", extra=report)
             require_she()
+            if not ctx.progress.is_epoch_end:
+                # The official selector compares rounds' metrics: each round must measure the same, whole TRAIN set.
+                raise ValueError("SHE measures all TRAIN cases each round: set data.step_size to at least the "
+                                 "number of TRAIN cases")
             from she.evolution.safety_debugger import diagnose_records
             from she.evolution.evolve_agent import propose_patch_manifests
             from she.evolution.artifact_patcher import apply_patch_spec, normalize_patch_spec, validate_patch_spec
@@ -229,7 +262,7 @@ class SHEEvolver(Evolver):
 
             records = training_records(ws, int(ctx.params.get("evidence_chars_per_case", 8000)))
             (ws.output / "training-records.json").write_text(json.dumps(records, indent=2))
-            report["train_task_ids"] = [r["case_id"] for r in records]
+            report["train_task_ids"] = [r["native_id"] for r in records]
             observed_digest = bundle_digest(ws.adapter)
             report["observed_adapter_sha256"] = observed_digest
             metrics = paper_metrics(records)
@@ -345,7 +378,10 @@ class SHEEvolver(Evolver):
                 from she.evolution.snapshot import restore_best_harness
                 restore_best_harness(experiment, ws.adapter / "artifacts")
         ws.state.mkdir(parents=True, exist_ok=True)
-        if records:
+        if not records and "error" in report:
+            # An error before this round's records were read still stops later rounds (allow_early_stop off).
+            feedback_path.write_text(json.dumps({**previous, "halt_error": report["error"]}, indent=2))
+        elif records:
             feedback_path.write_text(json.dumps({"records": records,
                 "best_records": records if report.get("best_update", {}).get("updated") else previous.get("best_records", []),
                 "manifests": applied_manifests, "patch": patch, "accepted": report["accepted"],

@@ -29,7 +29,7 @@ outcomes, and injection payloads and native judges remain unchanged.
 | `run_nemotron_codex.yaml` | Nemotron 3.5 Lightning | GPT-6 Sol Codex, high effort | 20-round cap, 12-hour budget |
 | `run_nemotron_claude.yaml` | Same Lightning victim | Claude Code | Same data and gate |
 | `run_nemotron_codex_daybreak.yaml` | Same Lightning victim | Codex with an explicit approved Daybreak Blue request | Same data and gate |
-| `run.yaml` | Minimal custom-model example | Shared direct learner | Small configurable batches |
+| `run.yaml` | Minimal custom-model example | The run's `llm` (here the same Lightning model) | Full TRAIN rounds, 1-hour budget |
 
 All Lightning recipes retain `max_iters: 25` for the acting agent. The separate 20-round cap follows the
 released SHE driver. Each round measures all 57 TRAIN cases, calls upstream `maybe_update_best`, diagnoses
@@ -60,7 +60,9 @@ calls per episode and no tools. Unknown verdicts block uncertain actions. Seed a
 
 ## Run
 
-Commit source changes and select fresh run/tree paths before using the frozen experiment runner:
+The frozen experiment runner needs a Codex or Claude Code learner; run `run.yaml`, whose learner is the run's
+`llm`, with `hermit train --config examples/agentdyn/she/run.yaml`. Commit source changes and select fresh
+run/tree paths before using the frozen experiment runner:
 
 ```bash
 python examples/agentdyn/utils/run_experiment.py \
@@ -112,6 +114,9 @@ Keep manifests, effective config, spending, per-case records and adapter snapsho
 private backend settings, generated data, logs or per-run adapter snapshots.
 
 ## Results
+
+For reference only, not a reported result: the learner ran without Hermit's sandbox (`--no-sandbox`, below),
+which a reported result requires.
 
 A full official-protocol run completed on 2026-11-12 from source
 `423cc012591d453fb042c7512e1888b2e44860b4`, using the recipe above, GPT-6 Sol high effort with an explicit

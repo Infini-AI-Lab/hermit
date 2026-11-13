@@ -1,4 +1,4 @@
-"""Offline checks of the upstream SHE bridge and held-out selection."""
+"""Offline checks of the upstream SHE bridge and TRAIN best-harness selection."""
 import json
 from pathlib import Path
 import shutil
@@ -24,6 +24,28 @@ TEMPLATE = ROOT / "hermit/adapter/templates/she"
 
 # These checks execute only repository-owned fixtures; Linux sandbox checks run separately.
 check_spec = partial(_check_spec, enforce=None)
+
+
+def test_case_ids_carry_the_condition_upstream_reads_for_clean_failure_guidance(tmp_path):
+    from she.evolution.evolve_agent import _condition
+    ctx, _ = context(tmp_path)
+    records = training_records(ctx.workspace, 1000)
+    assert {r["native_id"]: _condition(r["case_id"]) for r in records} == {"train": "indirect_injection",
+                                                                           "zz-clean": "clean"}
+
+
+def test_an_injected_failure_names_its_user_tasks_clean_case_as_regression_risk(tmp_path):
+    from she.evolution.safety_debugger import _risk_cases
+    from she.schemas import Component
+    ctx, _ = context(tmp_path)
+    tasks = ctx.workspace.learning_material / "current/tasks"
+    for name, clean in (("train", False), ("zz-clean", True)):
+        case = row(name, clean, attack=True)
+        case["input"].update(suite="shopping", user_task_id="user_task_3")
+        (tasks / f"{name}.json").write_text(json.dumps(case))
+    records = {r["native_id"]: r for r in training_records(ctx.workspace, 1000)}
+    assert records["zz-clean"]["case_id"] == "task_shopping-user_task_3::clean"
+    assert _risk_cases([records["train"]], Component.RULE_BANK) == [records["zz-clean"]["case_id"]]
 
 
 def test_template_and_active_memory():
@@ -126,7 +148,8 @@ def test_llm_debugger_routes_to_smallest_owner(tmp_path):
         if count == 1:
             assert 'SAFETY_AXES_JSON' not in kwargs['messages'][0]['content']
             assert 'predicted_fix (string)' in kwargs['messages'][0]['content']
-            return {"content": json.dumps({"diagnoses": [{"case_id": "train", "primary_owner": "system_prompt",
+            return {"content": json.dumps({"diagnoses": [{"case_id": "train::indirect_injection",
+                "primary_owner": "system_prompt",
                 "root_cause": "unnecessary refusal", "predicted_fix": "preserve benign utility", "safety_axes": {}}]})}
         return proposal(**kwargs)
 
@@ -166,7 +189,7 @@ def test_debugger_batches_preserve_every_failed_case(tmp_path):
     ctx.tools['llm'] = llm
     result = SHEEvolver().step(ctx)
     assert result.status == "done", result.extra
-    assert sorted(seen) == ['extra-0', 'extra-1', 'extra-2', 'extra-3', 'train']
+    assert sorted(seen) == [f'{i}::indirect_injection' for i in ('extra-0', 'extra-1', 'extra-2', 'extra-3', 'train')]
 
 
 def test_training_sidecar_and_path_boundary(tmp_path):
@@ -212,17 +235,17 @@ def test_attribution_requires_observed_pairs(tmp_path, overlap):
     assert SHEEvolver().step(ctx).status == "done"
     attribution = json.loads((output / "attribution.json").read_text())
     if overlap:
-        assert attribution[0]["actually_fixed"] == ["train"]
+        assert attribution[0]["actually_fixed"] == ["train::indirect_injection"]
     else:
         assert attribution == []
 
 
-@pytest.mark.parametrize("provider", ["claude", "codex"])
+@pytest.mark.parametrize("provider", ["claude", "codex", "pi"])
 def test_cli_envelope_and_usage(tmp_path, monkeypatch, provider):
     from hermit.agent.evolver.base import Usage
     ctx, _ = context(tmp_path)
     ctx.params["proposer"] = provider
-    module = "claude_code" if provider == "claude" else "codex"
+    module = {"claude": "claude_code", "codex": "codex", "pi": "pi_agent"}[provider]
     used = Usage("fixture", input_tokens=5, output_tokens=2, calls=1)
     monkeypatch.setattr(f"hermit.agent.evolver.methods.evosafe.{module}.call_role",
         lambda *args: ({"content": '{"payload":"{}"}'}, [used], None))
@@ -262,6 +285,55 @@ def test_debugger_uses_native_structured_schema(tmp_path, monkeypatch, provider)
 
     monkeypatch.setattr(f'hermit.agent.evolver.methods.evosafe.{module}.call_role', role)
     assert call_model(ctx, messages, 'she-debugger', [], schema=schema) == '{"diagnoses": []}'
+
+
+@pytest.mark.parametrize("params, tools, match", [
+    ({"proposer": "llm"}, {}, "needs a model"),
+    ({"backend": "pi"}, {}, "evolver.base: pi"),
+    ({"backend": "opencode"}, {}, "proposer must be"),
+    ({"debugger": "bogus"}, {"llm": None}, "debugger must be"),
+    ({"debugger_batch_size": 0}, {"llm": None}, "debugger_batch_size"),
+    ({"gate_mode": "bogus"}, {"llm": None}, "gate_mode"),
+])
+def test_setup_refuses_a_setting_before_any_train_round(tmp_path, params, tools, match):
+    ctx, _ = context(tmp_path)
+    with pytest.raises(ValueError, match=match):
+        SHEEvolver().setup(replace(ctx, params=params, tools=tools))
+    SHEEvolver().setup(replace(ctx, params={"backend": "pi", "provider": {"api": "x"}}, tools={}))
+    SHEEvolver().setup(ctx)
+
+
+def test_a_round_that_measures_part_of_train_stops_before_selection(tmp_path):
+    ctx, _ = context(tmp_path)
+    result = SHEEvolver().step(replace(ctx, progress=Progress(1, 1, False)))
+    assert result.status == "stop" and "data.step_size" in result.extra["error"]
+    assert not (ctx.workspace.state / "she-official").exists()
+    # Without trainer.allow_early_stop the next, epoch-ending step comes anyway: it must not select on a part of TRAIN.
+    second = SHEEvolver().step(replace(ctx, progress=Progress(1, 2, True)))
+    assert second.status == "stop" and "data.step_size" in second.extra["error"]
+    assert not (ctx.workspace.state / "she-official").exists()
+
+
+def test_hook_files_are_readable_by_the_container_user_under_a_strict_umask(monkeypatch):
+    import isolated_hooks
+    modes = {}
+
+    def popen(command, **kwargs):
+        mounts = [part.split(",")[1][4:] for part in command if part.startswith("type=bind,src=")]
+        for mount in map(Path, mounts):
+            for path in [mount, *(mount.rglob("*") if mount.is_dir() else [])]:
+                modes[path] = (path.is_dir(), path.stat().st_mode & 0o777)
+        raise RuntimeError("no container in this test")
+
+    monkeypatch.setattr(isolated_hooks.subprocess, "Popen", popen)
+    previous = os.umask(0o077)
+    try:
+        with pytest.raises(RuntimeError, match="no container"):
+            isolated_hooks.IsolatedDefense(TEMPLATE, runtime="she")
+    finally:
+        os.umask(previous)
+    assert any(path.name == "rule_bank.jsonl" for path in modes)
+    assert all(mode & 0o005 == (0o005 if is_dir else 0o004) for is_dir, mode in modes.values()), modes
 
 
 def test_direct_backend_uses_shared_base_agent(tmp_path):
