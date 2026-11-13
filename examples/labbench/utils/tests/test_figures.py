@@ -1,9 +1,11 @@
-"""LAB-Bench's list of test questions with a figure no training question has (utils/figures.py): FigQA asks several
-questions about one figure, and SkillOpt's split is by question. The task directories here are built under tmp_path
-in the published layout, a figure being the one image in `<task>/environment/workspace/`."""
+"""LAB-Bench's list of test questions with a figure no training question has, and an eval's score on them
+(utils/figures.py): FigQA asks several questions about one figure, and SkillOpt's split is by question. The task
+directories here are built under tmp_path in the published layout, a figure being the one image in
+`<task>/environment/workspace/`; an eval's results.jsonl holds records as `hermit eval` writes them."""
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -32,6 +34,16 @@ def test_a_test_question_on_a_training_questions_figure_is_left_out(tmp_path):
     task(tmp_path, "figqa-0004", b"figure C")
     assert load().new_figures(tmp_path, train=["figqa-0001", "figqa-0004"],
                               test=["figqa-0003", "figqa-0002"]) == ["figqa-0003"]
+
+
+def test_an_evals_score_on_the_rows_is_taken_from_its_results_as_hermit_eval_takes_it(tmp_path):
+    results = tmp_path / "results.jsonl"
+    records = [("figqa-0002", "ok", 1.0), ("figqa-0003", "ok", 0.0), ("figqa-0004", "infra", None),
+               ("figqa-0005", "ok", 1.0)]                       # figqa-0005: a test row not in the list
+    results.write_text("".join(json.dumps({"id": i, "status": s, "judge": None if v is None else {"score": v}}) + "\n"
+                               for i, s, v in records))
+    assert load().score(results, ["figqa-0002", "figqa-0003", "figqa-0004", "figqa-0009"]) == {
+        "rows": 4, "scored": 2, "unscored": 1, "missing": 1, "mean_score": 0.5}
 
 
 @pytest.mark.parametrize("images", [0, 2])

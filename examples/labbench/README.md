@@ -43,13 +43,14 @@ oracle agent still scores 1 on the patched tasks.
 SkillOpt's split, like its paper's, is by question: 25 of the 127 test questions share a figure with a training
 question, whose verifier output (the right choice's text) the learner reads, so a skill can carry a fact about a
 figure into the test. `utils/rows/test_new_figures.txt` lists the other 102; report every arm on them as well, from
-the same trials (the trial cache holds them):
+the same trials, which `utils/figures.py` reads from each eval's `results.jsonl`:
 
 ```bash
-hermit eval --config examples/labbench/skillopt/run_codex.yaml --adapter final --split examples/labbench/utils/rows/test_new_figures.txt
+python examples/labbench/utils/figures.py examples/labbench/baseline/runs/codex-baseline/eval/none examples/labbench/skillopt/runs/codex-skillopt/eval/root examples/labbench/skillopt/runs/codex-skillopt/eval/final
 ```
 
-(`--adapter root` for the empty skill, and `baseline/codex.yaml --adapter none` for the baseline, the same way.)
+(`hermit eval --split` on those rows would run the final skill's trials again: once tested, the final adapter's card
+holds its results, a new commit, so the trial cache no longer matches it.)
 
 ## Baseline
 
