@@ -6,7 +6,7 @@ description: The outer loop of Meta-Harness (Lee et al., arXiv:2603.28052) on th
 class: evolver.py:MetaHarnessAdapterEvolver
 needs: []
 params:
-  backend: codex             # the proposer: codex or claude (the paper: Claude Code)
+  backend: codex             # the proposer: codex, claude, pi or opencode (the paper: Claude Code)
   prompt: PROPOSE.md         # the round's prompt (placeholders filled per round)
   args: []                   # extra arguments for the proposer's CLI, e.g. codex `-c model_reasoning_effort="medium"`
   model: null                # the proposer's model, `<backend>/<model id>`; null: the agent's default

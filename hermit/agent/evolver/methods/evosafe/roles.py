@@ -10,11 +10,11 @@ from pathlib import Path
 import shutil
 
 from hermit.adapter.manifest import read_meta, structure_of
-from .cli_roles import proposer as role_backend
+from .cli_roles import CLI_PROPOSERS, proposer as role_backend
 from hermit.agent.evolver.base import StepResult
 from .codex import call_role, proposal_schema
 from .contract import aggregate, completed, injected as is_injected, qualifying_gain, verdict
-from . import claude_code
+from . import claude_code, pi_agent
 from .evidence import result_evidence, failure_packet
 from .experience import TrainingExperience
 
@@ -274,7 +274,7 @@ def role_messages(ctx, role, payload):
         return [{'role': 'system', 'content': COMMON + '\n' + role},
                 {'role': 'user', 'content': json.dumps(value, ensure_ascii=False)}]
     result = messages(payload)
-    if role_backend(ctx.params) not in ('codex', 'claude') or len(json.dumps(result, ensure_ascii=False)) <= 800000:
+    if role_backend(ctx.params) not in CLI_PROPOSERS or len(json.dumps(result, ensure_ascii=False)) <= 800000:
         return result
     if not (ctx.workspace.state / 'training-experience/index.json').is_file():
         raise ValueError('role input too large; no complete TRAIN archive is available')
@@ -309,8 +309,8 @@ def invoke_role(ctx, role, payload, schema, name, usage, *, retries=None):
     messages = role_messages(ctx, role, payload)
     (ctx.workspace.output / (name + '-input.json')).write_text(json.dumps(messages, indent=2))
     proposer = role_backend(ctx.params)
-    if proposer in ('codex', 'claude'):
-        call = call_role if proposer == 'codex' else claude_code.call_role
+    if proposer in CLI_PROPOSERS:
+        call = {'codex': call_role, 'claude': claude_code.call_role, 'pi': pi_agent.call_role}[proposer]
         # Transient CLI/API failures get a bounded number of fresh attempts;
         # a refusal or a cancellation is never retried.
         for attempt in range(int(ctx.params.get('role_retries', 0) if retries is None else retries) + 1):
@@ -628,7 +628,7 @@ def run(ctx, ids):
                           'priority_cases': priority_cases,
                           'previous_candidate_evidence': designer_feedback(previous_candidate_evidence),
                           'training_evidence': evidence, 'lessons': lessons[-12:],
-                          'training_experience': experience.brief(interactive=role_backend(p) in ('codex', 'claude')),
+                          'training_experience': experience.brief(interactive=role_backend(p) in CLI_PROPOSERS),
                           'previous_trials': [training_trial(t) for t in trials[:-1]], 'iteration': number}
                 trial['reviews'] = []
                 trial['criticizer_calls'] = 0
@@ -673,7 +673,7 @@ def run(ctx, ids):
                             'mechanism_plan': mechanism,
                             'review_call': trial['criticizer_calls'], 'max_criticizer_calls': review_limit,
                             'previous_required_changes': (revision_request or {}).get('required_changes'),
-                            'training_evidence': evidence, 'training_experience': experience.brief(interactive=role_backend(p) in ('codex', 'claude')),
+                            'training_evidence': evidence, 'training_experience': experience.brief(interactive=role_backend(p) in CLI_PROPOSERS),
                             'spec_check': trial['check']},
                             REVIEW_SCHEMA, stem + '-criticizer' + suffix, usage, retries=0)
                         trial['last_criticizer_review'] = review
@@ -783,7 +783,7 @@ def run(ctx, ids):
                 experience.put(version + '/trial', training_trial(trial), kind='trial', version=version)
             try:
                 analysis = invoke_role(ctx, ANALYZER, {
-                    'trial': training_trial(trial), 'training_experience': experience.brief(interactive=role_backend(p) in ('codex', 'claude')),
+                    'trial': training_trial(trial), 'training_experience': experience.brief(interactive=role_backend(p) in CLI_PROPOSERS),
                     'priority_cases': packet,
                     'measured_comparison': measured_comparison(parent_rows, candidate_rows),
                     'parent_files': files,

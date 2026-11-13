@@ -9,19 +9,20 @@ data:
   shuffle_seed: 0
 task_info: null
 agent:
-  name: null                  # react | codex | claude-code | pi | mini-swe-agent | opencode, or file.py:Class /
+  name: null                  # react | codex | claude-code | pi | mini-swe-agent | opencode | dsh, or file.py:Class /
                               # file.py:function of the task's own
   concurrency: 4
   timeout_min: null           # a sandboxed task call that runs longer is stopped and recorded as an error; null: none
   params: {}                  # Layer 3: the Acting Agent's own settings (docs/framework/agent-layers.md)
-  base: null                  # Layer 2: codex | claude | pi | mini-swe-agent | opencode | react | direct; its settings
-                              # go in a section of its name
+  base: null                  # Layer 2: codex | claude | pi | mini-swe-agent | opencode | dsh | react | direct; its
+                              # settings go in a section of its name
   model: null                 # Layer 1: a <backend>/<model> reference, or {ref | name, login, effort, price, ...}
   codex: null
   claude: null
   pi: null
   mini-swe-agent: null
   opencode: null
+  dsh: null
   react: null
   direct: null
 pipeline:                     # the older spelling of `agent`: run -> name
@@ -59,12 +60,14 @@ evolver:
   name: null
   resume: false
   params: {}                  # Layer 3: the method's settings
-  base: null                  # Layer 2: codex | claude | pi | opencode | direct (the Base Agent the method runs on)
+  base: null                  # Layer 2: codex | claude | pi | opencode | dsh | direct
+                              # (the Base Agent the method runs on)
   model: null                 # Layer 1: as agent.model; with direct it is the run's `llm`
   codex: null
   claude: null
   pi: null
   opencode: null
+  dsh: null
   direct: null
 evolver_access:
   environment: []

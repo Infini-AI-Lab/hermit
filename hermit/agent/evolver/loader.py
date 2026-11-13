@@ -12,7 +12,7 @@ import yaml
 from hermit.agent.evolver.base import Evolver
 
 BUILTIN = Path(__file__).resolve().parent / "methods"
-NEEDS = {"validation_data", "environment", "send_material_out"}
+NEEDS = {"validation_data", "environment", "send_material_out", "llm"}   # llm: it calls the run's model
 
 
 @dataclass
@@ -68,7 +68,7 @@ def load_class(spec: EvolverSpec) -> type[Evolver]:
 def instantiate(spec: EvolverSpec, params: dict, *, backends: dict | None = None,
                 default_model=None) -> tuple[Evolver, dict]:
     """The Evolver instance and its effective params (manifest defaults overridden by the run config). An Evolver
-    that is a Codex or Claude Code agent (`backend` in its params) gets its model bound: a `<backend>/<model>`
+    that is a Codex, Claude Code or Pi agent (`backend` in its params) gets its model bound: a `<backend>/<model>`
     reference in `model` (or the run's default) becomes the provider settings in `args` or `env`. A param the
     Evolver class lists in `model_params` that holds a reference becomes that model's resolved spec."""
     merged = {**spec.params, **(params or {})}

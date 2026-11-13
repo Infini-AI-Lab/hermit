@@ -1,8 +1,8 @@
-# Nemotron Super 49B victim with Codex defense-search roles.
+# Nemotron 3.5 Lightning victim with Codex defense-search roles.
 data:
-  tasks: ../utils/data/all-groups-v1/tasks.jsonl
-  train: ../utils/data/all-groups-v1/train.txt
-  test: ../utils/data/all-groups-v1/test.txt
+  tasks: ../utils/data/full-test-v1/tasks.jsonl
+  train: ../utils/data/full-test-v1/train.txt
+  test: ../utils/data/full-test-v1/test.txt
   step_size: 57
   shuffle: false
 task_info: ../utils/task-info
@@ -10,7 +10,7 @@ template: evosafe@1.0
 agent:
   name: ../utils/bridge.py:run
   base: direct
-  model: vllm/nvidia/llama-3.3-nemotron-super-49b-v1.5
+  model: vllm/nvidia/nvidia/nemotron-3.5-lightning
   concurrency: 12
   timeout_min: 15
   params:

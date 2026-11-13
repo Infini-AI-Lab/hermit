@@ -7,12 +7,12 @@ description: RRSI (Xia et al., arXiv:2609.24972; google-research/rrsi) on the Tr
 class: evolver.py:RRSIAdapterEvolver
 needs: []
 params:
-  backend: codex             # the proposer: codex or claude (upstream: Claude Opus 4.8 in its own JSON-action loop)
+  backend: codex             # the proposer: codex, claude or pi (upstream: Claude Opus 4.8 in its own JSON-action loop)
   prompt: PROPOSE.md         # the proposer's prompt (placeholders filled per variant)
   args: []                   # extra arguments for the proposer's CLI, e.g. codex `-c key=value` pairs
   model: null                # the proposer's model, `<backend>/<model id>`, or the CLI's model name with `login`
                              # (required with login: claude); null: the agent's default
-  login: null                # the proposer's and the roles' subscription and its plan: chatgpt (codex) or claude
+  login: null                # the proposer's and the roles' subscription and its plan (not on Pi): chatgpt (codex) or claude
                              # (claude, CLAUDE_CODE_OAUTH_TOKEN)
   effort: null               # the proposer's reasoning effort (Codex's model_reasoning_effort, Claude Code's --effort)
   price: null                # USD per million tokens {input, cached_input, output}

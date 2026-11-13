@@ -1,0 +1,82 @@
+data:
+  tasks: ../utils/data/full-test-v1/tasks.jsonl
+  train: ../utils/data/full-test-v1/train.txt
+  test: ../utils/data/full-test-v1/test.txt
+  step_size: 57
+  shuffle: false
+task_info: ../utils/task-info
+template: she@1.0
+agent:
+  name: ../utils/bridge.py:run
+  concurrency: 12
+  timeout_min: 15
+  params:
+    benchmark_version: v1.2.2
+    max_iters: 25
+    max_tokens: 8192
+    temperature: 0.0
+    request_timeout_s: 120
+    max_retries: 4
+    logs: runs/she-lightning-codex-daybreak-official-r2-episodes
+    hook_runtime: she
+    episode_timeout_s: 900
+    hook_image: python@sha256:6b25cbe6577518889d553cdd5a5da97d259348d8f6e45b527dd731caaba27a07
+    auditor:
+      enabled: true
+      max_calls: 8
+      max_chars: 16000
+      max_tokens: 1024
+      timeout_s: 45
+  base: direct
+  model: vllm/nvidia/nvidia/nemotron-3.5-lightning
+judge:
+  path: ../utils/judge.py
+evolver:
+  name: she
+  params:
+    debugger: llm
+    claude_timeout_s: 1500
+    gate_mode: initial_ua_floor
+  base: codex
+  codex:
+    model: gpt-6-sol
+    effort: high
+    web_search: false
+    codex_sandbox: read-only
+    timeout_s: 1500
+    args:
+    - -c
+    - approval_policy="on-request"
+    - --cyber-access-program
+    - daybreak_blue
+    - --disable
+    - shell_tool
+    - --disable
+    - unified_exec
+    - --disable
+    - multi_agent
+    - --disable
+    - apps
+    - --disable
+    - plugins
+    - --disable
+    - skill_search
+    - --disable
+    - image_generation
+environment:
+  runner: host
+sandbox:
+  evolver:
+    allowed_hosts:
+    - chatgpt.com
+    - auth.openai.com
+    - api.openai.com
+trainer:
+  allow_early_stop: true
+  run_name: agentdyn-she-lightning-codex-daybreak-official-r2
+  output_dir: runs
+  epochs: 20
+  call_timeout_min: 480
+  budget:
+    hours: 12
+  tree_dir: runs/trees/agentdyn-she-lightning-codex-daybreak-official-r2

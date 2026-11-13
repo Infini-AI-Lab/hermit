@@ -207,6 +207,9 @@ class FrameworkBench:
         elif (log / "agent-claude.jsonl").is_file():                   # a Claude Code session, in upstream's grammar
             from hermit.agent.evolver.methods.harness2_upstream.render import render_claude_events
             text = render_claude_events(log / "agent-claude.jsonl", obs_trunc=obs_trunc, max_chars=limit)
+        elif (log / "agent-pi.jsonl").is_file():                       # a Pi session, in upstream's grammar
+            from hermit.agent.evolver.methods.harness2_upstream.render import render_pi_events
+            text = render_pi_events(log / "agent-pi.jsonl", obs_trunc=obs_trunc, max_chars=limit)
         else:
             return f"(no trajectory recorded for {Path(run_dir).name})"
         output = run.get("output") if isinstance(run.get("output"), dict) else {}

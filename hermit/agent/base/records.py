@@ -12,7 +12,9 @@ def price_usage(usage: list[Usage], params: dict) -> None:
     """Fill in each usage's cost from `price` (USD per million tokens: {input, cached_input, output}) where the agent
     reported none. Claude Code reports a cost at Anthropic's prices; for a model bound to another backend that is not
     the bill, so the backend's price replaces it (no price: the cost is unknown). On a subscription (`login`) that
-    figure is the same estimate at list prices, not what the session costs: none is kept."""
+    figure is the same estimate at list prices, not what the session costs: none is kept. A usage that holds calls
+    whose tokens the CLI did not report (`unreported_calls`) keeps an unknown cost: its reported tokens' price would
+    be too little."""
     price = params.get("price")
     binding = params.get("binding") or {}
     foreign = bool(params.get("login")) or \
@@ -20,7 +22,7 @@ def price_usage(usage: list[Usage], params: dict) -> None:
     for u in usage:
         if foreign:
             u.cost_usd = None
-        if price and u.cost_usd is None:
+        if price and u.cost_usd is None and not u.unreported_calls:
             u.cost_usd = ((u.input_tokens - u.cached_input_tokens) * price.get("input", 0)
                           + u.cached_input_tokens * price.get("cached_input", price.get("input", 0))
                           + u.output_tokens * price.get("output", 0)) / 1e6
@@ -164,6 +166,64 @@ def parse_opencode(log: Path, model: str) -> tuple[str | None, list[Usage]]:
     return _parse(log, model, _opencode_event)
 
 
+def _dsh_reader():
+    """DeepSeek Harness: the session id (its opening `session` event), and each model step's usage (`status` events
+    of phase `step_end`): the sum of its attempts' (a request dsh retried is an attempt). dsh's `inputTokens` leaves
+    the cache out, so the input counted is input, cache reads and cache writes, as Codex and Claude Code count it. dsh
+    reports no cost: it is priced from the backend's price (price_usage), which prices a cache write as input.
+
+    A step that produced nothing (its requests all failed) is no call; one that produced a reply, a thought or a tool
+    call is, even when its tokens are not reported: the provider reported no usage (dsh then reports zeros), or an
+    attempt reported none at all (a stream that ended before its last event, a failed request of dsh's own provider:
+    dsh then leaves the step's usage out). Such a step is an unreported call: it adds no tokens, and the session's
+    cost is unknown (price_usage), not the price of what was reported.
+
+    A step one of whose attempts reported no cache count (a request the provider refused, as for a rate limit dsh
+    retried, reports zeros, and dsh keeps a cache count only when it is not 0) has its cache counts left out by dsh,
+    which its `totalTokens` still holds. What the total holds beyond the counts reported is counted as input, priced
+    as a cache write is: the step's price is what it would be with the counts reported, or more if those tokens were
+    read from the cache (a price whose cached input is no dearer than its input), never less. The total is the sum
+    of the counts on every route but the Responses API's, where it is the server's own `total_tokens`, trusted: what
+    it holds beyond the counts is priced as input, and a server that reports none leaves those tokens out.
+
+    What dsh's stream leaves out is not counted: a compaction's summary request, web searches (each a request of
+    DeepSeek's own API), the title request (off in a session, hermit.agent.base.cli.DSH_OFF), sub-agents, what a
+    provider billed for an attempt it reported as zeros (one cut off mid-stream, before its usage), and the last
+    step of a session a stop (SIGTERM: a timeout, a cancelled call) cut short before that step's end: dsh writes a
+    step's usage at its end, after its tool calls ran, and a stopped session writes nothing more."""
+    produced = False
+
+    def read(event: dict, usage: Usage, session):
+        nonlocal produced
+        kind = event.get("type")
+        if kind == "session":
+            session = event.get("sessionId") or session
+        if kind in ("text", "thinking", "tool_call"):
+            produced = True
+        if kind != "status" or event.get("phase") != "step_end":
+            return session
+        made, produced = produced, False
+        u = event.get("usage") if isinstance(event.get("usage"), dict) else {}
+        cached, output = int(u.get("cacheReadTokens") or 0), int(u.get("outputTokens") or 0)
+        tokens = int(u.get("inputTokens") or 0) + cached + int(u.get("cacheWriteTokens") or 0)
+        dropped = max(int(u.get("totalTokens") or 0) - tokens - output, 0)     # cache counts dsh left out
+        if not tokens and not output and not dropped:
+            usage.calls += 1 if made else 0
+            usage.unreported_calls += 1 if made else 0
+            return session
+        usage.input_tokens += tokens + dropped
+        usage.cached_input_tokens += cached
+        usage.output_tokens += output
+        usage.calls += 1
+        return session
+    return read
+
+
+def parse_dsh(log: Path, model: str) -> tuple[str | None, list[Usage]]:
+    """DeepSeek Harness's `--json` events: the session id, and every model step's usage (_dsh_reader)."""
+    return _parse(log, model, _dsh_reader())
+
+
 def parse_codex(log: Path, model: str) -> tuple[str | None, list[Usage]]:
     """Codex's `exec --json` events: the thread id, and each completed turn's usage."""
     return _parse(log, model, _codex_event)
@@ -181,7 +241,7 @@ def parse_mini_swe_agent(log: Path, model: str) -> tuple[str | None, list[Usage]
 
 
 def parse_log(log: Path, backend: str, model: str) -> tuple[str | None, list[Usage]]:
-    """Session handle and usage from the agent's JSON event stream: Codex's, Pi's, mini-swe-agent's, OpenCode's, else
-    Claude Code's."""
+    """Session handle and usage from the agent's JSON event stream: Codex's, Pi's, mini-swe-agent's, OpenCode's, dsh's,
+    else Claude Code's."""
     return {"codex": parse_codex, "pi": parse_pi, "mini-swe-agent": parse_mini_swe_agent,
-            "opencode": parse_opencode}.get(backend, parse_claude)(log, model)
+            "opencode": parse_opencode, "dsh": parse_dsh}.get(backend, parse_claude)(log, model)

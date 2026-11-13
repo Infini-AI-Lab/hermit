@@ -1,0 +1,16 @@
+template:
+  id: she
+  version: "1.0"
+  contract: "2"
+structure:
+  learnable:
+    - path: artifacts/system_prompt.md
+      format: {text: true, max_bytes: 16000}
+    - path: artifacts/rule_bank.jsonl
+      format: {text: true, max_bytes: 64000}
+    - path: artifacts/safety_memory.jsonl
+      format: {text: true, max_bytes: 64000}
+    - path: artifacts/tool_policy.json
+      format: {text: true, max_bytes: 64000}
+  fixed: [ADAPTER.md, defense.py, exports.yaml]
+check: .hermit/check.py:check

@@ -8,7 +8,7 @@ description: Continual Harness's Refiner (Karten et al. 2026, arXiv:2605.09998; 
   score is optimised and no validation gate is applied - every pass is applied in place, as the paper's reset-free
   loop does; a pass whose result fails the template check is dropped, the others stand.
 class: evolver.py:ContinualHarnessEvolver
-needs: []
+needs: [llm]                   # it calls the run's model (ctx.agent, the llm tool)
 params:
   components: [policy, subagents, skills, memory]   # the passes to run, in this order
   feedback: true                 # show the judge's feedback to the Refiner (off: trajectory-only, as the paper's setting)

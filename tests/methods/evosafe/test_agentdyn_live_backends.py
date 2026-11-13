@@ -18,7 +18,7 @@ def test_model_backend_uses_local_connection_settings(tmp_path, monkeypatch):
     local.write_text(yaml.safe_dump({"vllm": {
         "base_url": "https://model-service.example.invalid/v1", "api_key_env": "VICTIM_TEST_KEY",
         "key_required": True, "apis": ["chat"],
-        "models": {"nvidia/llama-3.3-nemotron-super-49b-v1.5": "provider/nemotron"},
+        "models": {"nvidia/nvidia/nemotron-3.5-lightning": "provider/nemotron"},
         "prices": {"provider/nemotron": {"input": 1, "output": 2}}, "extra_body": {"top_k": 50},
     }}))
     monkeypatch.setenv("HA_BACKENDS", str(local))

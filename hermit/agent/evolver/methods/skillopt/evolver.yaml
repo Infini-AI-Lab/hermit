@@ -1,7 +1,7 @@
 description: SkillOpt bounded, validation-gated skill optimization (microsoft/SkillOpt), one SkillOpt step per training
   step, with its slow update and meta skill at the end of each epoch. Uses the run's `llm` tool and run_agent.
 class: evolver.py:SkillOptEvolver
-needs: [validation_data]
+needs: [validation_data, llm]   # llm: it calls the run's model (ctx.agent, the llm tool)
 params:
   file: ADAPTER.md            # the skill document
   minibatch_size: 8           # rollouts per reflection call

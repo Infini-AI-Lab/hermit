@@ -1,8 +1,8 @@
 # MetaWorld Model (MWM)
 
 MWM maintains dated, scoped environment knowledge, a briefing, examples, an open-questions docket, and callable
-programs. Acting agents use its context and one `wm` tool. A coding-agent learner (Codex by default, Claude Code with
-`evolver.params.backend: claude`) reviews evidence after each block of episodes and maintains the world model.
+programs. Acting agents use its context and one `wm` tool. A coding-agent learner (Codex by default, Claude Code or
+Pi with `evolver.params.backend: claude` or `pi`) reviews evidence after each block of episodes and maintains the world model.
 
 Choose MWM for an ordered environment stream with a task-owned evidence store. It requires more task integration
 than a context-only optimizer; it is not a drop-in switch for an arbitrary prompt-only config.

@@ -25,7 +25,9 @@ Backend fields:
     litellm         the litellm route prefix, for task agents that call through litellm (fireworks_ai, hosted_vllm)
     prices          per model id: {input, cached_input, output}, USD per million tokens
     extra_body      fields added to every chat request (for example reasoning_effort)
-    context_window  tokens; Codex is told it (model_context_window), Claude Code too (CLAUDE_CODE_MAX_CONTEXT_TOKENS)
+    context_window  tokens; Codex is told it (model_context_window), Claude Code too (CLAUDE_CODE_MAX_CONTEXT_TOKENS),
+                    Pi too (contextWindow)
+    max_output_tokens  tokens one request may answer with; Pi is told it (maxTokens; else its default, 16384)
     developer_role  what a relay in front of the backend does with the `developer` role Codex uses: keep (default),
                     or system for an endpoint that refuses the role (the examples' wire meter renames it)
     models          aliases: short names for model ids (`vllm/qwen` for a long id)
@@ -58,12 +60,13 @@ def user_file() -> Path:
     return Path(os.environ.get("HA_BACKENDS") or Path.home() / ".config" / "hermit" / "backends.yaml")
 APIS = ("chat", "responses", "messages")
 FIELDS = {"from", "base_url", "api_key_env", "key_required", "apis", "messages_url", "litellm", "prices", "extra_body",
-          "context_window", "developer_role", "models", "description"}
+          "context_window", "max_output_tokens", "developer_role", "models", "description"}
 DEVELOPER_ROLES = ("keep", "system")
 # What each consumer speaks: the dialect a backend must serve for it.
 NEEDS = {"chat": "chat", "react": "chat", "llm": "chat", "codex": "responses", "claude": "messages", "pi": "chat",
-         "mini-swe-agent": "chat", "opencode": "chat"}
-# Pi speaks several dialects: the one it is given is the first the backend serves (Binding.pi_dialect).
+         "mini-swe-agent": "chat", "opencode": "chat", "dsh": "chat"}
+# Pi speaks several dialects: the one it is given is the first the backend serves (Binding.pi_dialect). DeepSeek
+# Harness (dsh) reaches a model through pi-ai too, so it speaks the same ones, chosen the same way.
 PI_APIS = {"chat": "openai-completions", "messages": "anthropic-messages", "responses": "openai-responses"}
 # OpenCode reaches a bound model through its OpenAI-compatible provider package, which OpenCode 2.2 ships.
 OPENCODE_PACKAGE = "@ai-sdk/openai-compatible"
@@ -85,6 +88,7 @@ class Backend:
     prices: dict = field(default_factory=dict)
     extra_body: dict = field(default_factory=dict)
     context_window: int | None = None
+    max_output_tokens: int | None = None
     developer_role: str = "keep"
     models: dict = field(default_factory=dict)
     description: str = ""
@@ -113,14 +117,14 @@ class Backend:
                    messages_url=(str(data["messages_url"]).rstrip("/") if data.get("messages_url") else None),
                    litellm=data.get("litellm"), prices=dict(data.get("prices") or {}),
                    extra_body=dict(data.get("extra_body") or {}), context_window=data.get("context_window"),
-                   developer_role=role, models=dict(data.get("models") or {}),
+                   max_output_tokens=data.get("max_output_tokens"), developer_role=role, models=dict(data.get("models") or {}),
                    description=str(data.get("description") or ""))
 
     def to_dict(self) -> dict:
         return {"base_url": self.base_url, "api_key_env": self.api_key_env, "key_required": self.key_required,
                 "apis": list(self.apis), "messages_url": self.messages_url, "litellm": self.litellm,
                 "prices": self.prices, "extra_body": self.extra_body, "context_window": self.context_window,
-                "developer_role": self.developer_role, "models": self.models, "description": self.description}
+                "max_output_tokens": self.max_output_tokens, "developer_role": self.developer_role, "models": self.models, "description": self.description}
 
     @property
     def messages_root(self) -> str:
@@ -249,7 +253,8 @@ class Binding:
                 "api_key_env": self.api_key_env, "key_required": self.backend.key_required,
                 "apis": list(self.backend.apis), "messages_url": self.backend.messages_root,
                 "litellm": self.litellm_model, "price": self.price, "extra_body": dict(self.extra_body),
-                "context_window": self.backend.context_window}
+                "context_window": self.backend.context_window,
+                "max_output_tokens": self.backend.max_output_tokens}
 
     @classmethod
     def from_spec(cls, spec: dict) -> "Binding":
@@ -261,7 +266,8 @@ class Binding:
                           key_required=bool(spec.get("key_required", True)),
                           apis=tuple(spec.get("apis") or ["chat"]), messages_url=spec.get("messages_url"),
                           litellm=(spec["litellm"].split("/", 1)[0] if spec.get("litellm") else None),
-                          context_window=spec.get("context_window"))
+                          context_window=spec.get("context_window"),
+                          max_output_tokens=spec.get("max_output_tokens"))
         return cls(backend, str(spec["model"]), price=spec.get("price"), extra_body=dict(spec.get("extra_body") or {}))
 
     # ---- provider settings for the CLI agents ---------------------------------------------------------------
@@ -318,6 +324,10 @@ class Binding:
         model: dict = {"id": self.model}
         if self.backend.context_window:
             model["contextWindow"] = int(self.backend.context_window)
+        if self.backend.max_output_tokens:    # else Pi's 16384: a model that reasons long is cut before it answers
+            model["maxTokens"] = int(self.backend.max_output_tokens)
+        if self.extra_body and api == "chat":   # sent with every chat request, as the direct client sends them; the
+            model["samplingParams"] = dict(self.extra_body)       # Responses and Messages APIs take other fields
         if self.price:
             p = self.price
             model["cost"] = {"input": p.get("input", 0), "output": p.get("output", 0),
@@ -344,6 +354,24 @@ class Binding:
                 "options": {"baseURL": self.base_url.rstrip("/"),
                             "apiKey": f"{{env:{key_env}}}" if key_env else PLACEHOLDER_KEY},
                 "models": {self.model: model}}
+
+    def dsh_provider(self) -> dict:
+        """DeepSeek Harness's route for this model (a `providers` value of its pi-ai adapter, `llm-pi-ai`): the
+        backend's URL in the dialect dsh speaks to it (pi-ai's, as Pi's), the key's variable by name (`apiKeyEnv`,
+        which dsh reads at each request, so no file holds the key), and the model with its context window. dsh
+        reports no cost: the backend's price is applied to its usage (`price`)."""
+        api = self.pi_dialect()
+        model: dict = {"id": self.model}
+        if self.backend.context_window:
+            model["contextWindow"] = int(self.backend.context_window)
+        provider = {"api": PI_APIS[api], "models": [model],
+                    "baseURL": (self.backend.messages_root if api == "messages" else self.base_url).rstrip("/")}
+        key_env = self.key_env_if_set()
+        if key_env:
+            provider["apiKeyEnv"] = key_env
+        if api == "chat" and self.backend.developer_role == "system":
+            provider["compat"] = {"supportsDeveloperRole": False}       # the backend refuses the developer role
+        return provider
 
 
 CLAUDE_ENV = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL",
@@ -417,11 +445,11 @@ def _spec_of(value, binding: Binding) -> dict:
 
 def bind_agent_params(params: dict, kind: str, backends: dict[str, Backend], default=None) -> dict:
     """The params of a Codex (`kind` codex), Claude Code (`kind` claude), Pi (`kind` pi), mini-swe-agent (`kind`
-    mini-swe-agent) or OpenCode (`kind` opencode) agent or Evolver with its model bound: `model` becomes the id the
-    endpoint expects, the provider settings go into `args` (Codex), `env` (Claude Code) ahead of the user's own, or
-    `provider` (Pi's models.json entry, OpenCode's config provider; mini-swe-agent reads them from `binding`), `price`
-    is filled from the backend, and `binding` records the whole. A `model` that is no reference (the CLI's own
-    provider) is left alone."""
+    mini-swe-agent), OpenCode (`kind` opencode) or DeepSeek Harness (`kind` dsh) agent or Evolver with its model
+    bound: `model` becomes the id the endpoint expects, the provider settings go into `args` (Codex), `env` (Claude
+    Code) ahead of the user's own, or `provider` (Pi's models.json entry, OpenCode's config provider, dsh's pi-ai
+    route; mini-swe-agent reads them from `binding`), `price` is filled from the backend, and `binding` records the
+    whole. A `model` that is no reference (the CLI's own provider) is left alone."""
     binding = as_binding(params.get("model") or default, backends)
     if binding is None:
         return params
@@ -435,6 +463,8 @@ def bind_agent_params(params: dict, kind: str, backends: dict[str, Backend], def
         out["provider"] = params.get("provider") or binding.pi_provider()
     elif kind == "opencode":
         out["provider"] = params.get("provider") or binding.opencode_provider()
+    elif kind == "dsh":
+        out["provider"] = params.get("provider") or binding.dsh_provider()
     elif kind != "mini-swe-agent":
         raise ValueError(f"kind must be one of {CLI_KINDS}, not {kind!r}")
     if not out.get("price"):
@@ -446,20 +476,21 @@ def bind_agent_params(params: dict, kind: str, backends: dict[str, Backend], def
 # ---- the run config -------------------------------------------------------------------------------------------
 
 CLI_AGENTS = {"codex": "codex", "claude-code": "claude", "claude": "claude", "pi": "pi",
-              "mini-swe-agent": "mini-swe-agent", "opencode": "opencode", "cli": None}
-CLI_KINDS = ("codex", "claude", "pi", "mini-swe-agent", "opencode")  # the CLIs a model is bound for (bind_agent_params)
+              "mini-swe-agent": "mini-swe-agent", "opencode": "opencode", "dsh": "dsh", "cli": None}
+# The CLI Base Agents a model is bound for (bind_agent_params)
+CLI_KINDS = ("codex", "claude", "pi", "mini-swe-agent", "opencode", "dsh")
 
 
 def needs(kind: str, binding: Binding) -> str:
     """The dialect `kind` (a consumer of NEEDS) speaks to `binding`'s backend."""
-    return binding.pi_dialect() if kind == "pi" else NEEDS.get(kind, "responses")
+    return binding.pi_dialect() if kind in ("pi", "dsh") else NEEDS.get(kind, "responses")
 
 
 def _cli_kind(agent: dict, params: dict) -> str:
-    """codex, claude, pi, mini-swe-agent or opencode for an acting agent that is a CLI (by its name, `cli`'s backend,
-    or a task's own agent's agent.base), else ""."""
+    """codex, claude, pi, mini-swe-agent, opencode or dsh for an acting agent that is a CLI (by its name, `cli`'s
+    backend, or a task's own agent's agent.base), else ""."""
     names = {"codex": "codex", "claude": "claude", "claude-code": "claude", "pi": "pi",
-             "mini-swe-agent": "mini-swe-agent", "opencode": "opencode"}
+             "mini-swe-agent": "mini-swe-agent", "opencode": "opencode", "dsh": "dsh"}
     kind = CLI_AGENTS.get(str(agent.get("name") or ""), "")
     if kind is None:                                        # `cli`: the backend is a param
         return names.get(params.get("backend", "codex"), "")
@@ -513,10 +544,10 @@ def _cli_model(spec: dict, backends: dict[str, Backend], where: str) -> dict:
     """A model reached through a CLI: its `cli` the Base Agent's name, its model bound when it is a reference. It stays
     in this form and is never read as a chat endpoint's spec: the key or the login that pays is the session's."""
     cli = {"claude-code": "claude"}.get(spec["cli"], spec["cli"])
-    if cli not in ("codex", "claude"):
-        raise ValueError(f"{where}.cli must be codex or claude, not {spec['cli']!r}")
+    if cli not in ("codex", "claude", "pi"):
+        raise ValueError(f"{where}.cli must be codex, claude or pi, not {spec['cli']!r}")
     spec = {**spec, "cli": cli}
-    return bind_agent_params(spec, cli, backends) if is_ref(spec.get("model"), backends) else spec
+    return bind_agent_params(spec, cli, backends) if as_binding(spec.get("model"), backends) else spec
 
 
 def _split(ref: str) -> dict:
@@ -534,7 +565,8 @@ def bindings_of(data: dict, evolver_params: dict | None = None) -> list[tuple[st
     params = agent.get("params") or {}
     for who, spec in (("llm tool", data.get("llm")), (f"model of agent {agent.get('name')}", params.get("model"))):
         if isinstance(spec, dict) and spec.get("cli") and isinstance(spec.get("binding"), dict):
-            out.append((f"{who} through {spec['cli']}", Binding.from_spec(spec["binding"]), NEEDS[spec["cli"]]))
+            binding = Binding.from_spec(spec["binding"])
+            out.append((f"{who} through {spec['cli']}", binding, needs(spec["cli"], binding)))
     kind = _cli_kind(agent, params)
     if kind in CLI_KINDS and isinstance(params.get("binding"), dict):
         binding = Binding.from_spec(params["binding"])
