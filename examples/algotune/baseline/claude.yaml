@@ -1,0 +1,32 @@
+# AlgoTune, the baseline: Claude Code with Claude Haiku 5.5 and no adapter, on the 108 test tasks of SkillOpt's split
+# (the tasks the method's adapter is tested on), once each, each task's own hour, no web search; its 154 tasks with
+# --split. Claude Code runs Claude Haiku 5.5 at medium effort on a Claude subscription (`claude setup-token`, the
+# token exported as CLAUDE_CODE_OAUTH_TOKEN; no API key), in each task's container.
+#
+#   hermit eval --config examples/algotune/baseline/claude.yaml --adapter none
+#   hermit eval --config examples/algotune/baseline/claude.yaml --adapter none --split examples/algotune/utils/splits/all.txt
+#
+# AlgoTune's score is the harmonic mean of the speedups: 1 / (1 - mean_score), which `python
+# examples/algotune/utils/judge.py <eval dir>` prints.
+run: {mode: eval}
+data:
+  tasks: ../utils/tasks.jsonl
+  test: ../utils/splits/test.txt       # 108 tasks (SkillOpt's split: 2:1:7, seed 42)
+agent:
+  name: harbor
+  concurrency: 6
+  params:
+    benchmark: ../utils/benchmark.yaml
+    acting_agent: {cli: claude}        # Claude Code in the task's container, installed there by Harbor
+    model: claude-haiku-5-5            # a Claude Code model name, on the subscription
+    login: claude                      # the subscription's plan, shared with Hermit's other sessions on it
+    effort: medium
+    jobs_dir: ~/.cache/hermit/harbor/jobs/algotune-claude  # the Claude Code configs' trials (and their cache)
+judge:
+  path: ../utils/judge.py              # 1 - 1/speedup (utils/judge.py)
+trainer:
+  run_name: claude-baseline
+  output_dir: runs
+eval:
+  repeats: 1
+  infra_retries: 2                     # a trial that is not the agent's result (infra) runs again, twice at most

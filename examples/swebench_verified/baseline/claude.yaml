@@ -1,0 +1,31 @@
+# SWE-bench Verified, the baseline: Claude Code with no adapter on all 500 tasks, once each, each task's own 3,000 s,
+# no web search. Claude Code runs Claude Haiku 5.5 at medium effort on a Claude subscription (`claude setup-token`, the
+# token exported as CLAUDE_CODE_OAUTH_TOKEN; no API key) in each task's container. The same config tests an adapter
+# trained elsewhere, frozen (the transfer protocol of ../README.md):
+#
+#   hermit eval --config examples/swebench_verified/baseline/claude.yaml --adapter none
+#   hermit eval --config examples/swebench_verified/baseline/claude.yaml --adapter <an adapter directory>
+#
+# The resolve rate is the summary's mean_score.
+run: {mode: eval}
+data:
+  tasks: ../utils/tasks.jsonl
+  test: ../utils/splits/test.txt       # the 500 tasks
+agent:
+  name: harbor
+  concurrency: 8
+  params:
+    benchmark: ../utils/benchmark.yaml
+    acting_agent: {cli: claude}        # Claude Code in the task's container, installed there by Harbor
+    model: claude-haiku-5-5            # a Claude Code model name, on the subscription
+    login: claude                      # the subscription's plan, shared with Hermit's other sessions on it
+    effort: medium
+    jobs_dir: ~/.cache/hermit/harbor/jobs/swebv-claude  # the Claude Code configs' trials (and their cache)
+judge:
+  path: hermit.harbor.judge            # the verifier's reward
+trainer:
+  run_name: claude-baseline
+  output_dir: runs
+eval:
+  repeats: 1
+  infra_retries: 2                     # a trial that is not the agent's result (infra) runs again, twice at most

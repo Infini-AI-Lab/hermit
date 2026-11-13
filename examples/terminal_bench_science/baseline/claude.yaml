@@ -1,0 +1,32 @@
+# Terminal-Bench-Science, the baseline: Claude Code with Claude Haiku 5.5 and no adapter, under the protocol of this
+# example's method (../README.md): every task twice, the two test rollouts (#3 and #4 of each task) that the method's
+# adapters are tested on, each task's own 8 hours, no web search. Claude Code runs Claude Haiku 5.5 at medium effort
+# on a Claude subscription (`claude setup-token`, the token exported as CLAUDE_CODE_OAUTH_TOKEN; no API key), in each
+# task's container.
+#
+#   hermit eval --config examples/terminal_bench_science/baseline/claude.yaml --adapter none
+#   hermit eval --config examples/terminal_bench_science/baseline/claude.yaml --adapter <an adapter directory>   # transfer
+#
+# pass@1 is the summary's mean_score over the 140 trials, pass@2 its pass_at_k.
+run: {mode: eval}
+data:
+  tasks: ../utils/tasks.jsonl
+  test: ../utils/rows/test.txt         # 70 tasks x rollouts #3 and #4
+agent:
+  name: harbor
+  concurrency: 6
+  params:
+    benchmark: ../utils/benchmark.yaml
+    acting_agent: {cli: claude}        # Claude Code in the task's container, installed there by Harbor
+    model: claude-haiku-5-5            # a Claude Code model name, on the subscription
+    login: claude                      # the subscription's plan, shared with Hermit's other sessions on it
+    effort: medium
+    jobs_dir: ~/.cache/hermit/harbor/jobs/tbsci-claude  # the Claude Code configs' trials (and their cache)
+judge:
+  path: hermit.harbor.judge            # the verifier's reward
+trainer:
+  run_name: claude-baseline
+  output_dir: runs
+eval:
+  repeats: 1
+  infra_retries: 2                     # a trial that is not the agent's result (infra) runs again, twice at most

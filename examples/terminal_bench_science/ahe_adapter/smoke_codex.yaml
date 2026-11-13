@@ -1,0 +1,51 @@
+# Smoke of run_codex.yaml: the same pipeline, Evolver and learners on the two smoke tasks (rows <task>#0, which no
+# eval or training run takes), one rollout each (k = 1), two steps, then the final adapter's test on the same rows. It
+# checks the task set, the CLI in the containers, the hooks, the Debugger and the Evolve Agent before the long run.
+#
+#   hermit train --config examples/terminal_bench_science/ahe_adapter/smoke_codex.yaml
+run: {mode: split}
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke.txt     # the two smoke rows (<task>#0), which no eval or training run takes
+  test: ../utils/splits/smoke.txt
+  step_size: 2
+  shuffle: false
+task_info: ../utils/task-info
+agent:
+  name: harbor
+  concurrency: 2
+  params:
+    benchmark: ../utils/benchmark.yaml
+    acting_agent: {cli: codex}         # Codex in the task's container, installed there by Harbor
+    model: gpt-5.6-luna                # a Codex model name, on the ChatGPT login
+    login: chatgpt                     # the ChatGPT plan, shared with Hermit's other sessions on it
+    effort: medium
+    jobs_dir: ~/.cache/hermit/harbor/jobs/tbsci-codex-smoke  # the smoke's trials, apart from the run's
+    agent_timeout_sec: 1800            # the smoke's cap on a session; the run keeps each task's own
+judge:
+  path: hermit.harbor.judge            # the verifier's reward; its output is what the Debugger reads
+template: ahe@1.0                      # H_0 is the template's own adapter (`--adapter root`)
+evolver:
+  name: ahe_adapter                    # the Agent Debugger and the Evolve Agent
+  params:
+    task_field: harbor_task
+    k: 1
+    rollback: auto
+    target_pass_rate: 1.01             # never reached: every step runs the Debugger and the Evolve Agent
+  base: codex                          # both learners are sessions of the codex Base Agent
+  model: {name: gpt-5.6-luna, login: chatgpt, effort: medium}
+  codex: {web_search: false}
+sandbox:
+  enabled: true
+  evolver:
+    allowed_hosts: [chatgpt.com, auth.openai.com]  # the learners' ChatGPT login
+trainer:
+  run_name: smoke-codex-ahe
+  output_dir: runs
+  tree_dir: runs/trees/smoke-codex-ahe
+  epochs: 2
+  save_freq: {steps: 1}
+  call_timeout_min: 600
+  budget: {usd: null, tokens: null, hours: null}
+eval:
+  repeats: 1

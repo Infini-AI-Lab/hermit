@@ -1,0 +1,26 @@
+# Terminal-Bench 2.0 through Harbor: the agent.params every config of this example shares (agent.params.benchmark; a
+# config's own params override these), and the task set (the dataset: block, which `python -m hermit.harbor.dataset
+# prepare` reads). One rollout is one Harbor trial of a task: Harbor pulls the task's prebuilt image, the acting agent
+# works in the container until it stops or its time runs out, and the task's tests, uploaded only after the agent
+# stopped, score it: 1 if every test passes, else 0. The acting agent, its model and its sign-in are each config's own.
+dataset:
+  ref: terminal-bench@2.0              # 89 tasks: 4 easy, 55 medium, 30 hard
+  rollouts: 4                          # rows <task>#1 ... #4: #1 and #2 are the training rollouts (k = 2), #3 and #4
+                                       # the test's (../rows/), so that no test trial is a training trial
+  split: in_sample                     # every task is trained on and tested on, as the AHE paper does
+  smoke: [fix-git, log-summary-date-ranges]  # two short tasks, rows <task>#0 (splits/smoke.txt)
+  image_sizes: true                    # image_sizes.json: each task image's size, for the disk gate
+tasks_dir: tasks                       # the 89 task directories (prepare's link, outside the checkout)
+web_search: false                      # the CLI's web search off: the tasks and their solutions are public
+agent_timeout_sec: 3600                # the AHE paper's hour for every task (the tasks' own limits: 900 s for 49 of
+                                       # them, up to 12,000 s); null runs each task's own limit, as the leaderboard
+verifier_timeout_multiplier: 5         # the verifier's limit only: a container gets its task's CPU quota (1 or 2 for
+                                       # most tasks) but sees all of the host's cores, and a thread pool sized to them
+                                       # runs slowly in that quota (torch-pipeline-parallelism's tests)
+environment_build_timeout_multiplier: 3  # the start includes the image's pull: 8.8 GB for the two mteb tasks
+docker_cleanup: rmi_task_image         # a task's image is removed after its trials: the 89 images take about
+                                       # 120-150 GB on disk
+image_sizes: image_sizes.json          # the disk gate keeps room for the images still to be pulled
+disk_gate_gb: 25                       # no trial starts with less than this free on Docker's data root
+disk_gate_wait_s: 21600
+trial_cache: true                      # a resumed run or eval takes the trials it already ran from its jobs_dir

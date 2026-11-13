@@ -1,0 +1,66 @@
+# Terminal-Bench 2.0 with the AHE Adapter, in the AHE paper's protocol on Terminal-Bench 2 (Lin et al.,
+# arXiv:2604.25850, §4.1 and Table 4): ten iterations from the paper's seed harness (the `ahe` template as it is: its
+# three seed rules, an empty memory, and a middleware that only hands the memory to the model, where the paper's seed
+# has none), each iteration one step over every task's k = 2 rollouts (178 trials), the tasks it evolves on being the
+# tasks it reports on, an edit reverted file by file when the next iteration's attribution judges it HARMFUL (the
+# port's reading of Algorithm 1's rollback; the paper's text reverts the edits whose predicted fixes do not
+# materialize, §1 and Fig. 8), the best iteration by pass@1 handed back, an hour per task. Claude Code runs Claude
+# Haiku 5.5 at medium effort on a Claude subscription (the token exported as CLAUDE_CODE_OAUTH_TOKEN), as the acting
+# agent in each task's container (the middleware as its hooks) and as both learners, the Agent Debugger and the Evolve
+# Agent (the paper: GPT-5.4 for every role, the Code Agent at high effort and the Evolve Agent at xhigh, Table 4).
+# What differs from the paper besides the model: the acting agent is Claude Code with the adapter deployed, not NexAU
+# (the adapter's files evolve, the agent's loop and tools do not), 6 trials at a time (96), and no Explore Agent.
+#
+#   hermit train --config examples/terminal_bench_2_0/ahe_adapter/run_claude.yaml   # again to resume
+#   hermit eval  --config examples/terminal_bench_2_0/ahe_adapter/run_claude.yaml --adapter root
+#
+# After the ten steps, run.mode split tests the final adapter on every task's rollouts #3 and #4 (fresh trials, as
+# ../baseline/claude.yaml tests no adapter and `--adapter root` the seed). The paper's own number, the best
+# iteration's pass@1 on its training rollouts, is the run's workspace/state/best_ever.json.
+run: {mode: split}
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/rows/train.txt       # 89 tasks x rollouts #1 and #2, a task's two rollouts together
+  test: ../utils/rows/test.txt         # the same tasks, rollouts #3 and #4
+  step_size: 178                       # one step = one AHE iteration over every training trial
+  shuffle: false
+task_info: ../utils/task-info
+agent:
+  name: harbor
+  concurrency: 6
+  params:
+    benchmark: ../utils/benchmark.yaml
+    acting_agent: {cli: claude}        # Claude Code in the task's container, the adapter deployed as for `hermit deploy`
+    model: claude-haiku-5-5            # a Claude Code model name, on the subscription
+    login: claude                      # the subscription's plan, shared with Hermit's other sessions on it
+    effort: medium
+    jobs_dir: ~/.cache/hermit/harbor/jobs/tb20-claude  # the Claude Code configs' trials (and their cache)
+judge:
+  path: hermit.harbor.judge            # the verifier's reward; its output is what the Debugger reads
+template: ahe@1.0                      # H_0 is the template's own adapter (`--adapter root`)
+evolver:
+  name: ahe_adapter                    # the Agent Debugger and the Evolve Agent
+  params:
+    task_field: harbor_task            # a task's k rollouts share it
+    k: 2
+    rollback: auto                     # an edit the next step judges HARMFUL reverted file by file (the port's
+                                       # reading of the paper's rollback)
+  base: claude                         # both learners are sessions of the claude Base Agent
+  model: {name: claude-haiku-5-5, login: claude, effort: medium}
+  claude:
+    web_search: false                  # WebSearch and WebFetch run at Anthropic, past the learners' sandbox
+    plan_max_wait_s: null              # a session waits for the plan's window however long it holds
+sandbox:
+  enabled: true                        # the learners' login host is allowed by itself
+trainer:
+  run_name: claude-ahe
+  output_dir: runs
+  tree_dir: runs/trees/claude-ahe      # one adapter tree per run: runs can train side by side
+  epochs: 10                           # the paper's ten iterations
+  allow_early_stop: true               # the Evolver stops at its target_pass_rate (0.95)
+  save_freq: {steps: 1}
+  call_timeout_min: 10080              # a week: a step's learner sessions, and a wait for the plan's window
+  budget: {usd: null, tokens: null, hours: null}
+eval:
+  repeats: 1
+  infra_retries: 2                     # a test trial that is not the agent's result (infra) runs again, twice at most

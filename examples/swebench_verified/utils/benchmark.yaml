@@ -1,0 +1,25 @@
+# SWE-bench Verified through Harbor: the agent.params every config of this example shares (agent.params.benchmark; a
+# config's own params override these), and the task set (the dataset: block, which `python -m hermit.harbor.dataset
+# prepare` reads). One rollout is one Harbor trial of a task: Harbor builds the task's image (the SWE-bench image of
+# the repository at the issue's commit, swebench/sweb.eval.x86_64.<id>), the acting agent edits the repository in
+# /testbed, and the task's tests (the harness's FAIL_TO_PASS and PASS_TO_PASS lists, uploaded only after the agent
+# stopped) score it: 1 if the issue is resolved, else 0. The acting agent, its model and its sign-in are each config's.
+dataset:
+  ref: swebench-verified@1.0           # 500 tasks of 12 repositories
+  split: in_sample                     # every task is a test task: the transfer protocol (AHE, RRSI) evaluates all
+                                       # 500, and no method trains here
+  smoke: [psf__requests-1142, pallets__flask-5014]  # two small issues, rows <task>#0 (splits/smoke.txt)
+tasks_dir: tasks                       # the 500 task directories (prepare's link, outside the checkout)
+web_search: false                      # the CLI's web search off: the issues and their fixes are public
+agent_timeout_sec: null                # each task's own limit (3,000 s for every task)
+environment:
+  env:                                 # thread pools sized to the task's CPU (every task has cpus = 1): Docker
+    OMP_NUM_THREADS: "1"               # enforces the CPU quota but leaves the host's cores visible, and OpenMP and
+    OPENBLAS_NUM_THREADS: "1"          # BLAS start a thread per host core in one CPU's time (scikit-learn's tests
+    MKL_NUM_THREADS: "1"               # then outlast the verifier's limit)
+    NUMEXPR_NUM_THREADS: "1"
+docker_cleanup: images_keep            # Harbor removes the image it built; the SWE-bench base layers stay in
+                                       # Docker's build cache
+disk_gate_gb: 25                       # no trial starts with less than this free on Docker's data root
+disk_gate_wait_s: 21600
+trial_cache: true                      # a resumed eval takes the trials it already ran from its jobs_dir

@@ -1,0 +1,35 @@
+# AlgoTune through Harbor: the agent.params every config of this example shares (agent.params.benchmark; a config's
+# own params override these), and the task set (the dataset: block, which `python -m hermit.harbor.dataset prepare`
+# reads). One rollout is one Harbor trial of a task: Harbor builds the task's image (Python with the solver packages
+# the instruction lists), the acting agent writes /app/solver.py, and the task's verifier (uploaded only after the
+# agent stopped) times it against the reference solver on 100 instances, interleaved. Its reward is the speedup when
+# every output is valid and the solver is faster, else 1.0 (AlgoTune's floor). AlgoTune's score of a set of tasks is
+# the harmonic mean of the speedups; judge.py scores a trial 1 - 1/speedup, whose mean m gives that harmonic mean as
+# 1 / (1 - m). The acting agent, its model and its sign-in are each config's own.
+dataset:
+  ref: algotune@1.0                    # 154 tasks
+  split: {train: 31, val: 15, test: rest, seed: 42}  # SkillOpt's split: 2:1:7 with its seed 42 (108 test tasks)
+  smoke: [algotune-aes-gcm-encryption, algotune-count-connected-components]  # rows <task>#0 (splits/smoke.txt)
+tasks_dir: tasks                       # the 154 task directories (prepare's link, outside the checkout)
+web_search: false                      # the CLI's web search off
+pass_reward: null                      # a speedup is a scale: no trial "passes"
+agent_timeout_sec: null                # each task's own limit (3,600 s for every task)
+environment:
+  override_memory_mb: 65536            # the tasks ask for 16 GB; the timing run of the reference solution needs more
+                                       # on some tasks (it was killed at 16 GB)
+  env:                                 # thread pools sized to the task's 8 CPUs (every task has cpus = 8): the
+    OMP_NUM_THREADS: "8"               # verifier sets these itself, but only after numpy is imported, so OpenBLAS
+    OPENBLAS_NUM_THREADS: "8"          # would have started a thread per host core in 8 CPUs' time and the
+    MKL_NUM_THREADS: "8"               # reference's timing would crawl
+    NUMEXPR_NUM_THREADS: "8"
+  extra_docker_compose:                # no core files: a solver that crashes would dump the whole process into the
+    - no-core-dumps.yaml               # container's layer on Docker's data root (no-core-dumps.yaml says more)
+verifier:
+  override_timeout_sec: 7200           # the verifier times the reference and the solver on 100 instances each; the
+                                       # tasks' own 3,600 s is short on a loaded host
+verifier_timeout: agent                # a verifier that ran out of its time ran out on the agent's solver (too slow
+                                       # to time): the agent's result, not run again
+docker_cleanup: images_keep            # Harbor removes the image it built
+disk_gate_gb: 25                       # no trial starts with less than this free on Docker's data root
+disk_gate_wait_s: 21600
+trial_cache: true                      # a resumed run or eval takes the trials it already ran from its jobs_dir

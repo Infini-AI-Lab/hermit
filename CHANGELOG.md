@@ -188,6 +188,19 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   beside it for the stream's driver included. An acting agent of Harbor's own, which takes no adapter, is refused by
   `hermit train`, by `hermit eval` with any adapter but `none` and by `hermit eval --checkpoints`, and `hermit check`
   reports it for a training config.
+- Five Harbor benchmarks as examples, to be handed to anyone with a Docker host
+  ([Harbor benchmarks](examples/README.md#harbor-benchmarks)): Terminal-Bench 2.0, SWE-bench Verified, AlgoTune,
+  Terminal-Bench-Science and LAB-Bench FigQA, each the registry's task set in a `utils/benchmark.yaml` (locked in
+  `utils/dataset.lock`), a baseline config per profile (Codex with GPT-5.6-Luna on a ChatGPT login, Claude Code with
+  Claude Haiku 5.5 on a Claude subscription) and the method whose paper's protocol fits it: the AHE Adapter on
+  Terminal-Bench 2.0 in the AHE paper's in-sample protocol, trained on each task's rollouts #1 and #2 and tested on
+  #3 and #4, which no step ran; its final adapter, frozen, on SWE-bench Verified and Terminal-Bench-Science, against
+  AHE's seed, as the AHE and RRSI papers test a harness on another benchmark; SkillOpt in its paper's protocol on
+  AlgoTune, a trial scored 1 - 1/speedup so that the mean gives AlgoTune's harmonic mean (`utils/judge.py`), and on
+  LAB-Bench FigQA, whose download is patched (`utils/patches.py`: the published tasks save the shuffle's seed where
+  the agent reads it, which gives the answer away, and their verifier runs a script the agent can rewrite) and
+  whose questions on a figure no training question has are listed for a second score (`utils/rows/`). Not run yet:
+  the results tables are empty, and the configs were checked on each benchmark's two smoke rows.
 - How a run is done, the config's `run:` block ([configuration](docs/framework/configuration.md)): `mode` `eval`
   (`hermit eval` only, no training keys; the tree it tests, `trainer.tree_dir` with no template, a run secret as a
   training run's tree is), `split` (train, then the final adapter on `data.test`) or `stream` (each row
