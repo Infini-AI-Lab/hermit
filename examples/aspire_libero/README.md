@@ -26,7 +26,8 @@ Profiles):
   programs per task (one of them a LIBERO-90 task). The task sandbox is shown the staged copy only, not the
   checkout's page; a page without that section is refused rather than passed whole.
 
-ASPIRE's own LIBERO results are on LIBERO-Pro's perturbed suites (`libero_*_swap`, `libero_*_task`), not on these.
+ASPIRE's own LIBERO results are on LIBERO-Pro's perturbed suites (`libero_*_swap`, `libero_*_task`), not on these:
+those are [`aspire_libero_pro/`](../aspire_libero_pro/).
 
 ## Setup
 

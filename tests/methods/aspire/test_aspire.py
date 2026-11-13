@@ -630,7 +630,11 @@ def test_the_libero_pro_tasks_are_aspires_eighty_and_a_swap_and_a_task_suite_sha
         data = Config.load(path).data["data"]
         named = [split(Path(data[key]).name) for key in ("train", "val", "test")]
         assert all(named) and all(set(ids) <= {r["id"] for r in rows} for ids in named), path
-        assert not set(named[0]) & set(named[2]) and not set(named[0]) & set(named[1]), path
+        assert named[2] == [f"rerun-{i}" for i in named[0]], path     # the reruns are of the tasks it trained on
+        assert set(named[1]) == {f"verify-{r['id']}" for r in tasks}, path   # the coordinator's verifier rows
+        rows_file = Path(data["tasks"])
+        rows_file = rows_file if rows_file.is_absolute() else path.parent / rows_file
+        assert rows_file.resolve() == (LIBERO_PRO / "utils" / "tasks.jsonl").resolve(), path   # this folder's rows
     monkeypatch.setattr(sys, "argv", ["prepare.py", "--preset", "smoke"])
     P.main()
     first = json.loads((tmp_path / "tasks.jsonl").read_text().splitlines()[0])
