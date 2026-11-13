@@ -10,14 +10,14 @@ params:
   reuse_rollout_parent: true
   parent_error_policy: reject   # reject | conservative_bounds (failed parent runs get their best possible verdict)
   candidate_error_policy: reject   # reject | worst_case_bounds (failed candidate runs get their worst possible verdict)
-  role_retries: 0             # extra attempts for a failed codex/claude role call (never for refusals)
+  role_retries: 0             # extra attempts for a failed CLI role call (never for refusals)
   review_revisions: 2         # extra Criticizer rounds (total capped at 3), then a final Designer repair
   spec_repair_attempts: 2     # extra repairs for size/spec failures; no Criticizer call is spent
   max_defense_bytes: 32000    # role search budget in UTF-8 bytes; never exceeds the template limit
   evidence_chars_per_case: 2000   # initial summaries; complete TRAIN observations available through role tools
   robustness_task_ids: []
   # Prefer evolver.base/model/<base>; these fields keep old configurations readable.
-  proposer: llm               # llm | codex | claude (Claude Code CLI; read-only TRAIN experience tools)
+  proposer: llm               # llm | codex | claude (a CLI with read-only TRAIN experience tools); Pi: evolver.base: pi
   codex_bin: codex
   codex_model: gpt-6-sol
   codex_timeout_s: 600

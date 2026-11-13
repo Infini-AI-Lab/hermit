@@ -7,7 +7,7 @@ execution engine that records every primitive call with RGB keyframes, debugs it
 what it learned. The coordinator turns those reports into a shared skill library: it repairs entries the actors graded
 badly and admits a new entry only after a fresh verifier re-solved the task from the library and the entry alone. It
 also chooses which task runs next (its curriculum). In ASPIRE all three roles are Claude Code sessions; here they are
-Codex sessions (or Claude Code), run by the framework's coding-agent agents with ASPIRE's own prompts. The framework
+Codex sessions (or Claude Code or Pi), run by the framework's coding-agent agents with ASPIRE's own prompts. The framework
 learns only the library: the actor's harness and prompts are fixed.
 
 ## Setup
@@ -107,7 +107,7 @@ carry their own seeds.
 
 | Dimension | ASPIRE (NVlabs/ASPIRE) | This port | Why |
 |---|---|---|---|
-| Roles | coordinator, fix-loop subagents and verifiers, all Claude Code | the same three roles, Codex (or Claude Code) sessions with ASPIRE's prompts | — |
+| Roles | coordinator, fix-loop subagents and verifiers, all Claude Code | the same three roles, Codex (or Claude Code or Pi) sessions with ASPIRE's prompts | — |
 | When learning happens | after each subagent returns | after each task (one per step) | the Trainer's step |
 | Curriculum | the coordinator chooses each round's tasks and logs `curriculum.md` | the same, one task per step, through `StepResult.next_tasks` | the Trainer dispatches what the coordinator names |
 | Parallelism | one task per GPU | one task at a time | a decision: two GPUs |

@@ -166,7 +166,7 @@ way. A task whose own code calls a model (CL-Bench's and ServeLearnBench's runne
 not copied: `CLAUDE_CODE_OAUTH_TOKEN` passes by name for the call that runs the session, never in a sandbox's own
 variables (so neither its other commands nor its judge get it), and `api.anthropic.com` is allowed; in a container it
 reaches the CLI on a file descriptor. A CLI learner that names neither a model reference nor a login copies the CLI's
-own sign-in from the user's home.
+own sign-in from the user's home; the `dsh` Evolver copies nothing (`home: []`): give it a model reference.
 
 What a run keeps and may share is scrubbed of every key value (`hermit/redact.py`); each value of a key-like variable
 of the Trainer (`..._API_KEY`, `..._KEY`, `..._TOKEN`, `..._SECRET`, at least 16 characters) becomes `<VARIABLE>`.

@@ -40,8 +40,8 @@ task through its benchmark seam. Each step hands the step's task to `harness2.co
 
 The adapter is never written, so every task starts from H0; the library lives in the Training State. The editor
 sessions are upstream's `claude_cli` channel (Claude Code on the bound model, which must serve the Messages API, or
-on your subscription with `evolver.params.login: claude` and a model name),
-each in a sandbox that shows only its evidence and reaches only the model. A task's score is the judge's score of
+on your subscription with `evolver.params.login: claude` and a model name; with `evolver.base: pi`, Pi on the bound
+model), each in a sandbox that shows only its evidence and reaches only the model. A task's score is the judge's score of
 its deliverable, in `step_NNNN/step_result.json` (`extra.harness2`), never seen by a session. At `k = 1` a task
 costs four executions and four sessions (two editors, the composer, the reflector).
 

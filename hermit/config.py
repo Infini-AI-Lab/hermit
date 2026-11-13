@@ -44,11 +44,11 @@ def _merge(base: dict, extra: dict, prefix: str = "") -> dict:
 
 
 FREE = ("params", "llm", "backends", "container", "resources",   # sections whose keys the framework does not know
-        "model", *("codex", "claude", "pi", "mini-swe-agent", "opencode", "react", "direct"))   # a layer's
-                                                                                              # (agent-layers.md)
+        "model", *("codex", "claude", "pi", "mini-swe-agent", "opencode", "dsh", "react", "direct"))   # a layer's
+                                                                                                     # (agent-layers.md)
 BASES = {"codex": "codex", "claude": "claude-code", "claude-code": "claude-code", "pi": "pi",
-         "mini-swe-agent": "mini-swe-agent", "opencode": "opencode", "react": "react", "direct": None}
-CLI_BASES = ("codex", "claude-code", "pi", "mini-swe-agent", "opencode")   # the bases that are a CLI (_model)
+         "mini-swe-agent": "mini-swe-agent", "opencode": "opencode", "dsh": "dsh", "react": "react", "direct": None}
+CLI_BASES = ("codex", "claude-code", "pi", "mini-swe-agent", "opencode", "dsh")   # the bases that are a CLI (_model)
 MODEL_KEYS = ("login", "effort", "price")           # Layer 1 settings a CLI takes beside its model
 # A login's plan settings: Layer 2's (agent.<base>, evolver.<base>), refused beside the model's name.
 PLAN_KEYS = {"plan_dir", "plan_max_wait_s", "plan_rerun", "usage_credits", "login_root"}
@@ -108,24 +108,36 @@ def _model(params: dict, model, where: str, cli: bool = True) -> None:
     _put(params, "model", {"model": name, **model} if model else name, where)
 
 
-def layered(data: dict) -> None:
+def _calls_the_runs_model(name, base: Path | None) -> bool:
+    """Whether the Evolver `name` decides each step in its own code and calls the run's model (`ctx.agent`, the `llm`
+    tool): its manifest says so (`needs: [llm]`). Any other Evolver takes `evolver.base` as its own CLI."""
+    from hermit.agent.evolver.loader import find
+    try:
+        return "llm" in find(str(name), base).needs
+    except ValueError:                                     # no such Evolver: said where the Evolver is loaded
+        return False
+
+
+def layered(data: dict, base_dir: Path | None = None) -> None:
     """The per-layer form of `agent` and `evolver` (docs/framework/agent-layers.md#settings-by-layer) as the flat
     form the framework reads: `params` (Layer 3), `base` and its section (Layer 2), `model` (Layer 1). A key given in
-    two layers is refused."""
+    two layers is refused. `evolver.base: pi` on a method that calls the run's model makes that model Pi: `llm: {cli:
+    pi}`, one session per call."""
     agent = data["agent"]
     base = agent.pop("base", None)
     model = agent.pop("model", None)
-    sections = {b: agent.pop(b, None) for b in ("codex", "claude", "pi", "mini-swe-agent", "opencode", "react",
+    sections = {b: agent.pop(b, None) for b in ("codex", "claude", "pi", "mini-swe-agent", "opencode", "dsh", "react",
                                                  "direct")}
     if base is None:
         if model is not None or any(sections.values()):
             raise ValueError("agent.model and agent.<base> need agent.base (codex, claude, pi, mini-swe-agent, "
-                             "opencode, react or direct)")
+                             "opencode, dsh, react or direct)")
     else:
         if base not in BASES:
             raise ValueError(f"agent.base must be one of {sorted(BASES)}, not {base!r}")
         builtin = {"codex": "codex", "claude-code": "claude-code", "claude": "claude-code", "pi": "pi",
-                   "mini-swe-agent": "mini-swe-agent", "opencode": "opencode", "react": "react", "cli": None}
+                   "mini-swe-agent": "mini-swe-agent", "opencode": "opencode", "dsh": "dsh", "react": "react",
+                   "cli": None}
         if not agent.get("name"):
             if BASES[base] is None:
                 raise ValueError("agent.base: direct needs agent.name (the task's own loop calls it)")
@@ -145,15 +157,25 @@ def layered(data: dict) -> None:
     evolver = data["evolver"]
     base = evolver.pop("base", None)
     model = evolver.pop("model", None)
-    sections = {b: evolver.pop(b, None) for b in ("codex", "claude", "pi", "opencode", "react", "direct")}
+    sections = {b: evolver.pop(b, None) for b in ("codex", "claude", "pi", "opencode", "dsh", "react", "direct")}
     if base is None:
         if model is not None or any(sections.values()):
-            raise ValueError("evolver.model and evolver.<base> need evolver.base (codex, claude, pi, opencode or "
+            raise ValueError("evolver.model and evolver.<base> need evolver.base (codex, claude, pi, opencode, dsh or "
                              "direct)")
         return
-    if base not in ("codex", "claude", "claude-code", "pi", "opencode", "direct"):
-        raise ValueError(f"evolver.base must be codex, claude, pi, opencode or direct, not {base!r}")
+    if base not in ("codex", "claude", "claude-code", "pi", "opencode", "dsh", "direct"):
+        raise ValueError(f"evolver.base must be codex, claude, pi, opencode, dsh or direct, not {base!r}")
     params = dict(evolver.get("params") or {})
+    if base == "pi" and _calls_the_runs_model(evolver.get("name"), base_dir):
+        if data.get("llm") is not None:
+            raise ValueError("evolver.base: pi makes the run's model Pi, and llm names it too: give one")
+        llm: dict = {"cli": "pi"}
+        _model(llm, model if model is not None else data.get("model"), "evolver")
+        for key, value in (sections.get("pi") or {}).items():
+            _put(llm, key, value, "evolver.pi")
+        data["llm"] = llm
+        evolver["params"] = params
+        return
     if base == "direct":
         if model is not None:
             llm = _chat_spec(model, "evolver")
@@ -221,7 +243,7 @@ class Config:
                 data["agent"]["params"] = {**data["agent"].get("params", {}), **data["pipeline"]["params"]}
             if data["pipeline"].get("concurrency") is not None:
                 data["agent"]["concurrency"] = data["pipeline"]["concurrency"]
-        layered(data)               # per-layer settings -> the flat form
+        layered(data, Path(path).parent)               # per-layer settings -> the flat form
         normalize_config(data)      # model references -> the endpoints they name
         config = cls(data, Path(path).parent)
         config.validate()

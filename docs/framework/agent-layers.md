@@ -51,6 +51,7 @@ How a model takes steps. Layer 2 holds only the framework's agents:
 | `pi` | The Pi CLI, working in a workspace (no roles, no web search) |
 | `mini-swe-agent` | mini-swe-agent's bash loop, working in a workspace: one task through its Python API, in a process of its own (no roles, no web search) |
 | `opencode` | The OpenCode CLI, working in a workspace (a model reference only; no roles, no web search) |
+| `dsh` | The DeepSeek Harness CLI, working in a workspace (no roles; web search only with a model on DeepSeek's own API) |
 
 API, the only one Layer 3 sees:
 
@@ -71,7 +72,7 @@ agent, prompt = agent.instructed(system, prompt)   # a copy that takes `system` 
   environment, step by step in a resumed learning session. Codex and Claude Code resume their thread; direct and
   react carry the message history.
 - `roles`: named sub-agents (name, description, instructions) the agent may delegate to: Codex's roles, Claude
-  Code's agents. direct, react, pi, mini-swe-agent and opencode refuse them.
+  Code's agents. direct, react, pi, mini-swe-agent, opencode and DeepSeek Harness refuse them.
 - `trajectory`: the run as standard steps: messages, reasoning, commands with their exit codes and output, tool
   calls, file changes, errors. Layer 3 reads only these; a CLI's raw log (`agent-codex.jsonl`) is kept beside them
   as an archive.
@@ -83,10 +84,10 @@ none), Codex's own sandbox mode, the CLI's home, the time limit (the full list i
 leaves the agent as it was. Running a task again when the provider could not serve it is Layer 3's: the workspace
 is placed anew first.
 
-Codex, Claude Code, Pi, mini-swe-agent and OpenCode share one runner, `CliAgent`: the isolation, the home, the
-sign-in, the tool server and the process are the same for every CLI. Each CLI is a subclass whose hooks give what is
-its own: its command, its home, and how its event stream is read (the reply, the trajectory, the usage, whether the
-provider served it, and what a session that was not served met: `outcome`). mini-swe-agent's process is the
+Codex, Claude Code, Pi, mini-swe-agent, OpenCode and DeepSeek Harness share one runner, `CliAgent`: the isolation, the
+home, the sign-in, the tool server and the process are the same for every CLI. Each CLI is a subclass whose hooks give
+what is its own: its command, its home, and how its event stream is read (the reply, the trajectory, the usage, whether
+the provider served it, and what a session that was not served met: `outcome`). mini-swe-agent's process is the
 framework's own (`hermit/agent/base/mini_swe_agent_run.py`): it runs one task through mini-swe-agent's Python API and
 writes the session as JSON events, the stream the runner reads. A new CLI is
 a subclass listed in `CLIS`, a reader of its stream in `hermit/agent/base/trajectory.py`, and its model binding in
@@ -103,8 +104,10 @@ What the Base Agent is used for. Two kinds:
   record).
 - The **Evolver Agent** learns. Its API to the Trainer is `step(ctx)` and `finalize(ctx)`. It reads the acting
   runs' trajectories and writes a new adapter, calling a Base Agent: `direct` for methods that decide every step in
-  their own code (GEPA, SkillOpt, ReHarness, Continual Harness), `codex`, `claude`, `pi` or `opencode` for methods
-  whose learner is an agent (Meta-Harness Adapter, the `codex`, `claude`, `pi` and `opencode` Evolvers). The run's model reaches an Evolver as
+  their own code (GEPA, SkillOpt, ReHarness, Continual Harness), `codex`, `claude`, `pi`, `opencode` or `dsh` for
+  methods whose learner is an agent (Meta-Harness Adapter, the `codex`, `claude`, `pi`, `opencode` and `dsh` Evolvers).
+  With `evolver.base: pi`, a method that decides every step in its own code calls Pi as its model
+  ([every method on Pi](../methods/agent.md#every-method-on-pi)). The run's model reaches an Evolver as
   `ctx.agent`, a `direct` Base Agent metered against the budget; `ask(ctx.agent, messages, max_tokens=...)` returns
   the reply as the `llm` tool does.
 
@@ -117,11 +120,11 @@ relayed to the URL it would have reached with its body, key and reply unchanged 
 stream). CL-Bench's runner and ServeLearnBench's agent reach their model this way, through the launcher's meter as
 before. The same endpoint over a CLI Base Agent answers each request with one session of it (the system messages
 as its instructions, the rest as its prompt, its reply as the reply): `llm: {cli: claude, model: ..., login: claude,
-...}` (or `cli: codex`, `login: chatgpt`) makes the run's model one only the CLI reaches, such as a model on a
+...}` (or `cli: codex`, `login: chatgpt`, or `cli: pi` with a `<backend>/<model>` reference) makes the run's model one only the CLI reaches, such as a model on a
 subscription, for the Evolvers that call `ctx.agent` and the `llm` tool, and `agent.model: {cli: ...}` the same for an
 acting pipeline, which sees a local URL. Such a session works in an empty directory of its own, in a bubblewrap
 sandbox of its own (`isolation: sandbox`, the default) or a container (`isolation: container`), and is given no tools
-(`text_only`): a Claude Code session can only reply, a Codex session can still run commands inside its sandbox. A chat
+(`text_only`): a Claude Code or Pi session can only reply, a Codex session can still run commands inside its sandbox. A chat
 call sees no files, so a role that is to read files runs a session itself (`make(...).run(prompt, workspace)`). What a
 session cannot do is refused, not dropped ([the model contract](../guides/claude-subscription.md#the-model-contract)).
 Each call's event stream is kept under the run's `llm_sessions/`.
@@ -145,7 +148,7 @@ Each Base Agent offers the tools to the model in its own way:
 |---|---|---|
 | `direct` | Their schemas in the API request | Layer 3, which then calls `direct` again |
 | `react` | Their schemas in the API request | `react`, in its loop |
-| `codex`, `claude`, `pi`, `opencode` | The framework's tool server, over MCP (streamable HTTP) | The tool server |
+| `codex`, `claude`, `pi`, `opencode`, `dsh` | The framework's tool server, over MCP (streamable HTTP) | The tool server |
 | `mini-swe-agent` | One bash command, `hermit-tool <name> '<JSON arguments>'`, listed in its system message | The tool server, through its JSON entrance |
 
 The tool server (`hermit/agent/base/tool_server.py`) is started for the one call and stopped after it. It carries a
@@ -161,13 +164,14 @@ inside the agent's sandbox with the agent's permissions.
 ## Limits
 
 `limits` states what the agent may touch. Each Base Agent enforces it with its own isolation, and refuses a limit it
-cannot enforce (`Unsupported`) rather than ignore it. For Codex, Claude Code, Pi, mini-swe-agent and OpenCode (Pi,
-mini-swe-agent and OpenCode run in the run's sandbox or with no isolation, not in a container):
+cannot enforce (`Unsupported`) rather than ignore it. For Codex, Claude Code, Pi, mini-swe-agent, OpenCode and
+DeepSeek Harness (Pi, mini-swe-agent, OpenCode and DeepSeek Harness run in the run's sandbox or with no isolation,
+not in a container):
 
 | Limit | In a container | In the run's sandbox | No isolation |
 |---|---|---|---|
 | `workspace` (read-write) | mounted read-write | as the sandbox shows it | the working directory |
-| `readable` (data, at its target; a relative target is in the workspace) | mounted read-only | shown read-only at its target (a bind) | Codex: linked into the workspace (not made read-only); Claude Code: bound there read-only by a nested bubblewrap, linked where bubblewrap cannot nest |
+| `readable` (data, at its target; a relative target is in the workspace) | mounted read-only | shown read-only at its target (a bind) | Codex: linked into the workspace (not made read-only); Claude Code and DeepSeek Harness: bound there read-only by a nested bubblewrap, linked where bubblewrap cannot nest |
 | `hidden` (paths it must not see) | not mounted (refused inside the workspace or the data) | the sandbox is an allowlist: refused when the path lies in what the sandbox or the call shows | refused |
 | `network` (hosts besides the model; `None`: not limited) | `[]` only: the egress proxy's allowlist | `[]` only; refused when the network is open or the sandbox lets other hosts through | refused |
 | `timeout_s` | the container is removed | the process group is killed | the process group is killed |
@@ -178,6 +182,8 @@ refuse `timeout_s` (they cannot stop a model call midway: the client's own timeo
 the commands it runs), and the agent Evolver turns it off inside the run's sandbox, which is its boundary. In a
 container Claude Code's own sandbox runs too (`CLAUDE_SANDBOX` in `hermit/agent/base/cli.py`): the commands it runs
 have no network and write only the workspace and `/tmp`.
+DeepSeek Harness's own sandbox is a setting too (`agent.dsh.permission_mode`, `workspace-write` by default): it limits
+what a session writes, not the network, and the agent Evolver turns it off.
 
 ## Settings by layer
 
@@ -228,15 +234,17 @@ accepted; a key given in two layers is refused. On the command line a layer's se
 |---|---|---|
 | OfficeQA in Codex, every method | Acting Agent with OfficeQA's task functions (`utils/task.py`) | `codex` |
 | OfficeQA in direct chat | Acting Agent running SkillOpt's chat loop | `direct`, per turn |
-| GEPA, SkillOpt, ReHarness, Continual Harness, OPRO | Evolver Agent | `direct` (`ctx.agent`); OPRO in OfficeQA: `codex` through `llm: {cli: codex}` |
-| Meta-Harness Adapter, `codex` and `claude` Evolvers | Evolver Agent | `codex` or `claude` |
+| GEPA, SkillOpt, ReHarness, Continual Harness, OPRO | Evolver Agent | `direct` (`ctx.agent`); OPRO in OfficeQA: `codex` through `llm: {cli: codex}`; with `evolver.base: pi`, `pi` through `llm: {cli: pi}` |
+| Meta-Harness Adapter, ASPIRE, `codex` and `claude` Evolvers | Evolver Agent | `codex`, `claude`, `pi` or `opencode` |
 | `pi` Evolver | Evolver Agent | `pi` |
 | `opencode` Evolver | Evolver Agent | `opencode` |
-| RRSI Adapter | Evolver Agent: upstream's rules and roles, the proposer's prompt | `codex` or `claude` for the proposer, and the same, one call per upstream `generate`, for the analyst, digesters and critic |
-| AHE Adapter | Evolver Agent: the Evolve Agent and the Agent Debugger | `codex` or `claude`, one session per step and per task |
+| `dsh` Evolver | Evolver Agent | `dsh` |
+| RRSI Adapter | Evolver Agent: upstream's rules and roles, the proposer's prompt | `codex`, `claude` or `pi` for the proposer, and the same, one call per upstream `generate`, for the analyst, digesters and critic |
+| AHE Adapter | Evolver Agent: the Evolve Agent and the Agent Debugger | `codex`, `claude` or `pi`, one session per step and per task |
 | CL-Bench, ServeLearnBench | Acting Agent running the benchmark's loop | `direct`, per call, through the local endpoint |
-| MWM | Evolver Agent | `codex` or `claude`, in a view of the run's sandbox with MWM's native mounts (`/w`, `/evidence`, ...) |
-| Harness² | Evolver Agent: upstream's proposer | `claude`, one call per upstream session (or `codex`) |
+| MWM | Evolver Agent | `codex`, `claude` or `pi`, in a view of the run's sandbox with MWM's native mounts (`/w`, `/evidence`, ...) |
+| Harness² | Evolver Agent: upstream's proposer | `claude`, one call per upstream session (or `codex` or `pi`) |
+| SHE | Evolver Agent: upstream's debugger and Evolve Agent | `direct` (`ctx.agent`), or `codex`, `claude` or `pi`, one session per call |
 
 ## Outside the layers
 

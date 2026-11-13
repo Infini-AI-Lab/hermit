@@ -41,7 +41,8 @@ evolver:
 ```
 
 Use `needs` to declare required resources: `validation_data`, `environment`, or `send_material_out`. The Trainer
-checks them against the run settings before starting. Set `supports_resume = True` if the method understands the
+checks them against the run settings before starting. `llm` says that the method calls the run's model (`ctx.agent`,
+the `llm` tool) rather than a CLI of its own, so that `evolver.base: pi` makes that model Pi. Set `supports_resume = True` if the method understands the
 previous session handle; this is independent of storing files in `state/`. A param that names a model other than
 the run's `llm` (an embedding model, for one) is listed in the class's `model_params`, for example
 `model_params = ("embedding",)`: the loader binds a `<backend>/<model id>` reference there against the run's backends,
@@ -75,8 +76,9 @@ You can reuse a launcher instead of implementing a new Python learning loop:
 | `hermit.agent.evolver.agent:AgentEvolver` | Backend, prompt files, model selection, and host arguments. | The learner agent edits the working directory. |
 | `hermit.agent.evolver.agent:CommandEvolver` | An external command and optional environment values. | The program edits the working directory and may write a result file. |
 
-`AgentEvolver` supports `codex`, `claude`, `pi` and `opencode`. Its parameters include `backend`, `prompt`, `resume_prompt`, `model`,
-`args`, and `home`. Prompt placeholders include the workspace paths, `message`, `epoch`, and `step`.
+`AgentEvolver` supports `codex`, `claude`, `pi`, `opencode` and `dsh` (DeepSeek Harness). Its parameters include
+`backend`, `prompt`, `resume_prompt`, `model`, `args`, and `home`. Prompt placeholders include the workspace paths,
+`message`, `epoch`, and `step`.
 The bundled definitions are under `hermit/agent/evolver/methods/`.
 
 `CommandEvolver` supplies `HA_CONTEXT`, a path to JSON describing the workspace, access, progress, session, and

@@ -2,7 +2,7 @@
 8b2a55d, `evolve.py`) as an Evolver on the `ahe` template, confined to the adapter (the acting agent is fixed).
 
 On the agent layers (docs/framework/agent-layers.md) both of its agents are Layer 3 over the Evolver's CLI Base Agent
-(`codex` or `claude`, `backend`): the
+(`codex`, `claude` or `pi`, `backend`): the
 Evolve Agent is AgentEvolver's session (the prompt on stdin, the run's sandbox, `check_spec` as its only tool), and
 the Agent Debugger is one call of the same Base Agent per attempt of each task (debugger.py), with the Evolve Agent's
 settings (the login and its plan, web search, the isolation, the price) and its own model, clock and home.
@@ -236,18 +236,19 @@ class AHEAdapterEvolver(AgentEvolver):
     supports_resume = False          # a fresh CLI session per step, as run_evolve_agent builds a new agent each loop
 
     def setup(self, ctx: Context) -> None:
-        if ctx.params.get("backend", "codex") not in ("codex", "claude"):
+        if ctx.params.get("backend", "codex") not in ("codex", "claude", "pi"):
             raise ValueError("the AHE Adapter's Evolve Agent and Agent Debugger are sessions of a CLI Base Agent: "
-                             f"evolver.params.backend is codex or claude, not {ctx.params.get('backend')!r}")
+                             f"evolver.params.backend is codex, claude or pi, not {ctx.params.get('backend')!r}")
         if not isinstance(ctx.params.get("web_search"), bool):
             raise ValueError("evolver.params.web_search must be set, true or false")
         from hermit.agent.evolver.methods.ahe_adapter import debugger as D
-        if ctx.params.get("backend") == "claude":       # an effort Claude Code takes, for both agents (else refused)
-            from hermit.agent.base.cli import Claude
+        if ctx.params.get("backend") in ("claude", "pi"):   # an effort the CLI takes, for both agents (else refused)
+            from hermit.agent.base.cli import CLIS
+            cli = CLIS[ctx.params["backend"]]
             efforts = (("effort", ctx.params.get("effort")), ("debugger.effort", D.settings(ctx.params).get("effort")))
             for name, effort in efforts:
-                if effort and effort not in Claude.efforts:
-                    raise ValueError(f"evolver.params.{name} is one of {', '.join(Claude.efforts)} for Claude Code, "
+                if effort and effort not in cli.efforts:
+                    raise ValueError(f"evolver.params.{name} is one of {', '.join(cli.efforts)} for {cli.label}, "
                                      f"not {effort!r}")
         own = D.settings(ctx.params).get("model")
         if own != ctx.params.get("model") and (ctx.params.get("binding") or ctx.params.get("price")):

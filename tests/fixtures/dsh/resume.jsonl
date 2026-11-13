@@ -1,0 +1,8 @@
+{"type":"session","sessionId":"session-b2fbf9bf-a321-4065-8f8a-ee344b66b5f3","cwd":"/run/work"}
+{"type":"status","phase":"turn_start","turn":2}
+{"type":"status","phase":"step_start","turn":2,"step":1}
+{"type":"thinking","text":"Thinking it over."}
+{"type":"text","text":"the answer"}
+{"type":"status","phase":"step_end","turn":2,"step":1,"usage":{"inputTokens":600,"outputTokens":20,"totalTokens":1020,"cacheReadTokens":400}}
+{"type":"status","phase":"turn_end","turn":2,"reason":{"kind":"completed"}}
+{"type":"final","sessionId":"session-b2fbf9bf-a321-4065-8f8a-ee344b66b5f3","reason":{"kind":"completed"},"text":"the answer"}

@@ -1,10 +1,10 @@
-# All 55 eligible user groups (1 clean + 2 frozen goals each): 57 train / 54 val / 54 test.
+# Nemotron 3.5 Lightning victim: 57 train / 54 validation / 186 test cases.
 # Claude Code roles, full TRAIN scoring, bounded error handling, 12 concurrent victim episodes.
 data:
-  tasks: ../utils/data/all-groups-v1/tasks.jsonl
-  train: ../utils/data/all-groups-v1/train.txt
-  val: ../utils/data/all-groups-v1/val.txt
-  test: ../utils/data/all-groups-v1/test.txt
+  tasks: ../utils/data/full-test-v1/tasks.jsonl
+  train: ../utils/data/full-test-v1/train.txt
+  val: ../utils/data/full-test-v1/val.txt
+  test: ../utils/data/full-test-v1/test.txt
   step_size: 57
   shuffle: false
 task_info: ../utils/task-info
@@ -12,7 +12,7 @@ template: evosafe@1.0
 agent:
   name: ../utils/bridge.py:run
   base: direct
-  model: vllm/nvidia/llama-3.3-nemotron-super-49b-v1.5
+  model: vllm/nvidia/nvidia/nemotron-3.5-lightning
   concurrency: 12
   timeout_min: 15
   params:

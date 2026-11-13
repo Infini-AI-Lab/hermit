@@ -4,7 +4,7 @@ description: >-
   the step's k rollouts per task (pass / fail / exception), diffs them against the previous step (flipped / regressed / rollout
   moves / infra buckets), scores the previous step's change manifest (EFFECTIVE ... HARMFUL, upstream's rules verbatim), rolls
   HARMFUL changes back file by file (Algorithm 1; `rollback: agent` leaves it to the agent as the released code does), runs the
-  Agent Debugger as one session of the Evolver's Base Agent (codex or claude) per task over the rollouts' trajectories and
+  Agent Debugger as one session of the Evolver's Base Agent (codex, claude or pi) per task over the rollouts' trajectories and
   verdicts (upstream's queries verbatim), writes the deterministic analysis overview, and runs the Evolve Agent (AgentEvolver's
   session of the same Base Agent on upstream's evolve prompt) that edits the adapter and writes the step's change manifest. No
   Explore Agent; no Best-of-N; finalize hands back the best-ever evaluated snapshot; tokens/trial is recorded, which upstream
@@ -12,13 +12,13 @@ description: >-
 class: evolver.py:AHEAdapterEvolver
 needs: []
 params:
-  backend: codex                   # the Evolve Agent's and the Agent Debugger's Base Agent: codex or claude
+  backend: codex                   # the Evolve Agent's and the Agent Debugger's Base Agent: codex, claude or pi
   model: null                      # the Evolve Agent's model (the example sets it); with a login, the CLI's model name
                                    # (required with login: claude)
   login: null                      # the user's subscription and its plan (hermit.agent.base.login): chatgpt (codex, its
                                    # shared login copy) or claude (claude, CLAUDE_CODE_OAUTH_TOKEN)
   effort: null                     # Codex's model_reasoning_effort, or Claude Code's --effort (low..max) (the example sets it)
-  bin: null                        # the CLI's program; null: codex or claude on PATH
+  bin: null                        # the CLI's program; null: codex, claude or pi on PATH
   args: []                         # extra arguments for the CLI
   prompt: START.md
   resume_prompt: null              # a fresh session every step (evolve.py:3055)

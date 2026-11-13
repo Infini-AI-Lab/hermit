@@ -28,7 +28,7 @@ a domain plugs in through the [task contract](#the-task-contract). The first dom
 
 ```yaml
 template: evosafe@1.0
-agent: {name: ../utils/bridge.py:run, base: direct, model: vllm/nvidia/llama-3.3-nemotron-super-49b-v1.5}                # the domain's hook bridge
+agent: {name: ../utils/bridge.py:run, base: direct, model: vllm/nvidia/nvidia/nemotron-3.5-lightning}                # the domain's hook bridge
 judge: {path: ../utils/judge.py}                    # native verdicts as metrics in JudgeResult.extra
 evolver:
   name: evosafe
@@ -54,14 +54,15 @@ reused, but the OpenAI SDK no longer sends requests. Bare native AgentDyn model 
 are no longer accepted: configure `agent.base: direct` and `agent.model: <backend>/<model>`.
 
 The Evolver keeps Designer/Criticizer/Analyzer orchestration and all selection gates in Layer 3. Each role calls
-`make("claude" | "codex", settings).run(...)` with read-only TRAIN archive tools and a fresh session. Base Agents
+`make("claude" | "codex" | "pi", settings).run(...)` with read-only TRAIN archive tools and a fresh session. Base Agents
 own process cleanup, cancellation, timeouts, configuration, login-plan scheduling and usage. The role's JSON schema
-is given to Codex as `--output-schema` and to Claude in the prompt, both through the Base Agent's existing settings,
-and the reply is validated against it in Layer 3; a refusal is read from the reply and the trajectory's error
-steps. The normalized trajectory of each role is archived. Claude's built-in tools are disabled (`--tools ""`);
-Codex has web search disabled, a read-only sandbox by default, an ephemeral session, and instructions to use only the supplied TRAIN readers. Codex's read-only mode does not hide files; use the shared isolation settings for a filesystem boundary.
+is given to Codex as `--output-schema` and to Claude and Pi in the prompt, all through the Base Agent's existing settings,
+and the reply is validated against it in Layer 3; a refusal is read from the Base Agent's own `model_refusal` (Claude
+Code's and Pi's), else from the reply and the trajectory's error steps, and is never retried. The normalized
+trajectory of each role is archived. Claude's built-in tools are disabled (`--tools ""`), and
+so are Pi's (`--no-builtin-tools`); Codex has web search disabled, a read-only sandbox by default, an ephemeral session, and instructions to use only the supplied TRAIN readers. Codex's read-only mode does not hide files; use the shared isolation settings for a filesystem boundary.
 
-`evolver.base`, `evolver.model` and `evolver.claude`/`evolver.codex` are the preferred configuration. Legacy
+`evolver.base`, `evolver.model` and `evolver.claude`/`evolver.codex`/`evolver.pi` are the preferred configuration. Legacy
 `proposer`, `claude_model`/`codex_model`, binary and timeout settings remain accepted when the corresponding
 shared setting is absent. For `proposer: llm`, the existing metered Trainer `llm` tool already calls `direct`.
 No extra usage is added for that path; CLI usage is returned once in `StepResult`.
@@ -188,5 +189,5 @@ verdicts travel in `JudgeResult.extra` and the method's `contract.py` computes t
 ## Example
 
 [`examples/agentdyn/evosafe/`](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/agentdyn/evosafe) runs the
-setup on AgentDyn with a Nemotron Super 49B victim and Codex or Claude roles.
+setup on AgentDyn with a Nemotron 3.5 Lightning victim and Codex or Claude roles.
 See the [results summary](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/agentdyn/evosafe/README.md#results).

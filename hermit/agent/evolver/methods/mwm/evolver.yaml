@@ -3,7 +3,7 @@ description: The MetaWorld Model learner (MWM V2 default, docket on, hypothesis 
 class: evolver.py:MwmEvolver
 needs: [environment]
 params:
-  backend: codex              # the learner's CLI, codex or claude (a model reference binds it, as for those Evolvers)
+  backend: codex              # the learner's CLI, codex, claude or pi (a model reference binds it, as for those Evolvers)
   model: null                 # the learner model; null: the CLI's default
   web_search: false           # web search, set explicitly: Codex's hosted search runs at the provider, past the
                               # network namespace

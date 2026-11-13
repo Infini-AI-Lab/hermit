@@ -43,17 +43,19 @@ for access and setup requirements.
 
 ## Evaluation
 
-The [Codex recipe](run_nemotron_codex.yaml) uses Nemotron Super 49B as the frozen victim
-and GPT-6 Sol with high effort for the learner roles. It uses 57 training cases and 54
-held-out cases, grouped by user task. Candidate selection uses the training cascade.
-The [Claude recipe](run_nemotron_claude.yaml) also uses a disjoint validation split.
+The [Codex recipe](run_nemotron_codex.yaml) uses Nemotron 3.5 Lightning as the frozen victim
+and GPT-6 Sol with high effort for the learner roles. It uses 57 training cases and 186
+held-out cases from `full-test-v1`, grouped by user task. Candidate selection uses the training cascade.
+The [Claude recipe](run_nemotron_claude.yaml) uses the same Lightning victim and TEST set, with a disjoint
+validation split for candidate confirmation. Both recipes keep `max_iters: 25`.
 The dataset revision, construction and split hashes are in [DATA.md](../utils/DATA.md).
 
 The experiment runner evaluates `none`, `root`, and `final` on the same test split
 with the same victim settings. Clean utility is measured on completed clean cases.
-ASR is measured on completed injected cases. The [aggregate results](README.md#results)
-report held-out rates and episode errors for No-defense (`none`) and EvoSafeHarness
-(`final`).
+ASR is measured on completed injected cases. The [aggregate results](README.md#results) report the
+186-case Lightning comparison for `none`, `root` and `final`, with episode errors and the run's sandbox
+exception stated separately. These measured results use Codex roles; Claude-role results are not yet available.
+They are for reference only: the learner ran without Hermit's sandbox, so they are not a reported result.
 
 For a reproducible comparison, retain the manifest, effective configuration, adapter
 snapshots, and per-task records together in the run's ignored `artifacts/` directory.

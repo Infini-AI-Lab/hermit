@@ -3,7 +3,8 @@
 Each group's split comes from the full inventory's frozen ownership. Cases of the
 base protocol (for example data/thirty-v1) are kept verbatim; every group it does
 not use contributes its clean case and `goals` existing frozen injection goals,
-chosen by a fixed seed. Reads only the inventory and split files, never model outcomes.
+chosen by a fixed seed. --full-test adds all frozen variants in TEST-owned groups.
+Reads only the inventory and split files, never model outcomes.
 """
 import argparse
 import hashlib
@@ -16,7 +17,7 @@ from bridge import case_fields
 SPLITS = ('train', 'val', 'test')
 
 
-def prepare(inventory, base, output, goals=2, seed=20261102):
+def prepare(inventory, base, output, goals=2, seed=20261102, *, full_test=False):
     inventory, base, output = Path(inventory), Path(base), Path(output)
     if type(goals) is not int or goals < 1:
         raise ValueError('goals must be a positive integer')
@@ -46,6 +47,10 @@ def prepare(inventory, base, output, goals=2, seed=20261102):
                 raise ValueError(f'group {g} needs one clean case and {goals} existing goals')
             selected.extend(r['id'] for r in clean + [by_goal[k] for k in keys[:goals]])
             chosen.add(g)
+        if split == "test" and full_test:
+            selected_ids = set(selected)
+            selected.extend(r["id"] for r in rows
+                            if owners[group(r)] == "test" and r["id"] not in selected_ids)
         splits[split] = selected
     output.mkdir(parents=True)
     used = {i for ids in splits.values() for i in ids}
@@ -53,7 +58,10 @@ def prepare(inventory, base, output, goals=2, seed=20261102):
     for split, ids in splits.items():
         (output / f'{split}.txt').write_text('\n'.join(ids) + '\n')
     clean = {s: sum(not by_id[i].get('injection_task_id') for i in ids) for s, ids in splits.items()}
-    report = {'protocol': f'all eligible user groups: 1 clean + {goals} injected per group',
+    protocol = f'all eligible user groups: 1 clean + {goals} injected per group'
+    if full_test:
+        protocol += '; TEST includes all frozen variants in its owned groups'
+    report = {'protocol': protocol,
               'inventory': str(inventory.resolve()), 'base': str(base.resolve()), 'seed': seed,
               'selection_uses_model_outcomes': False, 'preserved_prior_split_ownership': True,
               'counts': {s: len(ids) for s, ids in splits.items()}, 'clean': clean,
@@ -70,6 +78,8 @@ if __name__ == '__main__':
     parser.add_argument('base', type=Path, help='protocol whose cases are kept (e.g. data/thirty-v1)')
     parser.add_argument('output', type=Path)
     parser.add_argument('--goals', type=int, default=2)
+    parser.add_argument('--full-test', action='store_true',
+                        help='include every frozen case in TEST-owned groups; keep TRAIN and validation unchanged')
     args = parser.parse_args()
-    report = prepare(args.inventory, args.base, args.output, args.goals)
+    report = prepare(args.inventory, args.base, args.output, args.goals, full_test=args.full_test)
     print(json.dumps({k: report[k] for k in ('counts', 'clean', 'tasks_sha256')}, indent=2))

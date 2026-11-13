@@ -148,6 +148,25 @@ def make(tmp: Path, monkeypatch, steps: int = 2, deployment_param: bool = False)
     return path
 
 
+@pytest.mark.parametrize("name", ["codex", "claude", "claude-code", "pi"])
+def test_a_learner_on_a_cli_mwm_is_set_up_for_passes_the_backend_check(name):
+    """Claude Code's other name too, as before the check: setup goes on to its next check."""
+    from types import SimpleNamespace
+    from hermit.agent.evolver.methods.mwm.evolver import MwmEvolver
+    with pytest.raises(ValueError, match="network_isolation was removed"):
+        MwmEvolver().setup(SimpleNamespace(params={"backend": name, "network_isolation": True}))
+
+
+@pytest.mark.parametrize("name", ["react", "mini-swe-agent", "dsh"])
+def test_a_learner_on_a_cli_mwm_is_not_set_up_for_is_refused_at_setup(tmp_path, monkeypatch, name):
+    """From the config through the Trainer: mwm's sessions are set up for Codex, Claude Code and Pi (each one's way to its
+    model, home and sign-in). The run stops at setup, naming the backends it takes, before any step."""
+    trainer = Trainer(Config.load(make(tmp_path, monkeypatch), [f"evolver.params.backend={name}"]), log=lambda *_: None)
+    with pytest.raises(SystemExit, match=f"backend is codex, claude or pi, not '{name}'"):
+        trainer.train()
+    assert not (tmp_path / "runs" / "mwm-test" / "steps.jsonl").exists()
+
+
 def test_bootstrap_review_mounts_and_records(tmp_path, monkeypatch):
     cfg = Config.load(make(tmp_path, monkeypatch), [])
     stale = tmp_path / "taskdir" / "evidence" / "block000"   # a record already in the store: hidden from the bootstrap
