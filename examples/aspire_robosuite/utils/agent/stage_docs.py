@@ -26,10 +26,16 @@ def main() -> None:
     pages = {}
     for benchmark in sorted({str(r.get("benchmark") or "robosuite") for r in rows}):
         pages.update(sim.workspace_docs(a.aspire_root, benchmark))
-    staged = {p.name: p.read_text() for p in a.out.iterdir() if p.is_file()} if a.out.is_dir() else None
-    if staged != pages:                 # left as it is when it is already these pages: a running launch reads it
-        shutil.rmtree(a.out, ignore_errors=True)             # nothing of an earlier run's, of another commit
-        a.out.mkdir(parents=True)
+    # Left as it is when it holds these pages and nothing else (a running launch reads it); otherwise made anew:
+    # nothing of an earlier run's or of another commit, and no entry that is not one of the pages
+    entries = list(a.out.iterdir()) if a.out.is_dir() and not a.out.is_symlink() else None
+    same = entries is not None and all(p.is_file() and not p.is_symlink() for p in entries) and \
+        {p.name: p.read_bytes() for p in entries} == {name: text.encode() for name, text in pages.items()}
+    if not same:
+        if a.out.is_symlink() or a.out.is_file():
+            a.out.unlink()
+        shutil.rmtree(a.out, ignore_errors=True)
+        a.out.mkdir(parents=True, exist_ok=True)
         for name, text in pages.items():
             (a.out / name).write_text(text)
     print(f"{len(pages)} pages -> {a.out}")
