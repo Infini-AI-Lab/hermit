@@ -28,7 +28,7 @@ a domain plugs in through the [task contract](#the-task-contract). The first dom
 
 ```yaml
 template: evosafe@1.0
-agent: {name: ../utils/bridge.py:run, base: direct, model: vllm/nvidia/llama-3.3-nemotron-super-49b-v1.5}                # the domain's hook bridge
+agent: {name: ../utils/bridge.py:run, base: direct, model: vllm/nvidia/nvidia/nemotron-3.5-lightning}                # the domain's hook bridge
 judge: {path: ../utils/judge.py}                    # native verdicts as metrics in JudgeResult.extra
 evolver:
   name: evosafe
@@ -189,5 +189,5 @@ verdicts travel in `JudgeResult.extra` and the method's `contract.py` computes t
 ## Example
 
 [`examples/agentdyn/evosafe/`](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/agentdyn/evosafe) runs the
-setup on AgentDyn with a Nemotron Super 49B victim and Codex or Claude roles.
+setup on AgentDyn with a Nemotron 3.5 Lightning victim and Codex or Claude roles.
 See the [results summary](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/agentdyn/evosafe/README.md#results).
