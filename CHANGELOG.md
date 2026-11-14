@@ -28,6 +28,13 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- LIBERO (`examples/libero/`): LIBERO's Object, Spatial, Goal, Long and LIBERO-90 suites and LIBERO-Pro's `_swap` and
+  `_task` perturbations as tasks of ASPIRE's harness, on the Robosuite example's engine, which now takes a task row's
+  `benchmark` and with it the venv, the init mode (`seeded` for LIBERO), the environment and the docs page; the
+  `aspire` method's configs, and `prompt_only`'s with a method-neutral acting prompt. The Robosuite example's launcher
+  runs another method folder's configs (`ASPIRE_METHOD`).
+  The task sandbox of both examples is shown ASPIRE's docs as `launch.sh` stages them outside the checkout
+  (`agent.params.aspire_docs`), without what names ASPIRE's worked programs, instead of the checkout's own pages.
 - GPUs in the bubblewrap sandbox: `environment.gpu: [<N>, ...]` shows those NVIDIA GPUs (the N of `/dev/nvidia<N>`) in
   the task sandbox and its tools' and judge's, with what CUDA and EGL read to find them (the driver's devices and,
   read-only, `/sys/devices`, `/sys/bus/pci`, `/sys/module/nvidia(_uvm)`), and no other GPU's device (their `/sys`
