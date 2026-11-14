@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Train, or evaluate, a method on LIBERO: started by a method folder's launch.sh (../aspire/launch.sh,
-# ../prompt_only/launch.sh) with that folder's name. Run it on the host that serves ASPIRE's providers.
+# ../prompt_only/launch.sh) with that folder's name. Run it on the host that serves ASPIRE's providers. From a
+# method folder:
 #
 #   ASPIRE_ROOT=/path/to/ASPIRE ./launch.sh                      # train run.yaml (the four LIBERO suites)
 #   ASPIRE_CONFIG=run_pro.yaml ./launch.sh                        # train LIBERO-Pro

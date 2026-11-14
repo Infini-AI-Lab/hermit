@@ -9,7 +9,7 @@ succeeded.
 
 - Suite `{suite}`, task id `{task_id}`. The program reads what the task asks from `get_task_context()` (its
   language, as the task's BDDL file states it): do not rely on the suite's or the task's name.
-- Each seed is a different scene of the task. An episode runs at most {max_steps} simulator steps.
+- Each seed is a different scene of the task.{steps}
 - Development seeds: **{dev}**. Run them as often as you like.
 - Unseen-check seed(s): **{unseen}**, run once, when your program is final (below).
 - After you finish, the harness runs your program once on {heldout} held-out seeds, which you never run; your score

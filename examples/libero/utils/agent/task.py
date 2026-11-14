@@ -1,13 +1,14 @@
-"""LIBERO's acting prompt for a method that brings no acting prompt of its own (prompt-only, and the others that
-learn only what the session is given as context): the task, the workspace, the simulator, the rules and what is
-scored, and nothing of a method. The workspace, the simulator service, the record and the judge are the engine's
-(`examples/aspire_robosuite/utils/agent/task.py`: `prepare`, `answer`, `collect`), as for ASPIRE's own prompts, so a
-method's number on LIBERO is measured the same way whatever its prompt.
+"""A method-neutral acting prompt for LIBERO, for a method that brings no acting prompt of its own (prompt-only, and
+the others that learn only what the session is given as context): the task, the workspace, the simulator, the rules
+and what is scored, and nothing of a method. LIBERO has no acting prompt; this one is written here. The workspace,
+the simulator service, the record and the judge are the engine's (`examples/aspire_robosuite/utils/agent/task.py`),
+as for ASPIRE's own prompts, so a method's number on LIBERO is measured the same way whatever its prompt; `prepare`
+leaves out of the workspace what is ASPIRE's method rather than the task's.
 
     agent:
       params:
         prompt: ../utils/agent/task.py:prompt
-        prepare: ../../aspire_robosuite/utils/agent/task.py:prepare
+        prepare: ../utils/agent/task.py:prepare
         answer: ../../aspire_robosuite/utils/agent/task.py:answer
         collect: ../../aspire_robosuite/utils/agent/task.py:collect
 """
@@ -19,6 +20,9 @@ import sys
 
 HERE = Path(__file__).resolve().parent
 ENGINE = HERE.parents[2] / "aspire_robosuite" / "utils" / "agent"
+# What the engine's prepare writes that is ASPIRE's method, not the task's: the evolutionary search's procedure (a
+# program it leaves is the one the engine scores) and ASPIRE's assignment block (its coordinator's terms)
+ASPIRE_ONLY = ("docs/evosearch-iteration.md", "task.md")
 
 
 def _engine():
@@ -31,14 +35,30 @@ def _engine():
     return module
 
 
-def prompt(task: dict, params: dict, base: Path) -> str:
-    engine = _engine()
+def _settings(engine, task: dict, params: dict) -> dict:
     s = engine.settings(task, params)
     if s["role"] == "verifier":
         raise ValueError(f"{task['id']}: a verifier row belongs to a method that verifies (ASPIRE's); "
                          "this prompt acts on a task")
-    task_dir = engine.task_dir(s)
-    heldout = len(engine.sim_seeds(s["heldout"]))
+    return s
+
+
+def prepare(task: dict, workspace: Path, params: dict, base: Path) -> list[dict]:
+    """The engine's workspace (bin/sim registered with the service, the docs, the scene-snapshot program) without
+    ASPIRE_ONLY."""
+    engine = _engine()
+    _settings(engine, task, params)
+    mounts = engine.prepare(task, workspace, params, base)
+    for name in ASPIRE_ONLY:
+        (Path(workspace) / name).unlink(missing_ok=True)
+    return mounts
+
+
+def prompt(task: dict, params: dict, base: Path) -> str:
+    engine = _engine()
+    s = _settings(engine, task, params)
+    steps = (f" An episode runs at most {int(s['max_steps'])} simulator steps." if s["max_steps"] else "")
     return (HERE / "prompt.md").read_text().format(
-        suite=s["suite"], task_id=s["task_id"], task_dir=task_dir, dev=s["dev"], unseen=s["unseen"] or "none",
-        heldout=heldout, max_steps=s["max_steps"] or 1000, benchmark_doc=s["doc"])
+        suite=s["suite"], task_id=s["task_id"], task_dir=engine.task_dir(s), dev=s["dev"],
+        unseen=s["unseen"] or "none", heldout=len(engine.sim_seeds(s["heldout"])), steps=steps,
+        benchmark_doc=s["doc"])
