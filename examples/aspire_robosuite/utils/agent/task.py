@@ -10,8 +10,8 @@ host, as the simulator service (sim_service.py), which the session reaches only 
     collect  the actor's files into the log, and the facts the judge and the coordinator read: findings, skill report,
              the selected program (fix_code.py, or the evolutionary search's best); the judge runs Stage 2 on it
 
-ASPIRE's checkout comes from agent.params.aspire_root (its prompt templates, docs and snapshot program must be
-declared readable: environment.read); the service's URL from ASPIRE_SIM_URL (environment.env). A task row carries the
+ASPIRE's checkout comes from agent.params.aspire_root (its prompt templates and snapshot program must be
+declared readable: environment.read; its docs are read from agent.params.aspire_docs, the staged copies); the service's URL from ASPIRE_SIM_URL (environment.env). A task row carries the
 seeds: development, unseen-check and held-out (utils/prepare.py).
 """
 from __future__ import annotations
@@ -32,10 +32,10 @@ import sim  # noqa: E402
 TEMPLATES = {"actor": "subagent-prompt.md", "verifier": "verifier-prompt.md"}
 SKILLS = Path(".claude/skills/iterative-debugging")
 EVOSEARCH = Path(".claude/skills/evosearch")
-DOCS = ("api-reference.md", "run-artifacts.md", "robosuite.md")
-# The files of ASPIRE's checkout the task sandbox shows (environment.read): its prompts, docs and snapshot program;
-# not its shipped library, worked solutions or examples
-ASPIRE_FILES = [*(f"docs/{d}" for d in DOCS), str(SKILLS / "subagent-prompt.md"), str(SKILLS / "verifier-prompt.md"),
+# The files of ASPIRE's checkout the task sandbox shows (environment.read): its prompts and snapshot program; not
+# its shipped library, worked solutions or examples, nor its docs, which the sandbox is shown as staged
+# (agent.params.aspire_docs: stage_docs.py's copies, without what names the worked programs)
+ASPIRE_FILES = [ str(SKILLS / "subagent-prompt.md"), str(SKILLS / "verifier-prompt.md"),
                 str(SKILLS / "scripts" / "scene_snapshot.py"), str(SKILLS / "skills" / "task-exploration.md"),
                 str(EVOSEARCH / "subagent-prompt.md"), str(EVOSEARCH / "skills" / "evosearch-iteration.md")]
 # The workspace files the log keeps (the run directories stay in the workspace)
@@ -48,9 +48,10 @@ def settings(task: dict, params: dict) -> dict:
     role = "verifier" if task.get("role") == "verifier" else "actor"     # a rerun is an actor with the final library
     root = params.get("aspire_root") or os.environ.get("ASPIRE_ROOT")
     if not root:
-        raise ValueError("agent.params.aspire_root (or ASPIRE_ROOT): an ASPIRE checkout with .venv-robosuite")
+        raise ValueError("agent.params.aspire_root (or ASPIRE_ROOT): an ASPIRE checkout with its benchmark's venv")
+    benchmark = str(task.get("benchmark") or "robosuite")
     return {"role": role, "root": Path(os.path.expandvars(str(root))).expanduser().resolve(),
-            "suite": task["suite"], "task_id": int(task.get("task_id", 0)),
+            "benchmark": benchmark, "doc": sim.profile(benchmark)["doc"], "suite": task["suite"], "task_id": int(task.get("task_id", 0)),
             "dev": str(task.get("debug_seeds") or ""), "unseen": str(task.get("unseen_seeds") or ""),
             "heldout": str(task.get("eval_seeds") or ""), "max_steps": params.get("max_steps")}
 
@@ -71,11 +72,13 @@ def prepare(task: dict, workspace: Path, params: dict, base: Path) -> list[dict]
     wrapper.write_text(f"#!/bin/sh\nexec {shlex.quote(sys.executable)} \"$(dirname \"$0\")/sim_cli.py\" \"$@\"\n")
     wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     (work / "docs").mkdir(exist_ok=True)
-    for name in DOCS:
-        # the repository's worked programs are not the actor's to read: drop the lines that name them
-        text = (s["root"] / "docs" / name).read_text()
-        (work / "docs" / name).write_text("".join(line for line in text.splitlines(keepends=True)
-                                                  if "examples/" not in line))
+    # The repository's worked programs are not the actor's to read: the docs are the staged copies (launch.sh:
+    # stage_docs.py), or, where the checkout's own pages are what the sandbox shows, the same cut made here
+    staged = params.get("aspire_docs")
+    pages = {name: (Path(os.path.expandvars(str(staged))).expanduser() / name).read_text()
+             for name in (*sim.DOCS, s["doc"])} if staged else sim.workspace_docs(s["root"], s["benchmark"])
+    for name, text in pages.items():
+        (work / "docs" / name).write_text(text)
     shutil.copy2(s["root"] / SKILLS / "skills" / "task-exploration.md", work / "docs" / "task-exploration.md")
     shutil.copy2(s["root"] / EVOSEARCH / "skills" / "evosearch-iteration.md", work / "docs" / "evosearch-iteration.md")
     (work / "scripts").mkdir(exist_ok=True)
@@ -100,7 +103,7 @@ def register(url: str, body: dict) -> None:
 
 def task_dir(s: dict) -> str:
     """The actor's $TASK_DIR as ASPIRE's template defines it, with $RUN_ROOT the workspace; the verifier's is `.`."""
-    return f"robosuite/{s['suite']}/task_{s['task_id']}" if s["role"] == "actor" else "."
+    return f"{s['benchmark']}/{s['suite']}/task_{s['task_id']}" if s["role"] == "actor" else "."
 
 
 def sim_seeds(text: str) -> list[int]:
@@ -109,11 +112,11 @@ def sim_seeds(text: str) -> list[int]:
 
 def assignment(s: dict) -> str:
     if s["role"] == "verifier":
-        return (f"## Your assignment\n\n- BENCHMARK: `robosuite`\n- SUITE: `{s['suite']}`\n"
+        return (f"## Your assignment\n\n- BENCHMARK: `{s['benchmark']}`\n- SUITE: `{s['suite']}`\n"
                 f"- TASK_ID: `{s['task_id']}`\n- GPU: handled by `bin/sim`\n- VERIFY_DIR: `.` (this workspace)\n"
                 f"- Development seeds: **{s['dev']}** — wherever the template says 51, 52, 53, 54, 55 (or 51-55, or "
                 f"seed 51), use these.\n- The proposals under test: `proposed_skills.md` in this workspace.\n")
-    return (f"## Task Assignment\n\nBENCHMARK: robosuite\nSUITE:     {s['suite']}\nTASK_ID:   {s['task_id']}\n"
+    return (f"## Task Assignment\n\nBENCHMARK: {s['benchmark']}\nSUITE:     {s['suite']}\nTASK_ID:   {s['task_id']}\n"
             f"GPU:       handled by bin/sim\nRUN_ROOT:  . (this workspace)\n\n"
             f"MAX_STEPS: {s['max_steps'] or 1000}\nDEV_SEEDS: {s['dev']}\nUNSEEN_SEEDS: {s['unseen'] or 'none'}\n"
             f"HELDOUT_COUNT: {len(sim_seeds(s['heldout']))} (coordinator-owned; you never run them)\n")
@@ -128,7 +131,7 @@ def prompt(task: dict, params: dict, base: Path) -> str:
         body = body.split("\n---\n", 1)[1] if body.startswith("## Task Assignment") else body   # ours replaces it
     header = (HERE / "prompts" / "codex_header.md").read_text().format(
         role_name="fix-loop subagent" if s["role"] == "actor" else "skill verifier",
-        template=TEMPLATES[s["role"]],
+        template=TEMPLATES[s["role"]], benchmark=s["benchmark"], benchmark_doc=s["doc"],
         your_dir=(f"`$RUN_ROOT` is this workspace (`.`), so `$TASK_DIR` is `{task_dir(s)}`, as the template "
                   f"defines it." if s["role"] == "actor" else "`$VERIFY_DIR` is this workspace (`.`)."),
         proposed_line=("The proposals under test are `proposed_skills.md` in this workspace (the template's "
@@ -157,13 +160,13 @@ def evosearch_part(s: dict) -> str:
     body = template[template.index("## Task Assignment"):template.rindex("\n```")]
     body = body.split("\n---\n", 1)[1].strip()
     header = (HERE / "prompts" / "evosearch_header.md").read_text().format(
-        suite=s["suite"], task_id=s["task_id"], dev=s["dev"], task_dir=task_dir(s), evo_dir=evo_dir(s))
+        benchmark=s["benchmark"], suite=s["suite"], task_id=s["task_id"], dev=s["dev"], task_dir=task_dir(s), evo_dir=evo_dir(s))
     return f"{header}\n---\n\n{body}\n"
 
 
 def evo_dir(s: dict) -> str:
     """The evolutionary search's $TASK_DIR, as its template defines it, with EVOSEARCH_DIR `evosearch`."""
-    return f"evosearch/robosuite/{s['suite']}/task_{s['task_id']}"
+    return f"evosearch/{s['benchmark']}/{s['suite']}/task_{s['task_id']}"
 
 
 def answer(last_message: str, task: dict) -> dict:
@@ -184,7 +187,7 @@ def collect(task: dict, workspace: Path, log: Path, params: dict) -> dict:
             files.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, files / name)
     read = lambda name: (work / name).read_text(errors="replace") if (work / name).is_file() else None
-    facts = {"role": s["role"], "suite": s["suite"], "findings": read("findings.md") or read("findings_report.md"),
+    facts = {"role": s["role"], "benchmark": s["benchmark"], "suite": s["suite"], "findings": read("findings.md") or read("findings_report.md"),
              "skill_report": _json(read("skill_report.json")), "verification": _json(read("verification_report.json")),
              "unseen": _unseen(work), "workspace": str(Path(workspace).resolve()), "max_steps": s["max_steps"]}
     evo = Path(workspace) / evo_dir(s)

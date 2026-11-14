@@ -1,0 +1,51 @@
+# RoboDojo-Sim with the prompt-only template: the forty-two tasks, one task per step. A Codex session writes a
+# program that controls the robot (policy.py) and develops it on the task's development layouts through the
+# simulator service; the judge scores the program on the held-out layout sets. After each task the built-in Codex
+# Evolver revises the one learned ADAPTER.md, the next session's context, from the sessions' notes and scores.
+# Codex acting and learning, GLM 5.3 Flash. Started by launch.sh.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/all.txt
+  test: ../utils/splits/all.txt     # `launch.sh eval`: the tasks again, with an adapter given
+  step_size: 1
+  shuffle: false
+task_info: ../utils/task-info
+agent:
+  base: codex
+  concurrency: 1                    # one simulator: an evaluation takes a GPU
+  params:
+    prompt: ../utils/agent/task.py:prompt
+    prepare: ../utils/agent/task.py:prepare
+    answer: ../utils/agent/task.py:answer
+    collect: ../utils/agent/task.py:collect
+  model: {ref: fireworks/accounts/fireworks/models/glm-5p3-flash, effort: medium}
+  codex:
+    web_search: false
+    timeout_s: 21600
+    codex_sandbox: danger-full-access   # the task sandbox is the boundary; the session reaches bin/sim's service
+    shell_env: all                      # only the declared variables are in the sandbox
+environment:                        # the task sandbox: the actor's code and the interface page, nothing of RoboDojo
+  read:
+    - ../utils/agent
+  env: [ROBODOJO_SIM_URL]           # the host's simulator service (launch.sh): its 127.0.0.1 port is forwarded
+judge:
+  path: ../utils/judge.py           # on the host: the program on the held-out layout sets
+template: prompt-only@1.0
+evolver:
+  name: codex                       # the built-in Codex AgentEvolver
+  resume: false
+  params:
+    args: []
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash
+    home: []
+    tools: [check_spec]
+sandbox:
+  enabled: true
+  enforce: required
+trainer:
+  run_name: robodojo-prompt-only
+  epochs: 1
+  call_timeout_min: 60
+  budget: {usd: 500, hours: 400}
+eval:
+  repeats: 1

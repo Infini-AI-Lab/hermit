@@ -146,8 +146,6 @@ class Service:
         self.scratch = Path(scratch or ledger.path.parent / "runs")      # this service's own: outside every sandbox
         self.scratch.mkdir(parents=True, exist_ok=True)
         self.nonce = ""
-        self.cli = root / ".venv-robosuite" / "bin" / "cap-harness"
-        self.python = root / ".venv-robosuite" / "bin" / "python"
         self.running: set[subprocess.Popen] = set()
         self.lock, self.stopping = threading.Lock(), False
 
@@ -172,13 +170,18 @@ class Service:
             if any(Path(w).is_relative_to(rollout) for w in self.ledger.data):
                 return {"ok": False, "error": "this rollout has registered its session already"}
             verifier = row.get("role") == "verifier"
+            self._check_row(row)
             self.ledger.data[str(workspace)] = {
                 "task": row["id"], "role": "verifier" if verifier else "actor", "suite": str(row["suite"]),
+                "benchmark": str(row.get("benchmark") or "robosuite"),
                 "task_id": int(row.get("task_id", 0)), "dev": seeds_of(row.get("debug_seeds")),
                 "unseen": seeds_of(row.get("unseen_seeds")), "max_programs": 2 if verifier else None,
                 "max_steps": body.get("max_steps"), "unseen_used": False, "programs": []}
             self.ledger.save()
         return {"ok": True}
+
+    def _check_row(self, row: dict) -> None:
+        sim.profile(row.get("benchmark"))                   # a benchmark this engine does not run is refused here
 
     def run(self, body: dict) -> dict:
         workspace = Path(str(body.get("workspace", ""))).resolve()
@@ -205,13 +208,11 @@ class Service:
             shutil.rmtree(own, ignore_errors=True)
 
     def _run(self, body, session, program, code, own_out, rollout, out, swaps) -> dict:
-        env = {**sim.scrubbed(os.environ),
-               **{k: os.path.expandvars(os.path.expanduser(str(v))) for k, v in self.env.items()}}
+        """The rules every engine shares (the assigned seeds, the unseen check once, a verifier's programs, the
+        output moved into the workspace without following a link); what is run is the engine's (`_validate`,
+        `_launch`: cap-harness here, another simulator in a subclass)."""
         if body.get("cmd") == "validate":
-            check = ("import ast,sys\nfrom cap_harness.runtime import _ProgramValidator\n"
-                     "_ProgramValidator().visit(ast.parse(open(sys.argv[1]).read()))\nprint('program accepted')")
-            returncode, stdout, stderr = self._execute([str(self.python), "-c", check, str(program)], env, 300,
-                                                       program.parent, gpu=[])
+            returncode, stdout, stderr = self._validate(session, program)
             return {"ok": True, "code": returncode, "stdout": self._swap(stdout, swaps),
                     "stderr": self._swap(stderr, swaps)[-4000:]}
         seeds = [int(s) for s in (body.get("seeds") or [])]
@@ -234,19 +235,7 @@ class Service:
                     session["programs"].append(digest)
             self.ledger.save()
         own_out.mkdir()
-        common = ["--benchmark", "robosuite", "--suite", session["suite"], "--task-id", str(session["task_id"]),
-                  "--program", str(program), "--output-root", str(own_out), "--flat-run-dir"]
-        if body.get("no_videos"):
-            common.append("--no-videos")
-        if session.get("max_steps"):                        # the registration's, as the judge's (not the request's)
-            common += ["--max-steps", str(int(session["max_steps"]))]
-        if body.get("cmd") == "run":
-            cmd = [str(self.cli), "run", *common, "--seed", str(seeds[0])]
-        else:
-            cmd = [str(self.cli), "run-batch", *common, "--seeds", *map(str, seeds),
-                   "--workers", str(min(self.workers, len(seeds))), "--results-jsonl", str(own_out / "results.jsonl"),
-                   "--log-dir", str(own_out / "logs")]
-        returncode, stdout, stderr = self._execute(cmd, env, self.run_timeout, program.parent, own_out, gpu=self.gpu)
+        returncode, stdout, stderr = self._launch(body, session, program, own_out, seeds)
         if own_out.is_symlink() or not own_out.is_dir():    # replaced by the program: nothing of it is delivered
             return {"ok": False, "error": "the run's output directory was replaced while it ran"}
         try:
@@ -260,6 +249,36 @@ class Service:
                                           f"(a link in its path?): {exc}"}
         return {"ok": True, "code": returncode, "stdout": self._swap(stdout, swaps)[-20000:],
                 "stderr": self._swap(stderr, swaps)[-8000:]}
+
+    def _environment(self, session) -> dict:
+        return {**sim.scrubbed(os.environ), **sim.profile_env(self.root, session.get("benchmark")),
+                **{k: os.path.expandvars(os.path.expanduser(str(v))) for k, v in self.env.items()}}
+
+    def _validate(self, session, program: Path) -> tuple[int, str, str]:
+        _, python = sim.harness(self.root, session.get("benchmark"))    # a ledger from before the field: Robosuite's
+        check = ("import ast,sys\nfrom cap_harness.runtime import _ProgramValidator\n"
+                 "_ProgramValidator().visit(ast.parse(open(sys.argv[1]).read()))\nprint('program accepted')")
+        return self._execute([str(python), "-c", check, str(program)], self._environment(session), 300,
+                             program.parent, gpu=[])
+
+    def _launch(self, body, session, program: Path, own_out: Path, seeds: list[int]) -> tuple[int, str, str]:
+        benchmark = session.get("benchmark")
+        cli, _ = sim.harness(self.root, benchmark)
+        common = ["--benchmark", benchmark or "robosuite", "--suite", session["suite"],
+                  "--task-id", str(session["task_id"]), *sim.init_args(benchmark), "--program", str(program),
+                  "--output-root", str(own_out), "--flat-run-dir"]
+        if body.get("no_videos"):
+            common.append("--no-videos")
+        if session.get("max_steps"):                        # the registration's, as the judge's (not the request's)
+            common += ["--max-steps", str(int(session["max_steps"]))]
+        if body.get("cmd") == "run":
+            cmd = [str(cli), "run", *common, "--seed", str(seeds[0])]
+        else:
+            cmd = [str(cli), "run-batch", *common, "--seeds", *map(str, seeds),
+                   "--workers", str(min(self.workers, len(seeds))), "--results-jsonl", str(own_out / "results.jsonl"),
+                   "--log-dir", str(own_out / "logs")]
+        return self._execute(cmd, self._environment(session), self.run_timeout, program.parent, own_out,
+                             gpu=self.gpu)
 
     @staticmethod
     def _swap(text: str, swaps: dict) -> str:
