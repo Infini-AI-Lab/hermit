@@ -8,8 +8,9 @@ The `opencode` learner runs only a model reference the same way (`evolver.base: 
 is refused.
 The `dsh` learner signs in as the `pi` learner does (`evolver.base: dsh`) and copies no file of `~/.dsh` (`home: []`).
 The `hermes` learner signs in the same way (`evolver.base: hermes`), copies no file of `~/.hermes` (`home: []`), reads
-no context file of the evolver workspace (`--ignore-rules`) and takes `max_turns` in `evolver.hermes` (model requests
-in one step's session; Hermes's 90 by default). `evolver.base: hermes` does not make the run's model Hermes for a
+no context file of the evolver workspace (`--ignore-rules`, and hermit's plugin turns off Hermes's subdirectory hints,
+which would add a folder's `AGENTS.md`, such as the adapter's, to a tool's result) and takes `max_turns` in
+`evolver.hermes` (model requests in one step's session; Hermes's 90 by default). `evolver.base: hermes` does not make the run's model Hermes for a
 method that calls it (only `pi` does), and MWM and RRSI Adapter refuse a `hermes` learner.
 On the single-file prompt-only template, the Codex learner is the [prompt-only](prompt-only.md) method.
 

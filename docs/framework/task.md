@@ -134,7 +134,8 @@ What the agent does for every task:
   (`log/memory/`). The context must fit `project_doc_max_bytes` (Codex reads no further): a longer one is refused. So
   is one too long for DeepSeek Harness, which gives the model at most 65,536 bytes of a project's instructions.
   Hermes Agent reads the context from `.hermes.md` and takes the prompt as one command-line argument, under 128 KiB
-  (120,000 bytes): a longer prompt is refused, not cut.
+  (120,000 bytes): a longer prompt is refused, not cut. Hermes's prompt-injection scan replaces a context file it
+  matches (benign rules can match) with a notice only the model sees: that session is an error, naming the file.
 - **Isolate.** With `environment.image`, the CLI runs in a container of its own, started from a worker on the host
   that runs the adapter's code the deployment renders or serves in the strict sandbox: the workspace and the session's
   home read-write, the mounts read-only at their targets, an internal network whose only way out is an egress proxy to

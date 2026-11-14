@@ -98,7 +98,9 @@ so `--host hermes` writes the context to `.hermes.md`, the skills to `.hermes/sk
 deployment never changes: `.hermes/hermit.config.yaml` is the part of it to merge into `~/.hermes/config.yaml`
 (`mcp_servers.<adapter id>`, a stdio server running `python -m hermit.runtime.mcp_server --adapter ...` with a 120 s
 timeout; `skills.external_dirs`, the absolute `.hermes/skills`; `context_file_max_chars: 1000000`, the context whole).
-Then run `hermes` from the workspace.
+Then run `hermes` from the workspace. Hermes scans each context file for prompt injection and replaces one it
+matches with a `[BLOCKED: ...]` notice, telling only the model; benign rules can match ("never cat the .env file").
+The `hermes` acting agent fails such a session, naming the file and what the scan matched.
 `--context-limit BYTES` (Codex) is the `project_doc_max_bytes` your Codex configuration sets, 32768 (Codex's
 default) when not given: a longer `AGENTS.md` is refused, since Codex would cut it; `0` skips the check. It is the per-project way to use an adapter; the per-agent way, `convert`, and how the two compare are in
 [What is a harness adapter?](what-is-a-harness-adapter.md#two-ways-to-use-an-adapter). The workspace must be an empty directory or one previously generated for the same host, separate from

@@ -379,9 +379,10 @@ class Binding:
         """Hermes Agent's provider entry for this model (a `providers` value of its config.yaml): the backend's URL in
         the dialect Hermes speaks to it (its `api_mode`; the Messages API at the backend's Messages root, as Claude
         Code reaches it), the key's variable by name (`key_env`, which Hermes reads when it starts, so no file holds
-        the key; a placeholder for a server that needs none), the backend's extra_body (Hermes adds it to every
-        request) and its output limit. The context window goes on the model (Hermes.prepare_home). Hermes's cost
-        figure is its own catalog's: the backend's price is applied to its usage (`price`)."""
+        the key; a placeholder for a server that needs none) and the backend's extra_body (which Hermes adds to the
+        session's chat-completions requests, not to the Messages API's). The context window and the output limit go
+        on the model (Hermes._config). Hermes's cost figure is its own catalog's: the backend's price is applied to
+        its usage (`price`)."""
         api = self.pi_dialect()
         provider: dict = {"name": "hermit", "api_mode": HERMES_API_MODES[api],
                           "base_url": (self.backend.messages_root if api == "messages" else self.base_url).rstrip("/")}
@@ -392,8 +393,6 @@ class Binding:
             provider["api_key"] = PLACEHOLDER_KEY
         if self.extra_body:
             provider["extra_body"] = json.loads(json.dumps(self.extra_body))
-        if self.backend.max_output_tokens:
-            provider["max_output_tokens"] = int(self.backend.max_output_tokens)
         return provider
 
 

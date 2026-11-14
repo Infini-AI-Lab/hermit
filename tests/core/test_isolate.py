@@ -695,6 +695,10 @@ def test_a_cli_deploy_renders_the_adapter_in_a_sandbox(tmp_path, monkeypatch):
     prepare_dsh(adapter, tmp_path / "ws-dsh", sys.executable)
     assert not planted.exists()
     assert "HA_ADAPTER_SANDBOX" in (tmp_path / "ws-dsh" / ".dsh" / "hermit.patch.yml").read_text()
+    from hermit.hosts.hermes import prepare as prepare_hermes      # Hermes's, in the part of its config it is given
+    prepare_hermes(adapter, tmp_path / "ws-hermes", sys.executable)
+    assert not planted.exists()
+    assert "HA_ADAPTER_SANDBOX" in (tmp_path / "ws-hermes" / ".hermes" / "hermit.config.yaml").read_text()
 
 
 def test_a_rollout_that_replaced_its_home_by_a_link_deletes_no_login_outside(tmp_path, monkeypatch, shared_login):

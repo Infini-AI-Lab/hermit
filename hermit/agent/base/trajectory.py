@@ -400,6 +400,18 @@ def _hermes_result(text) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def hermes_events(stream: list[dict]) -> list[dict]:
+    """The plugin's events of the turn, up to its end (`hermes.session_end`). What follows is no event of Hermes's:
+    `chat -Q` prints the reply after the turn's end, and a reply that reads as an event is the model's text."""
+    out = []
+    for event in stream:
+        if str(event.get("type") or "").startswith("hermes."):
+            out.append(event)
+            if event["type"] == "hermes.session_end":
+                break
+    return out
+
+
 def hermes_steps(stream: list[dict]) -> list[Step]:
     """Hermes Agent's events (hermit's plugin, hermit.agent.base.hermes_plugin): each model request's reasoning and
     text; each tool that ran as a command (the terminal, with its exit code and output), a file change (write_file,
@@ -409,6 +421,7 @@ def hermes_steps(stream: list[dict]) -> list[Step]:
     call has no exit code (unknown); of the failed requests, only the one the session ended with. Usage and the
     session's start are left out; the final reply is the last request's text, except the summary Hermes asks for
     when the turns run out, which no request reports."""
+    stream = hermes_events(stream)
     steps, texts = [], set()
     # the requests that came after: a failed request Hermes then served, or tried again, is no error of the session's
     later = [i for i, e in enumerate(stream) if e.get("type") in ("hermes.api_request", "hermes.api_error")]

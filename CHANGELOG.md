@@ -67,15 +67,18 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   its variable's name; chat completions, else the Messages or the Responses API). `chat -Q` prints only the reply:
   hermit's Hermes plugin, copied into the home, writes each hook Hermes fires (requests with their reasoning, tool calls
   and usage; failed requests with Hermes's own classification; tool results; the turn's end) as the session's JSON
-  stream, `agent-hermes.jsonl`. Everything Hermes reaches besides that model is off (its auxiliary tasks go to the same
-  model; no fallback provider, tirith download, update check, memory or skill nudges). The call's tools are an MCP
-  server Hermes waits for; a session whose first request lacks them, or that reached Hermes's turn limit
+  stream, `agent-hermes.jsonl`. What Hermes reaches besides that model is off (its auxiliary tasks go to the same model;
+  no fallback provider, tirith download, update check, models.dev catalog, memory or skill nudges), and the reply is the
+  model's own (no verifier footer). The call's tools are an MCP server Hermes waits for; a session whose first request
+  lacks them, whose context file Hermes's prompt-injection scan refused, or that reached Hermes's turn limit
   (`agent.hermes.max_turns`), fails although Hermes exits 0; only Hermes's classification of a failed request (rate
-  limit, overload, server error, timeout) makes it unavailable. Hermes takes no roles, no login, no web search and a
-  prompt of up to 120,000 bytes (one argument). `hermit deploy --host hermes` writes the context to `.hermes.md`
-  (Hermes's first project file), `.hermes/skills`, and `.hermes/hermit.config.yaml`, the part of Hermes's own config the
-  tools and skills need (Hermes has no project file for them). The MWM and RRSI Adapter Evolvers refuse
-  `evolver.params.backend: hermes`; the AHE template lists its hooks in `.hermes.md` to run by hand, as for Pi.
+  limit, overload, server error, timeout) makes it unavailable. A kept home (the Evolver's) holds only Hermes's
+  sessions, hermit's ledger and the logs between calls, and the Evolver's sessions are given no folder's `AGENTS.md`
+  (Hermes's subdirectory hints off). Hermes takes no roles, no login, no web search and a prompt of up to 120,000 bytes
+  (one argument). `hermit deploy --host hermes` writes the context to `.hermes.md` (Hermes's first project file),
+  `.hermes/skills`, and `.hermes/hermit.config.yaml`, the part of Hermes's own config the tools and skills need (Hermes
+  has no project file for them). The MWM and RRSI Adapter Evolvers refuse `evolver.params.backend: hermes`; the AHE
+  template lists its hooks in `.hermes.md` to run by hand, as for Pi.
 - Models in sandboxes as Harbor's agents get theirs: each sandbox gets its models' key variables and provider hosts
   (an isolated network becomes an allowlist) and forwards a model meter on the loopback; what a run keeps (the
   learning material, the step records, the adapter) is scrubbed of key values (`hermit/redact.py`). The allowlist

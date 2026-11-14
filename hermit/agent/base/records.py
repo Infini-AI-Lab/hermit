@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from hermit.agent.base.trajectory import events, hermes_events
 from hermit.agent.model.usage import Usage
 
 
@@ -240,18 +241,13 @@ def parse_hermes(log: Path, model: str) -> tuple[str | None, list[Usage]]:
 
     Hermes's auxiliary calls (a compression's summary, ...) fire no hook either: the session's end reports them as
     Hermes recorded them, running totals per task, which are a second usage (its model named with HERMES_AUX). For a
-    resumed session those totals hold its earlier calls' too: Hermes.adjust_usage takes them off."""
+    resumed session those totals hold its earlier calls' too: Hermes.adjust_usage takes them off. (Hermes retries an
+    empty summary once, a second request this counts as none.)"""
     main, aux = Usage(model=model), Usage(model=model + HERMES_AUX)
     session, texts, reply, completed = None, set(), None, None
     if not log.exists():
         return None, []
-    for line in log.read_text(errors="replace").splitlines():
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(event, dict) or not str(event.get("type") or "").startswith("hermes."):
-            continue
+    for event in hermes_events(events(log)):          # the turn's own, never a reply printed after its end
         session = event.get("session_id") or session
         kind = event["type"]
         if kind == "hermes.api_request":
