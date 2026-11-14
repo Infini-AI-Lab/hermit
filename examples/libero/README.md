@@ -12,13 +12,13 @@ on held-out seeds by the task's own success check.
 | Folder | What it is |
 |---|---|
 | `utils/prepare.py` | The 210 tasks (a suite and a task id each) with their seeds and splits; the verifier's rows and the reruns |
-| `utils/agent/` | LIBERO's own acting prompt (`prompt.md`), for a method that brings none |
+| `utils/agent/` | A method-neutral acting prompt (`prompt.md`, written here: LIBERO has none) and the workspace without ASPIRE's method pages, for a method that brings no prompt of its own |
 | `utils/task-info/` | What a task and its record are, for the learner |
 | `utils/launch.sh` | Starts a method folder's run: the simulator service and hermit |
 | [`aspire/`](aspire/) | The ASPIRE method: its fix-loop prompts, verifier and coordinator. `run.yaml` (Object, Spatial, Goal, Long: 40 tasks), `run_90.yaml` (LIBERO-90), `run_pro.yaml` (LIBERO-Pro: 80), `run_pro_long.yaml` (LIBERO-Long-Pro), `smoke*.yaml`, `launch.sh` |
-| [`prompt_only/`](prompt_only/) | The prompt-only template: one `ADAPTER.md` the built-in Codex Evolver revises after each task, with LIBERO's own prompt. `run.yaml`, `run_pro.yaml`, `smoke.yaml`, `smoke_luna.yaml`, `launch.sh` |
+| [`prompt_only/`](prompt_only/) | The prompt-only template: one `ADAPTER.md` the built-in Codex Evolver revises after each task, with the method-neutral prompt. `run.yaml`, `run_pro.yaml`, `smoke.yaml`, `smoke_luna.yaml`, `launch.sh` |
 
-The `smoke_luna.yaml` configs run GPT-5.6-Luna on the machine's ChatGPT login; the others GLM 5.3 Flash on Fireworks.
+The `*_luna.yaml` configs run GPT-5.6-Luna on the machine's ChatGPT login; the others GLM 5.3 Flash on Fireworks.
 
 ## The engine and the protocol
 
@@ -45,8 +45,9 @@ layout.
 
 A method's number is measured the same way whatever its prompt: the workspace, `bin/sim`, the seeds, the scored
 program (`fix_code.py`) and the judge are the engine's. ASPIRE's configs give the session ASPIRE's own prompts (the
-fix-loop subagent and the evolutionary search); `prompt_only/` gives it LIBERO's (`utils/agent/prompt.md`: the task,
-the workspace, what is scored).
+fix-loop subagent and the evolutionary search); `prompt_only/` gives it a method-neutral one (`utils/agent/prompt.md`:
+the task, the workspace, what is scored), and a workspace without ASPIRE's evolutionary-search page and assignment
+(`utils/agent/task.py:prepare`).
 
 ## Setup
 
@@ -81,4 +82,6 @@ ASPIRE_SIM_GPU=0 ASPIRE_CONFIG=run_pro.yaml ./launch.sh      # LIBERO-Pro
 
 `utils/launch.sh` starts the Robosuite example's launcher on this folder and the method folder; its variables
 (`ASPIRE_SIM_ENV`, `ASPIRE_SIM_GPU`, `ASPIRE_OUT`, `ASPIRE_EVAL_SEEDS`, ...) are described there. A method on LIBERO
-is a folder of configs beside these: `utils/agent/prompt.md` as its prompt, or its own.
+is a folder of configs beside these: `utils/agent/task.py` as its prompt and workspace, or its own. Run one method
+folder at a time on a checkout and an `ASPIRE_OUT`: they share the task rows, the staged docs and the service's
+ledger, which each launch writes.

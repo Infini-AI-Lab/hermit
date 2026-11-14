@@ -1,6 +1,6 @@
 # Smoke: two tasks (libero_object 0 and 1); three development seeds, one unseen-check seed, three held-out seeds
 # (launch.sh writes them into the task rows); the prompt-only template, one ADAPTER.md that the built-in Codex
-# Evolver revises after each task; Codex acting on LIBERO's own prompt, GLM 5.3 Flash. Started by launch.sh:
+# Evolver revises after each task; Codex acting on the method-neutral prompt, GLM 5.3 Flash. Started by launch.sh:
 # ASPIRE_CONFIG=smoke.yaml ./launch.sh
 data:
   tasks: ../utils/tasks.jsonl
@@ -13,8 +13,8 @@ agent:
   base: codex
   concurrency: 1
   params:
-    prompt: ../utils/agent/task.py:prompt   # LIBERO's own acting prompt: the task, the workspace, what is scored
-    prepare: ../../aspire_robosuite/utils/agent/task.py:prepare
+    prompt: ../utils/agent/task.py:prompt   # a method-neutral acting prompt: the task, the workspace, what is scored
+    prepare: ../utils/agent/task.py:prepare  # the engine's workspace, without ASPIRE's method pages
     answer: ../../aspire_robosuite/utils/agent/task.py:answer
     collect: ../../aspire_robosuite/utils/agent/task.py:collect
     aspire_root: $ASPIRE_ROOT
@@ -25,6 +25,7 @@ agent:
     timeout_s: 5400
     codex_sandbox: danger-full-access   # the task sandbox is the boundary; the session reaches bin/sim's service
     shell_env: all                  # only the declared variables are in the sandbox
+    project_doc_max_bytes: 65536    # AGENTS.md carries ADAPTER.md (the template caps it at 40,000 bytes)
 environment:                        # the task sandbox: the engine's code, the staged docs, the scene-snapshot program
   read:
     - ../utils/agent

@@ -56,6 +56,6 @@ framework's checkout, the task's data and other runs are not there.
 
 `examples/clbench_poker/prompt_only/`, `examples/clbench_database/prompt_only/` and
 `examples/servelearnbench/prompt_only/` run this method as their streams' baseline; their `launch.sh` sets the
-learner's model and the run's paths. `examples/libero/prompt_only/` runs it on LIBERO, with LIBERO's own acting
+learner's model and the run's paths. `examples/libero/prompt_only/` runs it on LIBERO, with a method-neutral acting
 prompt. Use a small smoke run before a long one, and evaluate with the
 [same held-out protocol](../guides/evaluation.md).
