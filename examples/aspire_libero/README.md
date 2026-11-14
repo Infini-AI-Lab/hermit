@@ -26,7 +26,11 @@ Profiles):
   programs per task (one of them a LIBERO-90 task). The task sandbox is shown the staged copy only, not the
   checkout's page; a page without that section is refused rather than passed whole.
 
-ASPIRE's own LIBERO results are on LIBERO-Pro's perturbed suites (`libero_*_swap`, `libero_*_task`), not on these.
+This is not LIBERO's own evaluation protocol, which scores a task on its fifty fixed initial states: here a seed
+is a scene LIBERO samples (`--init-mode seeded`), so a success rate is comparable neither with results reported on
+LIBERO's fixed states nor with ASPIRE's, which are on LIBERO-Pro's perturbed suites (`libero_*_swap`,
+`libero_*_task`). ASPIRE notes that seeded scenes are not guaranteed distinct for every task: where a task's
+placement leaves little room, a held-out seed can give a development seed's layout.
 
 ## Setup
 
