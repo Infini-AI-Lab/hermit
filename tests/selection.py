@@ -27,7 +27,7 @@ def fnmatch(path: str, pattern: str) -> bool:
 # group -> the paths (patterns, as `fnmatch` above reads them) that are the method's own
 METHODS = {
     "aspire": ["hermit/agent/evolver/methods/aspire/*", "hermit/adapter/templates/aspire/*",
-               "examples/aspire_robosuite/*", "examples/aspire_libero/*"],
+               "examples/aspire_robosuite/*", "examples/libero/*"],
     "she": ["hermit/agent/evolver/methods/she/*", "hermit/adapter/templates/she/*", "examples/*/she/*"],
     "ace": ["hermit/agent/evolver/methods/ace/*", "hermit/adapter/templates/ace/*", "examples/*/ace/*"],
     "ahe": ["hermit/agent/evolver/methods/ahe_adapter/*", "hermit/adapter/templates/ahe/*",

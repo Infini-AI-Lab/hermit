@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Train, or evaluate, the ASPIRE method on Robosuite. Run it on the host that serves ASPIRE's providers.
-# (Another benchmark of ASPIRE's harness starts it from its own folder, as ASPIRE_EXAMPLE: its configs, its
-# utils/prepare.py and task rows, its runs; ../../aspire_libero/aspire/launch.sh.)
+# (Another benchmark of ASPIRE's harness starts it from its own folder, as ASPIRE_EXAMPLE: its configs, in the
+# method folder ASPIRE_METHOD (default aspire), its utils/prepare.py and task rows, its runs; ../../libero/utils/launch.sh.)
 #
 #   ASPIRE_ROOT=/path/to/ASPIRE ./launch.sh                      # train run.yaml
 #   ASPIRE_CONFIG=smoke.yaml ./launch.sh                          # train the smoke (its seeds: ASPIRE_SEEDS=smoke)
@@ -22,7 +22,8 @@
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 : "${ASPIRE_ROOT:?set ASPIRE_ROOT to an ASPIRE checkout with .venv-robosuite}"
-EXAMPLE="$(cd "${ASPIRE_EXAMPLE:-$HERE/..}" && pwd)"              # the folder with aspire/<config> and utils/prepare.py
+EXAMPLE="$(cd "${ASPIRE_EXAMPLE:-$HERE/..}" && pwd)"              # the folder with <method>/<config> and utils/prepare.py
+METHOD="${ASPIRE_METHOD:-aspire}"                                 # the folder of the configs
 # Absolute, from where the launcher was called: the service, the judge and the sandboxed workers each start elsewhere
 ASPIRE_ROOT="$(cd "$ASPIRE_ROOT" && pwd)"
 [[ -z "${ASPIRE_OUT:-}" ]] || { mkdir -p "$ASPIRE_OUT" && ASPIRE_OUT="$(cd "$ASPIRE_OUT" && pwd)"; }
@@ -46,7 +47,7 @@ done
 PINNED=fa00f0ef2bc1d91d594b9aa502c22133c9f538f7
 ACTUAL="$(git -C "$ASPIRE_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
 [[ "$ACTUAL" == "$PINNED" ]] || echo "note: ASPIRE_ROOT is at $ACTUAL, not the pinned $PINNED" >&2
-cd "$EXAMPLE/aspire"
+cd "$EXAMPLE/$METHOD"
 # The model key, for a config whose models are Fireworks' (one on the machine's ChatGPT login needs none)
 ! grep -q "ref: fireworks/" "$CONFIG" || : "${FIREWORKS_API_KEY:?set FIREWORKS_API_KEY}"
 
@@ -97,6 +98,8 @@ MODE=train
 if [[ "${1:-}" == train || "${1:-}" == eval ]]; then MODE="$1"; shift; fi
 if [[ "$CONFIG" == *_direct* ]]; then EXTRA=("agent.params.sim_env=$SIM_ENV_JSON")
 else EXTRA=("agent.params.aspire_docs=$ASPIRE_DOCS"); fi
+TREES="$OUT/trees"                                # another method folder's adapters beside, not over, ASPIRE's
+[[ "$METHOD" == aspire ]] || TREES="$OUT/trees/$METHOD"
 "$HERMIT" -m hermit.cli "$MODE" --config "$CONFIG" "agent.params.aspire_root=$ASPIRE_ROOT" \
   "agent.params.logs=$OUT/actor-logs" "trainer.output_dir=$OUT" \
-  "trainer.tree_dir=$OUT/trees/$(basename "$CONFIG" .yaml)" "${EXTRA[@]}" "$@"
+  "trainer.tree_dir=$TREES/$(basename "$CONFIG" .yaml)" "${EXTRA[@]}" "$@"

@@ -23,7 +23,7 @@ from hermit.spec import check_spec
 ROOT = Path(__file__).resolve().parents[3]
 TEMPLATE = ROOT / "hermit" / "adapter" / "templates" / "aspire"
 EXAMPLE = ROOT / "examples" / "aspire_robosuite" / "utils"
-LIBERO = ROOT / "examples" / "aspire_libero"         # LIBERO on the same engine: its own tasks and configs
+LIBERO = ROOT / "examples" / "libero"                # LIBERO on the same engine: its tasks and its methods' configs
 
 ENTRY = """## Re-localize after the approach
 **Failure signature.** The gripper closes on air: the cube moved when the arm passed over it.
@@ -553,18 +553,19 @@ def test_the_task_sandbox_is_shown_the_staged_docs_and_never_a_page_that_lost_it
         _sim_module().workspace_docs(root, "libero-pro")
     # No Codex config of either example grants a page of the checkout's own docs, and each loads
     from hermit.config import Config
-    configs = [p for folder in (EXAMPLE.parent, LIBERO) for p in sorted((folder / "aspire").glob("*.yaml"))]
-    assert len(configs) == 8
+    configs = [p for folder in (EXAMPLE.parent / "aspire", LIBERO / "aspire", LIBERO / "prompt_only")
+               for p in sorted(folder.glob("*.yaml"))]
+    assert len(configs) == 16
     for path in configs:
         data = Config.load(path).data
         read = [str(p) for p in (data.get("environment") or {}).get("read") or []]
         assert not any("/docs/" in p for p in read), path
         if "_direct" not in path.name:
             assert "$ASPIRE_DOCS" in read and data["agent"]["params"]["aspire_docs"] == "$ASPIRE_DOCS", path
-        for key in ("train", "val", "test"):                    # the splits prepare.py writes
-            name = Path(data["data"][key]).name
-            assert name in {"all.txt", "rerun.txt", "verify.txt", "smoke.txt", "smoke_rerun.txt", "libero.txt",
-                            "libero_rerun.txt", "libero_90.txt", "libero_90_rerun.txt"}, (path, name)
+        if path.is_relative_to(EXAMPLE.parent):
+            for key in ("train", "val", "test"):                # the splits prepare.py writes
+                name = Path(data["data"][key]).name
+                assert name in {"all.txt", "rerun.txt", "verify.txt", "smoke.txt", "smoke_rerun.txt"}, (path, name)
 
 
 def test_the_engine_takes_the_benchmarks_venv_and_refuses_one_it_does_not_run(tmp_path, monkeypatch):
@@ -594,14 +595,59 @@ def test_the_engine_takes_the_benchmarks_venv_and_refuses_one_it_does_not_run(tm
         sim.Engine(root, benchmark="behavior")
 
 
-def test_the_libero_tasks_are_liberos_five_suites_with_aspires_seeds():
-    P = _load("aspire_libero_prepare", LIBERO / "utils" / "prepare.py")
+def test_the_libero_tasks_are_liberos_five_suites_and_liberos_pros_eighty_with_aspires_seeds(tmp_path, monkeypatch):
+    """The rows and splits prepare.py writes: what the simulator service, the judge and every method's configs read."""
+    from hermit.config import Config
+    P = _load("libero_prepare", LIBERO / "utils" / "prepare.py")
     assert sum(P.SUITES.values()) == 130 and P.SUITES["libero_90"] == 90
+    pro = [f"libero_{family}_{kind}" for family in ("object", "spatial", "goal", "10") for kind in ("swap", "task")]
+    assert list(P.PRO_SUITES) == pro and set(P.PRO_SUITES.values()) == {10}
+    monkeypatch.setattr(P, "HERE", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["prepare.py"])
+    P.main()
+    rows = [json.loads(line) for line in (tmp_path / "tasks.jsonl").read_text().splitlines()]
+    tasks = [r for r in rows if "role" not in r]
+    assert len(tasks) == 210 and len(rows) == 630 and len({r["id"] for r in rows}) == 630    # a suite and its
+    assert all(r["benchmark"] == "libero-pro" for r in rows)                  # perturbations share their task ids
+    assert all((r["debug_seeds"], r["unseen_seeds"], r["eval_seeds"]) == ("51-65", "66-80", "1-50") for r in tasks)
+    split = lambda name: (tmp_path / "splits" / name).read_text().split()
+    by = lambda *suites: [r["id"] for r in tasks if r["suite"] in suites]
+    assert split("all.txt") == [r["id"] for r in tasks]
+    assert split("libero.txt") == by("libero_object", "libero_spatial", "libero_goal", "libero_10")
+    assert split("libero_90.txt") == by("libero_90") and split("libero_pro.txt") == by(*pro)
+    assert split("libero_pro_long.txt") == by("libero_10_swap", "libero_10_task")
+    assert split("smoke.txt") == split("libero.txt")[:2] and split("smoke_pro.txt") == split("libero_pro.txt")[:2]
+    for path in sorted((LIBERO / "aspire").glob("*.yaml")) + sorted((LIBERO / "prompt_only").glob("*.yaml")):
+        data = Config.load(path).data["data"]
+        rows_file = Path(data["tasks"])
+        rows_file = rows_file if rows_file.is_absolute() else path.parent / rows_file
+        assert rows_file.resolve() == (LIBERO / "utils" / "tasks.jsonl").resolve(), path    # the benchmark's rows
+        train, test = split(Path(data["train"]).name), split(Path(data["test"]).name)
+        assert train and set(train) <= {r["id"] for r in tasks}, path
+        assert test == [f"rerun-{i}" for i in train], path        # the reruns are of the tasks it trained on
+        if data.get("val"):                                       # the coordinator's verifiers (ASPIRE)
+            assert set(split(Path(data["val"]).name)) == {f"verify-{r['id']}" for r in tasks}, path
     seeds, verify = P.seeds_from(P.PRESETS, [])
     assert seeds == {"debug_seeds": "51-65", "unseen_seeds": "66-80", "eval_seeds": "1-50"} and verify == "51-55"
     assert P.seeds_from(P.PRESETS, ["--preset", "smoke", "--eval", "1-5"])[0]["eval_seeds"] == "1-5"
     with pytest.raises(SystemExit):
         P.seeds_from(P.PRESETS, ["--eval", "1-60"])              # held-out seeds a session could run
+
+
+def test_liberos_own_prompt_names_the_task_the_seeds_and_the_scored_program_and_nothing_of_a_method(tmp_path):
+    """prompt_only/'s acting prompt: the engine's workspace and scoring, without ASPIRE's fix-loop or library."""
+    P = _load("libero_task", LIBERO / "utils" / "agent" / "task.py")
+    root = fake_aspire(tmp_path)
+    row = {**LIBERO_ROW, "suite": "libero_object_task", "task_id": 4, "id": "libero_object_task-t04"}
+    text = P.prompt(row, {"aspire_root": str(root)}, tmp_path)
+    assert "Suite `libero_object_task`, task id `4`" in text and "get_task_context()" in text
+    assert "**51-53**" in text and "**66**" in text and "3 held-out seeds" in text
+    scored = f"{_task_module().task_dir(_task_module().settings(row, {'aspire_root': str(root)}))}/fix_code.py"
+    assert f"Your program is `{scored}`" in text                     # the file the engine's collect scores
+    assert "debug/holdout" in text and "docs/libero-pro.md" in text
+    assert not any(word in text for word in ("skill", "library", "coordinator", "fix-loop", "evolutionary"))
+    with pytest.raises(ValueError, match="verifier"):
+        P.prompt({**row, "role": "verifier", "id": "verify-x"}, {"aspire_root": str(root)}, tmp_path)
 
 
 def test_a_session_cannot_forge_a_registration_for_more_seeds(tmp_path, service):
