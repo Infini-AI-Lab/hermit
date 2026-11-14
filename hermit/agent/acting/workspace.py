@@ -1,9 +1,9 @@
-"""The `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode` and `dsh` agents: one task run by the agent CLI in a
-workspace the adapter is deployed into. They are the framework's one way to act with a coding-agent CLI; a task adds
-only what is its own.
+"""The `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh` and `hermes` agents: one task run by the agent
+CLI in a workspace the adapter is deployed into. They are the framework's one way to act with a coding-agent CLI; a task
+adds only what is its own.
 
     agent:
-      name: codex                            # or claude-code, pi, mini-swe-agent, opencode or dsh
+      name: codex                            # or claude-code, pi, mini-swe-agent, opencode, dsh or hermes
                                              # (`cli`: params.backend)
       params:
         model: gpt-5.4                       # optional: the CLI's default otherwise. A `<backend>/<model>` reference
@@ -73,7 +73,7 @@ from hermit.agent.base.interface import BaseAgent, Limits, LoginFailed, Mount, m
 from hermit.agent.base.login import LOGINS, NO_LOGIN
 from hermit.task import RunOutput, load_callable
 
-BACKENDS = ("codex", "claude", "pi", "mini-swe-agent", "opencode", "dsh")
+BACKENDS = ("codex", "claude", "pi", "mini-swe-agent", "opencode", "dsh", "hermes")
 DEPLOYS = ("host",)
 ISOLATIONS = ("none", "container")
 INPUT_FIELDS = ("question", "prompt", "instruction", "input", "query")
@@ -157,6 +157,9 @@ def deploy(adapter: Path, workspace: Path, backend: str, *, context: str | None 
     if backend == "dsh":
         from hermit.hosts.dsh import prepare as prepare_dsh
         return prepare_dsh(adapter, workspace, sys.executable, context=context)
+    if backend == "hermes":
+        from hermit.hosts.hermes import prepare as prepare_hermes
+        return prepare_hermes(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
     from hermit.hosts.claude_code import prepare
     return prepare(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
 
@@ -170,10 +173,12 @@ def _deploy(task: dict, adapter: Path | None, work: Path, backend: str, params: 
     from hermit.adapter.manifest import PORTABLE
     manifest = load_manifest(adapter)
     # A container session cannot start the tools' server on this machine, mini-swe-agent reaches tools only
-    # through its Base Agent, and OpenCode waits 2 s at most for a starting server (STARTUP_GRACE_MS in 2.2; the
-    # adapter's takes longer, so its first request would go without them): the session's own tool server (the Base
-    # Agent's, running before the session starts) serves them instead.
-    harness_tools = (params.get("isolation") == "container" or backend in ("mini-swe-agent", "opencode")) and \
+    # through its Base Agent, OpenCode waits 2 s at most for a starting server (STARTUP_GRACE_MS in 2.2; the
+    # adapter's takes longer, so its first request would go without them), and Hermes reads MCP servers from its home
+    # only, no project file: the session's own tool server (the Base Agent's, running before the session starts)
+    # serves them instead.
+    harness_tools = (params.get("isolation") == "container" or
+                     backend in ("mini-swe-agent", "opencode", "hermes")) and \
         bool(agent_tools(manifest))
     # An adapter only hermit runs (not plugin-portable: a context tool's per-task context, say) has no installed
     # workspace, so `hermit deploy` refuses it; here the task is known, so its context is deployed.
@@ -188,10 +193,11 @@ def _session_args(backend: str, deployed: dict, work: Path) -> list[str]:
     tools, roles and hooks) trusted, as a person trusts a deployed project, and its sub-agents enabled; Pi's project
     configuration (.pi/mcp.json, .pi/skills) trusted for the session (--approve), without which Pi skips it; dsh's
     patch layer of the adapter's tools (.dsh/hermit.patch.yml), which dsh loads only when it is named (--patch).
-    OpenCode loads its project's opencode.json and .opencode/skills with no trust step."""
+    OpenCode loads its project's opencode.json and .opencode/skills with no trust step; Hermes is given the
+    deployment's skills folder by the Base Agent (`skills_dir`) and its tools by the session's tool server."""
     if backend == "pi":
         return ["--approve"]
-    if backend == "opencode":
+    if backend in ("opencode", "hermes"):
         return []
     if backend == "dsh":
         return ["--patch", str(deployed["patch"])] if deployed.get("patch") else []
@@ -335,10 +341,11 @@ def _check(backend: str, params: dict) -> str:
 
 def base_agent(backend: str, params: dict) -> BaseAgent:
     """The Base Agent (Layer 2) these params describe: the CLI and how it is run, nothing of the task."""
-    from hermit.agent.base.cli import PI_PARAMS
+    from hermit.agent.base.cli import HERMES_PARAMS, PI_PARAMS
     settings = {k: params[k] for k in ("model", "binding", "login", "plan_dir", "plan_max_wait_s", "usage_credits",
                                        "effort", "isolation", "container", "codex_sandbox", "shell_env",
                                        "project_doc_max_bytes", "args", "env", "price", *PI_PARAMS,
+                                       *(p for p in HERMES_PARAMS if p != "skills_dir"),
                                        "model_class", "config", "step_limit")
                 if k in params and (params[k] is not None or k == "plan_max_wait_s")}
     if params.get("claude_permission_mode"):
@@ -380,7 +387,10 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
                                    **({"tools_name": deployed["harness_tools"].replace("-", "_")}
                                       if deployed.get("harness_tools") else {}),
                                    # OpenCode loads only the skills it is allowed: the deployment's
-                                   **({"skills": list(deployed.get("skills") or [])} if backend == "opencode" else {}))
+                                   **({"skills": list(deployed.get("skills") or [])} if backend == "opencode" else {}),
+                                   # Hermes reads skills from the folders its config names: the deployment's
+                                   **({"skills_dir": deployed["skills_dir"]}
+                                      if backend == "hermes" and deployed.get("skills_dir") else {}))
         memory = _memory(work, deployed)
         for item in params.get("files") or []:
             source = Path(base) / item

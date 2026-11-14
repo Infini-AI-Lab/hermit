@@ -224,6 +224,67 @@ def parse_dsh(log: Path, model: str) -> tuple[str | None, list[Usage]]:
     return _parse(log, model, _dsh_reader())
 
 
+HERMES_AUX = " (auxiliary)"      # the model name's suffix of the usage of Hermes's auxiliary calls
+
+
+def parse_hermes(log: Path, model: str) -> tuple[str | None, list[Usage]]:
+    """Hermes Agent's events (hermit's plugin, hermit.agent.base.hermes_plugin): the session id (the last one named: a
+    compression continues the session under a new id, the one a resume takes), and each model request's usage as its
+    `hermes.api_request` event reports it. Hermes's `input_tokens` leaves the cache out, so the input counted is
+    input, cache reads and cache writes, as Codex and Claude Code count it; its `output_tokens` holds the reasoning.
+    A request that answered is a call even when its tokens are not reported (an unreported call: the cost is then
+    unknown, price_usage); a failed one (`hermes.api_error`) is none. So is the summary request Hermes makes when a
+    session runs out of turns, which fires no hook: a reply that is no reported request's text, in a turn that did
+    not complete, is that request, an unreported call. Hermes's own cost figure is left out: it is priced from the
+    backend's price (price_usage).
+
+    Hermes's auxiliary calls (a compression's summary, ...) fire no hook either: the session's end reports them as
+    Hermes recorded them, running totals per task, which are a second usage (its model named with HERMES_AUX). For a
+    resumed session those totals hold its earlier calls' too: Hermes.adjust_usage takes them off."""
+    main, aux = Usage(model=model), Usage(model=model + HERMES_AUX)
+    session, texts, reply, completed = None, set(), None, None
+    if not log.exists():
+        return None, []
+    for line in log.read_text(errors="replace").splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict) or not str(event.get("type") or "").startswith("hermes."):
+            continue
+        session = event.get("session_id") or session
+        kind = event["type"]
+        if kind == "hermes.api_request":
+            texts.add(event.get("content") or "")
+            u = event.get("usage") if isinstance(event.get("usage"), dict) else {}
+            cached = int(u.get("cache_read_tokens") or 0)
+            tokens = int(u.get("input_tokens") or 0) + cached + int(u.get("cache_write_tokens") or 0)
+            output = int(u.get("output_tokens") or 0)
+            main.calls += 1
+            if not tokens and not output:
+                main.unreported_calls += 1
+            main.input_tokens += tokens
+            main.cached_input_tokens += cached
+            main.output_tokens += output
+        elif kind == "hermes.reply":
+            reply = event.get("text")
+        elif kind == "hermes.session_end":
+            completed = event.get("completed")
+            aux = Usage(model=model + HERMES_AUX)              # running totals: the last report holds them all
+            for row in event.get("aux") or []:
+                if not isinstance(row, dict):
+                    continue
+                cached = int(row.get("cache_read_tokens") or 0)
+                aux.input_tokens += int(row.get("input_tokens") or 0) + cached + int(row.get("cache_write_tokens") or 0)
+                aux.cached_input_tokens += cached
+                aux.output_tokens += int(row.get("output_tokens") or 0)
+                aux.calls += int(row.get("api_call_count") or 0)
+    if completed is False and isinstance(reply, str) and reply and reply not in texts:
+        main.calls += 1                                     # the summary request at the turns' limit
+        main.unreported_calls += 1
+    return session, [u for u in (main, aux) if u.calls or u.input_tokens or u.output_tokens]
+
+
 def parse_codex(log: Path, model: str) -> tuple[str | None, list[Usage]]:
     """Codex's `exec --json` events: the thread id, and each completed turn's usage."""
     return _parse(log, model, _codex_event)
@@ -242,6 +303,6 @@ def parse_mini_swe_agent(log: Path, model: str) -> tuple[str | None, list[Usage]
 
 def parse_log(log: Path, backend: str, model: str) -> tuple[str | None, list[Usage]]:
     """Session handle and usage from the agent's JSON event stream: Codex's, Pi's, mini-swe-agent's, OpenCode's, dsh's,
-    else Claude Code's."""
+    Hermes's, else Claude Code's."""
     return {"codex": parse_codex, "pi": parse_pi, "mini-swe-agent": parse_mini_swe_agent,
-            "opencode": parse_opencode, "dsh": parse_dsh}.get(backend, parse_claude)(log, model)
+            "opencode": parse_opencode, "dsh": parse_dsh, "hermes": parse_hermes}.get(backend, parse_claude)(log, model)

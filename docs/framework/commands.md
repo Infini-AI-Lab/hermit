@@ -74,6 +74,7 @@ hermit deploy --adapter DIR --workspace WORKSPACE --host pi
 hermit deploy --adapter DIR --workspace WORKSPACE --host mini-swe-agent
 hermit deploy --adapter DIR --workspace WORKSPACE --host opencode
 hermit deploy --adapter DIR --workspace WORKSPACE --host dsh
+hermit deploy --adapter DIR --workspace WORKSPACE --host hermes
 ```
 
 This generates host instruction files, role/skill files, and tool configuration. It does not launch the acting
@@ -91,6 +92,13 @@ DeepSeek Harness has no file of its own for roles, hooks or a project's MCP serv
 roles and hooks in `AGENTS.md` and writes its tools into a patch layer (an overlay of settings for a session),
 `.dsh/hermit.patch.yml`, which also names the folder of its skills (`.dsh/skills`). The layer loads only when named,
 while `AGENTS.md` needs no flag: run `dsh --profile headless --patch .dsh/hermit.patch.yml "TASK"` from the workspace.
+Hermes Agent reads one project context file, the first of `.hermes.md`, `AGENTS.md`, `CLAUDE.md` and `.cursorrules`,
+so `--host hermes` writes the context to `.hermes.md`, the skills to `.hermes/skills/`, and names roles and hooks in
+`.hermes.md`. Hermes has no project file for MCP servers or skill folders, only its home's `config.yaml`, which the
+deployment never changes: `.hermes/hermit.config.yaml` is the part of it to merge into `~/.hermes/config.yaml`
+(`mcp_servers.<adapter id>`, a stdio server running `python -m hermit.runtime.mcp_server --adapter ...` with a 120 s
+timeout; `skills.external_dirs`, the absolute `.hermes/skills`; `context_file_max_chars: 1000000`, the context whole).
+Then run `hermes` from the workspace.
 `--context-limit BYTES` (Codex) is the `project_doc_max_bytes` your Codex configuration sets, 32768 (Codex's
 default) when not given: a longer `AGENTS.md` is refused, since Codex would cut it; `0` skips the check. It is the per-project way to use an adapter; the per-agent way, `convert`, and how the two compare are in
 [What is a harness adapter?](what-is-a-harness-adapter.md#two-ways-to-use-an-adapter). The workspace must be an empty directory or one previously generated for the same host, separate from
@@ -188,8 +196,8 @@ It is not an HTTP preview server or the proposed standalone-service launcher. `-
   `evolver_access.environment`) and that no declared path holds the data, the judge or the runs. It does not check
   the pipeline's host: adapters are meant to be usable by any acting agent, and each pipeline deploys the exports
   (context, tools, roles, skills) in its own way.
-- `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi|mini-swe-agent|opencode|dsh` copies an
-  adapter to `hermit/<id>/` in a host workspace and connects its exports there (context block, MCP tools, native roles,
-  skills, hooks).
+- `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi|mini-swe-agent|opencode|dsh|hermes`
+  copies an adapter to `hermit/<id>/` in a host workspace and connects its exports there (context block, MCP tools,
+  native roles, skills, hooks).
 - `hermit convert --adapter DIR --output OUT --target ...` emits a plugin in the host's native format instead,
   and exits 2 naming every part the target's plugin cannot carry.

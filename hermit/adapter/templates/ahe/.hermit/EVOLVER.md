@@ -33,9 +33,10 @@ every event) and the memory reaching the model through that middleware:
 every host. Which host runs a session is the deployment's to say (the runner reads it from the deployment's record),
 and `hook_hosts.py` turns that host's events into the five hooks and the hooks' results into what the host reads.
 The hosts differ where the table says; a middleware that keeps to the cookbook below works on both, and one that
-needs a host's own behaviour can read `inp.host` (`codex` or `claude-code`). Pi and DeepSeek Harness run no hooks: their
-deployments list the hook commands in `AGENTS.md` for the agent to run by hand, and run so, with no event's payload
-(`inp.host` is `pi` or `dsh`), only `session_start` has something to do: it hands the memory over.
+needs a host's own behaviour can read `inp.host` (`codex` or `claude-code`). Pi, DeepSeek Harness and Hermes Agent run
+no hooks: their deployments list the hook commands in their context file (`AGENTS.md`, Hermes's `.hermes.md`) for the
+agent to run by hand, and run so, with no event's payload (`inp.host` is `pi`, `dsh` or `hermes`), only
+`session_start` has something to do: it hands the memory over.
 
 <!-- hook_hosts.capability_table: begin -->
 | | Codex | Claude Code |
@@ -95,7 +96,7 @@ only the stdlib: nothing else is installed where the agent runs.
   else. `hook-state/<session_id>.json` beside it holds the final session states. (The runner writes both under
   `.hermit-hooks/` in the session's workspace; each rollout's trajectory carries them at its root, beside the
   agent's event stream: `agent-codex.jsonl` from Codex, `agent-claude.jsonl` from Claude Code, `agent-dsh.jsonl` from
-  DeepSeek Harness.)
+  DeepSeek Harness, `agent-hermes.jsonl` from Hermes Agent.)
 - A veto's reason is what the model reads: say what to do instead, not only what was blocked. The same holds for
   an `after_tool` note: one or two lines, specific to the command that just ran.
 

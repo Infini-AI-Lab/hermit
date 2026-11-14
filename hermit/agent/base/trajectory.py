@@ -10,9 +10,10 @@ logs, so that every Evolver reads the same steps:
 
 The streams read: Codex's `codex exec --json` events (`agent-codex.jsonl`), Claude Code's stream-json
 (`agent-claude.jsonl`), Pi's `--mode json` events (`agent-pi.jsonl`), mini-swe-agent's events
-(`agent-mini-swe-agent.jsonl`), OpenCode's `run --format json` events (`agent-opencode.jsonl`) and DeepSeek Harness's
-`--json` events (`agent-dsh.jsonl`), also under another name below a log directory (Harbor's `agent/codex.txt`). A
-normalised message list (`RunOutput.messages`) is the pipeline's own rendering and is left to each Evolver.
+(`agent-mini-swe-agent.jsonl`), OpenCode's `run --format json` events (`agent-opencode.jsonl`), DeepSeek Harness's
+`--json` events (`agent-dsh.jsonl`) and Hermes Agent's events as hermit's plugin writes them (`agent-hermes.jsonl`),
+also under another name below a log directory (Harbor's `agent/codex.txt`). A normalised message list
+(`RunOutput.messages`) is the pipeline's own rendering and is left to each Evolver.
 """
 from __future__ import annotations
 
@@ -27,9 +28,11 @@ PI_STREAM = "agent-pi.jsonl"
 MINI_SWE_AGENT_STREAM = "agent-mini-swe-agent.jsonl"
 OPENCODE_STREAM = "agent-opencode.jsonl"
 DSH_STREAM = "agent-dsh.jsonl"
+HERMES_STREAM = "agent-hermes.jsonl"
 # the file a host's log keeps its events under
 STREAM_HOSTS = {CODEX_STREAM: "codex", CLAUDE_STREAM: "claude", PI_STREAM: "pi",
-                MINI_SWE_AGENT_STREAM: "mini-swe-agent", OPENCODE_STREAM: "opencode", DSH_STREAM: "dsh"}
+                MINI_SWE_AGENT_STREAM: "mini-swe-agent", OPENCODE_STREAM: "opencode", DSH_STREAM: "dsh",
+                HERMES_STREAM: "hermes"}
 STREAMS = tuple(STREAM_HOSTS)
 OTHER_STREAMS = ("agent/codex.txt", "codex.txt")   # a Harbor trial's Codex events: from the trial or its agent/
 
@@ -383,16 +386,86 @@ def dsh_steps(stream: list[dict]) -> list[Step]:
     return steps
 
 
+HERMES_SHELL = "terminal"
+HERMES_FILE_TOOLS = ("write_file", "patch")
+
+
+def _hermes_result(text) -> dict:
+    """A tool's result as Hermes gives it to the model: JSON for its own tools ({output, exit_code, error} for the
+    terminal), else plain text."""
+    try:
+        value = json.loads(text) if isinstance(text, str) else None
+    except ValueError:
+        value = None
+    return value if isinstance(value, dict) else {}
+
+
+def hermes_steps(stream: list[dict]) -> list[Step]:
+    """Hermes Agent's events (hermit's plugin, hermit.agent.base.hermes_plugin): each model request's reasoning and
+    text; each tool that ran as a command (the terminal, with its exit code and output), a file change (write_file,
+    patch: its tool and path) or a tool call (any other tool, an MCP server's included, named `mcp__<server>__<tool>`,
+    with its arguments and its result as `output`); a failed request that Hermes did not then serve as an error
+    (Hermes's reason, the status, the message), and a turn that did not complete as an error. A blocked or failed
+    call has no exit code (unknown); of the failed requests, only the one the session ended with. Usage and the
+    session's start are left out; the final reply is the last request's text, except the summary Hermes asks for
+    when the turns run out, which no request reports."""
+    steps, texts = [], set()
+    # the requests that came after: a failed request Hermes then served, or tried again, is no error of the session's
+    later = [i for i, e in enumerate(stream) if e.get("type") in ("hermes.api_request", "hermes.api_error")]
+    for i, event in enumerate(stream):
+        kind = event.get("type")
+        if kind == "hermes.api_request":
+            if str(event.get("reasoning") or "").strip():
+                steps.append(Step("reasoning", str(event["reasoning"])))
+            if str(event.get("content") or "").strip():
+                steps.append(Step("message", str(event["content"])))
+                texts.add(str(event["content"]))
+        elif kind == "hermes.tool":
+            name = str(event.get("tool_name") or "")
+            args = event.get("args") if isinstance(event.get("args"), dict) else {}
+            result = event.get("result")
+            ran = event.get("status") in (None, "ok")
+            if name == HERMES_SHELL:
+                parsed = _hermes_result(result)
+                code = parsed.get("exit_code")
+                output = parsed.get("output") if "output" in parsed else result
+                if parsed.get("error"):
+                    output = f"{output or ''}\n{parsed['error']}".strip()
+                if not ran:
+                    output = str(event.get("error_message") or output or "")
+                steps.append(Step("command", command=str(args.get("command") or ""), output=str(output or ""),
+                                  exit_code=code if isinstance(code, int) and ran else None))
+            elif name in HERMES_FILE_TOOLS:
+                steps.append(Step("file_change", json.dumps({"tool": name, "path": args.get("path")},
+                                                            ensure_ascii=False, default=str),
+                                  output="" if ran else str(event.get("error_message") or result or "")))
+            else:
+                steps.append(Step("tool_call", json.dumps({"tool": name, "input": args}, ensure_ascii=False,
+                                                          default=str),
+                                  output=str(result if ran or result else event.get("error_message") or "")))
+        elif kind == "hermes.api_error" and not any(j > i for j in later):
+            error = event.get("error") if isinstance(event.get("error"), dict) else {}
+            status = f" (HTTP {event['status_code']})" if event.get("status_code") else ""
+            steps.append(Step("error", f"{event.get('reason') or 'error'}{status}: {error.get('message') or ''}"))
+        elif kind == "hermes.reply" and str(event.get("text") or "") not in texts and str(event.get("text") or ""):
+            steps.append(Step("message", str(event["text"])))
+        elif kind == "hermes.session_end" and event.get("completed") is False:
+            steps.append(Step("error", "the turn was interrupted" if event.get("interrupted") else
+                              "the turn did not complete (Hermes's turn limit: its last reply is a summary)"))
+    return steps
+
+
 # Each host's stream: the reader of its events, and the event types that mark it (tried in this order when a stream
 # is found by its events). A host's stream is added here and in STREAM_HOSTS.
 READERS = {"codex": codex_steps, "claude": claude_steps, "pi": pi_steps, "mini-swe-agent": mini_swe_agent_steps,
-           "opencode": opencode_steps, "dsh": dsh_steps}
+           "opencode": opencode_steps, "dsh": dsh_steps, "hermes": hermes_steps}
 MARKS = (("codex", {"thread.started", "turn.started", "turn.completed", "turn.failed", "item.completed"}),
          ("mini-swe-agent", {"session.started"}),
          ("claude", {"system", "assistant", "user", "result"}),
          ("pi", {"agent_start", "agent_settled", "message_end", "tool_execution_end"}),
          ("opencode", {"step_start", "step_finish", "tool_use"}),
-         ("dsh", {"status", "tool_call", "tool_result", "final"}))
+         ("dsh", {"status", "tool_call", "tool_result", "final"}),
+         ("hermes", {"hermes.session_start", "hermes.api_request", "hermes.tool", "hermes.session_end"}))
 
 
 def _host(stream: list[dict]) -> str | None:

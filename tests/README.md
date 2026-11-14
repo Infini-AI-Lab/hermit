@@ -21,7 +21,7 @@ template, the test helpers) and any path the table does not know run every group
 under `methods/<name>/`. `core/test_selection.py` fails until it does, when a test file is in no group, and when a
 framework module a shared layer or a method's tests import is not shared.
 
-A test marked `integration` runs an agent CLI installed on the machine (`codex`, `claude`, `dsh`) and holds what a
+A test marked `integration` runs an agent CLI installed on the machine (`codex`, `claude`, `dsh`, `hermes`) and holds what a
 release of it does; it is skipped unless `--integration` is given (those that run Claude Code in its container also skip
 without Docker and the image `docker/claude/` builds, named by HERMIT_CLAUDE_IMAGE and HERMIT_CLAUDE_NETWORK). Some
 methods' tests (`gepa`, `skillopt`, `harness2`, `rrsi`) skip themselves without the method's dependency group; the
@@ -36,7 +36,8 @@ models), `toy_task.py` (the toy task the Trainer tests run on), `claude_stand.py
 `fixtures/claude_streams/`, and the probe for a working bubblewrap, for core's and the methods' Claude tests),
 `pi_stand.py` (the stand-in `pi` that replays `fixtures/pi/`, for the methods' Pi tests),
 `fixtures/` (`pi/`: Pi's recorded streams, read by `core/test_pi_agent.py` and `pi_stand.py`; `opencode/`: OpenCode's,
-read by `core/test_opencode_agent.py`; `dsh/`: DeepSeek Harness's, read by `core/test_dsh_agent.py`).
+read by `core/test_opencode_agent.py`; `dsh/`: DeepSeek Harness's, read by `core/test_dsh_agent.py`; `hermes/`: Hermes
+Agent's, read by `core/test_hermes_agent.py`).
 
 A new or changed test follows the [test checklist](../.agents/skills/prepare-pr/references/test-checklist.md): where it
 goes, how it is named and documented, what it asserts, and what it may touch.

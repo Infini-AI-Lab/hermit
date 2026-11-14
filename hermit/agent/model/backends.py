@@ -64,10 +64,12 @@ FIELDS = {"from", "base_url", "api_key_env", "key_required", "apis", "messages_u
 DEVELOPER_ROLES = ("keep", "system")
 # What each consumer speaks: the dialect a backend must serve for it.
 NEEDS = {"chat": "chat", "react": "chat", "llm": "chat", "codex": "responses", "claude": "messages", "pi": "chat",
-         "mini-swe-agent": "chat", "opencode": "chat", "dsh": "chat"}
+         "mini-swe-agent": "chat", "opencode": "chat", "dsh": "chat", "hermes": "chat"}
 # Pi speaks several dialects: the one it is given is the first the backend serves (Binding.pi_dialect). DeepSeek
 # Harness (dsh) reaches a model through pi-ai too, so it speaks the same ones, chosen the same way.
 PI_APIS = {"chat": "openai-completions", "messages": "anthropic-messages", "responses": "openai-responses"}
+# Hermes Agent speaks the same three, each one of its own `api_mode`s, chosen the same way (Binding.pi_dialect).
+HERMES_API_MODES = {"chat": "chat_completions", "messages": "anthropic_messages", "responses": "codex_responses"}
 # OpenCode reaches a bound model through its OpenAI-compatible provider package, which OpenCode 2.2 ships.
 OPENCODE_PACKAGE = "@ai-sdk/openai-compatible"
 # The variable litellm reads the key from, per route prefix (the examples' CL-Bench host calls through litellm).
@@ -373,6 +375,27 @@ class Binding:
             provider["compat"] = {"supportsDeveloperRole": False}       # the backend refuses the developer role
         return provider
 
+    def hermes_provider(self) -> dict:
+        """Hermes Agent's provider entry for this model (a `providers` value of its config.yaml): the backend's URL in
+        the dialect Hermes speaks to it (its `api_mode`; the Messages API at the backend's Messages root, as Claude
+        Code reaches it), the key's variable by name (`key_env`, which Hermes reads when it starts, so no file holds
+        the key; a placeholder for a server that needs none), the backend's extra_body (Hermes adds it to every
+        request) and its output limit. The context window goes on the model (Hermes.prepare_home). Hermes's cost
+        figure is its own catalog's: the backend's price is applied to its usage (`price`)."""
+        api = self.pi_dialect()
+        provider: dict = {"name": "hermit", "api_mode": HERMES_API_MODES[api],
+                          "base_url": (self.backend.messages_root if api == "messages" else self.base_url).rstrip("/")}
+        key_env = self.key_env_if_set()
+        if key_env:
+            provider["key_env"] = key_env
+        else:
+            provider["api_key"] = PLACEHOLDER_KEY
+        if self.extra_body:
+            provider["extra_body"] = json.loads(json.dumps(self.extra_body))
+        if self.backend.max_output_tokens:
+            provider["max_output_tokens"] = int(self.backend.max_output_tokens)
+        return provider
+
 
 CLAUDE_ENV = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL",
               "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
@@ -445,11 +468,12 @@ def _spec_of(value, binding: Binding) -> dict:
 
 def bind_agent_params(params: dict, kind: str, backends: dict[str, Backend], default=None) -> dict:
     """The params of a Codex (`kind` codex), Claude Code (`kind` claude), Pi (`kind` pi), mini-swe-agent (`kind`
-    mini-swe-agent), OpenCode (`kind` opencode) or DeepSeek Harness (`kind` dsh) agent or Evolver with its model
-    bound: `model` becomes the id the endpoint expects, the provider settings go into `args` (Codex), `env` (Claude
-    Code) ahead of the user's own, or `provider` (Pi's models.json entry, OpenCode's config provider, dsh's pi-ai
-    route; mini-swe-agent reads them from `binding`), `price` is filled from the backend, and `binding` records the
-    whole. A `model` that is no reference (the CLI's own provider) is left alone."""
+    mini-swe-agent), OpenCode (`kind` opencode), DeepSeek Harness (`kind` dsh) or Hermes Agent (`kind` hermes) agent
+    or Evolver with its model bound: `model` becomes the id the endpoint expects, the provider settings go into `args`
+    (Codex), `env` (Claude Code) ahead of the user's own, or `provider` (Pi's models.json entry, OpenCode's config
+    provider, dsh's pi-ai route, Hermes's config.yaml provider; mini-swe-agent reads them from `binding`), `price` is
+    filled from the backend, and `binding` records the whole. A `model` that is no reference (the CLI's own provider)
+    is left alone."""
     binding = as_binding(params.get("model") or default, backends)
     if binding is None:
         return params
@@ -465,6 +489,8 @@ def bind_agent_params(params: dict, kind: str, backends: dict[str, Backend], def
         out["provider"] = params.get("provider") or binding.opencode_provider()
     elif kind == "dsh":
         out["provider"] = params.get("provider") or binding.dsh_provider()
+    elif kind == "hermes":
+        out["provider"] = params.get("provider") or binding.hermes_provider()
     elif kind != "mini-swe-agent":
         raise ValueError(f"kind must be one of {CLI_KINDS}, not {kind!r}")
     if not out.get("price"):
@@ -476,21 +502,22 @@ def bind_agent_params(params: dict, kind: str, backends: dict[str, Backend], def
 # ---- the run config -------------------------------------------------------------------------------------------
 
 CLI_AGENTS = {"codex": "codex", "claude-code": "claude", "claude": "claude", "pi": "pi",
-              "mini-swe-agent": "mini-swe-agent", "opencode": "opencode", "dsh": "dsh", "cli": None}
+              "mini-swe-agent": "mini-swe-agent", "opencode": "opencode", "dsh": "dsh", "hermes": "hermes",
+              "cli": None}
 # The CLI Base Agents a model is bound for (bind_agent_params)
-CLI_KINDS = ("codex", "claude", "pi", "mini-swe-agent", "opencode", "dsh")
+CLI_KINDS = ("codex", "claude", "pi", "mini-swe-agent", "opencode", "dsh", "hermes")
 
 
 def needs(kind: str, binding: Binding) -> str:
     """The dialect `kind` (a consumer of NEEDS) speaks to `binding`'s backend."""
-    return binding.pi_dialect() if kind in ("pi", "dsh") else NEEDS.get(kind, "responses")
+    return binding.pi_dialect() if kind in ("pi", "dsh", "hermes") else NEEDS.get(kind, "responses")
 
 
 def _cli_kind(agent: dict, params: dict) -> str:
-    """codex, claude, pi, mini-swe-agent, opencode or dsh for an acting agent that is a CLI (by its name, `cli`'s
-    backend, or a task's own agent's agent.base), else ""."""
+    """codex, claude, pi, mini-swe-agent, opencode, dsh or hermes for an acting agent that is a CLI (by its name,
+    `cli`'s backend, or a task's own agent's agent.base), else ""."""
     names = {"codex": "codex", "claude": "claude", "claude-code": "claude", "pi": "pi",
-             "mini-swe-agent": "mini-swe-agent", "opencode": "opencode", "dsh": "dsh"}
+             "mini-swe-agent": "mini-swe-agent", "opencode": "opencode", "dsh": "dsh", "hermes": "hermes"}
     kind = CLI_AGENTS.get(str(agent.get("name") or ""), "")
     if kind is None:                                        # `cli`: the backend is a param
         return names.get(params.get("backend", "codex"), "")
