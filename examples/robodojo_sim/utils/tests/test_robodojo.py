@@ -291,8 +291,9 @@ def test_with_an_image_the_engine_runs_the_simulator_in_the_container(tmp_path, 
     assert "was not removed: Error response from daemon: removal in progress" in \
         (tmp_path / "out.private" / "robodojo.log").read_text()     # and one that does is said in the run's log
     monkeypatch.delenv("ROBODOJO_IMAGE")
-    native = dojo.Engine(root).run(program, task="stack_bowls", layout_seed=2, layouts=5, out=tmp_path / "out2")
-    assert native == [] and seen[1][0][:3] == ["bash", "scripts/robodojo.sh", "eval"]    # RoboDojo's own launcher
+    with pytest.raises(dojo.NoResult, match="no result"):          # an evaluation that left nothing: the host's
+        dojo.Engine(root).run(program, task="stack_bowls", layout_seed=2, layouts=5, out=tmp_path / "out2")
+    assert seen[1][0][:3] == ["bash", "scripts/robodojo.sh", "eval"]                      # RoboDojo's own launcher
 
 
 def test_a_stop_waits_for_a_started_evaluation_to_finish_cleaning_up(tmp_path, monkeypatch):
@@ -316,14 +317,21 @@ def test_a_stop_waits_for_a_started_evaluation_to_finish_cleaning_up(tmp_path, m
     engine = dojo.Engine(root)
     monkeypatch.setattr(engine, "_worker", lambda staged, out, private: (SimpleNamespace(close=lambda: None), "{}"))
     assert engine.wait_idle(0)                                     # nothing started
-    run = threading.Thread(target=engine.run, args=(program,),
-                           kwargs={"task": "stack_bowls", "layout_seed": 2, "layouts": 1, "out": tmp_path / "out"})
+    ended = []
+
+    def evaluate():
+        try:
+            engine.run(program, task="stack_bowls", layout_seed=2, layouts=1, out=tmp_path / "out")
+        except dojo.NoResult as exc:            # the stand-in writes no result
+            ended.append(exc)
+    run = threading.Thread(target=evaluate)
     run.start()
     assert begun.wait(10)
     assert not engine.wait_idle(0.2)                               # a started run holds the stop
     release.set()
     assert engine.wait_idle(10)
     run.join(10)
+    assert ended
 
 
 def test_the_container_script_starts_the_server_then_the_client_and_stops_both(tmp_path):
@@ -452,6 +460,9 @@ def test_the_rows_keep_development_and_held_out_layouts_in_different_sets(tmp_pa
                        "dimension": "generalization", "layout_set": 2, "debug_seeds": "0-9",
                        "eval_layout_sets": [0, 1], "eval_layouts": 25}
     assert len((tmp_path / "splits" / "all.txt").read_text().split()) == 42
+    held = {r["suite"]: r["eval_layouts"] for r in rows}                # as many as RoboDojo evaluates a set
+    assert P.EVAL_25 <= set(held) and held["push_T"] == 25 and held["press_by_number"] == 50
+    assert sorted(held.values()).count(25) == 12 and set(held.values()) == {25, 50}
     with pytest.raises(SystemExit):
         P.main(["--dev-set", "0"])                           # the development set is a held-out set
 

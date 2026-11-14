@@ -32,10 +32,13 @@ No training run has been made; what is left is listed under [Not verified](#not-
 
 RoboDojo's saved layouts come in sets (`--seed` 0, 1, 2) and an evaluation runs a set's first N. A task's row
 keeps development and scoring apart by set: a session develops on set 2 (its first 10 layouts), and the judge
-scores on sets 0 and 1 (their first 25 layouts each). The score is the fraction of those fifty layouts that
-succeeded; a layout with no result counts as failed (RoboDojo drops a layout whose episode raised or whose scene
-went unstable and scores a later one instead, which a program must not gain by, so the later one is not counted). **This is not RoboDojo's leaderboard protocol**, which scores all three sets with fifty layouts each: a
-number from here is on two sets, at half their layouts, with the third developed on.
+scores on sets 0 and 1, each as RoboDojo evaluates a set: its first 50 layouts, or 25 for the twelve tasks whose
+`eval_nums` RoboDojo sets to 25 (`task/RoboDojo/config/_task.yml`; `utils/prepare.py`: `EVAL_25`). The score is the
+fraction of those layouts that succeeded; a layout with no result counts as failed (RoboDojo drops a layout whose
+episode raised or whose scene went unstable and scores a later one instead, which a program must not gain by, so
+the later one is not counted). An evaluation that leaves no result at all (a simulator that crashed, an environment
+that is missing) is the host's failure: it is reported, not scored. **This is not RoboDojo's leaderboard
+protocol**, which scores all three sets: a number from here is on two of them, with the third developed on.
 
 The observation is RoboDojo's default for `arx_x5`: three RGB cameras, the arms' joints and end-effector poses,
 the grippers, the instruction. It has no depth and no camera calibration, so a program localizes from images alone;
@@ -64,10 +67,13 @@ the success conditions and the results, beside which XPolicyLab's policy server 
   episode fails on its own.
 
 What this does not cover: the layouts of a set run in order, so a program can count episodes; it learns nothing
-from that without the layout files. The held-out sets are RoboDojo's public evaluation layouts: a model that has
+from that without the layout files. The program's process lasts across the episodes of one evaluation (it is loaded
+again only after an episode in which it failed), so a program can carry what it saw in one held-out layout into the
+next, as a policy with memory could under RoboDojo's own evaluation. The held-out sets are RoboDojo's public evaluation layouts: a model that has
 seen them elsewhere is outside what a sandbox can hold.
 
-In RoboDojo's Assets every task has layouts 0 to 24 in each of the three sets, and the sets differ, except for
+In RoboDojo's Assets every task has, in each of the three sets, at least five layouts more than it evaluates (the
+spares replace abandoned ones), and the sets differ, except for
 `play_tic_tac_toe`, whose three sets are the same layouts: its held-out layouts are its development layouts, so its
 score is not a held-out score.
 

@@ -28,8 +28,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
-- RoboDojo-Sim (`examples/robodojo_sim/`), a first implementation (one program evaluated on the real simulator; no
-  smoke or training run yet): its forty-two tasks with a Codex session writing a program that controls the robot,
+- RoboDojo-Sim (`examples/robodojo_sim/`), a first implementation (its smoke run on the real simulator; no
+  training run yet): its forty-two tasks with a Codex session writing a program that controls the robot,
   evaluated by RoboDojo as an XPolicyLab policy whose server runs the program in a sandbox with no network and no
   access to RoboDojo's checkout; development and held-out layouts in different layout sets; the prompt-only template
   with the built-in Codex Evolver. The ASPIRE example's simulator service separates its seed rules from what it runs

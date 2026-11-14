@@ -6,6 +6,7 @@
 data:
   tasks: ../utils/tasks.jsonl
   train: ../utils/splits/all.txt
+  test: ../utils/splits/all.txt     # `launch.sh eval`: the tasks again, with an adapter given
   step_size: 1
   shuffle: false
 task_info: ../utils/task-info

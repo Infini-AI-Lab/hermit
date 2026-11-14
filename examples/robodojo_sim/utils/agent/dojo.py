@@ -55,6 +55,13 @@ class NotStarted(RuntimeError):
     starts with the first episode), so it is reported rather than scored as failed layouts."""
 
 
+class NoResult(RuntimeError):
+    """An evaluation that ended within its time and left no result at all (a simulator that crashed, a missing
+    environment): the host's failure, since every action a program gives is whole and bounded, so it is reported
+    rather than scored as failed layouts. A run stopped at its timeout is the program's (it answered slowly) and is
+    scored."""
+
+
 def policy_digest(folder: Path) -> str:
     """The digest of a policy directory's files (names and contents; bytecode aside)."""
     digest = hashlib.sha256()
@@ -268,6 +275,9 @@ class Engine:
             if self.image and proc.returncode in NOT_STARTED:
                 raise NotStarted(f"the evaluation could not start (split_eval.sh exit {proc.returncode}): "
                                  f"see {private / 'robodojo.log'}")
+            if not found and not timed_out:
+                raise NoResult(f"the evaluation ended (exit {proc.returncode}) with no result: "
+                               f"see {private / 'robodojo.log'}")
             return records
         finally:
             if lock is not None:
