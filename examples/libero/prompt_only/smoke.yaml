@@ -1,0 +1,57 @@
+# Smoke: two tasks (libero_object 0 and 1); three development seeds, one unseen-check seed, three held-out seeds
+# (launch.sh writes them into the task rows); the prompt-only template, one ADAPTER.md that the built-in Codex
+# Evolver revises after each task; Codex acting on LIBERO's own prompt, GLM 5.3 Flash. Started by launch.sh:
+# ASPIRE_CONFIG=smoke.yaml ./launch.sh
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke.txt
+  test: ../utils/splits/smoke_rerun.txt   # `launch.sh eval`: the tasks again, with an adapter given
+  step_size: 1
+  shuffle: false
+task_info: ../utils/task-info
+agent:
+  base: codex
+  concurrency: 1
+  params:
+    prompt: ../utils/agent/task.py:prompt   # LIBERO's own acting prompt: the task, the workspace, what is scored
+    prepare: ../../aspire_robosuite/utils/agent/task.py:prepare
+    answer: ../../aspire_robosuite/utils/agent/task.py:answer
+    collect: ../../aspire_robosuite/utils/agent/task.py:collect
+    aspire_root: $ASPIRE_ROOT
+    aspire_docs: $ASPIRE_DOCS
+  model: {ref: fireworks/accounts/fireworks/models/glm-5p3-flash, effort: medium}
+  codex:
+    web_search: false
+    timeout_s: 5400
+    codex_sandbox: danger-full-access   # the task sandbox is the boundary; the session reaches bin/sim's service
+    shell_env: all                  # only the declared variables are in the sandbox
+environment:                        # the task sandbox: the engine's code, the staged docs, the scene-snapshot program
+  read:
+    - ../utils/agent
+    - ../../aspire_robosuite/utils/agent
+    - $ASPIRE_DOCS
+    - $ASPIRE_ROOT/.claude/skills/iterative-debugging/scripts/scene_snapshot.py
+    - $ASPIRE_ROOT/.claude/skills/iterative-debugging/skills/task-exploration.md
+    - $ASPIRE_ROOT/.claude/skills/evosearch/skills/evosearch-iteration.md
+  env: [ASPIRE_SIM_URL]             # the host's simulator service (launch.sh): its 127.0.0.1 port is forwarded
+judge:
+  path: ../../aspire_robosuite/utils/judge.py           # on the host: the program once on the held-out seeds
+template: prompt-only@1.0
+evolver:
+  name: codex                       # the built-in Codex AgentEvolver: it revises ADAPTER.md after each task
+  resume: false
+  params:
+    args: []
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash
+    home: []
+    tools: [check_spec]
+sandbox:
+  enabled: true
+  enforce: required
+trainer:
+  run_name: smoke-libero-prompt-only
+  epochs: 1
+  call_timeout_min: 60
+  budget: {usd: 10, hours: 8}
+eval:
+  repeats: 1
