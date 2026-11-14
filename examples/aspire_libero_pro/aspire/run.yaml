@@ -1,4 +1,4 @@
-# ASPIRE on LIBERO-Pro: the eighty tasks ASPIRE reports on (the _swap and _task perturbations of LIBERO's Object,
+# ASPIRE on LIBERO-Pro: the eighty tasks ASPIRE's harness requires (the _swap and _task perturbations of LIBERO's Object,
 # Spatial, Goal and Long suites) in ASPIRE's harness, one task per step in the order the coordinator chooses (its
 # curriculum); ASPIRE's LIBERO seeds (development 51-65, unseen-check 66-80, held-out 1-50, written into the task
 # rows by launch.sh; every run --init-mode seeded); Codex acting and coordinating, GLM 5.3 Flash. Started by

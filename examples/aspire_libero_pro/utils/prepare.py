@@ -1,5 +1,5 @@
 """Write the LIBERO-Pro tasks of ASPIRE's harness (`cap-harness --benchmark libero-pro`: the eighty (suite, task)
-pairs ASPIRE reports on) as hermit tasks: one row per pair with its seeds, which the simulator service and the judge
+pairs ASPIRE's harness requires) as hermit tasks: one row per pair with its seeds, which the simulator service and the judge
 take from the row (ASPIRE's LIBERO defaults: development 51-65, unseen-check 66-80, held-out 1-50; every run with
 `--init-mode seeded`, which the engine sets, so that a seed is a scene of its own).
 

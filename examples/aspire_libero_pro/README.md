@@ -1,13 +1,14 @@
 # ASPIRE on LIBERO-Pro
 
-The eighty LIBERO-Pro tasks [ASPIRE](https://research.nvidia.com/labs/gear/aspire/) reports on
+The eighty LIBERO-Pro `(suite, task)` pairs [ASPIRE](https://research.nvidia.com/labs/gear/aspire/)'s harness requires
 ([code](https://github.com/NVlabs/ASPIRE): `cap-harness --benchmark libero-pro`): the `_swap` and `_task`
 perturbations (LIBERO-Pro) of LIBERO's Object, Spatial, Goal and Long
 (`libero_10`) suites, ten tasks a suite, run as [`aspire_robosuite/`](../aspire_robosuite/) runs Robosuite: the same
 actor, verifier, coordinator, simulator service, judge and sandboxes, which that example's README describes. The
 LIBERO settings of the engine (ASPIRE's LIBERO venv, seeded initial states, ASPIRE's LIBERO seeds, the staged docs)
-are those of [`aspire_libero/`](../aspire_libero/README.md), which runs LIBERO's original suites. This folder holds
-what is LIBERO-Pro's:
+are those of [`aspire_libero/`](../aspire_libero/README.md), which runs LIBERO's original suites. LIBERO-Pro's
+other perturbations at ASPIRE's pinned commit (`_lan`, `_object`, and the scene variants such as `_with_milk` or
+`_temp_x0.1`) are not among the eighty. This folder holds what is LIBERO-Pro's:
 
 | Folder | What it is |
 |---|---|
