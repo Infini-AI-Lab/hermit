@@ -26,8 +26,8 @@ import yaml
 
 from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, not_portable
 from hermit.agent.base.mini_swe_agent import CONFIG_FILE, adapter_block, baked, render_config, tools_section
-from hermit.hosts.inputs import (MARKER, adapter_files, adapter_folder, check_workspace, copy_adapter, folder_note,
-                                 render_exports, resources, source_label)
+from hermit.hosts.inputs import (MARKER, add_session_flags, adapter_files, adapter_folder, check_workspace,
+                                 context_of, copy_adapter, folder_note, render_exports, resources, source_label)
 
 HOST = "mini-swe-agent"
 NATIVE: set[str] = set()                  # neither skills nor roles: the context names them
@@ -95,6 +95,8 @@ if __name__ == "__main__":
     parser.add_argument("--adapter", type=Path, required=True)
     parser.add_argument("--workspace", "--output", dest="workspace", type=Path, required=True)
     parser.add_argument("--python", default=sys.executable)
+    add_session_flags(parser)
     args = parser.parse_args()
-    print(json.dumps(prepare(args.adapter, args.workspace, str(Path(args.python).absolute())), ensure_ascii=False,
-                     indent=2))
+    print(json.dumps(prepare(args.adapter, args.workspace, str(Path(args.python).absolute()),
+                             context=context_of(args.context_file), serve_tools=args.serve_tools),
+                     ensure_ascii=False, indent=2))

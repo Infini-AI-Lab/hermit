@@ -1558,3 +1558,40 @@ def test_a_hosts_log_below_the_trajectory_is_read_by_that_hosts_reader(tmp_path)
     (tmp_path / "log").mkdir()
     shutil.copy(ROOT / "tests" / "fixtures" / "pi" / "success.jsonl", tmp_path / "log" / "agent-pi.jsonl")
     assert [s.kind for s in render._steps(tmp_path)] == ["command", "tool_call", "file_change", "message"]
+
+
+def test_a_harbor_trials_session_is_read_whichever_agent_ran_it(tmp_path):
+    """A Harbor trial keeps its acting CLI's stream under agent/ (agent/agent-<backend>.jsonl); one recorded before
+    keeps Harbor's own output of the CLI (Claude Code's agent/claude-code.txt), found a level deeper too (a stream's
+    step directory); one of Harbor's own agents only its ATIF trajectory: each renders as that session's steps, never
+    as no events."""
+    from hermit.agent.base.trajectory import READERS, events
+    from hermit.agent.evolver.methods.rrsi_adapter import render
+    claude = ROOT / "tests" / "fixtures" / "claude_streams" / "reply.jsonl"
+    (tmp_path / "a" / "agent").mkdir(parents=True)
+    shutil.copy(ROOT / "tests" / "fixtures" / "dsh" / "success.jsonl", tmp_path / "a" / "agent" / "agent-dsh.jsonl")
+    assert render._steps(tmp_path / "a") == READERS["dsh"](events(tmp_path / "a" / "agent" / "agent-dsh.jsonl"))
+    (tmp_path / "b" / "step-1" / "agent").mkdir(parents=True)
+    shutil.copy(claude, tmp_path / "b" / "step-1" / "agent" / "claude-code.txt")
+    assert render._steps(tmp_path / "b") == READERS["claude"](events(claude)) != []
+    trace = render.render({"task_id": "t", "trial": 1, "row": "t#1", "record": {}, "trajectory": str(tmp_path / "b")})
+    assert "[step 1] AGENT: mock-reply" in trace and "(no agent events were recorded)" not in trace
+    (tmp_path / "c" / "agent").mkdir(parents=True)
+    (tmp_path / "c" / "agent" / "trajectory.json").write_text(json.dumps({
+        "schema_version": "ATIF-v1.7", "agent": {"name": "terminus-2"}, "steps": [
+            {"step_id": 1, "source": "user", "message": "Add the numbers."},
+            {"step_id": 2, "source": "agent", "message": "The sum is 5.", "tool_calls": [
+                {"tool_call_id": "c1", "function_name": "bash_command",
+                 "arguments": {"keystrokes": "python3 add.py\n"}}],
+             "observation": {"results": [{"source_call_id": "c1", "content": "5"}]}}]}))
+    assert [(s.kind, s.text or s.command) for s in render._steps(tmp_path / "c")] == [
+        ("message", "The sum is 5."), ("command", "python3 add.py")]
+
+
+def test_a_file_change_nested_past_the_parsers_depth_renders_as_its_text():
+    """A file change's text is read as JSON for the files it names: one nested past the JSON parser's depth is shown
+    as its text, cut, as one that is no JSON is; never a RecursionError, which would stop the rollout's trace."""
+    from hermit.agent.base.trajectory import Step
+    from hermit.agent.evolver.methods.rrsi_adapter import render
+    (line,) = render.steps([Step("file_change", "[" * 100_000 + "]" * 100_000)], detail=False)
+    assert line.startswith("[step 1] FILES: [[[") and "chars cut ...]" in line and line.endswith("]]]")

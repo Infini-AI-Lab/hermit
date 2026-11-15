@@ -245,6 +245,28 @@ def test_skillopt_shows_the_analyst_a_codex_trace_summary(tmp_path):
     assert "Codex Trace Summary" not in hidden
 
 
+def test_skillopt_shows_the_analyst_a_harbor_trials_codex_trace_summary_from_where_its_stream_is(tmp_path):
+    """A Harbor trial of HermitCodex keeps Codex's stream under the trial's agent/ (agent/agent-codex.jsonl), one
+    recorded before that Harbor's own output of Codex (agent/codex.txt): SkillOpt's analyst gets that run's Codex
+    trace summary as it gets one of Hermit's own rollouts, the stream found where hermit.agent.base.trajectory finds a
+    run's; a trial of another CLI has none."""
+    from hermit.agent.evolver.methods.skillopt.evolver import codex_trace
+    events = [{"type": "thread.started", "thread_id": "th1"},
+              {"type": "item.completed", "item": {"type": "command_execution", "command": "cat task.md",
+                                                  "exit_code": 0, "aggregated_output": "Which rule?"}},
+              {"type": "item.completed", "item": {"type": "agent_message", "text": "<answer>A</answer>"}},
+              {"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 5}}]
+    for trial, rel in (("hermit-codex", "agent/agent-codex.jsonl"), ("harbor-codex", "agent/codex.txt")):
+        (tmp_path / trial / rel).parent.mkdir(parents=True)
+        (tmp_path / trial / rel).write_text("".join(json.dumps(e) + "\n" for e in events))
+        summary = codex_trace({"trajectory": trial, "judge": {"score": 0.0}}, tmp_path)
+        assert summary.startswith("Codex Trace Summary") and "- read task.md: success" in summary, rel
+        assert "- final answer format: well_formed" in summary and "- final answer label: A" in summary, rel
+    (tmp_path / "claude" / "agent").mkdir(parents=True)
+    (tmp_path / "claude" / "agent" / "agent-claude.jsonl").write_text(json.dumps({"type": "result", "result": "A"}))
+    assert codex_trace({"trajectory": "claude", "judge": {"score": 0.0}}, tmp_path) == ""
+
+
 def test_missing_dependency_requirements_match_pyproject_groups():
     import tomllib
 

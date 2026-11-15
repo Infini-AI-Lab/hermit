@@ -18,9 +18,9 @@ import sys
 
 from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, not_portable
 from hermit.hosts.context import PROJECT_CONTEXT, START, append_context
-from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, adapter_files, adapter_folder, check_skills, check_workspace,
-                                 copy_adapter, copy_skills, folder_note, render_exports, resources, retire_skills,
-                                 server_name, source_label)
+from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, add_session_flags, adapter_files, adapter_folder, check_skills,
+                                 check_workspace, context_of, copy_adapter, copy_skills, folder_note, render_exports,
+                                 resources, retire_skills, server_name, source_label)
 
 NATIVE = {"skills"}
 TOOL_TIMEOUT_MS = 120 * 1000          # Codex's tool_timeout_sec, not OpenCode's 30 s
@@ -84,5 +84,7 @@ if __name__ == "__main__":
     parser.add_argument("--adapter", type=Path, required=True)
     parser.add_argument("--workspace", "--output", dest="workspace", type=Path, required=True)
     parser.add_argument("--python", default=sys.executable)
+    add_session_flags(parser)
     args = parser.parse_args()
-    print(json.dumps(prepare(args.adapter, args.workspace, str(Path(args.python).absolute())), indent=2))
+    print(json.dumps(prepare(args.adapter, args.workspace, str(Path(args.python).absolute()),
+                             context=context_of(args.context_file), serve_tools=args.serve_tools), indent=2))

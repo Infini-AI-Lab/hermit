@@ -216,6 +216,179 @@ def test_bench_reads_a_claude_session(tmp_path, monkeypatch):
     assert render_claude_events(log / "task.md", obs_trunc=100, max_chars=10) == "(no parseable events in trajectory)"
 
 
+def test_a_claude_event_whose_text_holds_a_unicode_line_separator_is_rendered_whole(tmp_path):
+    """Claude Code's JSON.stringify leaves U+0085, U+2028 and U+2029 unescaped in an event's strings, where
+    str.splitlines() ends a line: such an event is read whole, so its tool call, the call's result and the message
+    reach the editors in upstream's grammar."""
+    from hermit.agent.evolver.methods.harness2_upstream.render import render_claude_events
+    for sep in ("\x85", "\u2028", "\u2029"):
+        events = [{"type": "assistant", "message": {"role": "assistant", "content": [
+                      {"type": "tool_use", "id": "a", "name": "Bash", "input": {"command": f"printf 'a{sep}b'"}}]}},
+                  {"type": "user", "message": {"role": "user", "content": [
+                      {"type": "tool_result", "tool_use_id": "a", "content": f"a{sep}b"}]}},
+                  {"type": "assistant", "message": {"role": "assistant", "content": [
+                      {"type": "text", "text": f"<answer>557</answer>{sep}done"}]}}]
+        log = tmp_path / "agent-claude.jsonl"
+        log.write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in events), encoding="utf-8")
+        assert render_claude_events(log, obs_trunc=100, max_chars=1000).split("\n") == [
+            f"[ACTION] Bash: printf 'a{sep}b'", f"[OBSERVATION] a{sep}b", f"[ASSISTANT] <answer>557</answer>{sep}done"
+        ], repr(sep)
+
+
+def test_bench_reads_a_harbor_trial_without_its_verifier(tmp_path):
+    """A Harbor trial (Claude Code in the task's container): the task is its instruction, the trajectory the session's
+    own stream (agent/claude-code.txt), the deliverable its final message; nothing of the verifier (its output, its
+    reward, which the trial's output also holds) reaches what the editors see."""
+    from hermit.agent.evolver.methods.harness2_upstream.bench import FrameworkBench
+    from harness2.core.spec import BenchPrompts, ChannelSpec
+    seed = tmp_path / "seed"
+    shutil.copytree(TEMPLATE, seed, ignore=shutil.ignore_patterns("__pycache__"))
+    material = tmp_path / "material" / "current"
+    log = material / "trajectories" / "fix-git_1"
+    (log / "agent").mkdir(parents=True)
+    (log / "verifier").mkdir()
+    events = [{"type": "system", "subtype": "init", "model": "claude-haiku-5-5", "tools": ["Bash"],
+               "apiKeySource": "none"},
+              {"type": "assistant", "message": {"id": "m", "role": "assistant", "content": [
+                  {"type": "tool_use", "id": "a", "name": "Bash", "input": {"command": "git reflog | head"}}]}},
+              {"type": "user", "message": {"role": "user", "content": [
+                  {"type": "tool_result", "tool_use_id": "a",
+                   "content": "c499730 HEAD@{1}: commit: Move to Stanford"}]}},
+              {"type": "result", "subtype": "success", "is_error": False, "num_turns": 2,
+               "result": "The changes are back on master as 86a9dd7.", "usage": {}}]
+    (log / "agent" / "claude-code.txt").write_text("".join(json.dumps(e) + "\n" for e in events))
+    (log / "verifier" / "test-stdout.txt").write_text("FAILED test_outputs.py::test_merge - AssertionError: VERIFIER\n")
+    (log / "verifier" / "reward.txt").write_text("1\n")
+    (log / "result.json").write_text(json.dumps({"verifier_result": {"rewards": {"reward": 1.0}}}))
+    ctx = SimpleNamespace(workspace=SimpleNamespace(adapter=seed, learning_material=material.parent, output=tmp_path / "out"),
+                          tools={})
+    (tmp_path / "out").mkdir()
+    row = {"id": "fix-git#1", "harbor_task": "fix-git", "instruction": "Find my lost changes and merge them.",
+           "metadata": {"difficulty": "easy"}, "docker_image": "x/fix-git:1", "rollout": 1}
+    record = {"id": "fix-git#1", "input": row, "status": "ok", "judge": {"score": 1.0},
+              "trajectory": "trajectories/fix-git_1",
+              "output": {"harbor_task": "fix-git", "rollout": 1, "reward": 1.0, "rewards": {"reward": 1.0},
+                         "status": "ok"}}
+    bench = FrameworkBench(ctx, record, prompts=BenchPrompts(work="Solving a terminal task."),
+                           channel=ChannelSpec("claude_cli", "claude-haiku-5-5", effort="medium", timeout=60),
+                           runs_root=tmp_path / "h2", domain="default", name="terminal-bench-2-1", obs_trunc=10000)
+    assert bench.task_prompt("fix-git#1") == "Find my lost changes and merge them."
+    run = bench.execute("fix-git#1", None, "base1")
+    seen = (bench.trajectory(run, obs_trunc=10000) + bench.deliverable_text(run)
+            + json.dumps(bench.deliverable_files(run)))
+    assert "[ACTION] Bash: git reflog | head" in seen and "c499730 HEAD@{1}" in seen
+    assert bench.deliverable_files(run) == {"final_message.txt": "The changes are back on master as 86a9dd7."}
+    assert bench.delivered(run) and "VERIFIER" not in seen and "reward" not in seen
+    assert bench.score(run, "fix-git#1")["score"] == 1.0           # the judge's, read only through score()
+
+
+def _harbor_trial(tmp_path, fill):
+    """The bench over a Harbor trial's record whose curated log `fill(log)` writes the agent's files into (the
+    verifier's output beside them), and the reference execution of it."""
+    from hermit.agent.evolver.methods.harness2_upstream.bench import FrameworkBench
+    from harness2.core.spec import BenchPrompts, ChannelSpec
+    seed = tmp_path / "seed"
+    shutil.copytree(TEMPLATE, seed, ignore=shutil.ignore_patterns("__pycache__"))
+    material = tmp_path / "material" / "current"
+    log = material / "trajectories" / "t_1"
+    (log / "agent").mkdir(parents=True)
+    (log / "verifier").mkdir()
+    (log / "verifier" / "test-stdout.txt").write_text("FAILED test_outputs.py::test_sum - AssertionError: VERIFIER\n")
+    fill(log)
+    ctx = SimpleNamespace(workspace=SimpleNamespace(adapter=seed, learning_material=material.parent,
+                                                    output=tmp_path / "out"), tools={})
+    (tmp_path / "out").mkdir()
+    row = {"id": "t#1", "harbor_task": "t", "instruction": "Add the numbers.", "rollout": 1}
+    record = {"id": "t#1", "input": row, "status": "ok", "judge": {"score": 0.0}, "trajectory": "trajectories/t_1",
+              "output": {"harbor_task": "t", "rollout": 1, "reward": 0.0, "rewards": {"reward": 0.0}, "status": "ok"}}
+    bench = FrameworkBench(ctx, record, prompts=BenchPrompts(work="Solving a terminal task."),
+                           channel=ChannelSpec("claude_cli", "claude-haiku-5-5", effort="medium", timeout=60),
+                           runs_root=tmp_path / "h2", domain="default", name="terminal-bench", obs_trunc=10000)
+    return bench, bench.execute("t#1", None, "base1")
+
+
+CODEX_EVENTS = [{"type": "thread.started", "thread_id": "th1"},
+                {"type": "item.completed", "item": {"type": "command_execution", "command": "python3 add.py",
+                                                    "exit_code": 0, "aggregated_output": "5\n"}},
+                {"type": "item.completed", "item": {"type": "agent_message", "text": "The sum is 5."}},
+                {"type": "turn.completed", "usage": {"input_tokens": 3, "cached_input_tokens": 0, "output_tokens": 1}}]
+MINI_EVENTS = [{"type": "session.started", "session": "s1", "model": "openai/m"},
+               {"type": "message", "message": {"role": "assistant", "content": "Adding them.",
+                                               "actions": ["python3 add.py"]}},
+               {"type": "message", "message": {"role": "tool", "content": "", "returncode": 0, "output": "5\n"}},
+               {"type": "message", "message": {"role": "exit", "content": "", "exit_status": "Submitted",
+                                               "submission": "The sum is 5."}}]
+# Each CLI's stream as a Harbor trial keeps it (agent/agent-<backend>.jsonl), a line the editors see of it, and the
+# session's final message
+HARBOR_SESSIONS = {"codex": ("".join(json.dumps(e) + "\n" for e in CODEX_EVENTS), "[ACTION] shell: python3 add.py",
+                             "The sum is 5."),
+                   "claude": ((ROOT / "tests/fixtures/claude_streams/reply.jsonl").read_text(),
+                              "[ASSISTANT] mock-reply", "mock-reply"),
+                   "pi": ((ROOT / "tests/fixtures/pi/success.jsonl").read_text(), "[ASSISTANT] the answer",
+                          "the answer"),
+                   "opencode": ((ROOT / "tests/fixtures/opencode/success.jsonl").read_text(),
+                                "[ACTION] shell: echo hi && exit 3", "the answer"),
+                   "dsh": ((ROOT / "tests/fixtures/dsh/success.jsonl").read_text(),
+                           "[OBSERVATION ERROR] hi | exit_code=3", "the answer"),
+                   "mini-swe-agent": ("".join(json.dumps(e) + "\n" for e in MINI_EVENTS),
+                                      "[ACTION] shell: python3 add.py", "The sum is 5.")}
+
+
+@pytest.mark.parametrize("backend", sorted(HARBOR_SESSIONS))
+def test_bench_reads_a_harbor_trial_of_any_cli(tmp_path, backend):
+    """A Harbor trial of a HermitXXX keeps its CLI's stream under agent/ (agent/agent-<backend>.jsonl), whichever CLI
+    it ran: the editors see that session's trajectory in upstream's grammar (Codex's by upstream's renderer, Claude
+    Code's and Pi's by the method's, the others' from the common reader's steps) and its final message as the
+    deliverable, read as its Base Agent reads it; nothing of the verifier."""
+    stream, line, final = HARBOR_SESSIONS[backend]
+    bench, run = _harbor_trial(tmp_path, lambda log: (log / "agent" / f"agent-{backend}.jsonl").write_text(stream))
+    seen = bench.trajectory(run, obs_trunc=10000)
+    assert line in seen.splitlines() and "(no trajectory" not in seen
+    assert bench.deliverable_files(run) == {"final_message.txt": final}
+    assert "VERIFIER" not in seen + bench.deliverable_text(run)
+
+
+@pytest.mark.parametrize("case, final", [("two_blocks", "first-text\n\nsecond-text"),
+                                         ("cut_then_continued", "part-one part-two"),
+                                         ("always_cut", "")])
+def test_a_claude_trials_final_message_is_its_whole_last_turn_and_none_when_its_result_is_an_error(tmp_path, case,
+                                                                                                     final):
+    """A Claude Code trial's final message is its reply as the Base Agent reads it: every text block of the last turn
+    (two blocks; a message the CLI continued past its output limit, joined where it was cut), where the result's own
+    text keeps only the last block; a session whose result is an error gives none, whatever text it wrote."""
+    from hermit.agent.evolver.methods.harness2_upstream.bench import final_message
+    (tmp_path / "agent").mkdir()
+    (tmp_path / "agent" / "agent-claude.jsonl").write_text(
+        (ROOT / "tests" / "fixtures" / "claude_streams" / f"{case}.jsonl").read_text())
+    assert final_message(tmp_path) == final
+
+
+def test_bench_reads_a_codex_trials_collected_last_message_the_answer_agents_answer_and_harbors_own_atif(tmp_path):
+    """A Codex trial's final message is its `-o` file, which the runner collected from the task's container
+    (agent/hermit-collect/last_message.txt); the answer-only agent's is its answer (agent/answer.json); one of
+    Harbor's own agents leaves only its ATIF trajectory, which gives the editors its steps and its last message."""
+    def codex(log):
+        (log / "agent" / "agent-codex.jsonl").write_text("".join(json.dumps(e) + "\n" for e in CODEX_EVENTS))
+        (log / "agent" / "hermit-collect").mkdir()
+        (log / "agent" / "hermit-collect" / "last_message.txt").write_text("The sum is 5, checked twice.")
+    bench, run = _harbor_trial(tmp_path / "codex", codex)
+    assert bench.deliverable_text(run) == "The sum is 5, checked twice."
+    bench, run = _harbor_trial(tmp_path / "answer", lambda log: (log / "agent" / "answer.json").write_text(
+        json.dumps({"reply": "<answer>5</answer>", "answer": "5", "usage": {}, "model": "m"})))
+    assert bench.deliverable_files(run) == {"final_message.txt": "5"}
+    atif = {"schema_version": "ATIF-v1.7", "agent": {"name": "terminus-2"}, "steps": [
+        {"step_id": 1, "source": "user", "message": "Add the numbers."},
+        {"step_id": 2, "source": "agent", "message": "Adding them.", "tool_calls": [
+            {"tool_call_id": "c1", "function_name": "bash_command", "arguments": {"keystrokes": "python3 add.py\n"}}],
+         "observation": {"results": [{"source_call_id": "c1", "content": "5"}]}},
+        {"step_id": 3, "source": "agent", "message": "The sum is 5."}]}
+    bench, run = _harbor_trial(tmp_path / "atif", lambda log: (log / "agent" / "trajectory.json").write_text(
+        json.dumps(atif)))
+    assert bench.trajectory(run, obs_trunc=10000).splitlines() == [
+        "[ASSISTANT] Adding them.", "[ACTION] shell: python3 add.py", "[OBSERVATION] 5", "[ASSISTANT] The sum is 5."]
+    assert bench.deliverable_text(run) == "The sum is 5."
+
+
 # The scripted channel on the Codex tree: the INV and DOM editors add a triggered skill, the composer writes the rule
 # the toy pipeline needs into AGENTS.md, the reflector writes a lesson naming AGENTS.md.
 PROPOSER = r'''

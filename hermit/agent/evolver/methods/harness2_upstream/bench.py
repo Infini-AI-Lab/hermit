@@ -4,7 +4,8 @@ One step holds one task. Executions go through the Trainer's run_agent tool, so 
 are metered against the run's budget and are logged with the other tool calls; the reference execution is the
 Trainer's own rollout of the step, which ran the starting adapter on this task. A run's judge result stays in this
 object (`private`) and in the step's output (`scores.jsonl`), never where a session can read it: upstream reads it
-only through `score`, after selection has committed.
+only through `score`, after selection has committed. A run that is not the agent's result (status infra) has no
+grade: `score` gives none for it.
 """
 from __future__ import annotations
 
@@ -16,9 +17,96 @@ import threading
 from harness2.core import tree as T
 from harness2.core.spec import BenchPrompts, BenchSpec, ChannelSpec
 
+from hermit.agent.base.trajectory import Step, find_stream, log_steps
 from hermit.agent.evolver.methods.harness2_upstream import surface as U
 
 TRUNCATED = "…(+{n} chars — render truncation)"          # upstream's renderer marker (substrate/codex.py)
+# A Harbor trial's curated log: what the runner collected of the session's home in the task's container (the CLI's
+# last-message file), and the answer-only agent's record (its reply and answer)
+COLLECTED_LAST = Path("agent") / "hermit-collect" / "last_message.txt"
+ANSWER_RECORD = Path("agent") / "answer.json"
+
+
+def _final_message(stream: Path) -> str:
+    """A Claude Code session's final message, as its Base Agent reads the reply (Claude.outcome): every text block of
+    its last turn, a message the CLI continued past its output limit joined where it was cut (the last result's
+    `result` holds only the last block); none for a session the provider did not serve (Claude.served: no result, a
+    failed one, or one of no turn)."""
+    try:
+        raw = stream.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    from hermit.agent.base.cli import Claude
+    return Claude().outcome(raw, stream, None)["reply"]
+
+
+def final_message(log: Path) -> str:
+    """A Harbor trial's final message, from the session's own records in its curated log (hermit.agent.base.trajectory
+    finds the stream: any CLI's agent/agent-<backend>.jsonl, or Harbor's own output of a trial recorded before that):
+    Claude Code's reply as its Base Agent reads it (_final_message); another CLI's last message as its Base Agent reads
+    it (the last-message file the runner collected, else the stream); else the answer-only agent's answer
+    (agent/answer.json); else the last message of Harbor's own ATIF trajectory."""
+    found = find_stream(log)
+    if found is not None:
+        stream, host = found
+        if host == "claude":
+            return _final_message(stream)
+        from hermit.agent.base.cli import CLIS
+        last = log / COLLECTED_LAST
+        return CLIS[host].last_message(stream, last if last.is_file() else None)
+    if (log / ANSWER_RECORD).is_file():
+        try:
+            record = json.loads((log / ANSWER_RECORD).read_text(encoding="utf-8", errors="replace"))
+        except (ValueError, RecursionError):        # no JSON, or nested past the parser's depth
+            record = None
+        return str(record.get("answer") or record.get("reply") or "") if isinstance(record, dict) else ""
+    replies = [s.text for s in log_steps(log) or [] if s.kind == "message" and s.role == "assistant"]
+    return replies[-1] if replies else ""
+
+
+def _action(step: Step) -> str:
+    """A file change's or a tool call's summary (its JSON: the tool and what it was given) as upstream's [ACTION] line
+    names a call: the tool, then its input."""
+    try:
+        data = json.loads(step.text)
+    except ValueError:
+        return step.text
+    if not isinstance(data, dict) or not data.get("tool"):
+        return step.text
+    rest = {k: v for k, v in data.items() if k != "tool"}
+    given = rest["input"] if set(rest) == {"input"} else rest
+    return f"{data['tool']}: {json.dumps(given, ensure_ascii=False, default=str)}"
+
+
+def render_steps(steps: list[Step], *, obs_trunc: int, max_chars: int, args_trunc: int = 2000) -> str:
+    """A session's steps as hermit.agent.base.trajectory reads them (a CLI this method has no renderer of its own for,
+    OpenCode, dsh or mini-swe-agent, or Harbor's own ATIF trajectory) in upstream's grammar: [ASSISTANT], [USER] and
+    [REASONING] lines, an [ACTION] per command (`shell: ...`), file change or tool call with its [OBSERVATION]
+    ([OBSERVATION ERROR] and the exit code for a command that failed), [ERROR]; an action's input clipped at
+    `args_trunc`, each observation at `obs_trunc` with upstream's marker, the whole text at `max_chars`."""
+    lines: list[str] = []
+    for step in steps:
+        if step.kind == "message":
+            lines.append(f"[{'ASSISTANT' if step.role == 'assistant' else 'USER'}] {_clip(step.text, obs_trunc)}")
+        elif step.kind == "reasoning":
+            lines.append(f"[REASONING] {_clip(step.text, obs_trunc)}")
+        elif step.kind == "command":
+            failed = step.exit_code not in (None, 0)
+            lines.append(f"[ACTION] shell: {_clip(step.command, args_trunc)}")
+            lines.append(f"[OBSERVATION{' ERROR' if failed else ''}] {_clip(step.output, obs_trunc)}"
+                         + (f" | exit_code={step.exit_code}" if failed else ""))
+        elif step.kind in ("file_change", "tool_call"):
+            lines.append(f"[ACTION] {_clip(_action(step), args_trunc)}")
+            if step.output:
+                lines.append(f"[OBSERVATION] {_clip(step.output, obs_trunc)}")
+        elif step.kind == "error":
+            lines.append(f"[ERROR] {_clip(step.text, 1000)}")
+    rendered = "\n".join(lines).strip()
+    if not rendered:
+        return "(no parseable events in trajectory)"
+    if len(rendered) > max_chars:
+        rendered = rendered[:max_chars] + "\n" + TRUNCATED.format(n=len(rendered) - max_chars)
+    return rendered
 
 
 class Substrate:
@@ -77,7 +165,10 @@ class FrameworkBench:
         return [self.domain]
 
     def task_prompt(self, task_id: str) -> str:
-        """The task as the agent received it: its first user prompt, else the task's own fields."""
+        """The task as the agent received it: its first user prompt (a Harbor task's instruction), else the task's own
+        fields."""
+        if self.task.get("harbor_task") and self.task.get("instruction"):    # a Harbor task: its instruction.md
+            return str(self.task["instruction"])
         log = self._material_log()
         if log is not None and (log / "task.md").is_file():            # a CLI session: its prompt and task.md
             prompt = (log / "prompt.txt").read_text(errors="replace") if (log / "prompt.txt").is_file() else ""
@@ -146,10 +237,13 @@ class FrameworkBench:
             self._keep_log(Path(result["log"]) if result.get("log") else None, out)
         if run.get("status") == "error":   # it scores 0, as in the Trainer's records, and says why (not a wrong answer)
             self.private[run_id]["error"] = str(run.get("error") or "the execution failed")
+        elif run.get("status") == "infra" or (self.private[run_id].get("extra") or {}).get("unscored"):
+            # not the agent's result (the machine, the provider): no grade, as the Trainer's records give it none
+            self.private[run_id] = {"score": None, "unscored": str(run.get("error") or "infra")}
         (out / "run.json").write_text(json.dumps({"run_id": run_id, **run}, ensure_ascii=False, indent=1,
                                                  default=str))
         with self._lock, open(self.ctx.workspace.output / "scores.jsonl", "a") as f:   # survives a stopped step
-            failed = {"error": self.private[run_id]["error"]} if "error" in self.private[run_id] else {}
+            failed = {k: self.private[run_id][k] for k in ("error", "unscored") if k in self.private[run_id]}
             f.write(json.dumps({"run_id": run_id, "answered": self.delivered(out),
                                 "score": self.private[run_id].get("score"), **failed}) + "\n")
         return out
@@ -187,8 +281,13 @@ class FrameworkBench:
         return bool(self.deliverable_text(run_dir).strip())
 
     def deliverable_text(self, run_dir: Path) -> str:
-        """The answer as the editors see it (the token redacted, as in the trajectory); the judge scored the original."""
+        """The answer as the editors see it (the token redacted, as in the trajectory); the judge scored the original.
+        A Harbor trial delivers the state it leaves in the task's environment, which nothing outside it can show: its
+        text is the session's final message, read from the session's own records, whichever CLI ran it
+        (final_message; never the trial's output, which holds the verifier's reward)."""
         output = self._run(run_dir).get("output")
+        if isinstance(output, dict) and output.get("harbor_task"):
+            return _redacted(final_message(Path(run_dir) / "log"))
         if isinstance(output, dict):
             return _redacted(str(output.get("answer") or ""))
         text = "" if output is None else output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
@@ -196,22 +295,32 @@ class FrameworkBench:
 
     def deliverable_files(self, run_dir: Path) -> dict[str, str]:
         text = self.deliverable_text(run_dir)
-        return {"answer.txt": text} if text.strip() else {}
+        output = self._run(run_dir).get("output")
+        name = "final_message.txt" if isinstance(output, dict) and output.get("harbor_task") else "answer.txt"
+        return {name: text} if text.strip() else {}
 
     def trajectory(self, run_dir: Path, *, obs_trunc: int) -> str:
+        """The execution's trajectory in upstream's grammar, from its session's stream (hermit.agent.base.trajectory
+        finds it: the log's own, a Harbor trial's agent/agent-<backend>.jsonl, or Harbor's own output of the CLI):
+        Codex's by upstream's own renderer, Claude Code's and Pi's by this method's, any other's (and Harbor's ATIF
+        trajectory, without a stream) from the steps the common reader gives (render_steps)."""
         run, log = self._run(run_dir), Path(run_dir) / "log"
         limit = max(obs_trunc * 40, 2_000_000)
-        if (log / "agent-codex.jsonl").is_file():                      # a Codex session: upstream's own renderer
+        stream, host = find_stream(log) or (None, None)
+        if host == "codex":                                            # a Codex session: upstream's own renderer
             from harness2.substrate.codex import render_events
-            text = render_events(log / "agent-codex.jsonl", obs_trunc=obs_trunc, max_chars=limit)
-        elif (log / "agent-claude.jsonl").is_file():                   # a Claude Code session, in upstream's grammar
+            text = render_events(stream, obs_trunc=obs_trunc, max_chars=limit)
+        elif host == "claude":                                         # a Claude Code session, in upstream's grammar
             from hermit.agent.evolver.methods.harness2_upstream.render import render_claude_events
-            text = render_claude_events(log / "agent-claude.jsonl", obs_trunc=obs_trunc, max_chars=limit)
-        elif (log / "agent-pi.jsonl").is_file():                       # a Pi session, in upstream's grammar
+            text = render_claude_events(stream, obs_trunc=obs_trunc, max_chars=limit)
+        elif host == "pi":                                             # a Pi session, in upstream's grammar
             from hermit.agent.evolver.methods.harness2_upstream.render import render_pi_events
-            text = render_pi_events(log / "agent-pi.jsonl", obs_trunc=obs_trunc, max_chars=limit)
+            text = render_pi_events(stream, obs_trunc=obs_trunc, max_chars=limit)
         else:
-            return f"(no trajectory recorded for {Path(run_dir).name})"
+            steps = log_steps(log)
+            if steps is None:
+                return f"(no trajectory recorded for {Path(run_dir).name})"
+            text = render_steps(steps, obs_trunc=obs_trunc, max_chars=limit)
         output = run.get("output") if isinstance(run.get("output"), dict) else {}
         reason = (output or {}).get("fail_reason") or ""
         if reason:

@@ -15,10 +15,10 @@ import tomllib
 
 from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, not_portable
 from hermit.hosts.context import PROJECT_CONTEXT, append_context
-from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, adapter_files, adapter_folder,
-                                 check_context_size, check_skills, check_workspace, copy_adapter, copy_skills,
-                                 folder_note, hook_commands, native_hooks, render_exports, resources, retire_roles,
-                                 retire_skills, role_body, server_name, source_label)
+from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, add_session_flags, adapter_files,
+                                 adapter_folder, check_context_size, check_skills, check_workspace, context_of,
+                                 copy_adapter, copy_skills, folder_note, hook_commands, native_hooks, render_exports,
+                                 resources, retire_roles, retire_skills, role_body, server_name, source_label)
 
 DOC_BYTES = 32 * 1024                     # Codex's project_doc_max_bytes when the user's config does not set it
 NATIVE = {"skills", "agents"}
@@ -127,7 +127,9 @@ if __name__ == "__main__":
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--context-limit", type=int, default=DOC_BYTES,
                         help="Codex's project_doc_max_bytes for this workspace (0: not checked)")
+    add_session_flags(parser)
     args = parser.parse_args()
     # Keep a venv interpreter's path; resolve() would follow its symlink out of the venv.
     print(json.dumps(prepare(args.adapter, args.workspace, str(Path(args.python).absolute()),
-                             context_limit=args.context_limit or None), ensure_ascii=False, indent=2))
+                             context=context_of(args.context_file), context_limit=args.context_limit or None,
+                             serve_tools=args.serve_tools), ensure_ascii=False, indent=2))
