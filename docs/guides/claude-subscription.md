@@ -180,7 +180,9 @@ reset it names and runs again. `plan_max_wait_s` bounds the wait (default 12 h, 
 that started before it and end after it do not lift it, and a later refusal that names an earlier reset does not
 shorten it. The clocks around a hold still run: `trainer.call_timeout_min` stops a learner's step that waits past it, so
 give a run that may meet a limit room there, and `agent.timeout_min` ends a task's worker, wait included, as an error
-record that scores 0: leave it unset on a login. On a chat route (`llm` or `agent.model` with `cli: claude`) the session
+record that scores 0: leave it unset on a login. A session's own clock is not one of them: `timeout_s` (the AHE
+Adapter's `evolve_timeout_s` and `debugger.timeout_s` among them) starts once the CLI runs, so a hold pauses a learner's
+session instead of spending its time. On a chat route (`llm` or `agent.model` with `cli: claude`) the session
 waits inside the request, and the client waits with it: its `timeout` is extended by `plan_max_wait_s`, so a held call
 is served after the hold instead of given up.
 
@@ -237,7 +239,9 @@ therefore undercounts (a Harbor trial on the login is the exception: its usage i
 [Benchmarks](../framework/task.md#benchmarks)); a rollout waiting for the plan is not stopped by the Trainer's budget
 or stop until its wait ends (as on Codex's ChatGPT login). A lost sign-in met inside a Trainer tool that a learner's
 session calls over the tool server (`run_agent`, `llm`) stops the learner and ends the run after its call,
-unfinished, as at a step.
+unfinished, as at a step. A Harbor trial's lost sign-in on the login halts the run
+([Benchmarks](../framework/task.md#benchmarks)) and ends it unfinished too: before the learner is called on the
+step's rollouts, after the learner's call on `run_agent`'s.
 
 ## The model contract
 

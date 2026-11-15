@@ -3,25 +3,34 @@ reward, and whether the run must halt.
 
 Harbor 0.25.0's error policy (harbor/models/trial/error_policy.py) maps exception types to failure causes. It is copied
 here so that Hermit's side never imports Harbor: Harbor lives in its own venv (Python 3.13). An unlisted exception
-type is `unclassified`.
+type is `unclassified`. What the policy grades as the agent's result although its cause is the verifier's or the
+provider's (GRADED) is the agent's here too. Harbor grades a model provider's other failures as the agent's too, a
+refused sign-in or model aside (a rate limit, a lost connection or a server error, after its retries; a parameter, a
+response or a budget the provider refused); Hermit keeps them infra and runs them again, since a provider that could
+not serve the run, or refused its configuration, is not the agent's result.
 
     status       condition
     ok           no exception, a verifier reward
     timeout      AgentTimeoutError (the verifier may still have run); a verifier that ran out of its time on the
-                 agent's solution (solution_timed_out, with verifier_timeout: agent: runner.verifier_timeout_verdict)
+                 agent's solution (VerifierTimeoutError: solution_timed_out, runner.verifier_timeout_verdict)
     agent_error  unclassified (an agent exit with an unmatched message: a CLI that exited non-zero, as one does whose
-                 first request the provider refused for what the input made it, a prompt too long), a session the
-                 model's safeguards ended (agent_refused_task: runner.session_verdict), the adapter's context over
-                 the CLI's limit beside the image's own (context_over_limit)
-    infra        a sandbox, model provider, verifier or Harbor failure; harbor killed by the wait budget; no trial
-                 directory; an unlisted exception whose message is the host's (HOST_FAILURE); harborside's launch of
-                 the session failing for a reason not the agent's (launch_failed); a verifier a server kept from its
-                 tests (verifier_failed); and what the runner reads from the session or meets before the
-                 trial: the plan's usage limit (usage_limit), a lost sign-in (login_failed), a provider that refused
-                 the run's configuration before it served any request (model_rejected: a key it does not take, a
-                 permission it does not give, a model it does not have, an account it does not bill; no halt), a
-                 session that never started or whose tools never came up (session_failed), the adapter's tools not
-                 served (tools_failed)
+                 first request the provider refused for what the input made it, a prompt too long), a request of one
+                 of Harbor's own agents that the provider refused for what it held (BadRequestError,
+                 UnprocessableEntityError: model_provider_failed), a verifier that left no reward Harbor could read
+                 (no reward file, an empty one, one that does not parse: verifier_failed), a session the model's
+                 safeguards ended (agent_refused_task: runner.session_verdict), the adapter's context over the CLI's
+                 limit beside the image's own (context_over_limit)
+    infra        a sandbox, model provider or Harbor failure; harbor killed by the wait budget; no trial directory;
+                 no exception and no reward; an unlisted exception whose message is the host's (HOST_FAILURE);
+                 harborside's launch of the session failing for a reason not the agent's (launch_failed); a verifier
+                 the host kept from its tests (verifier_failed: its tools never arrived, or the host's disk was full,
+                 runner.verifier_verdict; one that ran out of its time with verifier_timeout: infra); and what the
+                 runner reads from the session or meets before the trial: the adapter's staging failing on this
+                 machine (staging_failed), the plan's usage limit (usage_limit), a lost sign-in (login_failed), a
+                 provider that refused the run's configuration before it served any request (model_rejected: a key it
+                 does not take, a permission it does not give, a model it does not have, an account it does not bill;
+                 no halt), a session that never started or whose tools never came up (session_failed), the adapter's
+                 tools not served (tools_failed)
 
 The judge (judge.py) scores the verifier's reward whenever there is one (ok, timeout, agent_error), else 0. An infra
 rollout is not the agent's result: the runner marks it `unscored`, and the Trainer keeps it out of every mean. Tokens
@@ -62,9 +71,18 @@ FAILURE_CAUSE: dict[str, str] = {name: cause for cause, names in {
 INFRA_CAUSES = {"sandbox_failed", "model_provider_failed", "verifier_failed", "harbor_failed", "cancelled",
                 "harbor_timeout", "halted", "disk", "stream_lost", "stream_order", "launch_failed",
                 # read from the session's stream by the runner (runner.session_verdict), or met before the trial
-                "session_failed", "tools_failed", "login_failed", "usage_limit", "model_rejected",
+                "session_failed", "tools_failed", "login_failed", "usage_limit", "model_rejected", "staging_failed",
                 # a task Harbor runs for none of Hermit's agents (runner.unsupported): never started
                 "unsupported_task"}
+# What Harbor grades as the agent's result although its cause is one of INFRA_CAUSES (its policy's retry=False,
+# grade=True; its job mean counts a trial without a reward as 0): its verifier group, a verifier that ran out of its
+# time (runner.verifier_timeout_verdict) or left no reward it could read (no file, an empty one, one that does not
+# parse), unless Hermit's own checks of the verifier's output find the host behind it (runner.verifier_verdict); and
+# litellm's 400 and 422, a request of one of Harbor's own agents that the provider refused for what it held (a prompt
+# too long, an invalid request), as a Hermit CLI's first request refused for what its input made it is
+# (runner.session_verdict).
+GRADED = {"VerifierTimeoutError", "RewardFileNotFoundError", "RewardFileEmptyError", "VerifierOutputParseError",
+          "BadRequestError", "UnprocessableEntityError"}
 HALTING = {"ApiUsageLimitError", "AgentAuthenticationError"}       # nothing after this trial can succeed
 # An exception Harbor does not list whose message shows the host failing, not the agent: the agent's setup could not
 # exec in the container (the host's /tmp full, where runc writes each exec's process file; the daemon gone), or the
@@ -101,7 +119,9 @@ def verifier_unreached(stdout: str, report_exists: bool = False) -> bool:
 
 
 # A verifier the host's full disk stopped: the shared Docker disk filled while it ran (ENOSPC, e.g. uv could not unpack
-# the Python it runs the tests with, 2026-11-08), so its tests did not all run. Infra.
+# the Python it runs the tests with, 2026-11-08), so its tests did not all run. Infra, even where the agent filled it: a
+# container's disk is the host's shared Docker disk (its writable layer on Docker's data root), so an agent that fills
+# its container's disk fills the host's for every trial on it, and the verifier's output cannot tell the two apart.
 VERIFIER_DISK_FULL = re.compile(r"No space left on device|\(os error 28\)|\[Errno 28\]", re.IGNORECASE)
 
 
@@ -139,11 +159,12 @@ def classify(result: dict | None, *, expired: bool = False, harbor_exit: int | N
     cause = FAILURE_CAUSE.get(exc_type, "unclassified")
     if cause == "unclassified" and exc_type != "NonZeroAgentExitCodeError" and HOST_FAILURE.search(message):
         cause = "sandbox_failed"
-    return _verdict("infra" if cause in INFRA_CAUSES else "agent_error", cause, exc_type, message,
+    infra = cause in INFRA_CAUSES and exc_type not in GRADED
+    return _verdict("infra" if infra else "agent_error", cause, exc_type, message,
                     float(reward) if reward is not None else None, halt=exc_type in HALTING)
 
 
 def no_trial(cause: str, message: str, *, halt: bool = False) -> dict:
     """An infra verdict for a rollout that never reached a container (the halt sentinel, the disk gate, a lost
-    stream)."""
+    stream, the adapter's staging)."""
     return _verdict("infra", cause, None, message, None, halt=halt)

@@ -65,7 +65,7 @@ tag(adapter, "final")
 
 | Handoff | Input | Output |
 |---|---|---|
-| Trainer → pipeline | One task and the current adapter path; with `trainer.epochs` above 1 a copy of the task that names its epoch (`epoch`), and a task the epoch's order names twice marked for a new run each time (`fresh`). | `RunOutput`: answer and available execution evidence. |
+| Trainer → pipeline | One task and the current adapter path. A pipeline that keeps its trials by row (a Harbor task set's `trial_cache`) gets, with `trainer.epochs` above 1, a copy of the task that names its epoch (`epoch`), and a task the epoch's order names twice marked for a new run each time (`fresh`); any other pipeline gets the task as it is, and no record keeps either key. | `RunOutput`: answer and available execution evidence. |
 | Trainer → scoring function | Task and `RunOutput`. | Score, feedback, and additional fields. |
 | Trainer → learning-material writer | Per-task records and any prior repair feedback. | Material for this batch. |
 | Trainer → Evolver | `StepContext`, including an editable copy of the same adapter. | Files left in `adapter/`, updated state, `StepResult`, and reports. |
@@ -122,6 +122,7 @@ Failures affect different boundaries:
 | Evolver reports `failed` / `out_of_budget`, raises, or returns the wrong type | Keep the previous adapter and record the step. |
 | Returned files violate the specification | Repair as described below. |
 | `setup` fails | Stop before training steps begin. |
+| A rollout, or a run of `run_agent`'s, reports a halt (a Harbor task set's lost sign-in or an API account's usage limit: every later rollout returns at once, unrun) | End the run unfinished, as at a lost sign-in: before the learner is called on the step's rollouts, after the learner's call for `run_agent`'s; once restored, a resume runs the step again. |
 | `finalize` fails or returns the wrong type | Use the current accepted adapter as final. |
 | Unhandled crash | Resume from the last completed step, subject to the saved records. |
 
@@ -152,7 +153,8 @@ earlier one would wait for it in the task's stream), or kept as the split file g
 (an ordered stream, such as a continual-learning sequence). A split kept as given that lists a step of a multi-step
 Harbor task ahead of an earlier step of its stream, and any order that lists a step but not every earlier step of its
 stream, is refused before training, and `hermit check` reports it; so is more than one epoch of a train split with
-such steps (a run runs each step of a stream once, in one environment). The last batch can be smaller. An Evolver that
+such steps (a task's stream is the run's: a second epoch would run a stream the split lists whole again over the first
+epoch's step logs, and find the turns of one it lists in part taken). The last batch can be smaller. An Evolver that
 declares `chooses_tasks` may instead name the next step's tasks from those the epoch has still to run, a step of a
 multi-step Harbor task only once each earlier step of its stream has run in the epoch or comes before it in the request
 (one the training split leaves out never runs: [Choosing the next tasks](evolver.md#choosing-the-next-tasks)); the

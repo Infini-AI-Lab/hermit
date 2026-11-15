@@ -178,9 +178,12 @@ once one of its runs ends with the budget reached, the call starts no other, and
 made, whose cost counts all the same. Omitting `adapter` tests the current working copy. The response contains
 per-task status, output, judge results, cost, and time, how the session ended when the pipeline reports it
 (`exit_code`, `timed_out`: the CLI agents do), and for training tasks the path of the run's log; it does not return the
-trajectories themselves. Its usage counts toward the run's Evolver budget. Each ID it runs is a new run: the rows it
-hands the pipeline name it (`fresh`), so that a pipeline keeping its trials by row (a Harbor task set's `trial_cache`)
-neither takes the run from there nor keeps it, and a second call on the same adapter is a second run.
+trajectories themselves. Its usage counts toward the run's Evolver budget. Each ID it runs is a new run: to a pipeline
+keeping its trials by row (a Harbor task set's `trial_cache`) the rows it hands say so (`fresh`), so that it neither
+takes the run from there nor keeps it, and a second call on the same adapter is a second run; any other pipeline gets
+the rows as they are. A run that reports a halt (a Harbor task set's lost sign-in or an API account's usage limit,
+after which every rollout returns at once, unrun) fails the call, and the run ends after the learner's call,
+unfinished, as at a lost sign-in.
 
 The validation steps of a multi-step Harbor task run in one stream (each rollout's own) for the whole run, whatever
 adapter each call names: give them all, in step order, in one call. A step runs only after the steps before it, in that

@@ -1086,18 +1086,21 @@ class CliAgent(BaseAgent):
 
 
 # Codex's report of a sign-in or a key the provider refused, which no wait restores (the wording of Harbor's
-# AgentAuthenticationError, harbor/agents/installed/base.py ERROR_PATTERNS), matched as Codex writes it: another
+# AgentAuthenticationError, harbor/agents/installed/base.py ERROR_PATTERNS, and Codex 0.164's own for no sign-in at all
+# and for the ChatGPT workspace routing a login's requests go through refusing it), matched as Codex writes it: another
 # program's lowercase "not logged in" on Codex's stderr is not the session's sign-in; never in a recovery notice
 # (CODEX_RECOVERY), which Codex goes on from (one that lasts ends in the turn's failure or a last error, which count)
 CODEX_AUTH = re.compile(r"Not logged in|\binvalid_api_key\b|Invalid API key\b|API key is invalid\b|"
                         r"Incorrect API key provided\b|unexpected status 401 Unauthorized\b|"
-                        r"Invalid proxy server token passed|\btoken_not_found_in_db\b")
+                        r"Invalid proxy server token passed|\btoken_not_found_in_db\b|"
+                        r"\bno Codex credentials were found\b|workspace routing discovery unauthorized \(401\)")
 # ... and a 403, only in the error a turn failed with (`turn.failed`, as Harbor's pattern takes it): Codex's reconnect
 # notices of a 403 ("Reconnecting... unexpected status 403") are common, and recovered from
 CODEX_FORBIDDEN = re.compile(r"unexpected status 403\b")
 # Codex's notices of an error it recovers from, the session going on: its retry ("Reconnecting... 2/5 (unexpected
 # status 401 Unauthorized: ...)") and its fall back from a WebSocket the provider refused to HTTPS (an `error` item:
-# "Falling back from WebSockets to HTTPS transport. unexpected status 403 Forbidden: ...")
+# "Falling back from WebSockets to HTTPS transport. unexpected status 403 Forbidden: ..."). A turn that fails, or a
+# stream that ends, before the session works again failed on what Codex was retrying (Codex.outcome).
 CODEX_RECOVERY = re.compile(r"\s*(?:Reconnecting\.\.\.|Falling back from WebSockets to HTTPS transport\b)")
 # A record of Codex's own log on its stderr ("<time> <LEVEL> <target>: <message>", its target in group 1), whose
 # target is a Rust path (codex_core::tools::router, rmcp::transport::worker), after the spans the record was logged in
@@ -1228,30 +1231,47 @@ class Codex(CliAgent):
 
     def outcome(self, raw, stream, last_file):
         """From the CLI's own notices (its error events and lines, never a command's output nor what its log quotes
-        of the session's work, `lines`): a provider that could not serve (`unavailable`: UNAVAILABLE in the session's
-        last failure, the error the turn failed with, else its last error or line, never a notice it recovered from,
-        CODEX_RECOVERY; in any line of a stream with no event, where no session began: a container that could not
-        start, whose `docker run` ends its error with a help line), the plan's limit, and a sign-in or a key the
-        provider refused (`login_failed`: CODEX_AUTH in a notice that is no recovery notice, CODEX_FORBIDDEN in the
-        error the turn failed with), for a turn that did not complete."""
+        of the session's work, `lines`): a provider that could not serve (`unavailable`), the plan's limit, and a
+        sign-in or a key the provider refused (`login_failed`: CODEX_AUTH in a notice that is no recovery notice,
+        CODEX_FORBIDDEN in the error the turn failed with), for a turn that did not complete.
+
+        `unavailable` is UNAVAILABLE in the session's last failure: the error the turn failed with, else its last
+        error or line since the session last worked (an item the provider served), never a notice it went on from (a
+        recovery notice, CODEX_RECOVERY, or a warning, an `error` item: the hook trust notice too, so whether hooks
+        were deployed never decides it); in any line of a stream with no event, where no session began (a container
+        that could not start, whose `docker run` ends its error with a help line). So is a turn that failed, or a
+        stream that ended, while Codex was retrying (a recovery notice since the session last worked), unless the
+        sign-in was lost: Codex retries what the provider or the network failed, and the error it fails the turn with
+        when its retries run out need not say so (Codex 0.164 when chatgpt.com cannot be reached: "Reconnecting...
+        5/5 (workspace routing discovery failed)", then the turn failed with "workspace routing discovery failed")."""
         notes, done = self.notices(raw), self.served(raw)
-        # the CLI's notices in the stream's order, none it recovered from; the errors its turn failed with; and
-        # whether any event came (a session began)
-        lasting, failed, began = [], [], False
+        # the CLI's notices in the stream's order, none it recovered from; the errors its turn failed with; whether any
+        # event came (a session began); and since the session last worked, its errors and lines that are no warning,
+        # and whether Codex retried
+        lasting, failed, began, since, retried = [], [], False, [], False
         for event, line in self.lines(raw):
             if event is None:                           # a line of its own (its stderr)
                 lasting.append(line)
+                since.append(line)
                 continue
             began = True
+            item = event.get("item") if isinstance(event.get("item"), dict) else None
+            warning = item is not None and item.get("type") == "error"
+            if event.get("type") == "turn.completed" or (item is not None and not warning):
+                since, retried = [], False              # the session worked: it went on from what came before
             said = [m for m in self.errors(event) if m.strip()]
             if event.get("type") == "turn.failed":
                 failed += said
-            lasting += [m for m in said if not CODEX_RECOVERY.match(m)]
-        last = failed[-1] if failed else "\n".join(lasting[-1:] if began else lasting)
+            retried = retried or any(CODEX_RECOVERY.match(m) for m in said)
+            kept = [m for m in said if not CODEX_RECOVERY.match(m)]
+            lasting += kept
+            since += [] if warning else kept
+        last = failed[-1] if failed else "\n".join(since[-1:] if began else lasting)
         lost = bool(CODEX_AUTH.search("\n".join(lasting)) or CODEX_FORBIDDEN.search("\n".join(failed)))
         return {"reply": self.last_message(stream, last_file, raw=raw), "served": done,
-                "unavailable": bool(UNAVAILABLE.search(last)), "refused": codex_login.refused(notes) and not done,
-                "login_failed": lost and not done, "failure": notes[-600:]}
+                "unavailable": bool(UNAVAILABLE.search(last)) or (retried and not lost),
+                "refused": codex_login.refused(notes) and not done, "login_failed": lost and not done,
+                "failure": notes[-600:]}
 
 
 class Claude(CliAgent):

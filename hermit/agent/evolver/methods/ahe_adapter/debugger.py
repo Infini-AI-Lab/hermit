@@ -31,8 +31,9 @@ text when every attempt failed. Here the same three phases run on Hermit's learn
 3. `run_jobs(jobs, ctx, params, base=...)` — each attempt is one call of the Evolver's CLI Base Agent (Layer 2,
    hermit.agent.base): `make(backend, settings).run(question, workspace=job_dir)`, with the Evolve Agent's settings
    (`base`: the run's sandbox as the isolation and Codex's own sandbox off, the login and its plan, web search, the
-   price) and the Debugger's own model, effort, program and clock, the clock a deadline over the whole attempt (a wait
-   for the login's plan included, as upstream's subprocess timeout) that the Trainer's cancel also sets; the question
+   price) and the Debugger's own model, effort, program and clock, the clock the Base Agent's `timeout_s`, which starts
+   once the CLI runs (a wait for the login's plan or a session slot pauses the attempt instead of spending it, where
+   upstream's subprocess timeout had neither to wait for), and the Trainer's cancel stopping the call; the question
    on stdin, a home per job (`scratch/debugger-homes/<task>/`: a call rewrites its home's config and last message)
    and a stream per attempt (`output/debugger/<task>.<attempt>.jsonl`). The first job runs alone (warm-up), the rest
    under `ThreadPoolExecutor(concurrency)`. The answer is the `answer.md` the agent wrote, else its last message (the
@@ -442,14 +443,14 @@ def _last_line(text: str) -> str:
 
 class Deadline(threading.Event):
     """An event set by deadline_cancel's watcher, with `cause` recorded before it is set: "cancel" (the Trainer's
-    cancel) or "deadline" (the clock ran out). Read from the cause, not from the Trainer's event afterwards: the
-    Trainer may stop while a timed-out call is still tearing down."""
+    cancel, set while the watcher ran) or "deadline" (`seconds` ran out)."""
     cause: str | None = None
 
 
 def deadline_cancel(cancel, seconds: float | None) -> tuple[Deadline, threading.Event]:
-    """An event that is set when the Trainer's `cancel` is set or `seconds` have passed, for a process the Trainer's
-    runner kills on it; and the event that stops the watcher."""
+    """An event that is set when the Trainer's `cancel` is set or `seconds` have passed (None: no clock; a Debugger
+    attempt's clock is the Base Agent's own), for a process the Trainer's runner kills on it; and the event that
+    stops the watcher."""
     local, stop = Deadline(), threading.Event()
     end = time.monotonic() + float(seconds) if seconds else None
 
@@ -484,7 +485,8 @@ class Runner:
     def agent_settings(self, job: Job, job_dir: Path, attempt: int, timeout_s: float, cancel=None) -> dict:
         """The CLI Base Agent's settings for one attempt: the Evolve Agent's (the isolation, the login, web search,
         the price), the Debugger's model, effort, program and args (after a bound model's provider arguments), its
-        clock, `cancel` (the attempt's deadline; the Trainer's cancel when None), the question on stdin, the job's
+        clock (`timeout_s` in place of the Evolve Agent's: the Base Agent's own, from the CLI's start), `cancel` (the
+        attempt's watcher of the Trainer's cancel; the Trainer's cancel when None), the question on stdin, the job's
         own home and the attempt's own stream; the job directory writable."""
         p, name = self.params, task_file_name(job.task)
         args = list(p.get("args") or [])
@@ -508,11 +510,12 @@ class Runner:
         answer = job_dir / ANSWER
         answer.unlink(missing_ok=True)
         question = (job_dir / "question.md").read_text(encoding="utf-8")
-        # The attempt's clock covers the whole call, as upstream's subprocess timeout did: the Base Agent's own
-        # `timeout_s` starts only once the CLI runs, after any wait for the login's plan or a session slot.
-        deadline, stop = deadline_cancel(self.ctx.cancel, timeout_s)
+        # The attempt's clock is the Base Agent's own `timeout_s`, which starts once the CLI runs: a wait for the
+        # login's plan or a session slot pauses the attempt instead of spending it (upstream's subprocess timeout had
+        # neither to wait for). The watcher follows the Trainer's cancel alone and records whether it stopped the call.
+        watcher, stop = deadline_cancel(self.ctx.cancel, None)
         try:
-            result = make(self.backend, self.agent_settings(job, job_dir, attempt, timeout_s, deadline)).run(
+            result = make(self.backend, self.agent_settings(job, job_dir, attempt, timeout_s, watcher)).run(
                 question, workspace=job_dir)
         except Unsupported:
             raise                                                # the settings: every attempt would be refused alike
@@ -526,10 +529,10 @@ class Runner:
         tail = _last_line(extra.get("failure") or extra.get("output_tail", ""))
         if extra.get("login_failed"):
             raise LoginFailed(f"an Agent Debugger session: {extra.get('failure')}")
-        if deadline.cause == "cancel" or (deadline.cause is None and extra.get("cancelled")):
-            return None, f"{FAILURE_PREFIX} cancelled] stopped by the Trainer"
-        if deadline.cause == "deadline" or result.timed_out:
+        if result.timed_out:                     # first: the Trainer may stop while a timed-out call tears down
             return None, f"{FAILURE_PREFIX} timeout] exceeded {timeout_s:g}s"
+        if watcher.cause == "cancel" or extra.get("cancelled"):
+            return None, f"{FAILURE_PREFIX} cancelled] stopped by the Trainer"
         if not extra.get("started", True) and (extra.get("unavailable") or result.exit_code in (0, None)):
             # held back by the login's plan past its wait, or gone before a single event: nothing served it
             return None, f"{FAILURE_PREFIX} unavailable] {tail or 'the session never started'}"

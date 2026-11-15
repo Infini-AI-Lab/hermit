@@ -25,9 +25,10 @@ the block), everything written beside that file:
     dataset:
       ref: labbench@1.0            # required, name@version: the Harbor registry's (a bare name would be @head)
       data: null                   # where the tasks go (relative to this file; not `tasks`, the link below, nor in
-                                   # it); default <root>/<name>@<version> (+<hash> of repo, registry_url and
-                                   # registry_path when set), the root $HERMIT_HARBOR_TASKS (a relative one under the
-                                   # working directory) or ~/.cache/hermit/harbor-tasks (outside the checkout)
+                                   # it); default <root>/<name>@<version> (+<hash> of repo, registry_url,
+                                   # registry_path and patch when set), the root $HERMIT_HARBOR_TASKS (a relative
+                                   # one under the working directory) or ~/.cache/hermit/harbor-tasks (outside the
+                                   # checkout)
       repo: null                   # a git registry's dataset (registry_url, registry_path: Harbor's options too);
                                    # with the ref, the tasks' source, recorded in the lock and in the download
       rollouts: 1                  # k > 1: rows <task>#1..k, a task's rows together
@@ -35,21 +36,27 @@ the block), everything written beside that file:
                                    # in_sample: train and test are every row
       smoke: [figqa-0001]          # rows <task>#0 (splits/smoke.txt, in tasks.jsonl too): a smoke trial is never an
                                    # eval trial's row, so the trial cache never mixes them
-      patch: patches.py:drop_seed  # fn(tasks_dir) run on the download (and on a reuse: it must be idempotent), its
-                                   # file's digest and what it returns recorded in the lock
+      patch: patches.py:drop_seed  # fn(tasks_dir) run on the download in its own folder, before it is moved into
+                                   # place (and on a reuse: it must be idempotent); it and its file's digest
+                                   # recorded in the download and in the lock (with what it returns): a patched set
+                                   # is its patch's own
       image_sizes: false           # true: image_sizes.json, the registry's compressed size of each task's prebuilt
                                    # image (`docker manifest inspect`), for the runner's disk gate
 
 It writes `tasks` (a link to the task directories), `tasks.jsonl`, `dataset.lock`, `splits/{all,train,val,test,
 smoke}.txt` and, with `image_sizes: true`, `image_sizes.json`. Tasks already in the data directory are reused, unless
-the `.hermit-source.json` a download leaves there names another source (ref, repo, registry_url, registry_path), which
-is refused (tasks put there otherwise are taken as they are); a download is made in a folder of its own,
-`.<name>.partial` in the data directory when that is there (else `<data>.partial` beside it), and moved into place
-once it is whole, so one that stopped part of the way is never taken for the set (the next prepare removes it), and a
-second prepare downloading there at the same time is refused (on a filesystem that keeps file locks). The tasks,
-reused or downloaded, must match the lock beside the benchmark file when there is one (`check_lock`, and the lock's
-source and patch): a mismatch is an error unless `--force`. The lock names no path of this machine, and a prepare
-that finds the tasks and their source as locked leaves it as it is.
+the `.hermit-source.json` a download leaves there names another source (ref, repo, registry_url, registry_path) or
+another patch (its hook and its file's digest; or none where the block has one, or one where it has none), which is
+refused before the patch runs on them (tasks put there otherwise are taken as they are); a download is made, and
+patched, in a folder of its own, `.<name>.partial` in the data directory when that is there (else `<data>.partial`
+beside it), and moved into place once it is whole and patched, so one that stopped part of the way, or whose patch
+failed, is never taken for the set (the next prepare removes it), and a second prepare downloading there at the same
+time is refused (on a filesystem that keeps file locks). So a patch runs only on a download of its own (and on tasks
+put there otherwise): a benchmark of the ref whose patch differs (none, another function, its file edited) has a
+default data directory of its own, and a changed patch's set is downloaded anew (the old one is left where it is, for
+whatever still names it). The tasks, reused or downloaded, must match the lock beside the benchmark file when there
+is one (`check_lock`, and the lock's source and patch): a mismatch is an error unless `--force`. The lock names no
+path of this machine, and a prepare that finds the tasks and their source as locked leaves it as it is.
 """
 from __future__ import annotations
 
@@ -81,7 +88,7 @@ SPLITS = ("all", "train", "val", "test", "smoke")
 DATASET_KEYS = {"ref", "data", "repo", "registry_url", "registry_path", "rollouts", "split", "smoke", "patch",
                 "image_sizes"}
 SOURCE_KEYS = ("repo", "registry_url", "registry_path")  # Harbor's options that pick a ref's tasks, besides the ref
-SOURCE_FILE = ".hermit-source.json"                      # in a data directory: where its download came from
+SOURCE_FILE = ".hermit-source.json"                      # in a data directory: its download's source and patch
 
 
 def is_task(path: Path) -> bool:
@@ -438,14 +445,17 @@ def dataset_block(benchmark: Path) -> dict:
 def data_dir(ref: str, data=None, base: Path | None = None, *, follow: bool = True, source: dict | None = None) -> Path:
     """Where a task set is kept: `data` (a relative one under `base`, the benchmark file's folder for the block's own,
     else under the working directory), else <root>/<name>@<version> under $HERMIT_HARBOR_TASKS (or TASKS_ROOT), with
-    `+<hash>` of the `source`'s registry options when it names any (another registry's set of the ref is not this
-    one); its links followed, or with `follow` false as it is spelled (made absolute)."""
+    `+<hash>` of the `source`'s registry options and patch when it names any (another registry's set of the ref is not
+    this one, nor is a set another patch, or none, was run on); its links followed, or with `follow` false as it is
+    spelled (made absolute)."""
     if data:
         path = Path(os.path.expandvars(str(data))).expanduser()
         path = Path(base) / path if base is not None else path
     else:
         name = re.sub(r"[^A-Za-z0-9_.@-]", "_", ref)
         options = {k: str(v) for k, v in (source or {}).items() if k in SOURCE_KEYS and v}
+        if (source or {}).get("patch"):                  # its hook and its file's digest; an unpatched set's name stays
+            options["patch"] = source["patch"]
         if options:
             name += "+" + hashlib.sha256(json.dumps(options, sort_keys=True).encode()).hexdigest()[:12]
         path = Path(os.environ.get(TASKS_ROOT_ENV) or TASKS_ROOT).expanduser() / name
@@ -469,8 +479,10 @@ def lock_source(source: dict) -> dict:
 
 
 def _check_source(data: Path, tasks: Path, origin: dict) -> None:
-    """A ValueError when the tasks in the data directory came from another source than `origin`: the one a download
-    recorded in `<data>/.hermit-source.json` (tasks put there otherwise, with no such file, are taken as they are)."""
+    """A ValueError when the tasks in the data directory are not `origin`'s, the source they came from and the patch
+    run on them (another source's, another patch's, or none where `origin` names one, or one where it names none): as
+    a download recorded them in `<data>/.hermit-source.json` (tasks put there otherwise, with no such file, are taken
+    as they are)."""
     marker = data / SOURCE_FILE
     try:
         came = json.loads(marker.read_text())
@@ -584,6 +596,15 @@ def _write_ids(path: Path, ids: list[str]) -> None:
     path.write_text("".join(i + "\n" for i in ids))
 
 
+def _patched(fn, hook: str, tasks: Path):
+    """What the block's patch `fn` (`hook`, file.py:function) says, run on the tasks at `tasks`: an OSError it raises
+    (a file a task lacks) is a ValueError naming the patch, the command's error, never taken for the download's."""
+    try:
+        return fn(tasks)
+    except OSError as exc:
+        raise ValueError(f"dataset.patch {hook} failed on the tasks at {tasks}: {exc}") from exc
+
+
 def prepare(benchmark: Path, *, force: bool = False, harbor: str = HARBOR, data=None, rollouts: int | None = None,
             download_fn=None, inspect=docker_manifest, log=None) -> dict:
     """An example's data from its benchmark file's `dataset:` block (the module's docstring); what was written.
@@ -593,7 +614,11 @@ def prepare(benchmark: Path, *, force: bool = False, harbor: str = HARBOR, data=
     here = benchmark.parent
     block = dataset_block(benchmark)
     ref = str(block["ref"])
-    origin = source_of(block)
+    origin = source_of(block)                            # and the patch: a patched set is that patch's own
+    patch = None
+    if block.get("patch"):
+        patch, sha = load_patch(block["patch"], here)
+        origin["patch"] = {"hook": str(block["patch"]), "sha256": sha}
     spelled = data_dir(ref, data, follow=False) if data else \
         data_dir(ref, block.get("data"), base=here, follow=False, source=origin)
     link = here / "tasks"                                # the link to the tasks prepare writes (below)
@@ -608,24 +633,31 @@ def prepare(benchmark: Path, *, force: bool = False, harbor: str = HARBOR, data=
     lock_path = here / "dataset.lock"
     tasks = _tasks_in(data, ref)
     reused = tasks is not None
-    if reused:                                           # another registry's download of the ref is not these tasks
-        _check_source(data, tasks, origin)
+    said = None                                          # what the patch said, on the download or on the reuse
+    if reused:                                           # another registry's download of the ref, or another patch's,
+        _check_source(data, tasks, origin)               # is not these tasks: refused before the patch runs on them
+        if patch:
+            said = _patched(patch, origin["patch"]["hook"], tasks)
     else:
         get = download_fn or (lambda r, out: download(r, out, harbor=str(Path(os.path.expanduser(harbor))),
                                                       repo=block.get("repo"), registry_url=block.get("registry_url"),
                                                       registry_path=block.get("registry_path")))
+
+        def fetch(r, out):                               # patched in the download's own folder, before it is moved
+            nonlocal said                                # into place: a set in the data directory is whole and patched
+            where = get(r, out)
+            if patch:
+                said = _patched(patch, origin["patch"]["hook"], where)
+            return where
         try:
-            tasks = _download_whole(get, ref, data)
+            tasks = _download_whole(fetch, ref, data)
             if not is_task(data):                        # beside the set's directory, never in a task's
                 (data / SOURCE_FILE).write_text(json.dumps(origin, sort_keys=True) + "\n")
         except OSError as exc:                           # a folder this user cannot write in, a lock another user owns
             raise ValueError(f"{ref} could not be downloaded into {data}: {exc}") from exc
-    source: dict = lock_source(origin)                   # as the lock records it
-    if block.get("patch"):
-        fn, sha = load_patch(block["patch"], here)
-        said = fn(tasks)
-        source["patch"] = {"hook": str(block["patch"]), "sha256": sha,
-                           **({"said": str(said)} if said not in (None, "") else {})}
+    source: dict = lock_source(origin)                   # as the lock records it, with what the patch said
+    if patch and said not in (None, ""):
+        source["patch"] = {**origin["patch"], "said": str(said)}
     previous = None                                      # the lock as it is, when there is one
     if lock_path.is_file():                              # the tasks a run was prepared with: still these?
         problems = check_lock(tasks, lock_path)
@@ -693,7 +725,8 @@ def main(argv=None) -> int:
     p.add_argument("benchmark", type=Path)
     p.add_argument("--force", action="store_true", help="re-lock tasks that differ from the lock")
     p.add_argument("--harbor", default=HARBOR)
-    p.add_argument("--data", help="where the tasks go (default: the block's data, else $HERMIT_HARBOR_TASKS/<ref>)")
+    p.add_argument("--data", help="where the tasks go (default: the block's data, else $HERMIT_HARBOR_TASKS/<ref>, "
+                                  "+<hash> of its registry options and patch when it sets any)")
     p.add_argument("--rollouts", type=int, help="rows per task (default: the block's rollouts)")
     p = sub.add_parser("download", help="harbor datasets download <ref> into --output")
     p.add_argument("ref")

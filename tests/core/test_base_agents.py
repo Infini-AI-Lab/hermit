@@ -368,10 +368,10 @@ def test_codex_never_loses_its_sign_in_to_a_401_it_fell_back_to_https_from():
 
 def test_codex_reads_a_provider_that_could_not_serve_from_its_last_failure_never_from_a_notice_it_recovered_from():
     """`unavailable` is read, as Claude Code's, Pi's and OpenCode's readers read it, from the session's last failure:
-    the error its turn failed with, else its last error or line (its stderr), never a notice it recovered from (a
-    reconnect, a fall back to HTTPS). A session that reconnected after a dropped stream, worked on and failed for its
-    own reason (the model's context window) met no provider that could not serve; one whose turn failed on the
-    dropped stream did, and so did one whose last line is the provider's 429."""
+    the error its turn failed with, else its last error or line (its stderr) since it last worked, never a notice it
+    recovered from (a reconnect, a fall back to HTTPS). A session that reconnected after a dropped stream, worked on
+    and failed for its own reason (the model's context window) met no provider that could not serve; one whose turn
+    failed on the dropped stream did, and so did one whose last line is the provider's 429."""
     from hermit.agent.base.cli import Codex
     codex = Codex({})
     start = '{"type":"thread.started","thread_id":"t"}\n{"type":"turn.started"}\n'
@@ -411,6 +411,67 @@ def test_a_codex_container_docker_could_not_start_is_unavailable_though_dockers_
             assert codex.outcome(failed + hint, None, None)["unavailable"] is True, hint
     for hint in hints:
         assert codex.outcome(hint.lstrip("\n"), None, None)["unavailable"] is False     # a help line alone says none
+
+
+def test_a_codex_session_that_failed_or_ended_while_codex_retried_met_a_provider_that_could_not_serve():
+    """Codex retries what the provider or the network failed, and the error it fails the turn with when its retries
+    run out need not say so: Codex 0.164 on a ChatGPT login whose requests to chatgpt.com fail reconnects, falls back
+    to HTTPS, reconnects again and fails the turn with "workspace routing discovery failed" (fixtures/codex/). That
+    session met a provider that could not serve, with Codex's own lines beside its events or without, and so did one
+    cut off while Codex was still retrying; one that worked after Codex's retries did not, and a sign-in Codex retried
+    until it failed the turn is a lost sign-in, not the provider's."""
+    from hermit.agent.base.cli import Codex
+    codex = Codex({})
+    recorded = (Path(__file__).resolve().parents[1] / "fixtures" / "codex" / "unreachable.jsonl").read_text()
+    said = codex.outcome(recorded, None, None)
+    assert (said["unavailable"], said["served"], said["login_failed"], said["refused"]) == (True, False, False, False)
+    events = "".join(f"{line}\n" for line in recorded.split("\n") if line.startswith("{"))     # no line of Codex's own
+    assert codex.outcome(events, None, None)["unavailable"] is True
+    retrying = events[:events.index('{"type":"error","message":"workspace routing discovery failed"}')]
+    for cut in (retrying, retrying[:retrying.index('{"type":"item.completed"')]):    # past its fall back, or before
+        assert codex.outcome(cut, None, None)["unavailable"] is True, cut
+    working = '{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"working"}}\n'
+    assert codex.outcome(retrying + working, None, None)["unavailable"] is False             # then out of its time
+    lost = events.replace("workspace routing discovery failed", "unexpected status 401 Unauthorized: Your "
+                                                                "authentication token has been invalidated.")
+    said = codex.outcome(lost, None, None)
+    assert (said["unavailable"], said["login_failed"]) == (False, True)
+
+
+def test_codexs_warnings_are_no_failure_so_a_deployments_hooks_never_decide_whether_the_provider_could_serve():
+    """Codex reports what it goes on from as a warning, an `error` item: with a deployment's hooks, the trust it gives
+    them, right after the thread starts (Codex 0.164's words, as recorded). A warning is no failure, so the hooks change
+    nothing: a session cut off before it worked, after Codex's own request had failed on the provider (its refresh of
+    the models, a 429), met a provider that could not serve, with the hooks or without; one that worked after that
+    request went on from it, and its end (its time ran out) is its own; and a warning alone says nothing."""
+    from hermit.agent.base.cli import Codex
+    codex = Codex({})
+    refresh = "2026-11-03T02:33:37Z ERROR codex_models_manager::manager: failed to refresh available models: " \
+              "exceeded retry limit, last status: 429 Too Many Requests\n"
+    thread, turn = '{"type":"thread.started","thread_id":"t"}\n', '{"type":"turn.started"}\n'
+    trusted = json.dumps({"type": "item.completed", "item": {
+        "id": "item_0", "type": "error", "message": "`--dangerously-bypass-hook-trust` is enabled. Enabled hooks may "
+                                                    "run without review for this invocation."}}) + "\n"
+    working = '{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"working"}}\n'
+    for hooks in ("", trusted):
+        assert codex.outcome(refresh + thread + hooks + turn, None, None)["unavailable"] is True, hooks
+        assert codex.outcome(refresh + thread + hooks + turn + working, None, None)["unavailable"] is False, hooks
+        assert codex.outcome(thread + hooks + turn, None, None)["unavailable"] is False, hooks
+
+
+def test_codex_0164s_own_words_for_no_sign_in_and_for_a_refused_one_are_a_lost_sign_in():
+    """Codex 0.164 says in its own words that it has no sign-in at all, and that the ChatGPT workspace routing a
+    login's requests go through refused the sign-in (the wordings its binary holds, the second beside the "workspace
+    routing discovery failed" of fixtures/codex/): a session that ended on either has lost its sign-in (the run
+    stops), and the routing's refusal Codex retried is no provider that could not serve."""
+    from hermit.agent.base.cli import Codex
+    codex = Codex({})
+    recorded = (Path(__file__).resolve().parents[1] / "fixtures" / "codex" / "unreachable.jsonl").read_text()
+    refused = recorded.replace("workspace routing discovery failed", "workspace routing discovery unauthorized (401)")
+    said = codex.outcome(refused, None, None)
+    assert (said["login_failed"], said["unavailable"], said["served"]) == (True, False, False)
+    said = codex.outcome("no Codex credentials were found\n", None, None)            # Codex's own line, no session
+    assert (said["login_failed"], said["unavailable"]) == (True, False)
 
 
 def test_what_codexs_log_quotes_of_the_sessions_tool_calls_is_the_sessions_work_never_a_lost_sign_in_limit_or_outage():

@@ -75,6 +75,7 @@ SHARED = ["hermit/agent/__init__.py", "hermit/agent/base/*", "hermit/agent/actin
           ".github/workflows/tests.yml"]                    # how CI runs them: a change to it runs them all
 # the rest of the framework, the templates no method group owns, the documentation's examples: the core group
 CORE = ["hermit/*", "tests/core/*", "tests/fixtures/hermes/*", "docs/_examples/*",
+        "tests/fixtures/codex/*",                       # Codex's streams: core's alone
         ".gitignore"]                                   # tests/core/test_harbor_dataset.py checks what it ignores
 # nothing to run: documentation, and files no test reads
 NONE = ["docs/*", "*.md", "tests/README.md", "LICENSE", "NOTICE", ".github/*", ".agents/*", "assets/*"]

@@ -76,9 +76,12 @@ split `hermit eval` runs, the validation split an Evolver gives `run_agent`), an
 in their stream, each after the one before it: a split that lists such a step ahead of an earlier step of its stream,
 which it would wait for, or a step but not every earlier step of its stream, is refused before any run that takes it,
 and `hermit check` reports it, for the training splits and the test split alike. `data.shuffle` moves a multi-step
-task's rows as one, in step order. A run runs each step of a stream once, in one environment: a train split with such
-steps is trained one epoch (`hermit train` refuses `trainer.epochs` above 1 for it), and a validation step that
-`run_agent` runs a second time in the run ends `infra` (`stream_order`).
+task's rows as one, in step order. A task's stream is the run's: its driver keeps one environment from step to step
+and, while it waits for the next step, refuses one it already ran (`infra`, `stream_order`); after the stream's last
+step a step run again starts a new environment in the same stream directory, over the first run's step logs. So a
+train split with such steps is trained one epoch (`hermit train` refuses `trainer.epochs` above 1 for it), and a
+validation step that `run_agent` runs a second time in the run ends `infra` (`stream_order`) unless its stream had
+finished.
 
 ## Starting from an adapter versus resuming a run
 

@@ -7,8 +7,10 @@ tree, which needs a tree; a config with no training split is refused by hermit t
 hermit eval runs it; the eval section only where an eval runs; one of Harbor's own acting agents, which takes no
 adapter); run_agent and no step of a multi-step training task; a run that is not the agent's result (infra) left out
 of every mean and counted, and run again by eval (a step of a multi-step task never alone, a task the acting agent
-never runs never, a row with a `steps` field of its own as any row); each repeat's rows, each epoch's and run_agent's
-(a new run each); an eval's results file of its own; data.shuffle's order of a multi-step task's rows and of any other row (a task named twice included), and an
+never runs never, a row with a `steps` field of its own as any row); a halt in a step's rollouts or in run_agent's
+runs ending a training run unfinished, and its resume; each repeat's rows, and, for a pipeline that keeps its trials
+by row alone, each epoch's and run_agent's (a new run each), which no record keeps; an eval's results file of its own;
+data.shuffle's order of a multi-step task's rows and of any other row (a task named twice included), and an
 Evolver's request of a step ahead of an earlier one, or of one whose earlier step the training split leaves out,
 refused, and so (before any run, and by hermit check) a train split taken as given that lists one, a test split an
 eval runs that does, any split that leaves out an earlier step of a stream, and a validation split that does either
@@ -43,13 +45,23 @@ from hermit.agent.evolver.base import Evolver, StepResult
 
 class Learn(Evolver):
     """Writes the toy rule at every step; runs params.probe through run_agent and keeps what came back
-    (state/probes.jsonl); names params.next_at_1 as step 2's tasks."""
+    (state/probes.jsonl), going on after a failed call with params.swallow (as a CLI learner does); names
+    params.next_at_1 as step 2's tasks; writes each step it is called at to params.calls (outside the run, which a
+    resume restores)."""
 
     def step(self, ctx):
         (ctx.workspace.adapter / "ADAPTER.md").write_text("Always add the numbers.\\n")
         step = ctx.progress.step
+        if ctx.params.get("calls"):
+            with open(ctx.params["calls"], "a") as f:
+                f.write(f"{step}\\n")
         if ctx.params.get("probe"):
-            out = ctx.tools["run_agent"](task_ids=list(ctx.params["probe"]))
+            try:
+                out = ctx.tools["run_agent"](task_ids=list(ctx.params["probe"]))
+            except BaseException:
+                if not ctx.params.get("swallow"):
+                    raise
+                out = {"results": []}
             with open(ctx.workspace.state / "probes.jsonl", "a") as f:
                 f.write(json.dumps({"step": step, "results": out["results"]}) + "\\n")
         return StepResult("done", f"step {step}", next_tasks=ctx.params.get("next_at_1") if step == 1 else None)
@@ -80,6 +92,24 @@ FLAKY = PIPELINE.replace("    text = ", "    seen = Path(__file__).parent / '.at
                                       "        return RunOutput(output=None,\n"
                                       "                         extra={'unscored': cause, 'failure_cause': cause})\n"
                                       "    text = ")
+# A Harbor task set's halt as hermit.harbor.runner reports it (its _output's `output` and `extra`, cut to the keys the
+# core reads): the trial of a row named in `signed-out` loses its sign-in (login_failed) and writes HALT, and while HALT
+# exists every rollout returns at once, unrun, as infra/halted.
+HALTING = PIPELINE.replace("    text = ", '''    here = Path(__file__).parent
+    halt = here / "HALT"
+    lost = (here / "signed-out").read_text().split() if (here / "signed-out").exists() else []
+    if halt.exists() or task["id"] in lost:
+        if halt.exists():
+            cause, message = "halted", f"halted by {halt}: {halt.read_text().splitlines()[0]}"
+        else:
+            cause, message = "login_failed", "Failed to authenticate (401)"
+            halt.write_text(f"AgentAuthenticationError: {message}\\n")
+        return RunOutput(output={"status": "infra", "failure_cause": cause},
+                         extra={"status": "infra", "failure_cause": cause, "halt": True, "exception_message": message,
+                                "unscored": cause})
+    text = ''', 1)
+
+
 def _task(tmp: Path) -> Path:
     """The toy task (t0-t5 train, t6 val, t7-t9 test) and this file's Evolvers."""
     path = make_task(tmp)
@@ -288,6 +318,56 @@ def test_eval_runs_its_infra_rows_again_and_stops_at_a_halt(tmp_path):
     assert result["unscored"] == 2 and result["infra_rerun"] == 0 and any("a halt" in line for line in lines)
 
 
+def test_a_halt_in_a_steps_rollouts_ends_the_run_unfinished_before_its_learner_and_a_resume_runs_the_step_again(
+        tmp_path):
+    """After a halt (a lost sign-in, an API account's usage limit) every rollout returns at once, unrun, until a person
+    restores it: the run ends at the step that met it, unfinished (no summary.json, the step neither recorded nor its
+    material kept), its learner never called on runs that never ran, and the command line says why. A resume still
+    halted ends there again; once restored it runs the step again and finishes. Before, the learner was called at
+    every later step on halted runs, and the run ended "completed all epochs", which no resume takes up again."""
+    from hermit.trainer.trainer import Halted
+    path = _task(tmp_path)
+    (tmp_path / "pipeline.py").write_text(HALTING)
+    (tmp_path / "signed-out").write_text("t3\n")                 # step 2's second trial loses its sign-in
+    calls, run = tmp_path / "calls.txt", tmp_path / "runs" / "toy-run"
+    config = lambda: load(path, *IN_ORDER, "agent.concurrency=1", f"evolver.params.calls={calls}")
+    with pytest.raises(Halted, match=re.escape("step 2: t3 reported a halt (login_failed: Failed to authenticate")):
+        Trainer(config(), **QUIET).train()
+    assert calls.read_text().split() == ["1"] and [s["step"] for s in _steps(tmp_path)] == [1]
+    assert not (run / "summary.json").exists() and not (run / "learning_material" / "step_0002").exists()
+    with pytest.raises(Halted, match=re.escape(f"step 2: t2 reported a halt (halted by {tmp_path / 'HALT'}: ")):
+        Trainer(config(), **QUIET).train()                     # resumed while still halted
+    assert calls.read_text().split() == ["1"] and not (run / "summary.json").exists()
+    (tmp_path / "signed-out").unlink()                         # the sign-in restored and HALT removed
+    (tmp_path / "HALT").unlink()
+    summary = Trainer(config(), **QUIET).train()
+    assert summary["stop_reason"] == "completed all epochs" and calls.read_text().split() == ["1", "2", "3"]
+    assert [s["tasks"] for s in _steps(tmp_path)] == [["t0", "t1"], ["t2", "t3"], ["t4", "t5"]]
+
+
+def test_a_halt_in_run_agents_runs_ends_the_run_after_the_learners_call_even_one_that_goes_on_after_it(tmp_path):
+    """A halt met in a learner's run_agent call (an Evolver's validation) fails the call and ends the run after the
+    learner's call, unfinished, the step unrecorded, as a lost sign-in there does, also for a learner that goes on
+    after the failed call (as a CLI learner, shown an error result, does); restored, the run starts again and
+    finishes. Before, the call returned the halted runs as infra results and training went on, every later rollout
+    halted."""
+    from hermit.trainer.trainer import Halted
+    path = _task(tmp_path)
+    (tmp_path / "pipeline.py").write_text(HALTING)
+    (tmp_path / "signed-out").write_text("t6\n")                 # the validation task's trial loses its sign-in
+    calls, run = tmp_path / "calls.txt", tmp_path / "runs" / "toy-run"
+    config = lambda: load(path, *IN_ORDER, "evolver.params.probe=[t6]", "evolver.params.swallow=true",
+                          f"evolver.params.calls={calls}")
+    with pytest.raises(Halted, match=re.escape("run_agent: t6 reported a halt (login_failed: Failed to authenticate")):
+        Trainer(config(), **QUIET).train()
+    assert calls.read_text().split() == ["1"]
+    assert not (run / "steps.jsonl").exists() and not (run / "summary.json").exists()
+    (tmp_path / "signed-out").unlink()
+    (tmp_path / "HALT").unlink()
+    summary = Trainer(config(), **QUIET).train()
+    assert summary["steps"] == 3 and calls.read_text().split() == ["1", "1", "2", "3"]
+
+
 def test_eval_runs_no_step_of_a_multi_step_task_again_alone(tmp_path):
     """A step runs in its task's stream, after the steps before it: run again alone it would start the stream over and
     wait for a turn that never comes. Its infra run is kept, and the log says how many and why."""
@@ -344,26 +424,91 @@ def test_each_repeat_hands_the_pipeline_rows_that_name_it_and_so_do_its_runs_aga
     assert sorted((tmp_path / "seen.txt").read_text().splitlines()) == ["t7 None", "t8 None", "t9 None"]
 
 
-def test_each_epoch_hands_the_pipeline_rows_that_name_it_and_run_agents_rows_ask_for_a_new_run(tmp_path):
-    """A pipeline that keeps its trials by row (Harbor's trial cache) would hand a later epoch the trials of the epoch
-    before wherever the adapter stayed as it was (an Evolver whose every candidate was rejected, a full rollback), a
-    learner's run_agent a trial it already had, and a task a split names twice its first run again: with
+@pytest.mark.parametrize("kept", [True, False], ids=["trial-cache", "no-trial-cache"])
+def test_only_a_pipeline_keeping_its_trials_by_row_is_handed_rows_naming_their_epoch_or_asking_for_a_new_run(
+        tmp_path, monkeypatch, kept):
+    """A pipeline that keeps its trials by row (keeps_trials: Harbor's trial cache) would hand a later epoch the trials
+    of the epoch before wherever the adapter stayed as it was (an Evolver whose every candidate was rejected, a full
+    rollback), a learner's run_agent a trial it already had, and a task a split names twice its first run again: with
     trainer.epochs > 1 each epoch's rows name the epoch, and run_agent's rows, and those of a task the epoch's order
-    names twice, ask for a new run (`fresh`); one epoch's rows, of a task named once, are as they are."""
+    names twice, ask for a new run (`fresh`); one epoch's rows, of a task named once, are as they are. Any other
+    pipeline (the toy task's) is handed the rows as they are, in every epoch and by run_agent. Neither key is kept in a
+    record: the learning material's `input` is the task's row, so the text of a task a learner reads from it (GEPA's,
+    SkillOpt's) is the same in every epoch. Before, every pipeline was handed the keys and the material kept them."""
+    import hermit.trainer.trainer
+    from hermit.agent.evolver.methods.gepa.evolver import task_text as gepa_text
+    from hermit.agent.evolver.methods.skillopt.evolver import task_text as skillopt_text
+    if kept:                                                      # the toy pipeline as one that keeps its trials
+        monkeypatch.setattr(hermit.trainer.trainer, "keeps_trials", lambda config: True)
     path = _task(tmp_path)
-    (tmp_path / "pipeline.py").write_text(PIPELINE.replace(
+    (tmp_path / "pipeline.py").write_text("import json\n" + PIPELINE.replace(
         "    text = ", "    with open(Path(__file__).parent / 'seen.txt', 'a') as f:\n"
-                      "        f.write(f\"{task['id']} {task.get('epoch')} {task.get('fresh')}\\n\")\n    text = ", 1))
+                      "        f.write(json.dumps(task) + '\\n')\n    text = ", 1))
+    rows = {r["id"]: r for r in _jsonl(tmp_path / "tasks.jsonl")}
+
+    def seen() -> list[str]:
+        """What the pipeline was handed since the last call, as `<id> <epoch> <fresh>`; but for those keys, each row
+        is the task's own."""
+        handed = _jsonl(tmp_path / "seen.txt")
+        (tmp_path / "seen.txt").unlink()
+        assert all({k: v for k, v in r.items() if k not in ("epoch", "fresh")} == rows[r["id"]] for r in handed)
+        return sorted(f"{r['id']} {r.get('epoch')} {r.get('fresh')}" for r in handed)
     Trainer(load(path, "evolver.name=learn", "evolver.params.probe=[t0, t6]", "data.step_size=6"), **QUIET).train()
-    rollouts = [f"t{i} {epoch} None" for i in range(6) for epoch in (1, 2)]
-    probes = ["t0 None True", "t6 None True"] * 2                 # one run_agent call a step, a step an epoch
-    assert sorted((tmp_path / "seen.txt").read_text().splitlines()) == sorted(rollouts + probes)
-    (tmp_path / "seen.txt").unlink()
+    rollouts = [f"t{i} {epoch if kept else None} None" for i in range(6) for epoch in (1, 2)]
+    probes = [f"t0 None {kept or None}", f"t6 None {kept or None}"] * 2   # one run_agent call a step, a step an epoch
+    assert seen() == sorted(rollouts + probes)
+    material = tmp_path / "runs" / "toy-run" / "learning_material"
+    for task in (f"t{i}" for i in range(6)):
+        given = [json.loads((material / step / "tasks" / f"{task}.json").read_text())["input"]
+                 for step in ("step_0001", "step_0002")]                 # epoch 1's step, then epoch 2's
+        assert given == [rows[task]] * 2
+        assert {gepa_text(g) for g in given} == {gepa_text(rows[task])}
+        assert {skillopt_text(g) for g in given} == {skillopt_text(rows[task])}
     (tmp_path / "twice.txt").write_text("t0\nt1\nt0\n")             # a split may name a task twice
     Trainer(load(path, "evolver.name=learn", "trainer.epochs=1", "data.train=twice.txt", "data.step_size=1",
                  "trainer.run_name=once"), **QUIET).train()
-    assert sorted((tmp_path / "seen.txt").read_text().splitlines()) == ["t0 None True", "t0 None True",
-                                                                        "t1 None None"]
+    assert seen() == [f"t0 None {kept or None}"] * 2 + ["t1 None None"]
+
+
+def test_only_a_harbor_task_sets_pipeline_with_its_trial_cache_on_keeps_its_trials_by_row(tmp_path):
+    """The Trainer hands the rows that name their epoch or ask for a new run (TRIAL_KEYS) to a pipeline that keeps its
+    trials by row alone: a Harbor task set's with `trial_cache` on, in the config or in its benchmark file (where the
+    five examples turn it on), the config's over the file's as the runner merges them; the toy task's keeps none."""
+    from hermit.isolate import keeps_trials
+    path = _task(tmp_path)
+    assert not keeps_trials(load(path))
+    (tmp_path / "utils").mkdir()
+    for in_file, in_config, kept in ((None, None, False), (True, None, True), (None, True, True), (True, False, False)):
+        (tmp_path / "utils" / "benchmark.yaml").write_text(yaml.safe_dump(
+            {"tasks_dir": "tasks", "jobs_dir": str(tmp_path / "jobs"),
+             **({} if in_file is None else {"trial_cache": in_file})}))
+        params = {"benchmark": "utils/benchmark.yaml", "web_search": False, "acting_agent": {"name": "oracle"},
+                  **({} if in_config is None else {"trial_cache": in_config})}
+        config = load(path, "agent.name=harbor", "judge.path=hermit.harbor.judge", f"agent.params={json.dumps(params)}")
+        assert keeps_trials(config) is kept, (in_file, in_config)
+
+
+def test_a_records_input_is_its_row_without_the_keys_only_a_pipeline_keeping_its_trials_reads():
+    """However a run ends (judged, the pipeline raised, the session failed, not the agent's result), its record's
+    `input`, which the learning material shows the learner, is the row without `epoch` and `fresh`; the pipeline and
+    the judge are handed them."""
+    from hermit.task import RunOutput
+    from hermit.trainer.rollout import run_one
+    row, handed = {"id": "t0", "question": "What is 0 plus 0?"}, []
+
+    def pipeline(kind):
+        def run(task, adapter):
+            handed.append(task)
+            if kind == "raised":
+                raise RuntimeError("the pipeline failed")
+            return RunOutput(output="0", extra={"infra": {"unscored": "disk"},
+                                                "session": {"session_failed": "it never started"}}.get(kind, {}))
+        return run
+    for kind, status in (("judged", "ok"), ("raised", "error"), ("infra", "infra"), ("session", "error")):
+        record = run_one({**row, "epoch": 2, "fresh": True}, None, pipeline(kind),
+                         lambda task, out: handed.append(task) or 1.0)
+        assert record["status"] == status and record["input"] == row, kind
+    assert len(handed) == 5 and all(t["epoch"] == 2 and t["fresh"] is True for t in handed)
 
 
 def test_an_eval_that_fails_leaves_none_of_an_earlier_evals_results(tmp_path):
@@ -506,15 +651,19 @@ def test_a_train_split_taken_as_given_that_lists_a_step_ahead_of_an_earlier_one_
 
 
 def test_a_train_split_with_steps_of_a_multi_step_task_trains_one_epoch_and_more_are_refused(tmp_path):
-    """A run runs each step of a task's stream once, in one environment (the stream is the run's): a second epoch's
-    steps would find their turns taken and end infra, every one left out of the means. So hermit train refuses a train
-    split with such steps and trainer.epochs above 1 before anything runs, and hermit check reports it; one epoch
-    trains, and a train split without them trains its epochs as before."""
+    """A task's stream is the run's (its directory, and a driver keeping one environment from step to step): a second
+    epoch would run a stream the split lists whole again in that directory, over the first epoch's step logs, and the
+    steps of one it lists in part would find their turns taken (its driver still waiting for its next step) and end
+    infra, every one left out of the means. So hermit train refuses a train split with such steps and trainer.epochs
+    above 1 before anything runs, and hermit check reports it; one epoch trains, and a train split without them trains
+    its epochs as before."""
     path = _task(tmp_path)
     _multi_step(tmp_path, "m")
     (tmp_path / "steps.txt").write_text("t0\nm:s1\nm:s2\nm:s3\n")
     args = ("evolver.name=learn", "data.step_size=2", "data.shuffle=false", "data.train=steps.txt")
-    refused = "and trainer.epochs is 2: a run runs each step of a task's stream once, in one environment"
+    refused = ("and trainer.epochs is 2: a task's stream is the run's, so a second epoch would run a stream the split "
+               "lists whole again in its stream directory, over the first epoch's step logs, and the steps of a stream "
+               "it lists in part would find their turns taken (stream_order)")
     with pytest.raises(SystemExit, match=re.escape(refused)):
         Trainer(load(path, *args, "trainer.epochs=2"), **QUIET).train()
     assert not (tmp_path / "runs").exists()

@@ -8,7 +8,8 @@ container by harborside/hermit.py, which imports nothing of Hermit.
       home/            the CLI's home as the Base Agent renders it, uploaded to /installed-agent/hermit-home
       work/            the empty workspace a trial without an adapter is rendered against
       bundle/          mini-swe-agent: the Hermit modules its runner imports (hermit.agent.base.mini_swe_agent_run)
-      return/          what the container hands back to this machine (a ChatGPT sign-in Codex refreshed)
+      return/          what the container hands back to this machine (a ChatGPT sign-in Codex refreshed, at most
+                       the entry's max_bytes)
 
 The Base Agent renders against host paths (the home above, the staged deployment or work/ as the workspace); the plan
 names container paths: the home is CONTAINER_HOME, the workspace `@@HERMIT_WORKDIR@@` (the task's working directory,
@@ -186,7 +187,8 @@ def render(cli: str, settings: dict, *, deploy: dict | None, tools_url: str | No
         secret_files.append(codex_login.FILE)
         (launch / RETURN_DIR).mkdir()
         return_files.append({"from": f"{CONTAINER_HOME}/{codex_login.FILE}",
-                             "to": str((launch / RETURN_DIR / codex_login.FILE).resolve())})
+                             "to": str((launch / RETURN_DIR / codex_login.FILE).resolve()),
+                             "max_bytes": codex_login.MAX_BYTES})
     try:
         return _finish(cli, row, agent, settings, command, env, from_host, by_fd, home=home, work=work, launch=launch,
                        job=Path(job), deploy=deploy, tools_url=tools_url, workdir=workdir, path_prepend=path_prepend,

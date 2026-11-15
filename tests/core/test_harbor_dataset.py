@@ -65,6 +65,16 @@ def drop_seed(tasks):
     return f"{changed} setup.py without the seed"
 '''
 
+# A second patch in the same file: a NOTE in each task's environment (idempotent).
+NOTE = '''
+
+def add_note(tasks):
+    for task in Path(tasks).iterdir():
+        if (task / "task.toml").is_file():
+            (task / "environment" / "NOTE").write_text("v2\\n")
+    return "noted"
+'''
+
 
 def benchmark(root: Path, **block) -> Path:
     utils = root / "utils"
@@ -133,9 +143,14 @@ def test_prepare_makes_the_examples_data_from_its_benchmark_file(tmp_path):
     again = dataset.prepare(file, download_fn=registry, inspect=lambda image: sizes[image], log=said.append)
     assert again["reused"] is True and registry.calls == 1
     assert json.loads((utils / "dataset.lock").read_text())["source"]["patch"]["said"] == "4 setup.py without the seed"
-    write(utils / "patches.py", PATCH + "\n# changed\n")             # another patch: not the tasks the lock knows
-    with pytest.raises(ValueError, match="patch is not the benchmark's"):
+    # Another patch: not the one these tasks were given (the download's record names it), refused before it runs on
+    # them; on a download of its own, not the tasks the lock knows
+    write(utils / "patches.py", PATCH + "\n# changed\n")
+    with pytest.raises(ValueError, match=r"were downloaded from .*'sha256': '[0-9a-f]{64}'.*, the benchmark names"):
         dataset.prepare(file, download_fn=registry, inspect=lambda image: sizes[image], log=said.append)
+    with pytest.raises(ValueError, match="patch is not the benchmark's"):
+        dataset.prepare(file, data=str(tmp_path / "again"), download_fn=registry, inspect=lambda image: sizes[image],
+                        log=said.append)
 
 
 def test_a_reused_task_set_that_differs_from_its_lock_is_refused(tmp_path):
@@ -191,6 +206,110 @@ def test_another_registrys_download_of_the_ref_is_never_taken_for_the_benchmarks
         dataset.prepare(moved, download_fn=registry, log=lambda m: None)
     dataset.prepare(moved, download_fn=registry, force=True, log=lambda m: None)
     assert json.loads((moved.parent / "dataset.lock").read_text())["source"]["repo"] == "https://example.com/c.git"
+
+
+def test_benchmarks_of_one_ref_whose_patches_differ_never_patch_each_others_tasks(tmp_path, monkeypatch):
+    """Benchmark files of one ref on the default data directory whose patches differ (one with none; checkouts of an
+    example, one with its patch file edited): a patched set is its patch's own, its directory named by the patch (its
+    hook and its file's digest) as well, so no prepare takes or patches another's tasks. The unpatched benchmark's stay
+    as the registry has them, in the directory the ref alone names, as before (a set prepared there stays valid), and
+    its lock names no patch; a checkout with the same patch shares its set. A patch changed (another function of the
+    file), which its benchmark's lock refuses (--force locks it anew), ran on a download of its own: every other
+    benchmark's tasks and lock are as they were, and the next prepare reuses that download as that patch alone
+    made it."""
+    monkeypatch.setenv(dataset.TASKS_ROOT_ENV, str(tmp_path / "root"))
+    registry = Registry()
+    files = {}
+    for name, patch in (("patched", "patches.py:drop_seed"), ("copy", "patches.py:drop_seed"), ("plain", None),
+                        ("edited", "patches.py:drop_seed")):
+        files[name] = benchmark(tmp_path / name, data=None, **({"patch": patch} if patch else {}))
+        write(files[name].parent / "patches.py", PATCH + NOTE + ("\n# edited\n" if name == "edited" else ""))
+    reused = {name: dataset.prepare(file, download_fn=registry, log=lambda m: None)["reused"]
+              for name, file in files.items()}
+    assert reused == {"patched": False, "copy": True, "plain": False, "edited": False} and registry.calls == 3
+    sets = {name: (file.parent / "tasks").resolve() for name, file in files.items()}
+    assert sets["plain"] == (tmp_path / "root" / "demo@1.0" / "demo").resolve() and sets["copy"] == sets["patched"]
+    assert len({sets[n].parent for n in ("plain", "patched", "edited")}) == 3
+    assert all(sets[n].parent.name.startswith("demo@1.0+") for n in ("patched", "edited"))
+    assert '"seed"' in (sets["plain"] / "alpha" / "environment" / "setup.py").read_text()
+    assert '"seed"' not in (sets["patched"] / "alpha" / "environment" / "setup.py").read_text()
+    assert json.loads((files["plain"].parent / "dataset.lock").read_text())["source"] == {"ref": "demo@1.0"}
+    # the patch changes; its benchmark's lock refuses it, and no other set (nor its own old one) was patched by it
+    benchmark(tmp_path / "patched", data=None, patch="patches.py:add_note")
+    write(files["patched"].parent / "patches.py", PATCH + NOTE)
+    for _ in range(2):
+        with pytest.raises(ValueError, match="the lock's patch is not the benchmark's"):
+            dataset.prepare(files["patched"], download_fn=registry, log=lambda m: None)
+    assert registry.calls == 4
+    for name, file in files.items():
+        assert dataset.check_lock(sets[name], file.parent / "dataset.lock") == [], name
+        assert (file.parent / "tasks").resolve() == sets[name] and not list(sets[name].glob("*/environment/NOTE"))
+    written = dataset.prepare(files["patched"], download_fn=registry, force=True, log=lambda m: None)
+    noted = (files["patched"].parent / "tasks").resolve()
+    assert written["reused"] is True and registry.calls == 4 and noted.parent not in {s.parent for s in sets.values()}
+    fresh = Registry()("demo@1.0", tmp_path / "fresh")                   # a download, given that patch alone
+    dataset.load_patch("patches.py:add_note", files["patched"].parent)[0](fresh)
+    assert json.loads((files["patched"].parent / "dataset.lock").read_text())["tasks"] == \
+        dataset.lock_of(fresh)["tasks"]
+
+
+def test_a_patch_that_fails_part_of_the_way_leaves_no_tasks_for_the_next_prepare_to_take(tmp_path, monkeypatch):
+    """The patch runs on the download in the download's own folder, before it is moved into place: one that fails part
+    of the way (a file it reads is missing) is the command's error naming the patch, not the download's, and leaves
+    no tasks in the data directory, so the next prepare does not take the half-patched set for a whole one: it
+    downloads the set again and patches all of it."""
+    file = benchmark(tmp_path, split="in_sample", smoke=[], patch="patches.py:drop_seed")
+    write(file.parent / "patches.py", '''\
+import os
+from pathlib import Path
+
+
+def drop_seed(tasks):
+    for i, setup in enumerate(sorted(Path(tasks).glob("*/environment/setup.py"))):
+        if i == 2 and os.environ.get("STOP_PATCH"):
+            (setup.parent / "missing.txt").read_text()
+        setup.write_text(setup.read_text().replace('{"seed": 7}', '{}'))
+''')
+    registry = Registry()
+    monkeypatch.setattr(dataset, "download", lambda ref, output, **kwargs: registry(ref, output))   # no Harbor
+    monkeypatch.setenv("STOP_PATCH", "1")
+    with pytest.raises(ValueError, match=r"dataset.patch patches.py:drop_seed failed on the tasks at .*missing.txt"):
+        dataset.prepare(file, log=lambda m: None)
+    assert dataset.main(["prepare", str(file)]) == 1                   # the command says so and fails
+    data = tmp_path / "data"
+    assert registry.calls == 2 and not data.exists()
+    assert (tmp_path / "data.partial" / "demo" / "alpha" / "task.toml").is_file()
+    assert not (file.parent / "tasks").exists() and not (file.parent / "dataset.lock").exists()
+    monkeypatch.delenv("STOP_PATCH")
+    written = dataset.prepare(file, log=lambda m: None)
+    assert written["reused"] is False and written["rows"] == 4 and registry.calls == 3
+    assert not os.path.lexists(tmp_path / "data.partial")
+    assert not [p for p in data.glob("demo/*/environment/setup.py") if '"seed"' in p.read_text()]
+
+
+def test_a_data_directory_benchmarks_whose_patches_differ_both_name_is_refused_to_the_one_whose_tasks_are_not_there(
+        tmp_path):
+    """dataset.data is the data directory as it is spelled, a patched set's too: two benchmark files of one ref that
+    both name it, one of them patched, are refused to the second as another source's are (the download's record names
+    its patch), whichever came first, before that one's patch runs or anything is written beside its file, and the
+    first one's tasks and lock are left as they were."""
+    registry = Registry()
+    for case, first, second in (("plain-first", {}, {"patch": "patches.py:drop_seed"}),
+                                ("patched-first", {"patch": "patches.py:drop_seed"}, {})):
+        shared = str(tmp_path / case / "shared")
+        one = benchmark(tmp_path / case / "one", data=shared, split="in_sample", smoke=[], **first)
+        two = benchmark(tmp_path / case / "two", data=shared, split="in_sample", smoke=[], **second)
+        dataset.prepare(one, download_fn=registry, log=lambda m: None)
+        tasks = (one.parent / "tasks").resolve()
+        before = {p: p.read_bytes() for p in tasks.rglob("*") if p.is_file()}
+        refused = r"the tasks at .* were downloaded from \{.*\}, the benchmark names \{.*\}: name another data"
+        with pytest.raises(ValueError, match=refused + r" directory \(dataset.data, --data\)") as caught:
+            dataset.prepare(two, download_fn=registry, log=lambda m: None)
+        assert "'hook': 'patches.py:drop_seed'" in str(caught.value), case
+        assert {p: p.read_bytes() for p in tasks.rglob("*") if p.is_file()} == before, case
+        assert dataset.check_lock(tasks, one.parent / "dataset.lock") == [], case
+        assert sorted(p.name for p in two.parent.iterdir()) == ["benchmark.yaml", "patches.py"], case
+    assert registry.calls == 2
 
 
 def test_a_registry_file_of_this_machine_is_named_in_the_lock_by_its_file_name_alone(tmp_path, monkeypatch):

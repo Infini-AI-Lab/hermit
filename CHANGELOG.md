@@ -36,7 +36,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 - Harbor's sign-ins (`agent.name: harbor`): Codex on the ChatGPT sign-in is `login: chatgpt`, with the CLI's model
   name. The runner's `codex_login` (default true) is gone: a HermitCodex trial with a plain model name and no login is
-  refused at startup, and Harbor's own `codex` agent is no longer given that sign-in (`CODEX_FORCE_AUTH_JSON`). Harbor's
+  refused at startup, and Harbor's own `codex` agent is no longer given that sign-in (`CODEX_FORCE_AUTH_JSON`), nor
+  reaches the user's ChatGPT file through the user's own environment (`CODEX_FORCE_AUTH_JSON` and `CODEX_AUTH_JSON_PATH`
+  are dropped from Harbor's, unless a plan passes them by name). Harbor's
   own `claude-code` agent is no longer given the subscription's token (`CLAUDE_CODE_OAUTH_TOKEN`) nor
   `CLAUDE_FORCE_OAUTH` (Harbor would put the token on a command line): it bills the key this process has, and a run
   that asks it for the subscription (`CLAUDE_FORCE_OAUTH`) or has only the token is refused at startup; the
@@ -118,11 +120,16 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   own records, a Claude Code trial's whole final message, as the Claude Base Agent reads the reply); the adapter's tools
   are served from this machine, an adapter whose context is per task gets the task's, its notes come back after the
   session (the steps after it run from `/`, so a session that removed its workdir is still killed and what it left still
-  comes back), a key reaches the container by its variable's name only, and `login: chatgpt` (Codex) or `login: claude`
+  comes back), a key reaches the container by its variable's name only (one the plan passes under another name set
+  first, from its source as Harbor passed it, before the plan's own variables, so that Claude Code on Anthropic's own
+  API gets its key as `ANTHROPIC_AUTH_TOKEN` though the plan empties `ANTHROPIC_API_KEY`), and `login: chatgpt` (Codex)
+  or `login: claude`
   (Claude Code) runs on the user's subscription, sharing its plan with Hermit's other sessions (a trial notes the plan's
   usage, Codex's as Claude Code's, so `MAX_USED` holds trials back, and its usage is every run's, a run the plan refused
   or the provider could not serve included (the tokens they reported, unknown only when none did, and their model calls;
-  the cost unknown when one run's is); Codex's refreshed sign-in comes back from the container, even when Harbor's
+  the cost unknown when one run's is); Codex's refreshed sign-in comes back from the container (a regular file of at
+  most 64 KiB, larger ones never downloaded, that is a well-formed later refresh of the copy's account), even when
+  Harbor's
   timeout lands while it is copied out). The answer-only agent (`cli: answer`) makes one model call for a task whose
   work is a reply, through an endpoint the runner serves (a request still in flight when the trial ends is given up
   then, before the trial's usage is read, and leaves the trial's cost unknown; a model a CLI reaches takes text only and
@@ -131,8 +138,14 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   unanswered when the agent's time ran out, after its session had itself waited for the plan as the session records its
   waits (however the plan stands when the trial is read), is infra, `usage_limit`). `judge.path: hermit.harbor.judge`
   scores the verifier's reward whenever the verifier gave one, a timeout or an agent error included (as Harbor's own job
-  mean does; `pass_reward` says what passes, `verifier_redact` what the learner must not read). A trial that is not the
-  agent's result (infra: the host, the provider, a session that never started, one whose Claude Code, Pi or OpenCode
+  mean does; `pass_reward` says what passes, `verifier_redact` what the learner must not read), and a trial Harbor
+  grades is the agent's result as Harbor grades it: a verifier that left no reward Harbor could read or ran out of its
+  time (`verifier_timeout: agent`, the default; `infra` where the host's load makes verifiers time out), and a request
+  of one of Harbor's own agents that the provider refused for what it held (`BadRequestError`,
+  `UnprocessableEntityError`), score 0 without a reward, unless the verifier's output shows its tools never arrived or
+  the host's disk full; a provider that could not serve, or refused the run's configuration, stays infra, which Harbor
+  grades. A trial that is not the agent's result (infra: the host, the provider, a session that never started, one whose
+  Claude Code, Pi or OpenCode
   session or answer request the provider refused before serving it for the run's configuration, its key, its permission,
   its model, its account's bill or a request setting it does not take (by the status its failure writes, never another
   number in it, or the CLI's words for one; an unsupported parameter or value), or an answer request Hermit's own
@@ -144,20 +157,28 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   copy failed part-way), a secret the plan passes by name that Harbor's environment lacks, the answer agent's
   attachments whose listing exec failed, a figure it cannot read and an answer it cannot keep in `answer.json` (an
   OSError on this machine) or write (its exec failed, or this machine could not run it: an OSError) included,
-  `launch_failed`; a task Harbor runs for none of Hermit's agents, one that declares MCP servers or a skills folder or
+  `launch_failed`; an OSError on this machine while it stages the adapter, `staging_failed` (the adapter's own
+  deployment or per-task context failing is the agent's 0); a task Harbor runs for none of Hermit's agents, one that
+  declares MCP servers or a skills folder or
   targets a Windows container, `unsupported_task`, never handed to Harbor) is never judged, and the Trainer's and
-  `hermit eval`'s means leave it out and count it; a trial that timed out is the agent's result, even after a provider
+  `hermit eval`'s means leave it out and count it (a verdict that quotes the verifier's output quotes it with
+  `verifier_redact` applied); a trial that timed out is the agent's result, even after a provider
   notice its session recovered from, the answer agent's with its model request still in flight too, and so is one whose
   first request the provider refused for what its input made it (a prompt too long, an invalid request, a content
-  filter). Codex's authentication failure (a 401, an invalid key, not logged in, a refused proxy token, or a 403 its
-  turn failed with; never one in a notice of an error Codex recovers from and goes on, that it is reconnecting or
+  filter). Codex's authentication failure (a 401, an invalid key, not logged in, no Codex credentials found, the ChatGPT
+  workspace routing's 401, a refused proxy token, or a 403 its turn failed with; never one in a notice of an error Codex
+  recovers from and goes on, that it is reconnecting or
   falling back from WebSockets to HTTPS, nor in what Codex's log quotes of the session's work, the model's own text: its
   records of the session's tool calls, as of a rejected command or a patch whose expected lines it did not find, and
   every record's further lines; its wordings matched as Codex writes them, case and all) is a lost sign-in, which halts
-  the run, in Hermit's own Codex sessions too, and any other refusal of Codex's, dsh's or mini-swe-agent's requests by
+  the run (`hermit train` ends unfinished at the step that met it, before its learner, or after the learner's call when
+  a run of `run_agent`'s met it, and resumes there once the sign-in is restored and `<jobs_dir>/HALT` removed), in
+  Hermit's own Codex sessions too, and any other refusal of Codex's, dsh's or mini-swe-agent's requests by
   the provider is the agent's result; a lost sign-in is never run again. Whether the provider could not serve a Codex
-  session is read from its last failure (any line when no session began), never from such a notice or quote: a trial
-  whose session recovered and then failed for its own reason is the agent's result, not infra. A reference's `price`, in
+  session is read from its last failure since it last worked (any line when no session began), never from such a notice
+  or quote nor from a warning of Codex's (the trust it gives a deployment's hooks), and a turn that failed, or a stream
+  that ended, while Codex retried its requests is one it could not serve unless the sign-in was lost: a trial whose
+  session recovered and then failed for its own reason is the agent's result, not infra. A reference's `price`, in
   the config or in the benchmark file (its price taken only with the file's own model), prices the HermitXXX trials'
   usage (Claude Code's own cost kept on Anthropic's API, as everywhere in Hermit) and the answer agent's endpoint; one
   of Harbor's own agents keeps Harbor's cost, and its `claude-code` Harbor's rule for its web tools (off where the
@@ -177,8 +198,10 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   task's rows as one, in step order, a split whose order is kept (the train split with `data.shuffle: false`, the test
   split `hermit eval` runs, the validation split) that lists a step ahead of an earlier one of its stream, and any split
   that lists a step but not every earlier one, is refused before any run that takes it, and `hermit check` reports one
-  the config's own runs take (its training splits and its test split), a train split with such steps trains one epoch (a
-  run runs each step of a stream once: `hermit train` refuses more), an Evolver's `next_tasks` naming a step whose
+  the config's own runs take (its training splits and its test split), a train split with such steps trains one epoch
+  (`hermit train` refuses more: a task's stream is the run's, so a second epoch would run a stream listed whole again
+  over the first epoch's step logs, and find the turns of one listed in part taken), an Evolver's `next_tasks` naming a
+  step whose
   earlier one of its stream has neither run in the epoch nor come earlier in the request (one the training split leaves
   out never runs) is refused, and `run_agent` runs none of its training rows, so Harness² fails such a step before any
   editor session runs; a step's verifier read as a trial's, with the timeout multipliers; each of `hermit eval`'s
@@ -189,9 +212,11 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   run` evaluates the whole stream with a frozen adapter. `python -m hermit.harbor.dataset prepare` makes an example's
   data from its benchmark file's `dataset:` block (the registry's tasks of the block's source, its ref with `repo`,
   `registry_url` and `registry_path`, which the lock (a `registry_path` of this machine by its file name) and the
-  download record, a download of another source never reused and the default data directory the source's own, downloaded
-  into `.<name>.partial` in the data directory when it exists, else `<data>.partial` beside it (a second prepare
-  downloading there meanwhile refused on a filesystem that keeps file locks), and moved into place when complete, never
+  download record, with the patch (its hook and its file's digest), a download of another source or patch never reused
+  (refused before the patch runs on it) and the default data directory the source's and the patch's own (an unpatched
+  set's name as before; a changed patch's set downloaded anew), downloaded into `.<name>.partial` in the data directory
+  when it exists, else `<data>.partial` beside it (a second prepare downloading there meanwhile refused on a filesystem
+  that keeps file locks), patched there and moved into place when complete, never
   over a file where the data directory goes nor a `<name>` in it that holds none of the set's tasks, nor into the
   `tasks` link it writes or a path in it, nor with anything but a link in that link's place (a directory of its own),
   each refused before the download (the last two before a reuse too), a relative `data:` being the benchmark file's
@@ -339,8 +364,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - `Usage` gains `unreported_calls`, the calls whose tokens a CLI did not report (DeepSeek Harness's and Hermes Agent's
   readers set it, and so does a Harbor answer agent's model endpoint for a call it gave up before its reply): a usage
   that has any keeps an unknown cost, not the price of the tokens reported.
-- A Codex session whose sign-in or key the provider refused (a 401, an invalid key, not logged in, a refused proxy
-  token, or a 403 its turn failed with; never one in a notice of an error Codex recovers from and goes on: that it is
+- A Codex session whose sign-in or key the provider refused (a 401, an invalid key, not logged in, no Codex credentials
+  found, the ChatGPT workspace routing's 401, a refused proxy token, or a 403 its turn failed with; never one in a
+  notice of an error Codex recovers from and goes on: that it is
   reconnecting, `Reconnecting...`, or falling back from WebSockets to HTTPS; nor in what Codex's log quotes of the
   session's work, the model's own text: its records of the session's tool calls, as of a rejected command or a patch
   whose expected lines it did not find, and every record's further lines; its wordings matched as Codex writes them,
@@ -349,9 +375,13 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   a Codex session answers 401 (`hermit_login_failed`). Before, the session was one that failed: its task had no
   answer, or its step failed, and the run went on.
 - Whether the provider could not serve a Codex session is read from the session's last failure (the error its turn
-  failed with, else its last error or stderr line, never what Codex's log quotes of the session's work; any line when no
-  session began, as for a container docker could not start, whose error ends with docker's `--help` hint), as Claude
-  Code's, Pi's, OpenCode's and DeepSeek Harness's are: before, any provider notice in the stream counted, so a session
+  failed with, else its last error or stderr line since the session last worked, never a warning such as the trust Codex
+  gives a deployment's hooks, nor what Codex's log quotes of the session's work; any line when no session began, as for
+  a container docker could not start, whose error ends with docker's `--help` hint), as Claude Code's, Pi's, OpenCode's
+  and DeepSeek Harness's are, and a turn that failed, or a stream that ended, while Codex was retrying its requests is
+  one it could not serve, unless the sign-in was lost (Codex 0.164 on a ChatGPT login that cannot reach chatgpt.com
+  fails its turn with `workspace routing discovery failed`): before, any provider notice in the stream counted, so a
+  session
   that recovered from one (`Reconnecting...`) and then failed for its own reason was run again as one the provider could
   not serve. Nor is a ChatGPT plan's refusal (every session on the login held until the plan's window allows, and the
   session run again) read from what Codex's log quotes of the session's work: before, any line of Codex's that was
@@ -367,15 +397,22 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   their repeat (`repeat`), where it handed the rows themselves: a Harbor task set's trial cache runs each repeat anew,
   and a pipeline that records the whole row records another row in each repeat (AgentDyn's `case_sha256` provenance
   differs by repeat).
-- With `trainer.epochs` above 1, the Trainer hands every pipeline, and so its judge, copies of each epoch's rows that
-  name the epoch (`epoch`), where it handed the rows themselves; the rows `run_agent` runs, and those of a task the
-  epoch's order names more than once, ask for a new run (`fresh`): a Harbor task set's trial cache runs each anew (an
-  epoch on an adapter the one before left unchanged included), and a pipeline that records the whole row records
-  another row in each epoch and in `run_agent`'s runs (AgentDyn's `case_sha256` provenance differs by epoch).
+- With `trainer.epochs` above 1, a pipeline that keeps its trials by row (a Harbor task set with `trial_cache` on, in
+  the config or its benchmark file) is handed copies of each epoch's rows that name the epoch (`epoch`), and the rows
+  `run_agent` runs, and those of a task the epoch's order names more than once, ask for a new run (`fresh`): its trial
+  cache runs each anew (an epoch on an adapter the one before left unchanged included). Any other pipeline gets the rows
+  as they are, and no record keeps either key, so the learning material's `input` and a learner's text of a task are the
+  same in every epoch.
 - `python -m hermit.harbor.dataset lock` hashes of each file's mode only whether it is executable (755 or 644): the
   group's and others' bits are the umask's at download. A lock `dataset lock` wrote before this change no longer
   matches its tasks when any file's mode was other than 644 or 755 (written under a umask other than 022, or a file
   of a mode of its own, as 600): write it again once (`dataset lock`, or `dataset prepare --force`).
+- A ChatGPT sign-in a session hands back (a Harbor trial's container, the task sandbox, Hermit's own Codex sessions)
+  replaces the shared copy only as a later, well-formed refresh: a regular file of at most 64 KiB that holds its refresh
+  and access tokens, for the copy's account, stamped later than the copy and at most a minute ahead of this machine's
+  clock (an hour in a Harbor environment other than local Docker, and for the user's own file, as before). Before, a
+  file a session wrote without a refresh token could replace the copy and leave every later session signed out. An agent
+  that can read the sign-in can still write a well-formed one, which the take-back cannot tell from a refresh.
 
 ### Fixed
 
@@ -499,6 +536,12 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   program) was never stopped; and signalling a process group left with only exited, unreaped processes raises
   `PermissionError` there. The processes are now found with `ps` where there is no `/proc`, and that error means the
   group has ended. The same holds for the AgentDyn runner's and the Lean swarm launcher's stops.
+- On a login, the AHE Adapter's learners no longer give up during a plan hold: `evolve_timeout_s` and the Agent
+  Debugger's `timeout_s` are the Base Agent's own clocks, counted from the CLI's start, so a wait for the login's plan
+  or a machine session slot pauses them instead of spending them (a hold longer than the Evolve Agent's clock had
+  recorded a done step whose session never ran, with an empty manifest, and one longer than the Debugger's 600 s spent
+  each attempt until upstream's no-analysis text stood in); `trainer.call_timeout_min` still bounds a step, waits
+  included.
 
 ## 0.2.0 - 2026-11-04
 

@@ -12,6 +12,8 @@ else, so the last commit is not the best one and `finalize` must hand back step 
 """
 import json
 from pathlib import Path
+import threading
+import time
 
 import pytest
 import yaml
@@ -348,6 +350,41 @@ def test_evolve_timeout_stops_the_session_and_keeps_its_edits(tmp_path, monkeypa
     assert result["extra"]["evolve_timed_out"] and any("evolve_timeout_s=2" in w for w in result["extra"]["warnings"])
     assert steps[0]["changed"]                                                 # the edit before the timeout shipped
     assert "- Edited first." in git(Path(summary["tree"]), "show", "toy-run/ckpt-step-1:AGENTS.md")   # step 1's adapter
+
+
+def test_a_wait_for_the_logins_plan_past_the_learners_clocks_spends_neither(tmp_path, monkeypatch):
+    """On a login every session first waits while the plan holds sessions back (hermit.agent.base.login.wait, here 3 s
+    each), then runs. The learners' clocks (`debugger.timeout_s` and `evolve_timeout_s`, 1.5 s here) are the Base
+    Agent's own, which start once the CLI runs: each Debugger job is answered at its first attempt, and the Evolve
+    session runs after its wait, is not timed out, and its edit ships."""
+    from hermit.agent.base import login
+    root, plan = tmp_path / "login-root", tmp_path / "plan"
+    (root / "login").mkdir(parents=True)
+    (root / "login" / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt",
+                                                          "last_refresh": "2026-01-01T00:00:00Z"}))
+    plan.mkdir()
+    waits = []
+
+    def wait(plan=None, cancel=None, log=None, max_s=None, credits=False, note=None):
+        """The plan holds the session back for 3 s; a cancel ends the wait."""
+        started = time.monotonic()
+        stopped = (cancel or threading.Event()).wait(3.0)
+        waits.append(time.monotonic() - started)
+        return "cancelled" if stopped else ""
+    monkeypatch.setattr(login, "wait", wait)
+    clock = 1.5
+    path = _task(tmp_path, evolver={"login": "chatgpt", "login_root": str(root), "plan_dir": str(plan),
+                                    "evolve_timeout_s": clock,
+                                    "debugger": {"concurrency": 2, "timeout_s": clock, "retries": 1, "backoff_s": 0.1}})
+    summary = Trainer(Config.load(path, ["trainer.epochs=1"]), log=lambda *_: None).train()
+    (step,) = _steps(tmp_path)
+    jobs = json.loads((_state(tmp_path, 1) / "analysis/step_0001/jobs.json").read_text())
+    assert [(j["status"], j["attempts"]) for j in jobs] == [("ok", 1), ("ok", 1)], jobs
+    assert step["status"] == "done" and "timed out" not in step["evolver"]["summary"], step["evolver"]["summary"]
+    result = json.loads((tmp_path / "runs/toy-run/step_0001/step_result.json").read_text())
+    assert not result["extra"]["evolve_timed_out"] and result["extra"]["warnings"] == []
+    assert step["changed"] and RULE in git(Path(summary["tree"]), "show", "toy-run/ckpt-step-1:AGENTS.md")
+    assert len(waits) == 3 and min(waits) > 2.9 > clock          # the two jobs and the session each waited past it
 
 
 def test_failed_session_archives_nothing_of_the_step(tmp_path, monkeypatch):

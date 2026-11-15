@@ -19,7 +19,7 @@ Each step directory:
 
 - `summary.json` — step, epoch, the adapter commit the rollouts used, task ids, mean score, cost, time. A task that
   was not scored (status `infra`) is left out of the mean and counted in `unscored`.
-- `tasks/<task id>.json` — for each task: `input` (the task as given to the pipeline), `output` (what the agent
+- `tasks/<task id>.json` — for each task: `input` (the task's row, as the task set gives it), `output` (what the agent
   produced), `judge` (everything the judge returned: score, feedback, anything else), `cost_usd` (null = unknown),
   `wall_s`, `api_speed`, `tokens`, `status` (`ok`; `error` or `judge_error`: the run or its judge failed, scored 0;
   `infra`: not the agent's result, the machine or the model provider failed, not scored), `error`, `trajectory`

@@ -22,7 +22,10 @@ Stand-ins, at the edges only:
   nvm) and in the C locale (where a test matches what bash says, in the same words whatever this machine's LANG).
 - either with `noise`: other lines before and after every exec's output, as Harbor's docker exec merges stderr into
   stdout (ShellEnv's from a BASH_ENV of the image's that echoes).
-- a stand-in CLI (a bash script first on the plan's PATH), and a stand-in chat endpoint and tool server on 127.0.0.1.
+- a stand-in CLI (a bash script first on the plan's PATH, or in the program's place), and a stand-in chat endpoint and
+  tool server on 127.0.0.1.
+- the launch plans Hermit's side renders (hermit.harbor.launch) for every CLI on every built-in backend: one test
+  renders them, its keys fakes, then runs its check (`launch_env`) alone in a run of this module of its own.
 
 No Docker, no network, no model, no secret: the key and the token are fakes set in the check's own process."""
 import errno
@@ -316,8 +319,8 @@ def harbor_side(check: str, scratch: Path) -> dict:
                 return code(0, "") if self.bundle_ok else code(1, "ModuleNotFoundError: No module named 'yaml'\n")
             if c.startswith("test -f "):
                 path = c.split()[2].strip("'")
-                if executor.RETURN_LINE in c:              # the return's check: whether the session left the file
-                    return ok(f"{executor.RETURN_LINE}{'yes' if path in self.files else 'no'}\n")
+                if executor.RETURN_LINE in c:              # the return's check: the file's size, if the session left it
+                    return ok(f"{executor.RETURN_LINE}{len(self.files[path]) if path in self.files else 'no'}\n")
                 if path not in self.files:
                     return code(1)
                 if self.misses > 0 and "base64" in c:      # the task's entrypoint has not written it yet
@@ -870,6 +873,36 @@ def harbor_side(check: str, scratch: Path) -> dict:
             report[name] = {"raised": run(agent, env), "downloads": calls(env, "download_file"),
                             "returned": returned.is_file(), "metadata": metadata(agent)["metadata"]}
 
+    elif check == "return_limits":
+        # For real with bash, a stand-in CLI that leaves in its home's auth.json a file of exactly the plan's max_bytes,
+        # one a byte over it, or a link to a sign-in beside the home; and one that leaves a sign-in in an image whose wc
+        # fails (first on its PATH: as one without wc)
+        writer = ('#!/bin/bash\ncase "$STUB_AUTH" in\n'
+                  '  at_limit) head -c 4096 /dev/zero | tr "\\0" x > "$CODEX_HOME/auth.json";;\n'
+                  '  over) head -c 4097 /dev/zero | tr "\\0" x > "$CODEX_HOME/auth.json";;\n'
+                  '  link) echo \'{"refreshed": true}\' > "$CODEX_HOME/../beside.json" && '
+                  'ln -sf ../beside.json "$CODEX_HOME/auth.json";;\n'
+                  '  *) echo \'{"refreshed": true}\' > "$CODEX_HOME/auth.json";;\nesac\n')
+        no_wc = scratch / "no-wc-bin"
+        no_wc.mkdir()
+        (no_wc / "wc").write_text('#!/bin/bash\necho "bash: wc: command not found" >&2\nexit 127\n')
+        (no_wc / "wc").chmod(0o755)
+        for name, path in (("at_limit", None), ("over", None), ("link", None),
+                           ("no_wc", f"{no_wc}:{os.environ['PATH']}")):
+            env = ShellEnv(scratch / f"{name}-c", path=path)
+            (env.root / "installed-agent" / "fakebin").mkdir(parents=True)
+            (env.root / "installed-agent" / "fakebin" / "codex").write_text(writer)
+            (env.root / "installed-agent" / "fakebin" / "codex").chmod(0o755)
+            returned = scratch / name / "returned" / "auth.json"
+            plan = write_plan(scratch / name, "codex", deploy=False, path_prepend=["/installed-agent/fakebin"],
+                              env={"CODEX_HOME": "/installed-agent/hermit-home", "STUB_AUTH": name},
+                              return_files=[{"from": "/installed-agent/hermit-home/auth.json", "to": str(returned),
+                                             "max_bytes": 4096}])
+            agent = make("codex", plan)
+            report[name] = {"raised": run(agent, env, timeout=120), "downloads": calls(env, "download_file"),
+                            "returned": returned.stat().st_size if returned.is_file() else None,
+                            "metadata": metadata(agent)["metadata"]}
+
     elif check == "workdir_removed":
         # A session that writes a refreshed sign-in and its last message, then removes its workdir with the deployment
         # in it, whose copy_back (the adapter's memory) goes with it: the deployment's files, then its folders and the
@@ -1024,6 +1057,37 @@ def harbor_side(check: str, scratch: Path) -> dict:
         env = FakeEnv()
         report["missing"] = run(make("codex", plan), env)
         report["missing_compose"] = calls(env, "compose")
+
+    elif check == "launch_env":
+        # The plans the test rendered (jobs/<name>/launch/plan.json), each one's launch script run for real with bash
+        # as the exec runs it: the plan's sources by name (keys.json: fakes), as `docker compose exec -e NAME` passes
+        # them, a HOME without nvm, and a stand-in in the program's place that prints its environment, NUL-separated
+        # (the class's own session otherwise: mini-swe-agent's probes answered by FakeEnv). What the stand-in saw is
+        # reported with the root ShellEnv maps the container's paths under taken off.
+        keys = json.loads((scratch / "keys.json").read_text())
+        for path in sorted(scratch.glob("jobs/*/launch/plan.json")):
+            name = path.parent.parent.name
+            env = ShellEnv(scratch / "roots" / name)
+            stand_in = env.root / "installed-agent" / "fakebin" / "print-env"
+            stand_in.parent.mkdir(parents=True)
+            stand_in.write_text("#!/bin/bash\nenv -0\n")
+            stand_in.chmod(0o755)
+            agent = make(json.loads(path.read_text())["cli"], path)
+            session = asyncio.run(agent.session(FakeEnv(), agent._plan, "/app"))
+            session["argv"] = ["/installed-agent/fakebin/print-env", *session["argv"][1:]]
+            script = env.root / "installed-agent" / "hermit" / "run" / "launch.sh"
+            script.parent.mkdir(parents=True)
+            script.write_text(env.map(agent.launch_script(agent._plan, session, "/app")))
+            (script.parent / "prompt.txt").write_text(INSTRUCTION)
+            (env.root / "home").mkdir()
+            passed = {n: keys[n] for n in (agent._plan.get("env_from_host") or {}).values()}
+            done = subprocess.run(["bash", str(script)], capture_output=True, text=True, timeout=60,
+                                  env={"PATH": os.environ["PATH"], "HOME": str(env.root / "home"), **passed})
+            stream = env.root / "logs" / "agent" / agent._plan["stream"]
+            seen = [e.split("=", 1) for e in (stream.read_text() if stream.is_file() else "").split("\0") if "=" in e]
+            report[name] = {"code": done.returncode, "said": (done.stdout + done.stderr)[-1000:],
+                            "session_env": session["env"],
+                            "seen": {k: v.replace(str(env.root), "") for k, v in seen}}
 
     elif check == "installs":
         def install(cli, env, **kwargs):
@@ -1794,7 +1858,7 @@ def harbor_side(check: str, scratch: Path) -> dict:
 
 CHECKS = ("codex_plan", "context_limit", "every_cli", "workdir_pwd", "shell_noise", "slash_prompt", "stream_steps",
           "deploy_failed_step", "cancel_fake", "nonzero_exit", "launch_failures", "capture_fails",
-          "launch_exec_failed", "after_cancelled", "after_own_error", "after_bounded", "return_check",
+          "launch_exec_failed", "after_cancelled", "after_own_error", "after_bounded", "return_check", "return_limits",
           "workdir_removed", "copy_fails", "shell_session", "shell_cancel", "shell_token", "secrets_refused",
           "installs", "install_failures", "mount_rejected", "codex_nvm", "mini_swe_agent", "tool_script", "answer",
           "options", "scripted", "driver_protocol", "driver_plan", "driver_loop", "driver_config", "driver_full_disk")
@@ -1824,14 +1888,18 @@ from hermit.harbor import errors  # noqa: E402  (Hermit's side: how it counts wh
 pytestmark = pytest.mark.skipif(not HARBOR_PYTHON.is_file(), reason=f"needs the Harbor venv at {HARBOR_PYTHON}")
 
 
-@pytest.fixture(scope="module")
-def checks(tmp_path_factory):
-    """Every check's report, from one run of this module under the Harbor venv's Python."""
-    scratch = tmp_path_factory.mktemp("harborside")
-    proc = subprocess.run([str(HARBOR_PYTHON), "-I", str(Path(__file__).resolve()), ",".join(CHECKS), str(scratch)],
+def harbor_checks(names, scratch: Path) -> dict:
+    """The reports of the checks `names`, from one run of this module under the Harbor venv's Python."""
+    proc = subprocess.run([str(HARBOR_PYTHON), "-I", str(Path(__file__).resolve()), ",".join(names), str(scratch)],
                           capture_output=True, text=True, timeout=600)
     assert proc.returncode == 0, proc.stderr[-3000:]
     return json.loads(proc.stdout.strip().splitlines()[-1])
+
+
+@pytest.fixture(scope="module")
+def checks(tmp_path_factory):
+    """Every check's report, from one run of this module under the Harbor venv's Python."""
+    return harbor_checks(CHECKS, tmp_path_factory.mktemp("harborside"))
 
 
 def report(checks: dict, name: str) -> dict:
@@ -2326,6 +2394,26 @@ def test_a_return_whose_check_failed_is_recorded_and_a_file_the_session_did_not_
     assert "after_session_errors" not in absent["metadata"]
 
 
+def test_a_file_to_return_over_its_limit_or_left_as_a_link_is_not_downloaded_nor_one_whose_size_cannot_be_told(checks):
+    """For real with bash: the session can write its home's auth.json (the ChatGPT sign-in that comes back to the
+    host) as any file. One of the plan's max_bytes is downloaded; one a byte over is not, and the step's failure says
+    so (a sign-in is a few KB: the host would read the larger file whole); a link is skipped, as a file the session did
+    not leave is; and one whose size cannot be told (an image whose wc fails) is not downloaded either, its failure
+    recorded, never taken for none."""
+    r = report(checks, "return_limits")
+    source = "/installed-agent/hermit-home/auth.json"
+    for name, got in r.items():
+        assert got["raised"] is None, (name, got["raised"])
+        assert [c[1] for c in got["downloads"]] == ([source] if name == "at_limit" else []), name
+    assert r["at_limit"]["returned"] == 4096 and "after_session_errors" not in r["at_limit"]["metadata"]
+    assert r["over"]["returned"] is None and r["over"]["metadata"]["after_session_errors"] == [
+        f"return_files: {source} is 4097 bytes, over the 4096 it may hold: not returned"]
+    assert r["link"]["returned"] is None and "after_session_errors" not in r["link"]["metadata"]
+    failed = r["no_wc"]["metadata"]["after_session_errors"]
+    assert r["no_wc"]["returned"] is None and len(failed) == 1
+    assert failed[0].startswith(f"return_files: whether the session left {source} could not be told (exit 3): "), failed
+
+
 def test_a_copy_back_or_collect_that_failed_part_way_is_recorded_and_removed_and_the_parts_after_it_come_back(checks):
     """For real with bash, a cp that fails part-way, as on a full disk (the first bytes of each file written, mode
     600, then exit 1), copying the adapter's memory in the copy-back and last_message.txt and a sessions folder in the
@@ -2391,6 +2479,52 @@ def test_the_subscription_token_reaches_the_cli_on_its_descriptor_and_in_no_envi
         assert line in lines, line
     assert f"stdin: <{INSTRUCTION + SUFFIX}>" in r["stream"]
     assert r["leaks"] == []
+
+
+def test_every_clis_launch_script_gives_the_session_the_variables_its_plan_names_on_every_backend(tmp_path,
+                                                                                                  monkeypatch):
+    """For real with bash, each CLI's plan as Hermit's side renders it on each built-in backend whose dialect the CLI
+    speaks (every key a fake, passed by name as compose passes it), and a plan whose by-name entries name each other:
+    the session sees each by-name variable with its source's value as Harbor passed it, each of the plan's own
+    variables with its value, and no source the launch script unset. Claude Code on Anthropic's own API ran every
+    session without a token: the plan's own ANTHROPIC_API_KEY (emptied) was exported before ANTHROPIC_AUTH_TOKEN read
+    the key from it."""
+    from hermit.agent.model import backends
+    from hermit.harbor import launch
+    registry = backends.registry(user_file=None, environ={})          # the built-ins, nothing of this machine's
+    own = ("SECOND_TOKEN", "THIRD_TOKEN", "OWN_KEY", "ONLY_SOURCE_KEY")  # the chained plan's sources
+    keys = {name: f"fake-{name.lower()}-0123456789" for name in (*(b.api_key_env for b in registry.values()), *own)}
+    for name, value in keys.items():
+        monkeypatch.setenv(name, value)
+    scratch = tmp_path / "launch_env"
+    for cli in CLASSES:
+        for backend in registry.values():
+            binding = backends.resolve(f"{backend.name}/test-model", registry)
+            if backends.needs(cli, binding) in binding.backend.apis:
+                launch.render(cli, launch.settings_for(cli, binding=binding, web_search=False), deploy=None,
+                              tools_url=None, job=scratch / "jobs" / f"{cli}__{backend.name}", workdir="/app")
+    # A source another entry sets (read before it is set), so a target that is a source, one kept under its own name,
+    # a source the plan's own variables empty, and one no entry sets (unset)
+    write_plan(scratch / "jobs" / "chained", "codex", deploy=False, name="launch/plan.json",
+               env={"CODEX_HOME": "/installed-agent/hermit-home", "PROJECT": "@@HERMIT_WORKDIR@@/src",
+                    "THIRD_TOKEN": ""},
+               env_from_host={"FIRST_TOKEN": "SECOND_TOKEN", "SECOND_TOKEN": "THIRD_TOKEN", "OWN_KEY": "OWN_KEY",
+                              "RENAMED_KEY": "ONLY_SOURCE_KEY"})
+    (scratch / "keys.json").write_text(json.dumps(keys))
+    got = harbor_checks(["launch_env"], tmp_path)["launch_env"]
+    assert "check_failed" not in got, got.get("check_failed")
+    plans = {p.parent.parent.name: json.loads(p.read_text()) for p in scratch.glob("jobs/*/launch/plan.json")}
+    assert set(got) == set(plans) and {name.split("__")[0] for name in plans} == {*CLASSES, "chained"}
+    assert {"claude__anthropic", "chained"} <= {n for n, p in plans.items() if set(p["env_from_host"].values()) &
+                                                set(p["env"])}                 # a source that is a plain variable too
+    for name, plan in plans.items():
+        case, by_name = got[name], plan["env_from_host"]
+        seen = case["seen"]
+        assert case["code"] == 0 and seen.get("HERMIT_HOOK_LOGS") == "/logs/agent", (name, case["said"])
+        assert {var: seen.get(var) for var in by_name} == {var: keys[src] for var, src in by_name.items()}, name
+        plain = {k: v.replace("@@HERMIT_WORKDIR@@", "/app") for k, v in plan["env"].items()} | case["session_env"]
+        assert {k: seen.get(k) for k in plain} == plain, name
+        assert not (set(by_name.values()) - set(by_name) - set(plain)) & set(seen), name
 
 
 def test_each_class_installs_its_cli_or_uses_a_mounted_binary_of_the_asked_for_version(checks):

@@ -5,7 +5,11 @@ session, acting and learning alike (`ROOT/login/auth.json`, outside any run's di
 from it, and a token a session refreshed is written back to it under a lock, so that no session starts from a token a
 refresh has replaced (ChatGPT rotates its refresh tokens). The user's own file is read, never written: it replaces the
 copy when it is newer (a later `codex login`). A session in the task sandbox, which cannot write that copy, gets it
-from the sandbox's caller and hands its refresh back the same way (hermit.isolate).
+from the sandbox's caller and hands its refresh back the same way (hermit.isolate), and so does a Harbor trial's
+container (hermit.harbor.runner). A session can write the file it hands back: the copy takes it only as a later refresh
+of the copy's own login (take_back), never a file without a refresh or an access token, nor one larger than a sign-in,
+nor one stamped further ahead than the clock it was written on can be (SKEW, OTHER_CLOCK). An agent that can read the
+sign-in can also write a well-formed one, which the take-back cannot tell from a refresh.
 
 `login: claude` is Claude Code on a Claude subscription, signed in with the token `claude setup-token` prints, which
 the user exports as CLAUDE_CODE_OAUTH_TOKEN: Anthropic's way for scripts (a year, model requests only, no refresh). The
@@ -46,6 +50,16 @@ HOSTS = {"chatgpt": ("chatgpt.com", "auth.openai.com"), "claude": CLAUDE_HOSTS} 
 CLAUDE_MIN_VERSION = (2, 1, 248)                              # --restricted, which a text session needs
 NO_TOKEN = (f"login: claude signs in with the token `claude setup-token` prints, in {TOKEN_ENV}, which is not set: run "
             "`claude setup-token` once and export the token (docs/guides/claude-subscription.md)")
+# How far past this machine's clock a login's last_refresh may lie (no further: a file a session could write must not
+# pin the copy). Codex stamps a refresh when it makes it, so one stamped on this clock (Hermit's own sessions, the task
+# sandbox's, a local Docker container's, which shares the host's clock) is never ahead of it but for a step of the
+# clock since: a minute. One stamped on another machine's clock keeps the hour every login was allowed before: the
+# user's own file (`codex login` on a machine with a browser, its auth.json copied here) and a session in a Harbor
+# environment other than local Docker (a cloud sandbox's clock).
+SKEW = timedelta(minutes=1)
+OTHER_CLOCK = timedelta(hours=1)
+MAX_BYTES = 64 << 10      # a login file larger than this is none, never read whole (Codex's auth.json is a few KB: two
+                          # tokens of about 2 KB each, a refresh token, the account and a time)
 
 
 def hosts(*logins) -> list[str]:
@@ -57,10 +71,10 @@ def source() -> Path:
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / FILE
 
 
-def _last_refresh(path: Path):
+def _last_refresh(path: Path, skew: timedelta):
     """When the login in `path` was refreshed, or None for a file that is no login: not a JSON object (nor one nested
-    past the parser's depth), or a last_refresh that does not parse or lies ahead (a session that could write the file
-    must not pin the copy)."""
+    past the parser's depth), or a last_refresh that does not parse or lies more than `skew` ahead (a session that
+    could write the file must not pin the copy)."""
     try:
         data = json.loads(Path(path).read_text())
         when = datetime.fromisoformat(str(data["last_refresh"]).replace("Z", "+00:00"))
@@ -68,11 +82,11 @@ def _last_refresh(path: Path):
         return None
     if when.tzinfo is None:
         when = when.replace(tzinfo=timezone.utc)
-    return when if when <= datetime.now(timezone.utc) + timedelta(hours=1) else None
+    return when if when <= datetime.now(timezone.utc) + skew else None
 
 
-def _newer(candidate: Path, than: Path) -> bool:
-    mine, theirs = _last_refresh(candidate), _last_refresh(than) if Path(than).is_file() else None
+def _newer(candidate: Path, than: Path, skew: timedelta) -> bool:
+    mine, theirs = _last_refresh(candidate, skew), _last_refresh(than, skew) if Path(than).is_file() else None
     return mine is not None and (theirs is None or mine > theirs)
 
 
@@ -92,7 +106,7 @@ def prepare(root: Path, home: Path, user_file: Path | None = None) -> None:
     master.parent.mkdir(parents=True, exist_ok=True)
     with open(master.parent / ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        if user_file.is_file() and _newer(user_file, master):
+        if user_file.is_file() and _newer(user_file, master, OTHER_CLOCK):
             _replace(user_file, master)
         if not master.is_file():
             raise RuntimeError(f"login: chatgpt, but there is no Codex login at {user_file} (run `codex login`)")
@@ -103,9 +117,9 @@ def master(root: Path | None = None) -> Path:
     return Path(root or ROOT) / "login" / FILE
 
 
-def keep_refreshed(root: Path, home: Path) -> None:
-    """The session's login, if Codex refreshed it (a later last_refresh), becomes the shared copy."""
-    take_back(root, Path(home) / FILE, within=Path(home))
+def keep_refreshed(root: Path, home: Path, *, skew: timedelta = SKEW) -> None:
+    """The session's login, if Codex refreshed it (a later last_refresh), becomes the shared copy (take_back)."""
+    take_back(root, Path(home) / FILE, within=Path(home), skew=skew)
 
 
 def _plain(path: Path, home: Path | None = None) -> bool:
@@ -150,27 +164,47 @@ def remove(path: Path, within: Path) -> None:
         path.unlink()
 
 
+def _tokens(path: Path) -> dict:
+    """A login file's `tokens`, or {} (none, or no JSON object, nested past the parser's depth included)."""
+    try:
+        tokens = json.loads(Path(path).read_text()).get("tokens")
+    except (OSError, ValueError, AttributeError, RecursionError):
+        return {}
+    return tokens if isinstance(tokens, dict) else {}
+
+
 def _account(path: Path):
     """The ChatGPT account a login file is for (`tokens.account_id`), or None (none named, or no JSON object, nested
     past the parser's depth included)."""
-    try:
-        tokens = json.loads(Path(path).read_text()).get("tokens")
-        return tokens.get("account_id") if isinstance(tokens, dict) else None
-    except (OSError, ValueError, AttributeError, RecursionError):
-        return None
+    return _tokens(path).get("account_id")
 
 
-def take_back(root: Path, path: Path, within: Path | None = None) -> None:
+def _signed_in(path: Path) -> bool:
+    """Whether a login file holds a ChatGPT sign-in: its tokens' refresh and access tokens, each a string, not empty
+    (one without them, taken for the copy, would leave every session after it signed out)."""
+    tokens = _tokens(path)
+    return all(isinstance(tokens.get(name), str) and tokens[name] for name in ("refresh_token", "access_token"))
+
+
+def take_back(root: Path, path: Path, within: Path | None = None, *, skew: timedelta = SKEW) -> None:
     """A login file a session left: the shared copy if it is a later refresh of it (a regular file, never one read
-    through a link: none below `within`, the directory the caller trusts, and not the file itself) for the account
-    the copy names, when it names one (a session could write another account's login there)."""
+    through a link: none below `within`, the directory the caller trusts, and not the file itself), of at most
+    MAX_BYTES, a ChatGPT sign-in (its refresh and access tokens) for the account the copy names, when it names one (a
+    session could write another account's login there, or one without its tokens), stamped after the copy and at most
+    `skew` past this machine's clock (SKEW for a session on it, OTHER_CLOCK for one on another machine's clock). A
+    session that can read its login can write a well-formed one, which this cannot tell from a refresh."""
     master = Path(root) / "login" / FILE
     if not _plain(path, Path(within) if within is not None else Path(path).parent) or not master.is_file():
+        return
+    try:
+        if os.lstat(path).st_size > MAX_BYTES:       # no login: never read whole
+            return
+    except OSError:
         return
     with open(master.parent / ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         account = _account(master)                  # a copy that names its account keeps to it
-        if _newer(path, master) and (account is None or _account(path) == account):
+        if _signed_in(path) and _newer(path, master, skew) and (account is None or _account(path) == account):
             _replace(path, master)
 
 

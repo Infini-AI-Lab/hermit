@@ -20,6 +20,14 @@ from hermit.agent.base.interface import LoginFailed, login_failure
 from hermit.task import RunOutput, normalise_judge
 from hermit.trainer.budget import Budget, BudgetExceeded
 
+# What the Trainer adds to the rows it hands a pipeline that keeps its trials by row (hermit.isolate.keeps_trials: a
+# Harbor task set's trial cache), so that each run is a trial of its own: the epoch a rollout is of (with
+# trainer.epochs above 1), and a request for a new run (run_agent's rows, a task an epoch's order names twice). They
+# are that pipeline's alone: a record's `input` never keeps them (run_one), so the learning material, the records and a
+# learner's text of a task are the same in every epoch.
+EPOCH, FRESH = "epoch", "fresh"
+TRIAL_KEYS = (EPOCH, FRESH)
+
 
 def scored(records: list[dict]) -> list[dict]:
     """The records that carry a verdict: every status but `infra`."""
@@ -32,8 +40,19 @@ def mean_score(records: list[dict]) -> float | None:
     return sum(scores) / len(scores) if scores else None
 
 
+def reports_halt(record: dict) -> bool:
+    """Whether a run reports a halt (hermit.harbor: a lost login, an API account's usage limit; every rollout returns
+    at once, unrun, until a person restores it), after which no later run can succeed: hermit eval runs no infra run
+    again, and the Trainer ends the run, unfinished."""
+    extra = record.get("pipeline_extra") or {}
+    return bool(extra.get("halt")) or "halted" in (extra.get("failure_cause"), record.get("error"))
+
+
 def run_one(task: dict, adapter: Path | None, pipeline, judge) -> dict:
+    """One task's run and verdict: its record, whose `input` is the row without the keys the Trainer adds for a
+    pipeline that keeps its trials by row (TRIAL_KEYS)."""
     started = time.time()
+    given = {k: v for k, v in task.items() if k not in TRIAL_KEYS}
     try:
         out = pipeline(dict(task), adapter)
         if not isinstance(out, RunOutput):
@@ -42,7 +61,7 @@ def run_one(task: dict, adapter: Path | None, pipeline, judge) -> dict:
         why = login_failure(exc)                     # as text from a sandbox's worker, or from a chat endpoint
         if why is not None:
             raise LoginFailed(why) from None
-        return {"id": task["id"], "input": task, "status": "error", "error": f"{type(exc).__name__}: {exc}",
+        return {"id": task["id"], "input": given, "status": "error", "error": f"{type(exc).__name__}: {exc}",
                 "traceback": traceback.format_exc()[-3000:], "output": None,
                 "judge": {"score": 0.0, "feedback": f"the pipeline failed: {type(exc).__name__}: {exc}"},
                 "cost_usd": None, "wall_s": round(time.time() - started, 2), "api_speed": None, "tokens": None,
@@ -50,14 +69,14 @@ def run_one(task: dict, adapter: Path | None, pipeline, judge) -> dict:
     unscored = (out.extra or {}).get("unscored")
     if unscored:                                         # not the agent's result: no verdict, a cause; still billed
         cause = str(unscored)
-        return {"id": task["id"], "input": task, "status": "infra", "error": cause, "output": out.output,
+        return {"id": task["id"], "input": given, "status": "infra", "error": cause, "output": out.output,
                 "judge": {"score": 0.0, "feedback": f"not scored: {cause}", "extra": {"unscored": True}},
                 "cost_usd": out.cost_usd, "wall_s": round(out.wall_s or (time.time() - started), 2),
                 "api_speed": out.api_speed, "tokens": out.tokens, "log": str(out.log) if out.log else None,
                 "messages": out.messages, "pipeline_extra": out.extra}
     failed = (out.extra or {}).get("session_failed")
     if failed:                                           # no answer to judge; what it spent and its log still count
-        return {"id": task["id"], "input": task, "status": "error", "error": f"the agent's session failed: {failed}",
+        return {"id": task["id"], "input": given, "status": "error", "error": f"the agent's session failed: {failed}",
                 "output": None, "judge": {"score": 0.0, "feedback": f"the agent's session failed: {failed}"},
                 "cost_usd": out.cost_usd, "wall_s": round(out.wall_s or (time.time() - started), 2),
                 "api_speed": out.api_speed, "tokens": out.tokens, "log": str(out.log) if out.log else None,
@@ -69,7 +88,7 @@ def run_one(task: dict, adapter: Path | None, pipeline, judge) -> dict:
     except Exception as exc:
         judged = {"score": 0.0, "feedback": f"the judge failed: {type(exc).__name__}: {exc}"}
         status, error = "judge_error", f"{type(exc).__name__}: {exc}"
-    return {"id": task["id"], "input": task, "status": status, "error": error, "output": out.output,
+    return {"id": task["id"], "input": given, "status": status, "error": error, "output": out.output,
             "judge": judged, "cost_usd": out.cost_usd, "wall_s": round(out.wall_s or (time.time() - started), 2),
             "api_speed": out.api_speed, "tokens": out.tokens, "log": str(out.log) if out.log else None,
             "messages": out.messages, "pipeline_extra": out.extra}

@@ -113,8 +113,11 @@ class AgentEvolver(Evolver):
         if code == 0 and result.extra.get("failed"):       # exit 0 with no result: its edit is not a finished one
             return StepResult("failed", f"{backend} ended without a result: {result.extra.get('failure')}",
                               session=result.session, usage=result.usage)
+        # A session that ran out of its clock (`timeout_s`, which only a subclass's settings give) is marked so: the
+        # subclass may keep what it did, where it would discard a failed session's edits.
         return StepResult("done" if code == 0 else "failed", summary if code == 0 else f"{backend} exited with {code}",
-                          session=result.session, usage=result.usage)
+                          session=result.session, usage=result.usage,
+                          extra={"timed_out": True} if result.timed_out else {})
 
     def settings(self, ctx: Context, backend: str) -> dict:
         """The Base Agent's settings: the learner's CLI in the run's sandbox (whose own isolation is the boundary,

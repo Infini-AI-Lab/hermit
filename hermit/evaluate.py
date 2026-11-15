@@ -24,7 +24,7 @@ from hermit.redact import redact_path, redact_value
 from hermit.task import TaskData
 from hermit.trainer.budget import Budget
 from hermit.trainer.card import number
-from hermit.trainer.rollout import run_tasks
+from hermit.trainer.rollout import reports_halt, run_tasks
 from hermit.tree import ROOT_TAG, Tree
 
 RESULT_KEYS = ("id", "status", "error", "output", "judge", "cost_usd", "wall_s", "api_speed", "tokens", "log")
@@ -151,7 +151,7 @@ def _run(config: Config, target: Path | None, tests: list[dict], out: Path, *, l
             again = [key for key in infra if key not in steps and key not in never]
             if not again:
                 break
-            halted = next((records[key] for key in infra if _halted(records[key])), None)
+            halted = next((records[key] for key in infra if reports_halt(records[key])), None)
             if halted is not None:
                 log(f"eval {label}: {len(infra)} infra run(s) left, not run again: {halted.get('error')} (a halt: "
                     "restore the login or wait for the window, then run hermit eval again)")
@@ -173,7 +173,7 @@ def _run(config: Config, target: Path | None, tests: list[dict], out: Path, *, l
     summary = _counts(tests, list(records.values()), repeats, budget) | {"wall_s": round(time.time() - t0, 1)}
     if retries:
         summary["infra_rerun"] = rerun
-    halted = next((rec for rec in records.values() if rec["status"] == "infra" and _halted(rec)), None)
+    halted = next((rec for rec in records.values() if rec["status"] == "infra" and reports_halt(rec)), None)
     if halted is not None:          # a lost login, a usage limit: the runs after it returned at once, unrun
         summary["halted"] = str(halted.get("error") or "a halt")
     return summary
@@ -204,13 +204,6 @@ def _unrunnable(record: dict) -> bool:
     """Whether an infra run is of a task its acting agent never runs (hermit.harbor: a task Harbor runs for none of
     Hermit's agents, `unsupported_task`, never started), which a rerun would only repeat."""
     return (record.get("pipeline_extra") or {}).get("failure_cause") == "unsupported_task"
-
-
-def _halted(record: dict) -> bool:
-    """Whether an infra run reports a halt (hermit.harbor: a lost login, a usage limit; every rollout returns at once
-    until a person restores it), which a rerun would only repeat."""
-    extra = record.get("pipeline_extra") or {}
-    return bool(extra.get("halt")) or "halted" in (extra.get("failure_cause"), record.get("error"))
 
 
 def _counts(tests: list[dict], records: list[dict], repeats: int, budget: Budget) -> dict:

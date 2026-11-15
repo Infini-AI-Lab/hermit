@@ -194,8 +194,9 @@ def test_a_chatgpt_sign_in_is_a_secret_file_that_comes_back(tmp_path):
                                  login="chatgpt"))
     home = Path(plan["home"]["host_dir"])
     assert plan["home"]["secret_files"] == ["auth.json"] and "rt-stand-in" in (home / "auth.json").read_text()
-    assert plan["return_files"] == [{"from": f"{clis.CONTAINER_HOME}/auth.json",
-                                     "to": str((job / "launch" / "return" / "auth.json").resolve())}]
+    assert plan["return_files"] == [{"from": f"{clis.CONTAINER_HOME}/auth.json",            # no larger than a sign-in
+                                     "to": str((job / "launch" / "return" / "auth.json").resolve()),
+                                     "max_bytes": login.MAX_BYTES}]
     assert "rt-stand-in" not in (job / "launch" / "plan.json").read_text()
     assert login.master(login.ROOT).is_file()                            # the shared copy the home got
     # without the sign-in (a check, a digest): no secret file at all

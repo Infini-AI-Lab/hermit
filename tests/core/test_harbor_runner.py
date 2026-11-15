@@ -142,9 +142,10 @@ FAKE_HARBOR = textwrap.dedent('''\
                     "timestamp": datetime.now(timezone.utc).isoformat(), "type": "event_msg",
                     "payload": {"type": "token_count", "rate_limits": limits}}) + "\\n")
         for item in plan["return_files"]:         # what the container hands back: the sign-in Codex refreshed
-            refreshed = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
-            Path(item["to"]).write_text(json.dumps({"last_refresh": refreshed,
-                                                    "tokens": {"account_id": "acct-1", "refreshed": True}}))
+            refreshed = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()   # (stand-ins), or another file
+            Path(item["to"]).write_text(os.environ.get("FAKE_RETURNED") or json.dumps({
+                "last_refresh": refreshed, "tokens": {"account_id": "acct-1", "access_token": "at-stand-in",
+                                                      "refresh_token": "rt-rotated-stand-in"}}))
     elif plan is not None and plan.get("answer"):   # the answer agent: one call to the endpoint its plan names
         block = plan["answer"]
         body = json.dumps({"model": block["model"], "messages": [{"role": "system", "content": block["system"]},
@@ -318,6 +319,89 @@ def test_a_verifier_that_could_not_fetch_its_tests_is_infra(tmp_path):
           "/tests/test.sh: line 10: /root/.local/bin/env: No such file or directory\n"
           "/tests/test.sh: line 19: uvx: command not found\n")
     assert HarborAgent.verifier_verdict(errors.classify(trial_result(0.0)), trial)["status"] == "ok"
+
+
+def test_a_verifier_that_left_no_reward_harbor_could_read_is_the_agents_result_as_harbor_grades_it():
+    """Harbor grades its verifier group as the agent's result (its error policy: retry=False, grade=True), and its job
+    mean counts the trial's missing reward as 0: a verifier that wrote no reward file, an empty one or one that does
+    not parse is an agent_error the judge scores 0 and every mean keeps, not infra left out of the means and run
+    again."""
+    from hermit.trainer.rollout import mean_score, run_one
+    passed = run_one({"id": "t#1"}, None, lambda task, adapter: RunOutput(output={"status": "ok", "reward": 1.0}),
+                     judge.score)
+    for exc in ("RewardFileNotFoundError", "RewardFileEmptyError", "VerifierOutputParseError"):
+        verdict = errors.classify(trial_result(None, exc=exc))
+        assert (verdict["status"], verdict["failure_cause"], verdict["reward"]) == \
+            ("agent_error", "verifier_failed", None), exc
+        out = RunOutput(output={"status": verdict["status"], "failure_cause": verdict["failure_cause"],
+                                "exception_type": exc, "reward": verdict["reward"]})
+        record = run_one({"id": "t#2"}, None, lambda task, adapter: out, judge.score)
+        assert record["status"] == "ok" and record["judge"]["score"] == 0.0, exc
+        assert mean_score([passed, record]) == 0.5, exc
+
+
+def test_a_request_harbors_own_agent_made_that_the_provider_refused_for_what_it_held_is_the_agents_result():
+    """litellm's BadRequestError and UnprocessableEntityError (a request one of Harbor's own agents made that the
+    provider refused for what it held: a prompt too long, an invalid request) are the agent's result, its work scored,
+    as Harbor grades them and as a Hermit CLI's first request refused for its input is. A provider that could not
+    serve (a rate limit, a lost connection, a server error) or that refused the run's configuration (its key, its
+    model, a parameter, a budget) stays infra and runs again, which Harbor grades but for the key and the model."""
+    for exc in ("BadRequestError", "UnprocessableEntityError"):
+        verdict = errors.classify(trial_result(0.0, exc=exc))
+        assert (verdict["status"], verdict["failure_cause"], verdict["reward"]) == \
+            ("agent_error", "model_provider_failed", 0.0), exc
+    for exc in ("ApiRateLimitError", "APIConnectionError", "InternalServerError", "ServiceUnavailableError",
+                "APIResponseValidationError", "UnsupportedParamsError", "BudgetExceededError", "AuthenticationError",
+                "NotFoundError"):
+        verdict = errors.classify(trial_result(None, exc=exc))
+        assert (verdict["status"], verdict["failure_cause"]) == ("infra", "model_provider_failed"), exc
+
+
+def test_a_verifier_the_host_kept_from_its_tests_is_infra_whatever_harbor_raised_for_it(tmp_path, fake_harbor):
+    """Hermit's checks of the verifier's output (its tools never arrived; the host's disk was full) find the host behind
+    a verifier that left no reward or ran out of its time, as behind one that wrote 0: infra, run again. Without that
+    evidence such a verifier is the agent's result, and the agent's own timeout or error stays its own."""
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    agent = make_agent(tmp_path, fake_harbor, tasks)
+    trial = tmp_path / "t__abc1234"
+
+    def verdict(exc):
+        classified = agent.verifier_timeout_verdict(errors.classify(trial_result(None, exc=exc)))
+        return HarborAgent.verifier_verdict(classified, trial)
+    write(trial / "verifier" / "test-stdout.txt", "FAILED test_outputs.py::test_answer - assert 3 == 4\n")
+    assert verdict("RewardFileNotFoundError")["status"] == "agent_error"
+    assert verdict("VerifierTimeoutError")["status"] == "timeout"
+    write(trial / "verifier" / "test-stdout.txt",
+          "failed to download https://github.com/astral-sh/uv/releases/download/0.9.5/uv.tar.gz\n"
+          "/tests/test.sh: line 18: uvx: command not found\n")
+    for exc in ("RewardFileNotFoundError", "RewardFileEmptyError", "VerifierTimeoutError"):
+        assert (verdict(exc)["status"], verdict(exc)["failure_cause"]) == ("infra", "verifier_failed"), exc
+    write(trial / "verifier" / "test-stdout.txt", "OSError: [Errno 28] No space left on device: '/logs/verifier'\n")
+    for exc in ("RewardFileNotFoundError", "VerifierOutputParseError", "VerifierTimeoutError"):
+        assert verdict(exc)["status"] == "infra", exc
+    assert verdict("AgentTimeoutError")["status"] == "timeout"                        # the agent's own time ran out
+    assert verdict("NonZeroAgentExitCodeError")["status"] == "agent_error"
+
+
+def test_an_infra_verifier_verdict_quotes_the_verifiers_output_with_verifier_redact_applied(tmp_path):
+    """The verifier's output an infra verdict quotes (the tail behind its cause) has `verifier_redact`'s patterns
+    removed, as the curated test-stdout.txt has: the test's expected answer reaches neither the verdict's message
+    (the rollout's extra, the learning material) nor the log's exception.txt."""
+    job = tmp_path / "job"
+    trial = job / "t__abc1234"
+    write(trial / "verifier" / "test-stdout.txt",
+          "FAILED test_outputs.py::test_answer - AssertionError: expected GOLD-ANSWER-42, got 41\n"
+          "OSError: [Errno 28] No space left on device: '/tmp/pytest-cache'\n")
+    write(trial / "verifier" / "reward.txt", "0\n")
+    redact = [r"GOLD-ANSWER-\d+"]
+    verdict = HarborAgent.verifier_verdict(errors.classify(trial_result(0.0)), trial, redact)
+    assert (verdict["status"], verdict["failure_cause"]) == ("infra", "verifier_failed")
+    assert "GOLD-ANSWER-42" not in verdict["exception_message"]
+    assert f"expected {curate.REDACTED}, got 41" in verdict["exception_message"]
+    log = curate.curate(trial, job, verdict, redact=redact)
+    assert "GOLD-ANSWER-42" not in (log / "exception.txt").read_text()
+    assert "GOLD-ANSWER-42" not in (log / "verifier" / "test-stdout.txt").read_text()
 
 
 def test_teardown_takes_the_trials_verifier_projects_down_too(monkeypatch):
@@ -1019,15 +1103,24 @@ def test_a_harbor_mini_swe_agent_trial_is_refused_at_startup_what_its_base_agent
     make_agent(tmp_path, fake_harbor, tasks, acting_agent={"cli": "mini-swe-agent"})
 
 
-def test_a_verifier_timeout_is_infra_unless_the_verifier_times_the_solution(tmp_path, fake_harbor):
+def test_a_verifier_that_ran_out_of_its_time_is_the_agents_result_unless_verifier_timeout_says_infra(tmp_path,
+                                                                                                      fake_harbor):
+    """A verifier that ran out of its time (VerifierTimeoutError) is the agent's result by default (`verifier_timeout:
+    agent`), as Harbor grades it: a timeout on the agent's solution, scored 0 and kept. `verifier_timeout: infra`, for
+    a host whose load makes verifiers time out, makes it infra (run again); any other value is refused at startup."""
     tasks = tmp_path / "tasks"
     make_task(tasks, "alpha")
     ran_out = errors.classify(trial_result(None, exc="VerifierTimeoutError"))
-    assert make_agent(tmp_path, fake_harbor, tasks).verifier_timeout_verdict(ran_out)["status"] == "infra"
-    timed = make_agent(tmp_path, fake_harbor, tasks, verifier_timeout="agent").verifier_timeout_verdict(ran_out)
+    timed = make_agent(tmp_path, fake_harbor, tasks).verifier_timeout_verdict(ran_out)
     assert (timed["status"], timed["failure_cause"], timed["timed_out"]) == ("timeout", "solution_timed_out", True)
-    other = errors.classify(trial_result(None, exc="RewardFileNotFoundError"))       # only the timeout is the agent's
-    assert make_agent(tmp_path, fake_harbor, tasks, verifier_timeout="agent").verifier_timeout_verdict(other) == other
+    assert make_agent(tmp_path, fake_harbor, tasks, verifier_timeout="agent").verifier_timeout_verdict(ran_out) == timed
+    loaded = make_agent(tmp_path, fake_harbor, tasks, verifier_timeout="infra")
+    assert (loaded.verifier_timeout_verdict(ran_out)["status"],
+            loaded.verifier_timeout_verdict(ran_out)["failure_cause"]) == ("infra", "verifier_failed")
+    other = errors.classify(trial_result(None, exc="RewardFileNotFoundError"))       # only the timeout is the option's
+    assert loaded.verifier_timeout_verdict(other) == other and other["status"] == "agent_error"
+    with pytest.raises(ValueError, match="verifier_timeout is agent or infra"):
+        make_agent(tmp_path, fake_harbor, tasks, verifier_timeout="host")
 
 
 def test_runner_merges_a_benchmark_file_under_params(tmp_path, fake_harbor):
@@ -1220,6 +1313,98 @@ def test_one_trial_through_the_fake_harbor(tmp_path, fake_harbor, monkeypatch):
     assert hung.output["status"] == "infra" and hung.output["failure_cause"] == "harbor_timeout" and hung.extra["timed_out"]
 
 
+def rewrite_trials(monkeypatch, change) -> None:
+    """Each trial the fake harbor leaves changed by `change(trial)` before the runner reads it."""
+    run = HarborAgent.harbor_run
+
+    def harbor_run(self, job, config, task, keep=()):
+        got = run(self, job, config, task, keep)
+        for trial in self.trial_dirs(job, task):
+            change(trial)
+        return got
+    monkeypatch.setattr(HarborAgent, "harbor_run", harbor_run)
+
+
+def verifier_said(exc: str | None, stdout: str, reward: float | None = None):
+    """A change for rewrite_trials: the verifier wrote `stdout` and `reward` (None: no reward file), and Harbor recorded
+    `exc` (None: no exception)."""
+    def change(trial: Path) -> None:
+        result = json.loads((trial / "result.json").read_text())
+        result["verifier_result"] = {"rewards": {"reward": reward}} if reward is not None else None
+        result["exception_info"] = {"exception_type": exc, "exception_message": f"{exc} happened",
+                                    "exception_traceback": "tb"} if exc else None
+        (trial / "result.json").write_text(json.dumps(result))
+        (trial / "verifier" / "test-stdout.txt").write_text(stdout)
+        if reward is None:
+            (trial / "verifier" / "reward.txt").unlink()
+    return change
+
+
+def test_a_trial_whose_verifier_failed_on_the_agents_work_is_judged_and_kept_as_harbor_grades_it(tmp_path, fake_harbor,
+                                                                                                 monkeypatch):
+    """Through the runner: a verifier that left no reward is the agent's result, judged 0 and kept (in the mean, in the
+    trial cache); one that ran out of its time is the agent's timeout, judged 0, unless `verifier_timeout: infra` makes
+    it infra (unscored, run again); and one the host's full disk stopped is infra, its quoted output redacted."""
+    from hermit.trainer.rollout import run_one
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    row = dataset.index(tasks)[0]
+    failing = "FAILED test_outputs.py::test_answer - AssertionError: expected GOLD-ANSWER-42, got 41\n"
+    with monkeypatch.context() as m:
+        rewrite_trials(m, verifier_said("RewardFileNotFoundError", failing))
+        record = run_one(row, None, make_agent(tmp_path, fake_harbor, tasks, trial_cache=True).run, judge.score)
+    assert (record["status"], record["output"]["status"], record["output"]["failure_cause"]) == \
+        ("ok", "agent_error", "verifier_failed")
+    assert record["judge"]["score"] == 0.0 and "unscored" not in record["pipeline_extra"]
+    assert len(list((tmp_path / "jobs" / "trial-cache").glob("*.json"))) == 1     # a resumed run takes it
+    with monkeypatch.context() as m:
+        rewrite_trials(m, verifier_said("VerifierTimeoutError", failing))
+        slow = run_one(row, None, make_agent(tmp_path, fake_harbor, tasks).run, judge.score)
+        loaded = run_one(row, None, make_agent(tmp_path, fake_harbor, tasks, verifier_timeout="infra").run, judge.score)
+    assert (slow["status"], slow["output"]["status"], slow["output"]["failure_cause"]) == \
+        ("ok", "timeout", "solution_timed_out")
+    assert slow["judge"]["score"] == 0.0 and "solution" in slow["judge"]["feedback"]
+    assert (loaded["status"], loaded["error"]) == ("infra", "verifier_failed")
+    with monkeypatch.context() as m:
+        rewrite_trials(m, verifier_said(None, failing + "OSError: [Errno 28] No space left on device\n", reward=0.0))
+        full = make_agent(tmp_path, fake_harbor, tasks, verifier_redact=[r"GOLD-ANSWER-\d+"]).run(row, None)
+    assert (full.output["status"], full.extra["unscored"]) == ("infra", "verifier_failed")
+    assert "No space left on device" in full.extra["exception_message"]
+    assert "GOLD-ANSWER-42" not in full.extra["exception_message"]
+    assert "GOLD-ANSWER-42" not in (Path(full.log) / "exception.txt").read_text()
+
+
+def test_an_adapter_this_machine_could_not_stage_is_infra_and_one_whose_own_deployment_failed_the_agents_0(
+        tmp_path, fake_harbor, monkeypatch):
+    """Staging the adapter (its host's deployment, its per-task context) runs on this machine before the trial: an
+    OSError there (a full disk) is the host's, infra (run again), not the agent's 0, for a trial and for a stream's step
+    alike, and neither a trial nor a stream's driver is started; a RuntimeError, the adapter's deployment or context
+    failing in its child process, is the agent's result, scored 0 as on main (what the child printed could be the
+    adapter's own words)."""
+    from hermit.trainer.rollout import run_one
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    make_task(tasks, "flow", steps=("s1", "s2"))
+    rows = {r["id"]: r for r in dataset.index(tasks)}
+    agent = make_agent(tmp_path, fake_harbor, tasks)
+    for failure in (OSError(28, "No space left on device"),
+                    RuntimeError("deploying the adapter failed: No space left on device")):   # the adapter could say it
+        def stage(*args, **kwargs):
+            raise failure
+        monkeypatch.setattr("hermit.harbor.runner.stage", stage)
+        for row in (rows["alpha"], rows["flow:s1"]):
+            record = run_one(row, simple_template(), agent.run, judge.score)
+            if isinstance(failure, OSError):
+                assert (record["status"], record["error"], record["output"]["failure_cause"]) == \
+                    ("infra", "staging_failed", "staging_failed"), row["id"]
+                assert str(failure) in record["pipeline_extra"]["exception_message"]
+            else:
+                assert (record["status"], record["judge"]["score"]) == ("error", 0.0), row["id"]
+                assert "deploying the adapter failed" in record["error"]
+    assert not list((tmp_path / "jobs").glob("alpha-*/alpha__*"))                     # no trial ran
+    assert not (tmp_path / "jobs" / "streams" / "flow__s1" / "driver.json").exists()    # no driver started
+
+
 def test_a_chatgpt_trial_hands_the_refreshed_sign_in_back(tmp_path, fake_harbor):
     """On `login: chatgpt` the shared sign-in goes into the CLI's home as a secret file, comes back from the
     container after the trial and, a later refresh of it, becomes the shared copy; no copy is left in the job."""
@@ -1232,12 +1417,44 @@ def test_a_chatgpt_trial_hands_the_refreshed_sign_in_back(tmp_path, fake_harbor)
     out = agent.run(row, None)
     assert out.output["status"] == "ok" and out.cost_usd is None and out.tokens == 120   # the plan's: no price
     shared = json.loads(login.master(login.ROOT).read_text())
-    assert shared["tokens"] == {"account_id": "acct-1", "refreshed": True}     # the container's later refresh
+    assert shared["tokens"]["refresh_token"] == "rt-rotated-stand-in"         # the container's later refresh
     job = Path(out.extra["harbor_job"])
     assert not list(job.rglob("auth.json")) and "rt-stand-in" not in job_files(job)
     plan = json.loads(next(job.glob("launch/plan.json")).read_text())
     assert plan["home"]["secret_files"] == ["auth.json"] and plan["return_files"][0]["from"].endswith("/auth.json")
     assert out.extra["session"]["served"] is True
+
+
+def test_a_chatgpt_trials_sign_in_replaces_the_copy_only_as_a_refresh_stamped_on_its_environments_clock(
+        tmp_path, fake_harbor, monkeypatch):
+    """The container's session can write the sign-in it hands back (its commands run as the file's owner, with no
+    Codex sandbox there): a trial whose container left one without its tokens leaves the shared copy as it was (it
+    replaced the copy before, and every session after it started signed out) and no copy in the job. A refresh stamped
+    ahead of this machine's clock is refused from Harbor's local Docker environment, whose containers share the clock,
+    and taken from another environment, whose clock may run up to an hour ahead (a cloud sandbox's)."""
+    from datetime import datetime, timedelta, timezone
+    from hermit.agent.base import login
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha", image="example/alpha:1")
+    row = dataset.index(tasks)[0]
+    chatgpt_login(tmp_path)
+    monkeypatch.setenv("FAKE_RETURNED", json.dumps({"last_refresh": datetime.now(timezone.utc).isoformat(),
+                                                    "tokens": {"account_id": "acct-1"}}))
+    out = make_agent(tmp_path, fake_harbor, tasks, binding=None, model="gpt-5.6-luna", login="chatgpt").run(row, None)
+    assert out.output["status"] == "ok" and not list(Path(out.extra["harbor_job"]).rglob("auth.json"))
+    assert json.loads(login.master(login.ROOT).read_text())["tokens"]["refresh_token"] == "rt-stand-in"   # the user's
+    ahead = json.dumps({"last_refresh": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(),
+                        "tokens": {"account_id": "acct-1", "access_token": "at-stand-in", "refresh_token": "rt-ahead"}})
+    for kind, taken in ((None, False), ("docker", False), ("modal", True)):
+        job = tmp_path / "ahead" / str(kind)
+        (job / "launch" / "return").mkdir(parents=True)
+        (job / "launch" / "return" / "auth.json").write_text(ahead)
+        agent = make_agent(tmp_path, fake_harbor, tasks, binding=None, model="gpt-5.6-luna", login="chatgpt",
+                           **({"environment": {"type": kind}} if kind else {}))
+        agent.sign_in_back(job)
+        shared = json.loads(login.master(login.ROOT).read_text())
+        assert (shared["tokens"]["refresh_token"] == "rt-ahead") is taken, kind
+        assert not (job / "launch" / "return" / "auth.json").exists(), kind
 
 
 def test_a_codex_trial_on_chatgpt_notes_the_plans_usage_from_its_session_logs(tmp_path, fake_harbor, monkeypatch):
@@ -1559,6 +1776,26 @@ def test_a_codex_trial_that_recovered_from_a_notice_and_then_failed_for_its_own_
         ("agent_error", "unclassified", 0.5)
     assert out.extra["session"]["unavailable"] is False and "unscored" not in out.extra
     assert judge.score(row, out)["score"] == 0.5
+
+
+def test_a_login_trial_whose_codex_could_not_reach_its_provider_is_run_again_and_never_the_agents_result(
+        tmp_path, fake_harbor, monkeypatch):
+    """Codex 0.164 on a ChatGPT login whose requests to chatgpt.com fail retries them, fails its turn with "workspace
+    routing discovery failed" and exits 1 (tests/fixtures/codex/unreachable.jsonl): the provider could not serve the
+    trial, which runs again after a pause; when every run met the same it is infra (`model_provider_failed`, unscored,
+    no halt), never the agent's result scored as Harbor scored it."""
+    monkeypatch.setenv("FAKE_STREAMS", str(ROOT / "tests" / "fixtures" / "codex" / "unreachable.jsonl"))
+    monkeypatch.setenv("FAKE_HARBOR_MODE", "agent_exit")                     # the CLI exited 1; the verifier ran
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha", image="example/alpha:1")
+    row = dataset.index(tasks)[0]
+    chatgpt_login(tmp_path)
+    out = make_agent(tmp_path, fake_harbor, tasks, binding=None, model="gpt-5.6-luna", login="chatgpt",
+                     busy_retries=1, busy_wait_s=0).run(row, None)
+    assert (out.output["status"], out.output["failure_cause"], out.extra["unscored"], out.extra["halt"]) == \
+        ("infra", "model_provider_failed", "model_provider_failed", False)
+    assert out.extra["session"]["unavailable"] is True and out.extra["session"]["login_failed"] is False
+    assert (tmp_path / "jobs" / ".fake-calls").read_text() == "2"             # run again once (busy_retries)
 
 
 def test_the_answer_agent_asks_the_model_through_an_endpoint_of_this_machine(tmp_path, fake_harbor):
@@ -2174,14 +2411,15 @@ def fake_tools(monkeypatch):
 
 
 def test_a_stream_steps_verifier_verdicts_are_a_trials(tmp_path, fake_harbor, monkeypatch):
-    """A step's result is judged as a trial's: a verifier whose tools never arrived is infra (run again), and with
-    `verifier_timeout: agent` a verifier that ran out of its time on the agent's solution is the agent's result."""
+    """A step's result is judged as a trial's: a verifier whose tools never arrived is infra (run again), its quoted
+    output with `verifier_redact` applied, and a verifier that ran out of its time on the agent's solution is the
+    agent's result (`verifier_timeout`'s default)."""
     fake_driver(fake_harbor)
     tasks = tmp_path / "tasks"
     make_task(tasks, "unreached", steps=("s1", "s2"))
     make_task(tasks, "slow", steps=("s1", "s2"))
     rows = {r["id"]: r for r in dataset.index(tasks)}
-    agent = make_agent(tmp_path, fake_harbor, tasks, verifier_timeout="agent",
+    agent = make_agent(tmp_path, fake_harbor, tasks, verifier_redact=[r"releases/download/\S+"],
                        stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 6})
     try:
         monkeypatch.setenv("FAKE_STEP_VERIFIER", "no_tools")           # each stream's driver: the mode it started with
@@ -2192,6 +2430,9 @@ def test_a_stream_steps_verifier_verdicts_are_a_trials(tmp_path, fake_harbor, mo
         stop_streams(tmp_path)
     assert (unreached.output["status"], unreached.output["failure_cause"]) == ("infra", "verifier_failed")
     assert unreached.extra["unscored"] == "verifier_failed"
+    assert "uvx: command not found" in unreached.extra["exception_message"]
+    assert "releases/download" not in unreached.extra["exception_message"]
+    assert f"github.com/astral-sh/uv/{curate.REDACTED}" in unreached.extra["exception_message"]
     assert (slow.output["status"], slow.output["failure_cause"]) == ("timeout", "solution_timed_out")
 
 
@@ -2406,6 +2647,28 @@ def test_each_runs_streams_are_its_own_and_a_resumed_run_meets_its_own_again(tmp
         [f"flow__s1__{digest[one]}", f"flow__s1__{digest[other]}", f"flow__s1__{digest[one]}", "flow__s1"]
     assert first.log != apart.log and first.extra["stream_dir"] == resumed.extra["stream_dir"]
     assert len({agent.cache_key(rows["alpha"], None) for agent in agents}) == 1
+
+
+def test_a_stream_run_again_after_its_last_step_runs_over_its_step_logs_and_one_still_going_refuses_its_steps(
+        tmp_path, fake_harbor):
+    """Why hermit train refuses a second epoch of a train split with steps of multi-step tasks (step_order_problems): a
+    stream is the run's. Run again after its last step (a split that lists it whole), it runs in a new driver and
+    environment in the same stream directory, over the first run's step logs (the same paths); run again while its
+    driver waits for its next step (a split that lists it in part), its steps' turns are taken (stream_order)."""
+    fake_driver(fake_harbor)
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "whole", steps=("one", "two"))           # not "s2": the fake driver aborts the stream there
+    make_task(tasks, "part", steps=("one", "two"))
+    rows = {r["id"]: r for r in dataset.index(tasks)}
+    agent = make_agent(tmp_path, fake_harbor, tasks, run_identity="the-run", keep_streams=True,
+                       stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 6})
+    try:
+        first, second = ([agent.run(rows[t], None) for t in ("whole:one", "whole:two", "part:one")] for _ in (1, 2))
+    finally:
+        stop_streams(tmp_path)
+    assert [o.output["status"] for o in first] == ["ok"] * 3 and [o.output["status"] for o in second[:2]] == ["ok"] * 2
+    assert [o.log for o in second[:2]] == [o.log for o in first[:2]]
+    assert (second[2].output["status"], second[2].output["failure_cause"]) == ("infra", "stream_order")
 
 
 def test_a_resumed_train_meets_its_streams_again_and_a_train_started_over_or_any_other_pipeline_gets_new_ones(
@@ -2650,6 +2913,21 @@ def test_harbors_own_claude_code_keeps_the_key_it_signs_in_with(tmp_path, fake_h
     assert not {"CLAUDECODE", "CLAUDE_CODE_SESSION_ID"} & set(env)
     hermits = make_agent(tmp_path, fake_harbor, tasks, acting_agent={"cli": "claude"}).harbor_env()
     assert not set(parent) & set(hermits)
+
+
+def test_harbor_never_gets_the_switches_that_sign_its_own_codex_in_with_the_users_chatgpt_file(tmp_path, fake_harbor,
+                                                                                                monkeypatch):
+    """CODEX_FORCE_AUTH_JSON or CODEX_AUTH_JSON_PATH in this process's environment has Harbor's own codex agent upload
+    the user's ChatGPT sign-in (~/.codex/auth.json, or the file named) into every trial's container: the plan used
+    outside its slots and MAX_USED. Neither reaches Harbor, for its own codex or for a trial of Hermit's table."""
+    monkeypatch.setenv("CODEX_FORCE_AUTH_JSON", "1")
+    monkeypatch.setenv("CODEX_AUTH_JSON_PATH", str(tmp_path / "auth.json"))
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    for spec in ({"name": "codex"}, {"cli": "codex"}):
+        env = make_agent(tmp_path, fake_harbor, tasks, acting_agent=spec).harbor_env()
+        assert not {"CODEX_FORCE_AUTH_JSON", "CODEX_AUTH_JSON_PATH"} & set(env), spec
+        assert env[KEY_ENV] == KEY                                    # the rest of this process's environment
 
 
 def test_a_session_is_read_from_its_stream(tmp_path, fake_harbor, monkeypatch):

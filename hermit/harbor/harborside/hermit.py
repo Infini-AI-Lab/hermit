@@ -35,10 +35,14 @@ and the plan's prompt_suffix, with its prompt_slash_prefix before one that start
 
 A key or a token never leaves Harbor's environment by value (Codex's ChatGPT sign-in is a file of the plan's home, mode
 600): an `env_from_host` variable reaches `docker compose exec` by name
-(`-e NAME`: the compose client reads the value from its own environment, Harbor's), and an `env_by_fd` one (Claude
-Code's subscription token) goes on into a pipe on descriptor 3 (the CLI reads it from there once), never in the
-environment of the launch script or of anything it starts. Neither is in a command line, a file or a log; only a
-local Docker environment can pass a variable by name, so a plan with secrets is refused elsewhere.
+(`-e NAME`: the compose client reads the value from its own environment, Harbor's); one the plan gives another name is
+set under it first thing in the launch script, every source read as Harbor passed it before nvm, a variable of the
+plan or another entry could replace one, and a source no entry sets is unset there, so the plan's own variables apply
+over them (Claude Code on Anthropic's own API: ANTHROPIC_AUTH_TOKEN takes the key from ANTHROPIC_API_KEY, which the
+plan then empties). An `env_by_fd` one (Claude Code's subscription token) goes on into a pipe on descriptor 3 (the CLI
+reads it from there once), never in the environment of the launch script or of anything it starts. Neither is in a
+command line, a file or a log; only a local Docker environment can pass a variable by name, so a plan with secrets is
+refused elsewhere.
 
 However the session ends (its exit, a non-zero exit, Harbor's timeout cancelling `run`), a session still running is
 killed with its group (TERM, the plan's grace, KILL): Harbor's timeout cancels only Harbor's wait on the
@@ -131,7 +135,7 @@ MUSL = "{ ldd --version 2>&1 || true; } | grep -qi musl || [ -f /etc/alpine-rele
 OWNER_LINE = "hermit-owner:"
 PWD_LINE = "hermit-pwd:"
 CONTEXT_LINE = "hermit-context:"                  # the image's own context file, in base64
-RETURN_LINE = "hermit-return:"                    # whether a file to return is there: yes (a file, no link), or no
+RETURN_LINE = "hermit-return:"                    # a file to return: its bytes (a file, no link there), or no
 VERSION_BEGIN = "hermit-version-begin"            # what a mounted binary says to --version, between these lines
 VERSION_END = "hermit-version-end"
 
@@ -385,10 +389,12 @@ def plan_problems(plan: dict) -> list[str]:
             problems.append(f"collect entries are {{from: a container path, to: a path relative to "
                             f"{COLLECT_DIR}}}, not {entry!r}")
     for entry in plan.get("return_files") or []:
+        limit = entry.get("max_bytes") if isinstance(entry, dict) else None
         if not isinstance(entry, dict) or not _absolute(entry.get("from", "")) or \
-                not Path(str(entry.get("to", ""))).is_absolute():
-            problems.append(f"return_files entries are {{from: a container path, to: an absolute host path}}, "
-                            f"not {entry!r}")
+                not Path(str(entry.get("to", ""))).is_absolute() or \
+                (limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit < 0)):
+            problems.append(f"return_files entries are {{from: a container path, to: an absolute host path, "
+                            f"max_bytes: a number of bytes or null}}, not {entry!r}")
     if not isinstance(plan.get("path_prepend") or [], list):
         problems.append("path_prepend must be a list of directories")
     if not isinstance(plan.get("prompt_slash_prefix") or "", str):
@@ -855,6 +861,16 @@ class HermitInstalled(BaseInstalledAgent):
         argv = session["argv"]
         lines = ["# written by harborside (hermit/harbor/harborside/hermit.py): one session of the launch plan",
                  f"cd -- {_q(workdir)} || {{ echo {_q(f'{CANNOT_ENTER} {workdir}')} >&2; exit {LAUNCH_FAILED}; }}"]
+        # A secret under another name first, as Harbor passed it: one export, whose words are all expanded before any
+        # is set, so that neither nvm nor a variable of the plan, nor another entry, replaces a source before it is
+        # read (Claude Code's key on Anthropic's own API is ANTHROPIC_API_KEY, which the plan then empties); a source
+        # no entry sets is then unset, and the plan's variables come after
+        renamed = {var: name for var, name in from_host.items() if var != name}
+        if renamed:
+            lines.append("export " + " ".join(f'{var}="${{{name}-}}"' for var, name in renamed.items()))
+            gone = sorted(set(renamed.values()) - set(from_host))
+            if gone:
+                lines.append(f"unset {' '.join(gone)}")
         if plan.get("nvm"):                               # with the user's own HOME: before the plan's variables
             lines.append('export NVM_DIR="$HOME/.nvm"; if [ -s "$NVM_DIR/nvm.sh" ]; then . "$NVM_DIR/nvm.sh" '
                          '>/dev/null 2>&1; fi')
@@ -868,12 +884,6 @@ class HermitInstalled(BaseInstalledAgent):
         for directory in reversed(prepend):              # after the variables: first on PATH whatever they set
             lines.append(f'export PATH={_q(directory)}:"$PATH"')
         lines.append(f"export {HOOK_LOGS}={_q(LOGS)}")
-        kept = {name for var, name in from_host.items() if var == name}
-        for var, name in from_host.items():               # a secret under another name: renamed in here, by value
-            if var != name:
-                lines.append(f'export {var}="${{{name}-}}"')
-        for name in sorted({n for v, n in from_host.items() if v != n} - kept):
-            lines.append(f"unset {name}")
         for i, fd_var in enumerate(by_fd.values()):
             lines.append(f"export {fd_var}={FIRST_FD + i}")
         prompt_file = f"{RUN}/prompt.txt"
@@ -1086,18 +1096,24 @@ class HermitInstalled(BaseInstalledAgent):
     async def _return_files(self, environment: BaseEnvironment, plan: dict, workdir: str) -> None:
         """The plan's return_files from the container to their host paths (Hermit's side takes them from there: a
         refreshed ChatGPT sign-in), never into the logs. One the session did not leave (or left as a link) is skipped;
-        one whose check could not tell (its exec failed: compose's service stopped) raises, never taken for none."""
+        one larger than the entry's max_bytes is not downloaded and raises (the session wrote something else there: a
+        sign-in is a few KB); one whose check could not tell (its exec failed: compose's service stopped; no wc in
+        the image) raises, never taken for none."""
         for entry in plan.get("return_files") or []:
             source = self._fill(entry["from"], workdir)
             s = _q(source)
-            check = await environment.exec(command=f'test -f {s} && test ! -L {s} && echo "{RETURN_LINE}yes" || '
-                                                   f'echo "{RETURN_LINE}no"', cwd="/", user="root")
+            check = await environment.exec(command=f'test -f {s} && test ! -L {s} && {{ n=$(wc -c < {s}) && '
+                                                   f'echo "{RETURN_LINE}$n" || exit 3; }} || echo "{RETURN_LINE}no"',
+                                           cwd="/", user="root")
             there = marked(check.stdout, RETURN_LINE) if check.return_code == 0 else None
             if there == "no":
                 continue
-            if there != "yes":
+            if there is None or not there.isdecimal():
                 raise RuntimeError(f"whether the session left {source} could not be told (exit {check.return_code}): "
                                    f"{(check.stdout or check.stderr or '').strip()[-300:]}")
+            if entry.get("max_bytes") is not None and int(there) > entry["max_bytes"]:
+                raise RuntimeError(f"{source} is {there} bytes, over the {entry['max_bytes']} it may hold: not "
+                                   "returned")
             target = Path(entry["to"])
             target.parent.mkdir(parents=True, exist_ok=True)
             await environment.download_file(source, target)

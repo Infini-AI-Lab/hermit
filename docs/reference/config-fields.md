@@ -130,7 +130,7 @@ the Base Agent's setting (`hermit/agent/base/cli.py`).
 | `trainer.run_name` | string / null | Derived from method/template when null; explicit names use letters/digits, underscores, dots, hyphens, starting alphanumeric, at most 81 characters |
 | `trainer.output_dir` | path / `runs` | Parent of the run directory and default adapter-tree directory |
 | `trainer.tree_dir` | path / null | Overrides default `<output_dir>/trees/<template-id>` |
-| `trainer.epochs` | integer / 1 | Positive number of training passes; above 1, each epoch's rows name it (`epoch`), so that a Harbor task set's trial cache runs each epoch anew |
+| `trainer.epochs` | integer / 1 | Positive number of training passes; above 1, a pipeline that keeps its trials by row (a Harbor task set's `trial_cache`) gets each epoch's rows naming it (`epoch`), so that it runs each epoch anew; any other gets the rows as they are, and no record keeps the key |
 | `trainer.allow_early_stop` | boolean / false | Honor an Evolver's `stop` request |
 | `trainer.resume_mode` | string / `auto` | Use `auto` for unfinished-run recovery or `disable` for a deliberate restart |
 | `trainer.save_freq.steps` | integer / null | Checkpoint-tag frequency by step; null disables that frequency |

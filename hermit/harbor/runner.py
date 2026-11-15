@@ -43,8 +43,10 @@
         environment: {delete: true}          # Harbor's environment config (type, import_path, force_build, kwargs,
                                              # env, extra_docker_compose: overlays, relative to the benchmark file)
         verifier: {}                         # Harbor's verifier config (override_timeout_sec, ...)
-        verifier_timeout: infra              # a verifier that ran out of its time: infra (run again), or agent:
-                                             # the agent's result, kept (a verifier that times the agent's solution)
+        verifier_timeout: agent              # a verifier that ran out of its time: the agent's result, kept, as
+                                             # Harbor grades it (its solution too slow for the tests, or a process it
+                                             # left that hung them); infra: run again (a host whose load makes
+                                             # verifiers time out)
         verifier_timeout_multiplier: 1.0     # Harbor's: each task's verifier limit times this (a slow host)
         environment_build_timeout_multiplier: 1.0   # Harbor's: each task's environment start (pull, build) limit
                                              # times this; the agent's limit is never scaled
@@ -102,7 +104,8 @@ per-task context (`context_tool`), `judge` (pass_reward) and, for a trial that i
 the host, the provider, a disk gate, a halt, a session that never started), `unscored` (its cause: the Trainer
 keeps it out of every mean). A lost sign-in, or the usage limit of an API account (no login waits it out), writes
 `<jobs_dir>/HALT`: while it exists every rollout returns at once as infra/halted, without a container; whoever
-restored the login or the account removes it.
+restored the login or the account removes it. The trial that halted and every rollout after it say so (`extra.halt`):
+a hermit train ends the run there, unfinished (Trainer._raise_halt), and hermit eval runs no infra run again.
 
 On a login (`login: chatgpt` or `claude`) a trial shares the plan with every Hermit session on the login: it waits
 while the plan holds sessions back (its PAUSE, MAX_USED, a refusal's hold) and runs in one of its slots; what the
@@ -163,6 +166,7 @@ from hermit.harbor.errors import classify, no_trial, verifier_disk_full, verifie
 from hermit.harbor.staging import stage
 from hermit.harbor.stream import DRIVER_LOG, StreamClient, StreamError, StreamOrderError
 from hermit.task import RunOutput
+from hermit.trainer.rollout import FRESH, TRIAL_KEYS
 
 HARBOR = "~/.cache/hermit/harbor-venv/bin/harbor"
 JOBS_DIR = "~/.cache/hermit/harbor/jobs"
@@ -180,6 +184,8 @@ HOST_TMP = Path("/tmp")
 HALT_FILE = "HALT"
 NESTED = ("acting_agent", "environment", "verifier", "retry", "stream", "answer")   # params merged one level deep
 BINS = ("codex", "claude", "pi", "opencode", "dsh")              # the CLIs a binary of this machine may be mounted for
+# What has Harbor's own codex agent sign in with the user's ChatGPT file (~/.codex/auth.json, or the file named)
+CODEX_SIGN_IN = ("CODEX_FORCE_AUTH_JSON", "CODEX_AUTH_JSON_PATH")
 TOOLS_PLACEHOLDER = "http://0.0.0.0:0/" + "0" * 32 + "/mcp"      # a dry render's tools URL (the cache key's plan)
 ANSWER_PLACEHOLDER = "http://127.0.0.1:0/" + "0" * 32            # ... and the answer agent's endpoint
 SESSION_FACTS = ("served", "refused", "unavailable", "login_failed", "rejected", "model_refusal", "held_until",
@@ -355,6 +361,7 @@ class HarborAgent(Agent):
         if not self.params.get("tasks_dir"):
             raise ValueError("agent.params.tasks_dir is required (the Harbor task directories)")
         self.docker_cleanup                                  # an unknown mode fails here, before any container
+        self.verifier_timeout                                # and an unknown verifier_timeout
         self.acting_agent                                    # and an agent spec without a name
         for key in TIMEOUT_MULTIPLIERS:                      # and a multiplier below 1
             self.timeout_multiplier(key)
@@ -573,6 +580,15 @@ class HarborAgent(Agent):
         if mode not in docker.CLEANUP_MODES:
             raise ValueError(f"agent.params.docker_cleanup must be one of {', '.join(docker.CLEANUP_MODES)}, not "
                              f"{mode!r}")
+        return mode
+
+    @property
+    def verifier_timeout(self) -> str:
+        """What a verifier that ran out of its time is: `agent` (the default) or `infra` (verifier_timeout_verdict)."""
+        mode = str(self.params.get("verifier_timeout") or "agent")
+        if mode not in ("agent", "infra"):
+            raise ValueError(f"agent.params.verifier_timeout is agent or infra (a verifier that ran out of its time: "
+                             f"the agent's result, or run again), not {mode!r}")
         return mode
 
     @property
@@ -987,12 +1003,17 @@ class HarborAgent(Agent):
         a TMPDIR outside /tmp, the variables a plan passes by name (`keep`) among this process's. For HermitClaude
         nothing of another bill or of a parent Claude Code session; for Harbor's own Claude Code, which signs in with
         this process's key (ANTHROPIC_API_KEY, ...), nothing of a parent Claude Code session or another model's
-        settings; the subscription's token only on its login."""
+        settings; the subscription's token only on its login; and never the switches that have Harbor's own codex sign
+        in with the user's ChatGPT file (CODEX_SIGN_IN), so that a ChatGPT plan is used only on `login: chatgpt`, in
+        the plan's slots and under its MAX_USED."""
         self.tmpdir.mkdir(parents=True, exist_ok=True)
         paths = [str(HARBORSIDE_ROOT), *(str(self._path(p)) for p in (self.acting_agent.get("pythonpath") or []))]
         if os.environ.get("PYTHONPATH"):
             paths.append(os.environ["PYTHONPATH"])
         env = {**os.environ, "PYTHONPATH": os.pathsep.join(paths), "TMPDIR": str(self.tmpdir)}
+        for name in CODEX_SIGN_IN:
+            if name not in keep:
+                env.pop(name, None)
         if self.cli == "claude" or self.acting_agent.get("name") == "claude-code":
             from hermit.agent.base import cli
             drop = (*cli.CLAUDE_BILLING, *cli.CLAUDE_INHERITED, "CLAUDE_FORCE_OAUTH")
@@ -1125,7 +1146,7 @@ class HarborAgent(Agent):
 
     def _run_trial(self, task: dict, adapter: Path | None, started: float) -> RunOutput:
         # a row asking for a new run (`fresh`: an Evolver's run_agent) is neither taken from the cache nor kept there
-        key = self.cache_key(task, adapter) if self.params.get("trial_cache") and not task.get("fresh") else None
+        key = self.cache_key(task, adapter) if self.params.get("trial_cache") and not task.get(FRESH) else None
         cached = self.cached(key)
         if cached is not None:
             return cached
@@ -1231,11 +1252,17 @@ class HarborAgent(Agent):
                 self.pulls.done(key)
 
     def _stage(self, task: dict, adapter: Path | None, where: Path) -> dict | None:
-        """The adapter staged for the acting CLI under `where`, with the task's context when it is per task."""
+        """The adapter staged for the acting CLI under `where`, with the task's context when it is per task (computed
+        from the task's own row: the keys the Trainer names a trial by, TRIAL_KEYS, are no field of the task). It runs
+        on this machine before any container: an OSError there (a full disk, a folder it cannot write) is the host's,
+        and the trial or the step that met it is infra (staging_failed). A RuntimeError is the adapter's: its
+        deployment or its per-task context failed in their child process, the agent's result (scored 0), as on main;
+        what such a child prints cannot tell the host's failure from the adapter's, which could print one."""
         if self.cli is None:
             return None
         from hermit.harbor.launch import context_limit
-        return stage(adapter, where, self.python, self.params.get("sandbox_enforce"), self.cli, task=task,
+        return stage(adapter, where, self.python, self.params.get("sandbox_enforce"), self.cli,
+                     task={k: v for k, v in task.items() if k not in TRIAL_KEYS},
                      context_query=self.params.get("context_query"),
                      context_limit=context_limit(self.cli, self.settings(task)) if self.cli == "codex" else None)
 
@@ -1284,7 +1311,11 @@ class HarborAgent(Agent):
         job_name = f"{_safe(task['id'])}-{uuid.uuid4().hex[:8]}"
         job = self.jobs_dir / job_name
         job.mkdir()
-        deployed = self._stage(task, adapter, job)
+        try:
+            deployed = self._stage(task, adapter, job)
+        except OSError as exc:                                # this machine's, before any container: no trial
+            return self._output(task, no_trial("staging_failed", str(exc)[-2000:]), None, None, started,
+                                extra={"harbor_job": str(job)})
         served = plan = None
         try:
             try:
@@ -1314,7 +1345,7 @@ class HarborAgent(Agent):
         facts, usage, said = self.session(trial, plan, served, job, task)
         if facts is not None:
             verdict = self.session_verdict(verdict, facts, self.login)
-        verdict = self.verifier_verdict(verdict, trial)
+        verdict = self.verifier_verdict(verdict, trial, self.redactions)
         if verdict["halt"]:
             self.halt(verdict, job)
         log = curate_mod.curate(trial, job, verdict, redact=self.redactions, audit=job / curate_mod.TOOL_AUDIT)
@@ -1326,22 +1357,31 @@ class HarborAgent(Agent):
 
     def sign_in_back(self, job: Path) -> None:
         """After the trial (or the step) under `job`, however it ended: the ChatGPT sign-in Codex refreshed in the
-        container becomes the shared copy (when it is a later refresh of it, hermit.agent.base.login.keep_refreshed),
-        and no copy of a sign-in is left in the job (the home's, the one that came back)."""
+        container becomes the shared copy (when it is a later refresh of it, hermit.agent.base.login.take_back,
+        stamped at most SKEW ahead of this machine's clock in Harbor's local Docker environment, whose containers share
+        that clock, and OTHER_CLOCK in another, whose clock may differ), and no copy of a sign-in is left in the job
+        (the home's, the one that came back)."""
         where = Path(job) / launch.LAUNCH_DIR
         returned = where / launch.RETURN_DIR
         if self.login == "chatgpt" and (returned / subscription.FILE).is_file():
-            subscription.keep_refreshed(self.login_root, returned)
+            local = (self.params.get("environment") or {}).get("type") in (None, "docker")
+            subscription.keep_refreshed(self.login_root, returned,
+                                        skew=subscription.SKEW if local else subscription.OTHER_CLOCK)
         for folder in (returned, where / launch.HOME_DIR):
             if folder.is_dir() and not folder.is_symlink():
                 subscription.remove(folder / subscription.FILE, folder)
 
     def verifier_timeout_verdict(self, verdict: dict) -> dict:
-        """With `verifier_timeout: agent`, a verifier that ran out of its time is the agent's result (kept, not run
-        again): a verifier that times the agent's solution (AlgoTune) runs out when the solution is too slow."""
-        if verdict.get("exception_type") == "VerifierTimeoutError" and self.params.get("verifier_timeout") == "agent":
-            return {**verdict, "status": "timeout", "failure_cause": "solution_timed_out", "timed_out": True}
-        return verdict
+        """A verifier that ran out of its time (VerifierTimeoutError) is the agent's result with `verifier_timeout:
+        agent`, the default, as Harbor grades it: a timeout on the agent's solution (solution_timed_out), scored its
+        reward or 0 and not run again (a solution too slow for its tests, as AlgoTune's verifier times it, or a process
+        it left that hung them). With `verifier_timeout: infra`, for a host whose load makes verifiers time out, it is
+        infra: run again."""
+        if verdict.get("exception_type") != "VerifierTimeoutError":
+            return verdict
+        if self.verifier_timeout == "infra":
+            return {**verdict, "status": "infra", "failure_cause": "verifier_failed"}
+        return {**verdict, "status": "timeout", "failure_cause": "solution_timed_out", "timed_out": True}
 
     # --- the acting CLI's session, from its stream ------------------------------------------------------------------
     def session(self, outputs: Path | None, plan: Path | None, served, job: Path, task: dict | None = None):
@@ -1497,13 +1537,16 @@ class HarborAgent(Agent):
         return {**verdict, "halt": verdict["halt"] and not waits}
 
     @staticmethod
-    def verifier_verdict(verdict: dict, trial: Path | None) -> dict:
-        """A trial the agent finished whose verifier ran no test is infra: run again, not kept as the agent's 0. Either
-        the verifier's tools never arrived, their download failed by a server (a 5xx, GitHub's release download) so its
-        test runner is missing and it wrote no report (hermit.harbor.errors.verifier_unreached), or the host's disk was
-        full while it ran (verifier_disk_full). A trial the verifier passed ran its tests; an agent's timeout or error
-        stays as it was."""
-        if trial is None or verdict["status"] != "ok" or float(verdict.get("reward") or 0) >= 1:
+    def verifier_verdict(verdict: dict, trial: Path | None, redact=()) -> dict:
+        """A trial the agent finished whose verifier ran no test is infra: run again, not kept as the agent's 0, whether
+        the verifier wrote 0, left no reward or ran out of its time (the verifier's own failure, which is otherwise the
+        agent's result, as Harbor grades it). Either the verifier's tools never arrived, their download failed by a
+        server (a 5xx, GitHub's release download) so its test runner is missing and it wrote no report
+        (hermit.harbor.errors.verifier_unreached), or the host's disk was full while it ran (verifier_disk_full). A
+        trial the verifier passed ran its tests; an agent's timeout or error stays as it was. The verifier's output the
+        verdict quotes has `redact`'s patterns removed (verifier_redact), as the curated output has."""
+        own = verdict["status"] != "infra" and verdict["failure_cause"] in ("verifier_failed", "solution_timed_out")
+        if trial is None or (verdict["status"] != "ok" and not own) or float(verdict.get("reward") or 0) >= 1:
             return verdict
         out = trial / "verifier"
         stdout = _text(out / "test-stdout.txt")
@@ -1514,7 +1557,7 @@ class HarborAgent(Agent):
         else:
             return verdict
         return {**verdict, "status": "infra", "failure_cause": "verifier_failed",
-                "exception_message": f"{why}: {stdout.strip()[-300:]}"}
+                "exception_message": f"{why}: {curate_mod.redact_verifier(stdout, redact).strip()[-300:]}"}
 
     # --- the trial cache ------------------------------------------------------------------------------------------
     def task_digest(self, task: dict) -> str:
@@ -1664,7 +1707,11 @@ class HarborAgent(Agent):
         client = StreamClient(stream_dir, python=self.harbor_python)
         step_dir = stream_dir / "steps" / f"{index:03d}-{_safe(name)}"
         step_dir.mkdir(parents=True, exist_ok=True)
-        deployed = self._stage(task, adapter, step_dir)
+        try:
+            deployed = self._stage(task, adapter, step_dir)
+        except OSError as exc:                                # this machine's, before the step: not run
+            return self._output(task, no_trial("staging_failed", str(exc)[-2000:]), None, None, started,
+                                extra={"harbor_job": str(step_dir), "stream_dir": str(stream_dir)})
         reply, result, error, cause = None, None, None, "stream_lost"
         served = endpoint = plan = None
         lost = False
@@ -1738,7 +1785,7 @@ class HarborAgent(Agent):
             facts, usage, said = self.session(outputs, plan, endpoint or served, step_dir, task)
             if facts is not None:
                 verdict = self.session_verdict(verdict, facts, self.login)
-            verdict = self.verifier_verdict(verdict, outputs)
+            verdict = self.verifier_verdict(verdict, outputs, self.redactions)
         if verdict["halt"]:
             self.halt(verdict, step_dir)
         ran = bool(reply and reply.get("ok"))

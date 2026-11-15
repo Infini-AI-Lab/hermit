@@ -242,26 +242,44 @@ def run_identity(records: Path) -> str:
     return f"{where}:{kept}"
 
 
+def _harbor_params(config) -> tuple[dict, Path]:
+    """A Harbor task set's params with the keys of its benchmark file (agent.params.benchmark, relative to the config's
+    folder) under the config's, as hermit.harbor.runner merges them at the top level, and the folder its relative paths
+    are read against: the benchmark file's, else the config's. A file that cannot be read adds nothing (the runner
+    refuses it when it starts)."""
+    import yaml
+    params, base = dict(config.data["agent"].get("params") or {}), Path(config.base)
+    if params.get("benchmark"):
+        bench = Path(str(params["benchmark"])).expanduser()
+        bench = bench if bench.is_absolute() else (base / bench).resolve()
+        try:
+            shared = yaml.safe_load(bench.read_text()) or {}
+        except (OSError, yaml.YAMLError):
+            shared = {}
+        params = {**(shared if isinstance(shared, dict) else {}), **params}
+        base = bench.parent
+    return params, base
+
+
+def keeps_trials(config) -> bool:
+    """Whether the Trainer's pipeline (agent_pipeline's, role rollout) keeps its trials by row, so that a row it is
+    handed again is the trial it kept: a Harbor task set's (its pipeline on the host) with its trial cache on
+    (`trial_cache`, in agent.params or its benchmark file). Only such a pipeline is handed the rows that name their
+    epoch or ask for a new run (hermit.trainer.rollout.TRIAL_KEYS); any other gets the rows as they are."""
+    if str(config.data["agent"].get("name")) != "harbor":
+        return False
+    return bool(_harbor_params(config)[0].get("trial_cache"))
+
+
 def _harbor_dirs(config) -> list[Path]:
     """A Harbor task set's directories (`agent.name: harbor`): `tasks_dir`, whose tasks hold their tests and
     solutions, and `jobs_dir`, where every trial's raw verifier output stays. Resolved as hermit.harbor.runner
     resolves them (HarborAgent._path, jobs_dir): tasks_dir against the folder of agent.params.benchmark when one is
-    named (its keys under the config's), else the config's; jobs_dir as given (~ expanded), by default
+    named (its keys under the config's: _harbor_params), else the config's; jobs_dir as given (~ expanded), by default
     HARBOR_JOBS_DIR."""
-    import yaml
-    d = config.data
-    if str(d["agent"].get("name")) != "harbor":
+    if str(config.data["agent"].get("name")) != "harbor":
         return []
-    params, base = dict(d["agent"].get("params") or {}), config.base
-    if params.get("benchmark"):
-        bench = Path(str(params["benchmark"])).expanduser()
-        bench = bench if bench.is_absolute() else (config.base / bench).resolve()
-        try:
-            shared = yaml.safe_load(bench.read_text()) or {}
-        except (OSError, yaml.YAMLError):             # the runner refuses it when it starts; nothing more to hide here
-            shared = {}
-        params = {**(shared if isinstance(shared, dict) else {}), **params}
-        base = bench.parent
+    params, base = _harbor_params(config)
     out = []
     if params.get("tasks_dir"):
         tasks = Path(os.path.expandvars(str(params["tasks_dir"]))).expanduser()

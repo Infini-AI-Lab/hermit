@@ -9,8 +9,9 @@ into /usr/local/bin looks for it without nvm, so on glibc it finds none: the pla
 user's own HOME, and a mount's bin/ goes on PATH after that, ahead of nvm's. A mount that serves is linked onto PATH
 with the release's rg (when the image has none) and, for an image with no CA bundle at all (TB2.0's bare ubuntu:24.04),
 the host's bundle where Debian keeps one: Codex trusts the system's roots, and without them every request fails ("error
-sending request", then "workspace routing discovery failed") and the trial ends in seconds as an agent error. Harbor's
-install would have brought ca-certificates with curl.
+sending request", then "workspace routing discovery failed") and the trial ends in seconds with no request served (a
+provider that could not serve: infra, run again to the same end). Harbor's install would have brought ca-certificates
+with curl.
 
 The session is the plan's, as harborside.hermit runs every CLI's: Hermit's own `codex exec --json ...` with its home
 (CODEX_HOME=/installed-agent/hermit-home: config.toml, roles, a sign-in), the deployment's .codex/ in the workdir

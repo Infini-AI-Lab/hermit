@@ -599,7 +599,7 @@ def test_agent_settings_keep_the_evolve_agents_isolation_and_login_and_give_each
     base = {"web_search": False, "isolation": "sandbox", "sandbox": sandbox, "codex_sandbox": "danger-full-access",
             "login": "chatgpt", "model": "gpt-5.6-luna", "effort": "medium", "env": {"PYTHONPATH": "/f"},
             "home": tmp_path / "agent_home", "log": tmp_path / "agent-codex.jsonl", "tools_name": "evolver_tools",
-            "timeout_s": None, "stdin": True}
+            "timeout_s": 7200, "stdin": True}                  # the Evolve session's clock: the attempt has its own
     ctx = context(tmp_path, cancel=threading.Event())
     runner = D.Runner(ctx, D.settings({"model": "gpt-5.6-luna", "effort": "medium",
                                        "debugger": {"effort": "low", "env": {"FAKE": "1"}}}), base,
@@ -658,25 +658,33 @@ def test_an_attempt_reads_the_base_agents_result(tmp_path, monkeypatch, fields, 
     assert made[0]["stdin"] and runner.usage[0].input_tokens == 5         # every attempt's usage counts
 
 
-@pytest.mark.parametrize("order", ["deadline", "trainer", "deadline then trainer"])
-def test_an_attempts_clock_covers_the_wait_before_the_cli_runs(tmp_path, monkeypatch, order):
-    """The Base Agent's own clock starts once the CLI runs; a session held back by the plan waits on its cancel only.
-    The attempt's deadline sets that cancel, and what set it decides the reason: a timeout at the deadline (even when
-    the Trainer stops while the call tears down), a cancel when the Trainer stopped it first."""
+@pytest.mark.parametrize("case", ["answers after the wait", "stopped in the wait", "timed out",
+                                  "timed out, stopped in its teardown"])
+def test_a_wait_for_the_plan_longer_than_an_attempts_clock_does_not_spend_it(tmp_path, monkeypatch, case):
+    """An attempt's clock is the Base Agent's own `timeout_s`, which starts once the CLI runs: a session the plan holds
+    back for longer than that clock still runs, and its answer is taken. A Trainer stop during the wait cancels the
+    attempt; a CLI that ran out of its clock is a timeout, also when the Trainer stops while the call tears down."""
     from hermit.agent.base.interface import Result
     trainer = threading.Event()
+    made = []
+    hold = {"answers after the wait": 2.5, "stopped in the wait": 30.0}.get(case, 0.0)
 
-    class Agent:
+    class Agent:                                   # the Base Agent: the plan's wait, then the CLI on its own clock
         def __init__(self, settings):
+            made.append(settings)
             self.cancel = settings["cancel"]
 
         def run(self, prompt, *, workspace):
-            if order == "trainer":
+            if case == "stopped in the wait":
                 trainer.set()
-            self.cancel.wait(30)                       # the plan's wait: it ends when the cancel is set
-            if order == "deadline then trainer":
-                trainer.set()                          # the Trainer stops while the timed-out call tears down
-            return Result(reply="", exit_code=-1, extra={"cancelled": self.cancel.is_set(), "started": False})
+            if self.cancel.wait(hold):             # the plan's wait: the cancel ends it, the attempt's clock does not
+                return Result(reply="", exit_code=-1, extra={"cancelled": True, "started": False})
+            if case.startswith("timed out"):       # the CLI ran past its own clock and was stopped
+                if case.endswith("teardown"):
+                    trainer.set()                  # the Trainer stops while the timed-out call tears down
+                    self.cancel.wait(30)
+                return Result(reply="", exit_code=-1, timed_out=True, extra={"cancelled": False, "started": True})
+            return Result(reply="ROOT CAUSE: answered after the wait", exit_code=0, extra={"started": True})
 
     monkeypatch.setattr(D, "make", lambda name, settings: Agent(settings))
     ctx = context(tmp_path, cancel=trainer)
@@ -685,9 +693,15 @@ def test_an_attempts_clock_covers_the_wait_before_the_cli_runs(tmp_path, monkeyp
     job_dir.mkdir()
     (job_dir / "question.md").write_text("q")
     started = time.monotonic()
-    answer, why = runner.attempt(D.Job(task="t"), job_dir, 1, 30.0 if order == "trainer" else 1.5)
-    assert answer is None and time.monotonic() - started < 10
-    assert why == ("[adb cancelled] stopped by the Trainer" if order == "trainer" else "[adb timeout] exceeded 1.5s")
+    answer, why = runner.attempt(D.Job(task="t"), job_dir, 1, 1.0)
+    took = time.monotonic() - started
+    assert made[0]["timeout_s"] == 1.0 and took < 10                  # the clock is the Base Agent's own
+    assert (answer, why) == {"answers after the wait": ("ROOT CAUSE: answered after the wait", ""),
+                             "stopped in the wait": (None, "[adb cancelled] stopped by the Trainer"),
+                             "timed out": (None, "[adb timeout] exceeded 1s"),
+                             "timed out, stopped in its teardown": (None, "[adb timeout] exceeded 1s")}[case]
+    if case == "answers after the wait":
+        assert took >= hold > 1.0                                     # it waited past its clock, then answered
 
 
 def test_the_login_is_the_shared_copy_in_each_jobs_home_for_the_call(tmp_path, monkeypatch):

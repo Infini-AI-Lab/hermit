@@ -35,7 +35,9 @@ EVENTS = [
 
 FAKE_CODEX = f'''#!{sys.executable}
 """A stand-in for `codex exec --json ... -o LAST PROMPT`: records its arguments, CODEX_HOME and what it saw; fails
-like an unavailable provider while FAKE_UNAVAILABLE counts down; refreshes a login it finds."""
+like an unavailable provider while FAKE_UNAVAILABLE counts down (codex exec's 429, or the stream of Codex's that
+FAKE_UNAVAILABLE_STREAM names); refreshes a login it finds, as Codex does (a new access token, the refresh token
+rotated: stand-ins)."""
 import json, os, sys
 from pathlib import Path
 args = sys.argv[1:]
@@ -48,7 +50,10 @@ state.write_text(str(calls + 1))
                                             "task": Path("task.md").read_text() if Path("task.md").exists() else None,
                                             "docs": sorted(p.name for p in Path("docs").iterdir()) if Path("docs").exists() else None}}))
 if calls < int(os.environ.get("FAKE_UNAVAILABLE", "0")):
-    print("ERROR: unexpected status 429 Too Many Requests")
+    if os.environ.get("FAKE_UNAVAILABLE_STREAM"):
+        sys.stdout.write(Path(os.environ["FAKE_UNAVAILABLE_STREAM"]).read_text())
+    else:
+        print("ERROR: unexpected status 429 Too Many Requests")
     sys.exit(1)
 if os.environ.get("FAKE_REFUSED"):                     # the plan's limit, as Codex reports it: an error event
     print(json.dumps({{"type": "thread.started", "thread_id": "th1"}}))
@@ -59,6 +64,8 @@ if os.environ.get("FAKE_OWN_TEXT"):                    # the session's own work 
                      "exit_code": 0, "aggregated_output": os.environ["FAKE_OWN_TEXT"]}}}}))
 if (home / "auth.json").exists():
     auth = json.loads((home / "auth.json").read_text())
+    auth["tokens"] = {{**auth.get("tokens", {{}}), "access_token": "at-stand-in",
+                      "refresh_token": "rt-rotated-stand-in"}}
     auth["last_refresh"] = "2026-10-30T12:00:00Z"
     (home / "auth.json").write_text(json.dumps(auth))
 for e in json.loads({json.dumps(json.dumps(EVENTS))}):
@@ -105,6 +112,13 @@ def fake(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setenv("FAKE_STATE", str(tmp_path / "calls"))
     return tmp_path
+
+
+def sign_in(when: str, account: str | None = None, **fields) -> str:
+    """A ChatGPT login file (Codex's auth.json) refreshed at `when`: its tokens stand-ins, `fields` beside them."""
+    tokens = {"id_token": "id-stand-in", "access_token": "at-stand-in", "refresh_token": "rt-stand-in",
+              **({"account_id": account} if account else {})}
+    return json.dumps({"auth_mode": "chatgpt", "last_refresh": when, "tokens": tokens, **fields})
 
 
 def seed(tmp_path: Path) -> Path:
@@ -186,6 +200,19 @@ def test_a_provider_that_could_not_serve_is_run_again(fake, monkeypatch):
         cli.run({"id": "q3"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws", "retries": 5,
                                             "retry_wait_s": 30, "deadline_s": 1}, base=tmp_path)
     assert _time.time() - t0 < 20
+
+
+def test_a_codex_session_that_could_not_reach_its_provider_is_run_again_never_an_empty_answer(fake, monkeypatch):
+    """Codex 0.164 on a ChatGPT login whose requests to chatgpt.com fail retries them, fails its turn with "workspace
+    routing discovery failed" and exits 1 (tests/fixtures/codex/unreachable.jsonl): no answer of the agent's, so the
+    session is run again, and once every attempt failed so the run is an error, never an empty answer judged wrong."""
+    tmp_path = fake
+    monkeypatch.setenv("FAKE_UNAVAILABLE_STREAM", str(ROOT / "tests" / "fixtures" / "codex" / "unreachable.jsonl"))
+    monkeypatch.setenv("FAKE_UNAVAILABLE", "9")
+    with pytest.raises(RuntimeError, match="could not be served after 3 attempts"):
+        cli.run({"id": "q1"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws", "retry_wait_s": 0},
+                base=tmp_path)
+    assert (tmp_path / "calls").read_text() == "3"
 
 
 def test_the_session_is_given_what_is_left_of_deadline_s_after_its_preparation(fake, monkeypatch):
@@ -572,12 +599,12 @@ def test_a_login_file_from_the_future_or_no_login_is_not_taken(tmp_path):
     master = login.master(tmp_path)
     master.parent.mkdir(parents=True)
     master.write_text(json.dumps({"last_refresh": "2026-10-01T00:00:00Z"}))
-    for content in ({"last_refresh": "2999-01-01T00:00:00Z"}, {"last_refresh": "soon"}, ["no", "login"]):
+    for content in (sign_in("2999-01-01T00:00:00Z"), sign_in("soon"), json.dumps(["no", "login"])):
         left = tmp_path / "left.json"
-        left.write_text(json.dumps(content))
+        left.write_text(content)
         login.take_back(tmp_path, left)
         assert json.loads(master.read_text())["last_refresh"] == "2026-10-01T00:00:00Z"
-    left.write_text(json.dumps({"last_refresh": "2026-10-30T12:00:00Z"}))
+    left.write_text(sign_in("2026-10-30T12:00:00Z"))
     login.take_back(tmp_path, left)
     assert json.loads(master.read_text())["last_refresh"] == "2026-10-30T12:00:00Z"
 
@@ -804,10 +831,9 @@ def test_a_shared_login_nested_past_the_parsers_depth_names_no_account_and_a_lat
     master.parent.mkdir(parents=True)
     master.write_text('{"last_refresh": "2026-10-01T00:00:00Z", "tokens": ' + "[" * 100_000 + "]" * 100_000 + "}\n")
     (tmp_path / "home").mkdir()
-    (tmp_path / "home" / login.FILE).write_text(json.dumps({"last_refresh": "2026-10-30T12:00:00Z",
-                                                            "tokens": {"account_id": "mine"}}))
+    (tmp_path / "home" / login.FILE).write_text(sign_in("2026-10-30T12:00:00Z", "mine"))
     login.keep_refreshed(tmp_path / "root", tmp_path / "home")
-    assert json.loads(master.read_text())["tokens"] == {"account_id": "mine"}
+    assert json.loads(master.read_text())["tokens"]["account_id"] == "mine"
 
 
 def _past_the_encoder() -> int:
@@ -1166,7 +1192,7 @@ def test_take_back_reads_no_login_through_a_linked_directory(tmp_path):
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    (elsewhere / "auth.json").write_text(json.dumps({"last_refresh": now, "who": "else"}))
+    (elsewhere / "auth.json").write_text(sign_in(now, who="else"))
     work = tmp_path / "work"
     (work / "workspaces").mkdir(parents=True)
     (work / "workspaces" / "login").symlink_to(elsewhere)
@@ -1174,7 +1200,7 @@ def test_take_back_reads_no_login_through_a_linked_directory(tmp_path):
     assert "else" not in master.read_text()
     (work / "workspaces" / "login").unlink()
     (work / "workspaces" / "login").mkdir()
-    (work / "workspaces" / "login" / "auth.json").write_text(json.dumps({"last_refresh": now, "who": "refreshed"}))
+    (work / "workspaces" / "login" / "auth.json").write_text(sign_in(now, who="refreshed"))
     L.take_back(root, work / "workspaces" / "login" / "auth.json", within=work)
     assert "refreshed" in master.read_text()                          # a real refresh is still taken back
 
@@ -1190,16 +1216,67 @@ def test_take_back_keeps_the_shared_login_to_its_account(tmp_path):
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     home = tmp_path / "home"
     home.mkdir()
-    (home / "auth.json").write_text(json.dumps({"last_refresh": now, "tokens": {"account_id": "theirs"}}))
+    (home / "auth.json").write_text(sign_in(now, "theirs"))
     L.take_back(root, home / "auth.json", within=home)
     assert "theirs" not in master.read_text()
-    (home / "auth.json").write_text(json.dumps({"last_refresh": now, "tokens": {"account_id": "mine"}, "n": 2}))
+    (home / "auth.json").write_text(sign_in(now, "mine", n=2))
     L.take_back(root, home / "auth.json", within=home)
     assert '"n": 2' in master.read_text()                             # the same account's refresh is taken back
     master.write_text(json.dumps({"last_refresh": "2026-01-01T00:00:00Z"}))   # a copy that names no account
-    (home / "auth.json").write_text(json.dumps({"last_refresh": now, "tokens": {"account_id": "mine"}, "n": 3}))
+    (home / "auth.json").write_text(sign_in(now, "mine", n=3))
     L.take_back(root, home / "auth.json", within=home)
     assert '"n": 3' in master.read_text()
+
+
+def test_a_file_a_session_hands_back_replaces_the_copy_only_as_a_well_formed_later_refresh_within_the_clocks_skew(
+        tmp_path):
+    """A session can write the login file it hands back (in a Harbor trial's container its commands run as the file's
+    owner, with no Codex sandbox, and read the account from the same file): the shared copy takes only a ChatGPT
+    sign-in of its account with a refresh and an access token, of at most MAX_BYTES (one larger is not read), never
+    through a link, stamped after the copy and at most SKEW ahead of this machine's clock (OTHER_CLOCK for a session
+    on another machine's: a cloud sandbox's). Each refused file below replaced the copy before: one without its
+    refresh token left every session after it signed out until the user signed in again."""
+    from datetime import datetime, timedelta, timezone
+
+    def at(delta: timedelta) -> str:
+        return (datetime.now(timezone.utc) + delta).isoformat()
+    root, home = tmp_path / "root", tmp_path / "home"
+    master = login.master(root)
+    master.parent.mkdir(parents=True)
+    copy = sign_in(at(-timedelta(days=3)), "acct-1")
+    master.write_text(copy)
+    home.mkdir()
+    refresh = json.loads(sign_in(at(-timedelta(seconds=5)), "acct-1"))
+    refresh["tokens"]["refresh_token"] = "rt-rotated-stand-in"
+    tokens = refresh["tokens"]
+    refused = {"no refresh token": {**refresh, "tokens": {k: v for k, v in tokens.items() if k != "refresh_token"}},
+               "an empty access token": {**refresh, "tokens": {**tokens, "access_token": ""}},
+               "a refresh token that is no text": {**refresh, "tokens": {**tokens, "refresh_token": 7}},
+               "too large": {**refresh, "pad": "x" * login.MAX_BYTES},
+               "ahead of the clock": json.loads(sign_in(at(timedelta(minutes=5)), "acct-1")),
+               "older than the copy": json.loads(sign_in(at(-timedelta(days=4)), "acct-1")),
+               "another account's": json.loads(sign_in(at(-timedelta(seconds=5)), "acct-2"))}
+    for why, content in refused.items():
+        (home / login.FILE).write_text(json.dumps(content))
+        login.keep_refreshed(root, home)
+        assert master.read_text() == copy, why
+    elsewhere = tmp_path / "elsewhere.json"                                # a link to a refresh: never read
+    elsewhere.write_text(json.dumps(refresh))
+    (home / login.FILE).unlink()
+    (home / login.FILE).symlink_to(elsewhere)
+    login.keep_refreshed(root, home)
+    assert master.read_text() == copy
+    (home / login.FILE).unlink()
+    (home / login.FILE).write_text(sign_in(at(timedelta(hours=2)), "acct-1"))
+    login.keep_refreshed(root, home, skew=login.OTHER_CLOCK)             # another clock: an hour ahead, no more
+    assert master.read_text() == copy
+    (home / login.FILE).write_text(json.dumps(refresh))
+    login.keep_refreshed(root, home)
+    assert json.loads(master.read_text()) == refresh                       # a refresh: taken
+    ahead = sign_in(at(timedelta(minutes=30)), "acct-1")
+    (home / login.FILE).write_text(ahead)
+    login.keep_refreshed(root, home, skew=login.OTHER_CLOCK)
+    assert master.read_text() == ahead
 
 
 def test_no_link_on_the_way_to_a_sessions_output_is_followed(tmp_path):

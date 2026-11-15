@@ -161,7 +161,7 @@ this framework's own code.
 | What is learned | NexAU's prompt, tool descriptions and implementations, middleware classes, skills, sub-agents, memory | The adapter's files (the table above), the same on either host; the host's loop and tools are fixed | Framework: the acting agent is fixed; the reason for the name |
 | The update | Edits plus a manifest of predictions, attributed at the next iteration; Algorithm 1 reverts HARMFUL changes, the released code leaves it to the agent | The same manifest and rules; `rollback: auto` (the paper) or `agent` (the code) | Decision: the paper by default |
 | Final harness | The best iteration by pass@1 | The best-ever commit, the harness its rollouts ran (Algorithm 1 line 15 names the harness after the next edit, which no rollout measured) | Decision |
-| Models and budgets | GPT-5.4 high for every role; the Evolve Agent 500 turns | Config; the Evolve Agent `evolve_timeout_s` 7,200 s, the Debugger 600 s × 3 attempts, 16 at a time | Decision |
+| Models and budgets | GPT-5.4 high for every role; the Evolve Agent 500 turns | Config; the Evolve Agent `evolve_timeout_s` 7,200 s, the Debugger 600 s × 3 attempts, 16 at a time, each clock counted from the CLI's start: a wait for the login's plan or a session slot pauses a learner instead of spending its budget (`trainer.call_timeout_min` still bounds the step, wait included) | Decision: upstream's clocks had no plan or slot to wait for |
 | Not ported | — | The Explore Agent (one-shot skill seeding from NexAU's source and coding-agent references); Best-of-N | Decision: no counterpart for a fixed host |
 
 ## Result

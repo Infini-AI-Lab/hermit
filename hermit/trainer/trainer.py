@@ -43,7 +43,7 @@ from hermit.agent.evolver.base import (Access, Context, Evolver, FinalResult, Pr
 from hermit.agent.evolver.loader import find, instantiate
 from hermit.agent.model.llm import ChatClient
 from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, Recheck, ToolRunner, _cli_kind, _safe, agent_pipeline, \
-    cli_sandbox, config_paths, host_pipeline, judge_for, run_secrets, sanitized_copy
+    cli_sandbox, config_paths, host_pipeline, judge_for, keeps_trials, run_secrets, sanitized_copy
 from hermit.redact import redact_name, redact_path, redact_tree, redact_value
 from hermit.sandbox import (AllowlistProxy, Bind, Sandbox, drop_unsafe, hidden_paths, inside_tools, model_access,
                             set_hidden)
@@ -53,7 +53,7 @@ from hermit.tools import FunctionTool, ToolServer, assemble, evolver_agent
 from hermit.trainer import card
 from hermit.trainer.budget import Budget, BudgetExceeded
 from hermit.trainer.material import Material
-from hermit.trainer.rollout import mean_score, run_tasks, scored
+from hermit.trainer.rollout import EPOCH, FRESH, mean_score, reports_halt, run_tasks, scored
 from hermit.tree import INVALID_MARK, ROOT_TAG, Tree
 
 
@@ -62,6 +62,13 @@ class StopRun(Exception):
     def __init__(self, reason: str):
         super().__init__(reason)
         self.reason = reason
+
+
+class Halted(SystemExit):
+    """A run of the step's rollouts or of run_agent reported a halt (hermit.harbor's: a lost sign-in, an API account's
+    usage limit, after which every rollout returns at once, unrun, while <jobs_dir>/HALT exists): nothing later in the
+    run can succeed until a person restores it. The run ends, unfinished, as at a failed sign-in (LoginFailed), and
+    `hermit train` resumes at the step that met it. A SystemExit: an Evolver's `except Exception` never swallows it."""
 
 
 def warnings_for(config: Config, val_given: bool) -> list[str]:
@@ -228,8 +235,10 @@ def step_order_problems(config: Config, data: TaskData) -> list[str]:
     """What training asks of the splits, checked before it starts: the train order and the validation split (whose
     rows an Evolver gives run_agent in its order, in one call, less the train split's steps, which run_agent never
     runs) list each step of a multi-step task after every earlier step of its stream (out_of_step); and a train split
-    with such steps is trained one epoch, since a run runs each of a stream's steps once (its stream, the run's, keeps
-    one environment from step to step: a second epoch's steps would find their turns taken, and end infra)."""
+    with such steps is trained one epoch, since a task's stream is the run's (its directory, and its driver keeping one
+    environment from step to step): a second epoch would run a stream the split lists whole again in a new environment
+    in that directory, over the first epoch's step logs, and would find the turns of one it lists in part taken (its
+    driver still waiting for the next step: infra, stream_order)."""
     order = train_order(config, data, 1)       # every epoch's but data.shuffle's, which keeps the steps in step order
     steps = {t for t in order if _step_of_many(data.tasks[t])}            # Trainer._steps_trained
     vals = [t for t in data.splits["val"] if t not in steps]
@@ -241,8 +250,10 @@ def step_order_problems(config: Config, data: TaskData) -> list[str]:
     epochs = int(config.data["trainer"]["epochs"])
     if steps and epochs > 1:
         out.append(f"the train split holds steps of multi-step tasks (e.g. {sorted(steps)[0]}) and trainer.epochs is "
-                   f"{epochs}: a run runs each step of a task's stream once, in one environment, so a second epoch's "
-                   "steps would find their turns taken and end infra; train such tasks for one epoch")
+                   f"{epochs}: a task's stream is the run's, so a second epoch would run a stream the split lists "
+                   "whole again in its stream directory, over the first epoch's step logs, and the steps of a stream "
+                   "it lists in part would find their turns taken (stream_order) and end infra; train such tasks for "
+                   "one epoch")
     return out
 
 
@@ -311,7 +322,7 @@ class Trainer:
         self.enforce = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] else None
         self.pipeline = None             # set when the run starts: the agent runs in its sandbox, never imported here
         self.judge = None                # set when the run starts (judge_for): a sandboxed judge is never imported here
-        self._login_failed: LoginFailed | None = None   # a sign-in that failed inside a learner's tool call
+        self._login_failed: LoginFailed | Halted | None = None   # a failed sign-in or a halt in a learner's tool call
         self.spec = find(d["evolver"]["name"], config.base)
         self.evolver, self.params = instantiate(self.spec, d["evolver"]["params"],
                                                 backends=registry(d.get("backends")), default_model=d.get("model"))
@@ -597,13 +608,14 @@ class Trainer:
         return tools
 
     def _latched(self, fn, cancel: threading.Event | None):
-        """A tool's function whose LoginFailed the Trainer keeps: raised in the tool server's thread (a learner's `llm`
-        or `run_agent` call) it would reach the learner as a failed call, and the step would go on after the sign-in
-        failed. The learner is stopped, and the call it was in ends the run (_raise_login_failed)."""
+        """A tool's function whose LoginFailed or Halted the Trainer keeps: raised in the tool server's thread (a
+        learner's `llm` or `run_agent` call) it would reach the learner as a failed call, and the step would go on
+        after the sign-in failed or the run halted. The learner is stopped, and the call it was in ends the run
+        (_raise_login_failed)."""
         def call(**arguments):
             try:
                 return fn(**arguments)
-            except LoginFailed as exc:
+            except (LoginFailed, Halted) as exc:
                 self._login_failed = self._login_failed or exc
                 if cancel is not None:
                     cancel.set()
@@ -611,10 +623,27 @@ class Trainer:
         return call
 
     def _raise_login_failed(self, box: dict) -> None:
-        """The run ends, unfinished, when the Evolver's call or a tool call in it met a failed sign-in."""
-        failed = box["error"] if isinstance(box.get("error"), LoginFailed) else self._login_failed
+        """The run ends, unfinished, when the Evolver's call or a tool call in it met a failed sign-in or a halt."""
+        failed = box["error"] if isinstance(box.get("error"), (LoginFailed, Halted)) else self._login_failed
         if failed is not None:
             raise failed
+
+    @staticmethod
+    def _raise_halt(results: list[dict], where: str) -> None:
+        """The run ends, unfinished, when one of `results` (a step's rollouts, a run_agent call's runs) is infra and
+        reports a halt (reports_halt), as at a failed sign-in: every later run would return at once, unrun, and the
+        learner would be called on runs that never ran. `hermit train` runs the step again once it is restored."""
+        halt = next((r for r in results if r["status"] == "infra" and reports_halt(r)), None)
+        if halt is None:
+            return
+        error = str(halt.get("error") or "halted")
+        lines = str((halt.get("pipeline_extra") or {}).get("exception_message") or "").strip().splitlines()
+        message = lines[0][:300] if lines else ""
+        why = message if message.startswith(error) else f"{error}: {message}" if message else error
+        raise Halted(redact_value(
+            f"{where}: {halt['id']} reported a halt ({why}): every later run would return at once, unrun, so the run "
+            "ends here, unfinished; restore the login or wait for the window (on a Harbor task set, then remove "
+            "<jobs_dir>/HALT) and run hermit train again: it resumes at this step"))
 
     def _snapshot_adapter(self, source: Path) -> Path:
         """A private copy of the adapter the learner names, made inside the learner's own sandbox (a link it swaps in
@@ -657,8 +686,9 @@ class Trainer:
 
     def _run_agent_tool(self) -> FunctionTool:
         """The acting-agent runner: an adapter through the user's pipeline and judge, on train or validation tasks
-        (_run_agent_scope), each run a new one (`fresh`: never one a trial cache kept); a task it may not run comes
-        back as an error result."""
+        (_run_agent_scope), each run a new one (`fresh` where the pipeline keeps its trials by row: never one a trial
+        cache kept); a task it may not run comes back as an error result, and a run that reports a halt ends the run
+        after the learner's call (_raise_halt, through _latched)."""
 
         def run_agent(task_ids: list, adapter: str | None = None, _snapshot=None) -> dict:
             train, val = self._run_agent_scope()
@@ -670,9 +700,10 @@ class Trainer:
             target = self.sandbox.outside(adapter) if adapter else self.ws.adapter      # a name the learner sees
             if not target.resolve().is_relative_to(self.run_dir.resolve()):
                 raise ValueError("the adapter must be inside the workspace")
-            # each a new run (`fresh`): a pipeline keeping its trials by row (Harbor's trial cache) neither takes it
-            # from there nor keeps it, so that a learner asking for a run gets one, as with no such pipeline
-            tasks = [{**self.data.tasks[t], "fresh": True} for t in task_ids if t not in refused]
+            # each a new run: a pipeline keeping its trials by row (Harbor's trial cache) is told so (`fresh`), and
+            # neither takes it from there nor keeps it; any other pipeline, handed the rows as they are, runs it anew
+            mark = {FRESH: True} if keeps_trials(self.config) else {}
+            tasks = [{**self.data.tasks[t], **mark} for t in task_ids if t not in refused]
             results: list[dict] = []
             if tasks:
                 snapshot = (_snapshot or self._snapshot_adapter)(target)     # a caller's narrower view may copy it
@@ -682,6 +713,7 @@ class Trainer:
                                         part="evolver")
                 finally:
                     shutil.rmtree(snapshot, ignore_errors=True)
+                self._raise_halt(results, "run_agent")
             # Each run under the id it was asked by: TaskData names a row by str(id), and the run's record keeps the
             # row's own id (a number where tasks.jsonl gives one). run_tasks returns a run of each task, or raises (a
             # budget reached: BudgetExceeded, and so does this whole call, with no results).
@@ -813,6 +845,7 @@ class Trainer:
         rollout_adapter = self.tree.export(parent, self.run_dir / "rollout_adapter")
         results = run_tasks(self._rollout_rows(progress.epoch, chunk), rollout_adapter, self.pipeline, self.judge,
                             concurrency=int(d["agent"]["concurrency"]), budget=self.budget)
+        self._raise_halt(results, f"step {n}")             # before the material and the learner: nothing kept
         rollout_s = time.time() - t0
         changed_since_last = self._last_rollout_commit is not None and parent != self._last_rollout_commit
         self._last_rollout_commit = parent
@@ -821,17 +854,20 @@ class Trainer:
         return self._evolve("step", progress, parent, chunk, results, rollout_s, session, selection)
 
     def _rollout_rows(self, epoch: int, chunk: list[str]) -> list[dict]:
-        """The rows a step's rollouts hand the pipeline, and so the judge, each a run of its own where the pipeline
-        keeps its trials by row (Harbor's trial cache, which keeps a training run's trials to that run): with
-        trainer.epochs above 1, copies that name their epoch (`epoch`), so that a later epoch runs its rows anew, on an
-        adapter the epoch before left as it was too, and a resumed step meets its own; and a task the epoch's order
-        names more than once (a split may name a task twice) asks for a new run each time (`fresh`, as run_agent's
-        rows do). Else the rows themselves."""
-        named = {"epoch": epoch} if int(self.config.data["trainer"]["epochs"]) > 1 else {}
+        """The rows a step's rollouts hand the pipeline, and so the judge. Where the pipeline keeps its trials by row
+        (keeps_trials: Harbor's trial cache, which keeps a training run's trials to that run), each a run of its own:
+        with trainer.epochs above 1, copies that name their epoch (`epoch`), so that a later epoch runs its rows anew,
+        on an adapter the epoch before left as it was too, and a resumed step meets its own; and a task the epoch's
+        order names more than once (a split may name a task twice) asks for a new run each time (`fresh`, as
+        run_agent's rows do). Else, and for any other pipeline, the rows themselves; no record keeps either key
+        (hermit.trainer.rollout.TRIAL_KEYS)."""
+        if not keeps_trials(self.config):
+            return [self.data.tasks[t] for t in chunk]
+        named = {EPOCH: epoch} if int(self.config.data["trainer"]["epochs"]) > 1 else {}
         again = {t for t, n in Counter(self._order(epoch)).items() if n > 1}
         rows = []
         for t in chunk:
-            name = named | ({"fresh": True} if t in again else {})
+            name = named | ({FRESH: True} if t in again else {})
             rows.append({**self.data.tasks[t], **name} if name else self.data.tasks[t])
         return rows
 
