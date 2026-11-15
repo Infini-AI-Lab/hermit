@@ -1096,9 +1096,10 @@ class HermitInstalled(BaseInstalledAgent):
     async def _return_files(self, environment: BaseEnvironment, plan: dict, workdir: str) -> None:
         """The plan's return_files from the container to their host paths (Hermit's side takes them from there: a
         refreshed ChatGPT sign-in), never into the logs. One the session did not leave (or left as a link) is skipped;
-        one larger than the entry's max_bytes is not downloaded and raises (the session wrote something else there: a
-        sign-in is a few KB); one whose check could not tell (its exec failed: compose's service stopped; no wc in
-        the image) raises, never taken for none."""
+        one larger than the entry's max_bytes when checked is not downloaded and raises (the session wrote something
+        else there: a sign-in is a few KB), though a process still writing it can grow it between the check and the
+        download (the take-back then refuses it by its size); one whose check could not tell (its exec failed:
+        compose's service stopped; no wc in the image) raises, never taken for none."""
         for entry in plan.get("return_files") or []:
             source = self._fill(entry["from"], workdir)
             s = _q(source)

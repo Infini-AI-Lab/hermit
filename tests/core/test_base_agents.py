@@ -438,6 +438,28 @@ def test_a_codex_session_that_failed_or_ended_while_codex_retried_met_a_provider
     assert (said["unavailable"], said["login_failed"]) == (False, True)
 
 
+def test_codexs_fall_back_to_https_retries_nothing_so_a_request_refused_after_it_is_the_sessions_own_failure():
+    """Codex's fall back from a WebSocket the provider refused to HTTPS (its `error` item) is a notice it goes on from,
+    never a retry: a turn that then fails on the first request, refused for what it held (the model's context window,
+    an invalid request), is the session's own failure, as it is without the fall back; one Codex reconnected for
+    before it failed met a provider that could not serve."""
+    from hermit.agent.base.cli import Codex
+    codex = Codex({})
+    start = '{"type":"thread.started","thread_id":"t"}\n{"type":"turn.started"}\n'
+    fallback = json.dumps({"type": "item.completed", "item": {
+        "id": "item_0", "type": "error", "message": "Falling back from WebSockets to HTTPS transport. unexpected "
+                                                    "status 401 Unauthorized: Missing bearer or basic authentication "
+                                                    "in header, url: wss://chatgpt.com/backend-api/codex/responses"}}) + "\n"
+    reconnect = '{"type":"error","message":"Reconnecting... 1/5 (stream disconnected before completion)"}\n'
+    for refusal in ("Your input exceeds the context window of this model. Please adjust your input and try again.",
+                    "unexpected status 400 Bad Request: Invalid request"):
+        failed = '{"type":"turn.failed","error":{"message":%s}}\n' % json.dumps(refusal)
+        for before in ("", fallback):
+            said = codex.outcome(start + before + failed, None, None)
+            assert (said["unavailable"], said["login_failed"]) == (False, False), (before, refusal)
+        assert codex.outcome(start + fallback + reconnect + failed, None, None)["unavailable"] is True
+
+
 def test_codexs_warnings_are_no_failure_so_a_deployments_hooks_never_decide_whether_the_provider_could_serve():
     """Codex reports what it goes on from as a warning, an `error` item: with a deployment's hooks, the trust it gives
     them, right after the thread starts (Codex 0.164's words, as recorded). A warning is no failure, so the hooks change

@@ -122,7 +122,7 @@ Failures affect different boundaries:
 | Evolver reports `failed` / `out_of_budget`, raises, or returns the wrong type | Keep the previous adapter and record the step. |
 | Returned files violate the specification | Repair as described below. |
 | `setup` fails | Stop before training steps begin. |
-| A rollout, or a run of `run_agent`'s, reports a halt (a Harbor task set's lost sign-in or an API account's usage limit: every later rollout returns at once, unrun) | End the run unfinished, as at a lost sign-in: before the learner is called on the step's rollouts, after the learner's call for `run_agent`'s; once restored, a resume runs the step again. |
+| A rollout, or a run of `run_agent`'s, reports a halt (a Harbor task set's lost sign-in or an API account's usage limit: every later rollout returns at once, unrun) | End the run unfinished, as at a lost sign-in: before the learner is called on the step's rollouts, after the learner's call for `run_agent`'s; once restored, a resume runs the step again (its rows of a Harbor multi-step task whose stream the halt stopped end `infra` at once, unless the step holds that stream from its first step: [Benchmarks](task.md#benchmarks)). |
 | `finalize` fails or returns the wrong type | Use the current accepted adapter as final. |
 | Unhandled crash | Resume from the last completed step, subject to the saved records. |
 

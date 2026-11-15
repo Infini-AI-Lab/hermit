@@ -86,7 +86,11 @@ def _last_refresh(path: Path, skew: timedelta):
 
 
 def _newer(candidate: Path, than: Path, skew: timedelta) -> bool:
-    mine, theirs = _last_refresh(candidate, skew), _last_refresh(than, skew) if Path(than).is_file() else None
+    """Whether `candidate` is a later login than `than`, the shared copy: the candidate stamped at most `skew` ahead
+    of this machine's clock; the copy's own stamp read as any accepted copy may hold it (one taken from the user's own
+    file or another machine's session, at most OTHER_CLOCK ahead), never as no stamp, which any older file would beat."""
+    mine = _last_refresh(candidate, skew)
+    theirs = _last_refresh(than, max(skew, OTHER_CLOCK)) if Path(than).is_file() else None
     return mine is not None and (theirs is None or mine > theirs)
 
 

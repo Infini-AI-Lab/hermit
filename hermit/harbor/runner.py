@@ -50,7 +50,8 @@
         verifier_timeout_multiplier: 1.0     # Harbor's: each task's verifier limit times this (a slow host)
         environment_build_timeout_multiplier: 1.0   # Harbor's: each task's environment start (pull, build) limit
                                              # times this; the agent's limit is never scaled
-        retry: {max_retries: 0}              # Harbor's retry of a failed trial (not of a stream's step)
+        retry: {max_retries: 0}              # Harbor's retry of a failed trial (not of a stream's step); a failed
+                                             # attempt's usage is not counted (Harbor removes its trial)
         reward_key: reward                   # the verifier's reward the judge reads
         jobs_dir: ~/.cache/hermit/harbor/jobs   # one Harbor job per rollout, outside the checkout
         tmpdir: <jobs_dir>/tmp               # TMPDIR for harbor; never /tmp
@@ -73,7 +74,8 @@
         python: <this interpreter>           # the one the hosts' deployment and the per-task context run with
         stream: {idle_s: 14400, start_timeout_s: 3600, turn_wait_s: null}   # a multi-step task's driver: idle stop,
                                              # environment start, how long a step waits for its turn (null: a trial's
-                                             # budget for each step before it, at least one, and the start's)
+                                             # budget for each step before it, at least one, and the start's; a turn
+                                             # that cannot come ends at once)
 
 A task row (`dataset.index`) names its directory as `harbor_task`; a step row adds `step`, `step_index`, `steps`.
 
@@ -88,7 +90,12 @@ priced at the run's price: agent.params.price, else the backend's). What the con
 files, never through a link it left there (which could name a file of this machine).
 A step: the stream's driver (`stream.StreamClient`, `harborside/driver.py`) is started with the first step and keeps
 the task's environment; each rollout stages its adapter, renders its plan, waits for its turn, asks for its step and
-reads the step's result; the last step (or an abort) stops the driver. A stream is the row's rollout of the task, of
+reads the step's result; the last step (or an abort) stops the driver. A step whose turn cannot come (its driver waits
+for a step no rollout of this runner is running: one that ended before it reached the driver, or ran in an earlier
+training step; or it has no driver, and no rollout of its first step is running to start one) ends at once, infra
+(stream_order), and so does every later step of its stream, whose driver the last of them stops; a driver that answers
+no stop (hung in a step) is killed, and its trial's compose projects are taken down. A new driver in a stream's
+directory finds the earlier one's trial set aside (`earlier/<n>/`). A stream is the row's rollout of the task, of
 the eval's repeat, of the run (`run_identity`, which hermit.isolate.agent_pipeline gives: a hermit train's record
 directory, by path and the id it keeps there; any other pipeline's own identity):
 `<jobs_dir>/streams/<task>__s<rollout>[__r<repeat>][__<its digest>]`. A pipeline that never resumes (`keep_streams:
@@ -162,9 +169,10 @@ from hermit.harbor import curate as curate_mod
 from hermit.harbor import dataset
 from hermit.harbor import docker
 from hermit.harbor import launch
+from hermit.harbor import stream as stream_mod
 from hermit.harbor.errors import classify, no_trial, verifier_disk_full, verifier_unreached
 from hermit.harbor.staging import stage
-from hermit.harbor.stream import DRIVER_LOG, StreamClient, StreamError, StreamOrderError
+from hermit.harbor.stream import DRIVER_LOG, StreamClient, StreamError, StreamOrderError, TurnLostError
 from hermit.task import RunOutput
 from hermit.trainer.rollout import FRESH, TRIAL_KEYS
 
@@ -382,6 +390,8 @@ class HarborAgent(Agent):
         self.image_sizes = {k: v for k, v in sizes.items() if not str(k).startswith("_")}
         self._streams: dict[str, object] = {}               # a stream's tool server, for the stream's life
         self._drivers: dict[str, StreamClient] = {}         # the drivers of the streams it stepped, until they finish
+        self._in_flight: dict[str, list[int]] = {}          # a stream's steps whose rollouts are in _run_step now
+        self._given_up: dict[str, str] = {}                 # a stream whose next turn cannot come: why
         self._streams_lock = threading.Lock()
         self._digests: dict[str, str] = {}                  # each task directory's contents, for the trial cache
         _LIVE.add(self)                                      # its streams closed at exit (_close_all)
@@ -1075,13 +1085,15 @@ class HarborAgent(Agent):
     def halt(self, verdict: dict, job: Path) -> None:
         """Record a halting verdict (a lost sign-in, an account's limit): every later rollout returns at once."""
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
-        self.halt_file().write_text(f"{verdict['exception_type'] or verdict['failure_cause']}: "
-                                    f"{verdict['exception_message'][:2000]}\n"
+        # the record's cause first (login_failed, usage_limit, ...), then the exception Harbor kept for the trial
+        cause = verdict["failure_cause"] or verdict["exception_type"]
+        named = f"{cause} ({verdict['exception_type']})" if verdict["exception_type"] not in (None, cause) else cause
+        self.halt_file().write_text(f"{named}: {verdict['exception_message'][:2000]}\n"
                                     f"job: {job}\nwritten: {datetime.now().isoformat(timespec='seconds')}\n"
-                                    f"Remove this file once the login or the usage window is restored.\n",
-                                    encoding="utf-8")
-        print(f"WARNING: {verdict['exception_type'] or verdict['failure_cause']} in {job.name}: nothing later in the "
-              f"run can succeed; every rollout is halted while {self.halt_file()} exists", file=sys.stderr, flush=True)
+                                    f"Every run on this jobs directory is halted while this file exists. Remove it once "
+                                    f"the login or the usage window is restored.\n", encoding="utf-8")
+        print(f"WARNING: {named} in {job.name}: nothing later in the run can succeed; every rollout on {self.jobs_dir} "
+              f"is halted while {self.halt_file()} exists", file=sys.stderr, flush=True)
 
     def wait_for_disk(self, task: dict | None = None, admitted: list | None = None) -> bool:
         """The disk gate; for a task whose prebuilt image is not here yet and whose size `image_sizes` knows (a JSON
@@ -1310,8 +1322,8 @@ class HarborAgent(Agent):
                                                        "container started"), None, None, started)
         job_name = f"{_safe(task['id'])}-{uuid.uuid4().hex[:8]}"
         job = self.jobs_dir / job_name
-        job.mkdir()
         try:
+            job.mkdir()
             deployed = self._stage(task, adapter, job)
         except OSError as exc:                                # this machine's, before any container: no trial
             return self._output(task, no_trial("staging_failed", str(exc)[-2000:]), None, None, started,
@@ -1323,10 +1335,15 @@ class HarborAgent(Agent):
             except (RuntimeError, OSError) as exc:           # no trial without its tools (or its model)
                 return self._output(task, no_trial("tools_failed", str(exc)[-2000:]), None, None, started,
                                     extra={"harbor_job": str(job), "deployed": deployed})
-            plan = self._launch(task, job, deployed, served)
-            agent = self.agent_config(task, plan, deployed, tools_host=getattr(served, "host", None))
-            (job / "job.yaml").write_text(yaml.safe_dump(self.job_config(task, job_name, agent), sort_keys=False))
-            keep = set(json.loads(plan.read_text()).get("env_from_host", {}).values()) if plan else set()
+            try:
+                plan = self._launch(task, job, deployed, served)
+                agent = self.agent_config(task, plan, deployed, tools_host=getattr(served, "host", None))
+                (job / "job.yaml").write_text(yaml.safe_dump(self.job_config(task, job_name, agent),
+                                                             sort_keys=False))
+                keep = set(json.loads(plan.read_text()).get("env_from_host", {}).values()) if plan else set()
+            except OSError as exc:              # this machine's, writing the trial's launch and job: no container yet
+                return self._output(task, no_trial("staging_failed", str(exc)[-2000:]), None, None, started,
+                                    extra={"harbor_job": str(job), "deployed": deployed})
             code, expired = self.harbor_run(job, job / "job.yaml", task, keep)
         finally:
             if served is not None:
@@ -1587,6 +1604,14 @@ class HarborAgent(Agent):
         # the answer agent's model as its endpoint serves it: with its client's timeout and retries (answer_model)
         model = self.answer_model() if self.cli == "answer" else \
             self.binding.spec() if self.binding is not None else self.params.get("model")
+        if isinstance(model, dict) and self.params.get("model_cli"):
+            # a model a CLI reaches through this pipeline's own endpoint (hermit.isolate.agent_pipeline): its URL, a
+            # port and a token of this pipeline's, names no trial (a resumed run or another eval has another), nor does
+            # a field the spec derives from it (the binding's messages_url); the CLI and its login do
+            url = str((self.params.get("model") or {}).get("base_url") or "") or None
+            model = {**{k: v for k, v in model.items()
+                        if k != "base_url" and not (url and isinstance(v, str) and url in v)},
+                     "cli": self.params["model_cli"], "cli_login": self.params.get("model_login")}
         same = {"row": task, "task": self.task_digest(task), "agent": self.acting_agent, "model": model,
                 "effort": self.params.get("effort"), "login": self.login,
                 "versions": {k: v for k, v in self.params.items() if k.endswith("_version")},
@@ -1688,9 +1713,12 @@ class HarborAgent(Agent):
         self._close_streams()
 
     def _run_step(self, task: dict, adapter: Path | None, started: float) -> RunOutput:
-        """One step of a multi-step task, through the stream's driver."""
-        index, name = int(task["step_index"]), str(task["step"])
-        total = int(task.get("steps") or 0)
+        """One step of a multi-step task, through the stream's driver. While it runs, its index is one of its stream's
+        steps in flight (`_in_flight`): a step whose turn cannot come ends at once (infra, stream_order: its driver
+        waits for a step no rollout of this runner is running, or it has none and no rollout of its first step is
+        running to start one), never waiting for its turn until the deadline, and the last of its stream's rollouts to
+        end then stops the driver (_leave)."""
+        index = int(task["step_index"])
         # each of hermit eval's repeats (eval.repeats > 1 names it in the row) is a stream of its own: its driver, its
         # step directories and their curated logs are never an earlier repeat's; and so is each run's, by what
         # hermit.isolate.agent_pipeline names it for (`run_identity`): a hermit train by its record directory (path
@@ -1701,6 +1729,66 @@ class HarborAgent(Agent):
         run = f"__{hashlib.sha256(str(self.params['run_identity']).encode()).hexdigest()[:8]}" \
             if self.params.get("run_identity") else ""
         stream = _safe(f"{task.get('harbor_task') or task['id']}__s{task.get('rollout', 1)}{repeat}{run}")
+        with self._streams_lock:
+            self._in_flight.setdefault(stream, []).append(index)
+        try:
+            return self._step(task, adapter, started, stream)
+        finally:
+            self._leave(stream, index)
+
+    def _leave(self, stream: str, index: int) -> None:
+        """A step's rollout ending: its index out of its stream's steps in flight. The last of a stream whose next turn
+        cannot come (`_given_up`) stops its driver, whose environment none of the stream's steps can use any more, and
+        is done with the stream, which its first step may then start again."""
+        with self._streams_lock:
+            steps = self._in_flight[stream]
+            steps.remove(index)
+            if steps:
+                return
+            del self._in_flight[stream]
+            if stream not in self._given_up:
+                return
+        client = StreamClient(self.jobs_dir / "streams" / stream, python=self.harbor_python)
+        if client.running() is not None:
+            client.stop()
+        self._stream_done(stream)
+        with self._streams_lock:
+            if stream not in self._in_flight:                # no step of it came in the meantime
+                self._given_up.pop(stream, None)
+
+    def _first_step_missing(self, stream: str, client: StreamClient) -> str | None:
+        """Why a stream that has no driver gets none for a later step: no rollout of its first step is running in this
+        runner (none either after TURN_GRACE_POLLS polls, in which one submitted just before this one has begun), or its
+        next turn already cannot come; None once a driver or such a rollout is there."""
+        for poll in range(stream_mod.TURN_GRACE_POLLS + 1):
+            if poll:
+                time.sleep(stream_mod.POLL_S)
+            with self._streams_lock:
+                if stream in self._given_up:
+                    return self._given_up[stream]
+                if 1 in self._in_flight.get(stream, ()):
+                    return None
+            if client.running() is not None:
+                return None
+        return ("the stream has no driver (none started in this run, or the one its earlier steps ran in was stopped "
+                "or idled out) and no rollout of its first step is running to start one")
+
+    def _step_missing(self, stream: str, nxt: int) -> str | None:
+        """Why no rollout will ask the stream's driver, idle, for the step `nxt` it waits for (stream.wait_turn's
+        `missing`): none of this runner's is running it (it ended before it reached the driver, or ran in an earlier
+        training step), or the stream's next turn already cannot come; None while one of its rollouts runs."""
+        with self._streams_lock:
+            if stream in self._given_up:
+                return self._given_up[stream]
+            if nxt in self._in_flight.get(stream, ()):
+                return None
+        return (f"the driver waits for step {nxt}, which no rollout is running (it ended before it reached the driver, "
+                "or ran in an earlier training step)")
+
+    def _step(self, task: dict, adapter: Path | None, started: float, stream: str) -> RunOutput:
+        """A step's rollout in its stream (_run_step)."""
+        index, name = int(task["step_index"]), str(task["step"])
+        total = int(task.get("steps") or 0)
         stream_dir = self.jobs_dir / "streams" / stream
         settings = {"idle_s": 4 * 3600, "start_timeout_s": 3600,    # one left empty (null) is its default
                     **{k: v for k, v in (self.params.get("stream") or {}).items() if v is not None}}
@@ -1714,7 +1802,7 @@ class HarborAgent(Agent):
                                 extra={"harbor_job": str(step_dir), "stream_dir": str(stream_dir)})
         reply, result, error, cause = None, None, None, "stream_lost"
         served = endpoint = plan = None
-        lost = False
+        lost = asked = False
         try:
             try:
                 if self.cli == "answer":
@@ -1727,11 +1815,18 @@ class HarborAgent(Agent):
             except (RuntimeError, OSError) as exc:
                 return self._output(task, no_trial("tools_failed", str(exc)[-2000:]), None, None, started,
                                     extra={"harbor_job": str(step_dir), "deployed": deployed})
-            plan = self._launch(task, step_dir, deployed, endpoint or served)
-            agent = self.agent_config(task, plan, deployed, tools_host=getattr(served, "host", None))
-            (step_dir / "agent.json").write_text(json.dumps(agent, indent=1) + "\n")
-            keep = set(json.loads(plan.read_text()).get("env_from_host", {}).values()) if plan else set()
             try:
+                plan = self._launch(task, step_dir, deployed, endpoint or served)
+                agent = self.agent_config(task, plan, deployed, tools_host=getattr(served, "host", None))
+                (step_dir / "agent.json").write_text(json.dumps(agent, indent=1) + "\n")
+                keep = set(json.loads(plan.read_text()).get("env_from_host", {}).values()) if plan else set()
+            except OSError as exc:                            # this machine's, as the staging's: the step not run
+                return self._output(task, no_trial("staging_failed", str(exc)[-2000:]), None, None, started,
+                                    extra={"harbor_job": str(step_dir), "stream_dir": str(stream_dir),
+                                           "deployed": deployed})
+            try:
+                if client.running() is None and index > 1 and (why := self._first_step_missing(stream, client)):
+                    raise TurnLostError(index, why)          # no driver (an environment) started for it
                 if client.running() is None and not self.wait_for_disk():
                     return self._output(task, no_trial("disk", f"the Docker data root {self._docker_root()} stayed "
                                                                f"under {self.params.get('disk_gate_gb', DISK_GATE_GB)} "
@@ -1746,19 +1841,24 @@ class HarborAgent(Agent):
                               trial={k: self.timeout_multiplier(k) for k in TIMEOUT_MULTIPLIERS})
                 budget = self.wait_budget(task, build=False)
                 # Earlier steps of the stream may be running in other rollouts of the same batch: wait for them, each
-                # for its own budget at most (or `stream.turn_wait_s`).
+                # for its own budget at most (or `stream.turn_wait_s`); not for one no rollout is running (rows are
+                # submitted in order: an earlier step of the batch has begun by then), whose turn never comes.
                 turn_wait = float(settings.get("turn_wait_s") or (max(1, index - 1) * budget
                                                                  + float(settings["start_timeout_s"])))
-                client.wait_turn(index, timeout_s=turn_wait)
+                client.wait_turn(index, timeout_s=turn_wait, missing=lambda nxt: self._step_missing(stream, nxt))
                 if served is not None and (served.adapter, served.audit_log) != \
                         (Path(adapter), step_dir / curate_mod.TOOL_AUDIT):
                     # this step's turn: its adapter behind the same URL, its calls in its own log (the server may have
                     # been started by a later step's rollout, or served the step before)
                     served.swap(Path(adapter), step_dir / curate_mod.TOOL_AUDIT)
+                asked = True                                 # from here the driver may run the step's session
                 reply = client.step(name=name, index=index, plan=str(plan) if plan else None,
                                     agent_kwargs=agent["kwargs"], timeout_s=budget)
             except StreamOrderError as exc:
                 error, cause = str(exc), "stream_order"
+                if isinstance(exc, TurnLostError):           # nor can a later step's: the stream is given up
+                    with self._streams_lock:
+                        self._given_up.setdefault(stream, exc.why)
             except (StreamError, RuntimeError) as exc:      # the driver's, or a tool server another step closed
                 # a driver that is gone (it closed the connection without an answer: killed while it answered) is lost
                 # as one whose socket refuses is
@@ -1778,6 +1878,8 @@ class HarborAgent(Agent):
             if (reply or {}).get("out_of_order"):
                 cause = "stream_order"
             verdict = no_trial(cause, error or (reply or {}).get("error") or json.dumps(reply)[:500])
+            if asked and cause != "stream_order":           # its session may have run, its usage unread: unknown
+                verdict["ran"] = None
         outputs = Path(reply["paths"]["step_dir"]) if reply and reply.get("ok") and reply.get("paths") else None
         facts = usage = None
         said: dict = {}
@@ -1836,6 +1938,8 @@ class HarborAgent(Agent):
                 or curate_mod.seconds({"started_at": (result or {}).get("started_at"),
                                        "finished_at": (result or {}).get("finished_at")})
                 or round(time.time() - started, 1))
+        if verdict.get("ran") is False and usage is None:     # no container, no session: nothing spent (no_trial)
+            tokens, cost, calls = 0, 0.0, 0
         rewards = ((result or {}).get("verifier_result") or {}).get("rewards") if result else None
         output = {"harbor_task": task.get("harbor_task") or task.get("task") or task["id"],
                   "rollout": task.get("rollout"), "step": step, "reward": verdict["reward"], "rewards": rewards,

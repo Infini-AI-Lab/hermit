@@ -165,6 +165,7 @@ def classify(result: dict | None, *, expired: bool = False, harbor_exit: int | N
 
 
 def no_trial(cause: str, message: str, *, halt: bool = False) -> dict:
-    """An infra verdict for a rollout that never reached a container (the halt sentinel, the disk gate, a lost
-    stream, the adapter's staging)."""
-    return _verdict("infra", cause, None, message, None, halt=halt)
+    """An infra verdict for a rollout that never reached a container (the halt sentinel, the disk gate, the adapter's
+    staging, a stream step its driver was never asked for): no session ran, so it spent nothing (`ran` False: its cost
+    is 0, never unknown). A stream step lost after its request was sent may have run one: its caller sets `ran` None."""
+    return {**_verdict("infra", cause, None, message, None, halt=halt), "ran": False}

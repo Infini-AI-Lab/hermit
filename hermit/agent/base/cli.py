@@ -1102,6 +1102,8 @@ CODEX_FORBIDDEN = re.compile(r"unexpected status 403\b")
 # "Falling back from WebSockets to HTTPS transport. unexpected status 403 Forbidden: ..."). A turn that fails, or a
 # stream that ends, before the session works again failed on what Codex was retrying (Codex.outcome).
 CODEX_RECOVERY = re.compile(r"\s*(?:Reconnecting\.\.\.|Falling back from WebSockets to HTTPS transport\b)")
+# Of those, its retry of a request that failed; its fall back to HTTPS retries none (the request goes on over HTTPS)
+CODEX_RETRY = re.compile(r"\s*Reconnecting\.\.\.")
 # A record of Codex's own log on its stderr ("<time> <LEVEL> <target>: <message>", its target in group 1), whose
 # target is a Rust path (codex_core::tools::router, rmcp::transport::worker), after the spans the record was logged in
 # where their level is on (RUST_LOG=codex_core=info: "<time> ERROR session_loop{thread_id=...}:turn{...}: <target>:",
@@ -1240,7 +1242,8 @@ class Codex(CliAgent):
         recovery notice, CODEX_RECOVERY, or a warning, an `error` item: the hook trust notice too, so whether hooks
         were deployed never decides it); in any line of a stream with no event, where no session began (a container
         that could not start, whose `docker run` ends its error with a help line). So is a turn that failed, or a
-        stream that ended, while Codex was retrying (a recovery notice since the session last worked), unless the
+        stream that ended, while Codex was retrying (a retry notice, CODEX_RETRY, since the session last worked: its
+        fall back to HTTPS retries nothing, so a request refused after it is the session's own failure), unless the
         sign-in was lost: Codex retries what the provider or the network failed, and the error it fails the turn with
         when its retries run out need not say so (Codex 0.164 when chatgpt.com cannot be reached: "Reconnecting...
         5/5 (workspace routing discovery failed)", then the turn failed with "workspace routing discovery failed")."""
@@ -1262,7 +1265,7 @@ class Codex(CliAgent):
             said = [m for m in self.errors(event) if m.strip()]
             if event.get("type") == "turn.failed":
                 failed += said
-            retried = retried or any(CODEX_RECOVERY.match(m) for m in said)
+            retried = retried or any(CODEX_RETRY.match(m) for m in said)
             kept = [m for m in said if not CODEX_RECOVERY.match(m)]
             lasting += kept
             since += [] if warning else kept

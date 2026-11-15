@@ -1291,6 +1291,7 @@ def test_one_trial_through_the_fake_harbor(tmp_path, fake_harbor, monkeypatch):
     monkeypatch.setenv("FAKE_HARBOR_MODE", "ok")
     after = agent.run(row, None)
     assert after.output["failure_cause"] == "halted" and after.log is None and after.extra["unscored"] == "halted"
+    assert (after.cost_usd, after.tokens) == (0.0, 0)            # no session ran: it spent nothing, a known cost
     agent.halt_file().unlink()
     # A verifier whose tools never arrived: infra (run again), not a zero the agent earned.
     monkeypatch.setenv("FAKE_HARBOR_MODE", "no_tools")
@@ -1403,6 +1404,32 @@ def test_an_adapter_this_machine_could_not_stage_is_infra_and_one_whose_own_depl
                 assert "deploying the adapter failed" in record["error"]
     assert not list((tmp_path / "jobs").glob("alpha-*/alpha__*"))                     # no trial ran
     assert not (tmp_path / "jobs" / "streams" / "flow__s1" / "driver.json").exists()    # no driver started
+
+
+
+def test_this_machines_failure_while_a_trials_job_or_launch_is_written_is_infra_and_starts_no_trial(
+        tmp_path, fake_harbor, monkeypatch):
+    """Before its container a trial writes its job directory, its launch plan and its job file on this machine: an
+    OSError there (a full disk, a job directory that exists) is the host's, infra (run again), never the agent's 0."""
+    from types import SimpleNamespace
+    from hermit.trainer.rollout import run_one
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    row = dataset.index(tasks)[0]
+    agent = make_agent(tmp_path, fake_harbor, tasks)
+
+    def render(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+    with monkeypatch.context() as patch:
+        patch.setattr("hermit.harbor.launch.render", render)
+        record = run_one(row, simple_template(), agent.run, judge.score)
+    assert (record["status"], record["error"]) == ("infra", "staging_failed")
+    assert "No space left on device" in record["pipeline_extra"]["exception_message"]
+    (tmp_path / "jobs" / "alpha-00000000").write_text("")                     # where the job directory goes
+    monkeypatch.setattr("hermit.harbor.runner.uuid.uuid4", lambda: SimpleNamespace(hex="0" * 32))
+    record = run_one(row, simple_template(), agent.run, judge.score)
+    assert (record["status"], record["error"]) == ("infra", "staging_failed")
+    assert not list((tmp_path / "jobs").glob("alpha-*/alpha__*"))                     # no trial ran
 
 
 def test_a_chatgpt_trial_hands_the_refreshed_sign_in_back(tmp_path, fake_harbor):
@@ -1713,6 +1740,10 @@ def test_a_codex_session_whose_sign_in_the_provider_refused_halts_the_run(tmp_pa
     assert (out.output["status"], out.output["failure_cause"], out.extra.get("unscored")) == \
         ("infra", "login_failed", "login_failed")
     assert out.extra["halt"] is True and agent.halt_file().is_file()
+    # the HALT file names the cause the record names, then the exit Harbor kept, and says whom it halts
+    first, *rest = agent.halt_file().read_text().splitlines()
+    assert first.startswith(f"login_failed ({out.output['exception_type']}): ")
+    assert any("Every run on this jobs directory is halted" in line for line in rest)
 
 
 # A Codex session that met a provider's notice (a reconnect), then lost its sign-in: the turn failed with a 401
@@ -2263,8 +2294,10 @@ FAKE_DRIVER = textwrap.dedent('''\
     #!/usr/bin/env python3
     """A stand-in for harborside.driver: the protocol, no Harbor. Steps succeed; step "s2" aborts the stream. Each step
     leaves the CLI's stream as harborside would, from the step's launch plan; FAKE_STEP_VERIFIER makes each other
-    step's verifier one whose tools never arrived (no_tools) or one that ran out of its time (timeout)."""
-    import argparse, json, os, socket, sys, threading
+    step's verifier one whose tools never arrived (no_tools) or one that ran out of its time (timeout). The step
+    FAKE_STEP_FAILS names (`<step>:<exception type>`) fails with that exception before its agent ran (no stream, no
+    verifier), which aborts the stream; the step FAKE_STEP_HANGS names never answers (a driver hung in a step)."""
+    import argparse, json, os, socket, sys, threading, time
     from pathlib import Path
     parser = argparse.ArgumentParser()
     parser.add_argument("-m"); parser.add_argument("--task-dir"); parser.add_argument("--stream-dir")
@@ -2280,9 +2313,13 @@ FAKE_DRIVER = textwrap.dedent('''\
         "trial": json.loads(args.trial_json) if args.trial_json else None,
         "token": "CLAUDE_CODE_OAUTH_TOKEN" in os.environ}))
     verifier_mode = os.environ.get("FAKE_STEP_VERIFIER", "")
+    verifier_out = ("failed to download https://github.com/astral-sh/uv/releases/download/0.9.5/uv.tar.gz\\n"
+                    "/tests/test.sh: line 18: uvx: command not found\\n" if verifier_mode == "no_tools" else "PASS\\n")
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     srv.bind(sock_path); srv.listen(8)
-    (stream_dir / "driver.json").write_text(json.dumps({"pid": os.getpid(), "socket": sock_path, "trial_dir": str(stream_dir / "trials" / args.name)}))
+    (stream_dir / "driver.json").write_text(json.dumps({"pid": os.getpid(), "socket": sock_path, "name": args.name,
+                                                         "trial_dir": str(stream_dir / "trials" / args.name)}))
+    hangs, (fails, failure) = os.environ.get("FAKE_STEP_HANGS"), os.environ.get("FAKE_STEP_FAILS", ":").split(":", 1)
     def status():
         return {"ok": True, "ready": True, "error": None, "next_index": state["next"], "running": None,
                 "finished": state["finished"], "aborted": state["aborted"]}
@@ -2297,29 +2334,33 @@ FAKE_DRIVER = textwrap.dedent('''\
             if req["index"] != state["next"]:
                 reply = {"ok": False, "out_of_order": True, "next_index": state["next"]}
             else:
+                if req["name"] == hangs:
+                    time.sleep(600)
+                failed = failure if req["name"] == fails else None
                 step_dir = stream_dir / "trials" / args.name / "steps" / req["name"]
                 (step_dir / "agent").mkdir(parents=True, exist_ok=True); (step_dir / "verifier").mkdir(exist_ok=True)
-                (step_dir / "verifier" / "test-stdout.txt").write_text(
-                    "failed to download https://github.com/astral-sh/uv/releases/download/0.9.5/uv.tar.gz\\n"
-                    "/tests/test.sh: line 18: uvx: command not found\\n" if verifier_mode == "no_tools" else "PASS\\n")
+                if not failed:
+                    (step_dir / "verifier" / "test-stdout.txt").write_text(verifier_out)
                 plan_path = (req.get("agent_kwargs") or {}).get("plan")
                 (step_dir / "agent" / "plan-seen.txt").write_text(str(plan_path))
                 plan = json.loads(Path(plan_path).read_text())
-                (step_dir / "agent" / plan["stream"]).write_text(
-                    '{"type":"thread.started","thread_id":"th-%s"}\\n'
-                    '{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":2}}\\n'
-                    % req["name"])
-                aborted = req["name"] == "s2"
+                if not failed:                        # one that failed before its agent ran left no stream
+                    (step_dir / "agent" / plan["stream"]).write_text(
+                        '{"type":"thread.started","thread_id":"th-%s"}\\n{"type":"turn.completed","usage":'
+                        '{"input_tokens":10,"cached_input_tokens":0,"output_tokens":2}}\\n' % req["name"])
+                aborted = req["name"] == "s2" or bool(failed)
+                why = ({"exception_type": failed, "exception_message": f"{failed} in step {req['name']}"} if failed
+                       else {"exception_type": "RuntimeError", "exception_message": "boom"})
                 reward = 0.0 if verifier_mode == "no_tools" else 1.0
                 result = {"step_name": req["name"], "agent_result": {"n_input_tokens": 10, "n_output_tokens": 2, "metadata": {}},
                           "verifier_result": None if aborted else {"rewards": {"reward": reward}},
-                          "exception_info": {"exception_type": "RuntimeError", "exception_message": "boom"} if aborted else None,
+                          "exception_info": why if aborted else None,
                           "agent_execution": {"started_at": "2026-01-01T00:00:00Z", "finished_at": "2026-01-01T00:00:05Z"}}
                 if verifier_mode == "timeout" and not aborted:
                     result.update(verifier_result=None, exception_info={"exception_type": "VerifierTimeoutError",
                                                                         "exception_message": "verifier timed out"})
                 state["next"] = req["index"] + 1
-                if aborted: state["aborted"] = "step s2 failed"
+                if aborted: state["aborted"] = f"step {req['name']} failed"
                 reply = {"ok": True, "index": req["index"], "step": result, "aborted": state["aborted"],
                          "paths": {"trial_dir": str(stream_dir / "trials" / args.name), "step_dir": str(step_dir)},
                          "last": req["index"] >= 3}
@@ -2334,41 +2375,49 @@ def test_stream_steps_through_a_fake_driver(tmp_path, fake_harbor, monkeypatch):
     bin_dir = fake_harbor.parent
     (bin_dir / "python").unlink()
     write(bin_dir / "python", FAKE_DRIVER, exe=True)          # the "interpreter" the driver is started with
+    monkeypatch.setattr(stream, "POLL_S", 0.1)
     tasks = tmp_path / "tasks"
     make_task(tasks, "flow", steps=("s1", "s2", "s3"))
     rows = {r["id"]: r for r in dataset.index(tasks)}
     agent = make_agent(tmp_path, fake_harbor, tasks, stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 6})
-    first = agent.run(rows["flow:s1"], simple_template())
-    assert first.output["status"] == "ok" and first.output["reward"] == 1.0 and first.output["step"] == "s1"
-    assert first.output["trial"] == "flow__s1" and first.tokens == 12 and first.wall_s == 5.0
-    stream_dir = tmp_path / "jobs" / "streams" / "flow__s1"
-    seen = json.loads((stream_dir / "seen-agent.json").read_text())
-    step_plan = stream_dir / "steps" / "001-s1" / "launch" / "plan.json"
-    assert seen["kwargs"]["plan"] == str(step_plan) and "model_name" not in seen
-    work = json.loads(step_plan.read_text())["deploy"]["work_dir"]
-    assert work == str((stream_dir / "steps" / "001-s1" / "deploy").resolve())
-    assert (Path(first.log) / "verifier" / "test-stdout.txt").read_text() == "PASS\n"
-    assert (Path(first.log) / "agent" / "plan-seen.txt").read_text() == str(step_plan)
-    assert stream.StreamClient(stream_dir, python=str(bin_dir / "python")).running() is not None
-    # Out of order: step 3 before step 2 waits for its turn, then gives up; the stream goes on.
-    skipped = agent.run(rows["flow:s3"], None)
-    assert skipped.output["status"] == "infra" and skipped.output["failure_cause"] == "stream_order"
-    assert "in order" in skipped.extra["exception_message"]
-    assert stream.StreamClient(stream_dir, python=str(bin_dir / "python")).running() is not None
-    # Step 2 fails: the stream aborts and the driver is stopped.
-    second = agent.run(rows["flow:s2"], None)
-    assert second.output["status"] == "agent_error" and second.extra["aborted"] is True
-    assert "RuntimeError" in (Path(second.log) / "exception.txt").read_text()
-    client = stream.StreamClient(stream_dir, python=str(bin_dir / "python"))
-    deadline = __import__("time").time() + 10
-    while client.running() is not None and __import__("time").time() < deadline:
-        __import__("time").sleep(0.2)
-    assert client.running() is None
-    # A sandboxed worker may not start a driver.
-    monkeypatch.setenv("HA_ADAPTER_SANDBOX", "1")
-    blocked = agent.run(rows["flow:s3"], None)
-    assert blocked.output["failure_cause"] == "stream_lost" and \
-        "inside the task sandbox" in blocked.extra["exception_message"]
+    try:
+        first = agent.run(rows["flow:s1"], simple_template())
+        assert first.output["status"] == "ok" and first.output["reward"] == 1.0 and first.output["step"] == "s1"
+        assert first.output["trial"] == "flow__s1" and first.tokens == 12 and first.wall_s == 5.0
+        stream_dir = tmp_path / "jobs" / "streams" / "flow__s1"
+        seen = json.loads((stream_dir / "seen-agent.json").read_text())
+        step_plan = stream_dir / "steps" / "001-s1" / "launch" / "plan.json"
+        assert seen["kwargs"]["plan"] == str(step_plan) and "model_name" not in seen
+        work = json.loads(step_plan.read_text())["deploy"]["work_dir"]
+        assert work == str((stream_dir / "steps" / "001-s1" / "deploy").resolve())
+        assert (Path(first.log) / "verifier" / "test-stdout.txt").read_text() == "PASS\n"
+        assert (Path(first.log) / "agent" / "plan-seen.txt").read_text() == str(step_plan)
+        client = stream.StreamClient(stream_dir, python=str(bin_dir / "python"))
+        assert client.running() is not None
+
+        def stopped():
+            deadline = time.time() + 10
+            while client.running() is not None and time.time() < deadline:
+                time.sleep(0.2)
+            return client.running() is None
+        # Out of order: step 3 while no rollout runs step 2, whose turn it would wait for, ends at once; the stream's
+        # driver, of no use to any step after it, is stopped.
+        skipped = agent.run(rows["flow:s3"], None)
+        assert skipped.output["status"] == "infra" and skipped.output["failure_cause"] == "stream_order"
+        assert "in order" in skipped.extra["exception_message"] and stopped()
+        # Run again from step 1 (a new driver), step 2 fails: the stream aborts and the driver is stopped.
+        assert agent.run(rows["flow:s1"], None).output["status"] == "ok"
+        second = agent.run(rows["flow:s2"], None)
+        assert second.output["status"] == "agent_error" and second.extra["aborted"] is True
+        assert "RuntimeError" in (Path(second.log) / "exception.txt").read_text()
+        assert stopped()
+        # A sandboxed worker may not start a driver.
+        monkeypatch.setenv("HA_ADAPTER_SANDBOX", "1")
+        blocked = agent.run(rows["flow:s1"], None)
+        assert blocked.output["failure_cause"] == "stream_lost" and \
+            "inside the task sandbox" in blocked.extra["exception_message"]
+    finally:
+        stop_streams(tmp_path)
 
 
 def fake_driver(fake_harbor: Path) -> None:
@@ -2490,13 +2539,13 @@ def test_a_step_whose_driver_is_gone_is_infra_and_closes_the_streams_tools(tmp_p
     try:
         assert agent.run(rows["flow:s1"], adapter).output["status"] == "ok"
 
-        def silent(self, index, *, timeout_s):
+        def silent(self, index, *, timeout_s, missing=None):
             raise TimeoutError("timed out")
         monkeypatch.setattr(stream.StreamClient, "wait_turn", silent)
         slow = agent.run(rows["flow:s2"], adapter)
         kept = "flow__s1" in agent._streams and not fake_tools[0].closed
 
-        def gone(self, index, *, timeout_s):
+        def gone(self, index, *, timeout_s, missing=None):
             raise ConnectionRefusedError(111, "Connection refused")
         monkeypatch.setattr(stream.StreamClient, "wait_turn", gone)
         lost = agent.run(rows["flow:s3"], adapter)
@@ -2525,13 +2574,13 @@ def test_a_driver_that_died_while_it_answered_closes_the_streams_tools(tmp_path,
     try:
         assert agent.run(rows["flow:s1"], adapter).output["status"] == "ok"
 
-        def failed(self, index, *, timeout_s):
+        def failed(self, index, *, timeout_s, missing=None):
             raise stream.StreamError("the stream's environment failed: a step's container exited")
         monkeypatch.setattr(stream.StreamClient, "wait_turn", failed)
         running = agent.run(rows["flow:s2"], adapter)
         kept = "flow__s1" in agent._streams and not fake_tools[0].closed
 
-        def dies(self, index, *, timeout_s):                # killed while it answered (its zombie is not reaped)
+        def dies(self, index, *, timeout_s, missing=None):  # killed while it answered (its zombie is not reaped)
             pid = int(self.info()["pid"])
             os.kill(pid, signal.SIGKILL)
             state, deadline = Path(f"/proc/{pid}/stat"), time.time() + 10
@@ -2546,6 +2595,37 @@ def test_a_driver_that_died_while_it_answered_closes_the_streams_tools(tmp_path,
     assert (lost.output["status"], lost.output["failure_cause"]) == ("infra", "stream_lost")
     [served] = fake_tools
     assert served.closed and "flow__s1" not in agent._streams
+
+
+def test_a_step_lost_before_its_driver_was_asked_for_it_costs_0_and_one_lost_after_keeps_its_cost_unknown(
+        tmp_path, fake_harbor, monkeypatch):
+    """A stream step lost before its driver was asked for it ran no session: it costs 0, as a rollout that never reached
+    a container does. One lost after its request was sent may have run its session, whose usage no one read: its cost
+    and tokens are unknown, never 0."""
+    fake_driver(fake_harbor)
+    monkeypatch.setattr(stream, "POLL_S", 0.1)
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "flow", steps=("s1", "s2", "s3"))
+    rows = {r["id"]: r for r in dataset.index(tasks)}
+    agent = make_agent(tmp_path, fake_harbor, tasks, stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 6})
+    try:
+        assert agent.run(rows["flow:s1"], simple_template()).output["status"] == "ok"
+
+        def unreached(self, index, *, timeout_s, missing=None):
+            raise stream.StreamError("the stream's environment failed: a step's container exited")
+        with monkeypatch.context() as patched:
+            patched.setattr(stream.StreamClient, "wait_turn", unreached)
+            before = agent.run(rows["flow:s2"], simple_template())
+
+        def unanswered(self, **request):                     # sent, and the connection closed without an answer
+            raise stream.StreamError("the stream driver closed the connection without an answer")
+        with monkeypatch.context() as patched:
+            patched.setattr(stream.StreamClient, "step", unanswered)
+            after = agent.run(rows["flow:s2"], simple_template())
+    finally:
+        stop_streams(tmp_path)
+    assert (before.output["failure_cause"], before.cost_usd, before.tokens) == ("stream_lost", 0.0, 0)
+    assert (after.output["failure_cause"], after.cost_usd, after.tokens) == ("stream_lost", None, None)
 
 
 def test_a_driver_killed_while_it_wrote_its_answer_is_a_stream_error(tmp_path):
@@ -2574,9 +2654,9 @@ def test_a_driver_killed_while_it_wrote_its_answer_is_a_stream_error(tmp_path):
 
 
 def test_each_stream_step_serves_its_own_adapter_once_its_turn_comes(tmp_path, fake_harbor, monkeypatch, fake_tools):
-    """A later step's rollout may start the stream's tool server before the step before it has run: each step, once
-    its turn comes, serves its own adapter behind the stream's URL and logs its calls in its own log."""
-    import time
+    """A later step's rollout may start the stream's tool server before the step before it has run (that step's rollout
+    begun first, as a batch's rows are submitted in order, but slower to stage): each step, once its turn comes, serves
+    its own adapter behind the stream's URL and logs its calls in its own log."""
     fake_driver(fake_harbor)
     monkeypatch.setattr(stream, "POLL_S", 0.1)
     tasks = tmp_path / "tasks"
@@ -2585,21 +2665,243 @@ def test_each_stream_step_serves_its_own_adapter_once_its_turn_comes(tmp_path, f
     agent = make_agent(tmp_path, fake_harbor, tasks, tools_host="127.0.0.1",
                        stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 120})
     one, two = tool_adapter(tmp_path / "one"), tool_adapter(tmp_path / "two", factor=3)
-    later: dict = {}
+    real_stage, staging, held = HarborAgent._stage, threading.Event(), threading.Event()
+
+    def stage(self, task, adapter, where):                  # step 1's staging held until step 2 served the tools
+        if task["step"] == "s1":
+            staging.set()
+            held.wait(120)
+        return real_stage(self, task, adapter, where)
+    monkeypatch.setattr(HarborAgent, "_stage", stage)
+    earlier, later = {}, {}
+    first = threading.Thread(target=lambda: earlier.update(out=agent.run(rows["flow:s1"], one)))
     second = threading.Thread(target=lambda: later.update(out=agent.run(rows["flow:s2"], two)))
-    second.start()
+    first.start()
     try:
+        staging.wait(120)
+        second.start()
         deadline = time.time() + 120
         while not fake_tools and time.time() < deadline:            # step 2's rollout started the stream's server
             time.sleep(0.05)
-        first = agent.run(rows["flow:s1"], one)
+        held.set()
+        first.join(180)
         second.join(180)
     finally:
+        held.set()
         stop_streams(tmp_path)
     steps = tmp_path / "jobs" / "streams" / "flow__s1" / "steps"
     [served] = fake_tools
     assert served.swaps == [(one, steps / "001-s1" / "tool-calls.jsonl"), (two, steps / "002-s2" / "tool-calls.jsonl")]
-    assert first.output["status"] == "ok" and later["out"].output["step"] == "s2"
+    assert earlier["out"].output["status"] == "ok" and later["out"].output["step"] == "s2"
+
+
+def driver_starts(monkeypatch) -> list[str]:
+    """The stream drivers started from now on (StreamClient._start), by their stream's name."""
+    started, start = [], stream.StreamClient._start
+
+    def counted(self, **kwargs):
+        started.append(self.dir.name)
+        return start(self, **kwargs)
+    monkeypatch.setattr(stream.StreamClient, "_start", counted)
+    return started
+
+
+def test_a_step_after_one_that_never_reached_the_driver_ends_at_once_and_stops_the_stream(tmp_path, fake_harbor,
+                                                                                            monkeypatch, fake_tools):
+    """A step whose driver waits for an earlier step no rollout is running (it ended before it reached the driver:
+    this machine could not stage its adapter) cannot have its turn: it ends at once, infra (stream_order), and the
+    stream's driver and tool server, of use to no step after it, are stopped and closed. Before, each later step held
+    a rollout worker for its whole turn's wait (by default over an hour, more for each later step), then ended so."""
+    fake_driver(fake_harbor)
+    monkeypatch.setattr(stream, "POLL_S", 0.1)
+    started = driver_starts(monkeypatch)
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "flow", steps=("one", "two", "three"))
+    rows = {r["id"]: r for r in dataset.index(tasks)}
+    agent = make_agent(tmp_path, fake_harbor, tasks, tools_host="127.0.0.1",
+                       stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 60})
+    real_stage = HarborAgent._stage
+
+    def stage(self, task, adapter, where):
+        if task["step"] == "two":
+            raise OSError(28, "No space left on device")
+        return real_stage(self, task, adapter, where)
+    monkeypatch.setattr(HarborAgent, "_stage", stage)
+    adapter = tool_adapter(tmp_path / "adapter")
+    client = stream.StreamClient(tmp_path / "jobs" / "streams" / "flow__s1", python="unused")
+    try:
+        first, second = (agent.run(rows[f"flow:{step}"], adapter) for step in ("one", "two"))
+        t0 = time.time()
+        third = agent.run(rows["flow:three"], adapter)
+        took = time.time() - t0
+        deadline = time.time() + 10
+        while client.running() is not None and time.time() < deadline:
+            time.sleep(0.1)
+        stopped = client.running() is None
+    finally:
+        stop_streams(tmp_path)
+    assert (first.output["status"], second.output["failure_cause"]) == ("ok", "staging_failed")
+    assert (third.output["status"], third.output["failure_cause"], third.extra["unscored"]) == \
+        ("infra", "stream_order", "stream_order")
+    assert "step 3's turn cannot come: the driver waits for step 2" in third.extra["exception_message"]
+    assert took < 20                                         # its turn's wait is 60 s
+    assert started == ["flow__s1"] and stopped
+    [served] = fake_tools
+    assert served.closed and "flow__s1" not in agent._streams and "flow__s1" not in agent._drivers
+
+
+def test_a_later_step_of_a_stream_whose_driver_is_gone_ends_at_once_and_starts_none(tmp_path, fake_harbor,
+                                                                                     monkeypatch):
+    """A resumed run's later step whose stream has no driver any more (it idled out after stream.idle_s between
+    training steps, or was stopped) and no rollout of its first step to start one cannot have its turn: it ends at
+    once, infra (stream_order), and starts no driver. Before, it started one (a new environment) at the stream's
+    first step and waited its whole turn's wait for a turn that never came."""
+    fake_driver(fake_harbor)
+    monkeypatch.setattr(stream, "POLL_S", 0.1)
+    started = driver_starts(monkeypatch)
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "flow", steps=("one", "two", "three"))
+    rows = {r["id"]: r for r in dataset.index(tasks)}
+    settings = {"run_identity": "the-run", "keep_streams": True,
+                "stream": {"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 60}}
+    try:
+        first = make_agent(tmp_path, fake_harbor, tasks, **settings).run(rows["flow:one"], None)
+        client = stream.StreamClient(Path(first.extra["stream_dir"]), python="unused")
+        client.stop(timeout_s=10)                            # as at its idle time
+        deadline = time.time() + 10
+        while client.running() is not None and time.time() < deadline:
+            time.sleep(0.1)
+        resumed = make_agent(tmp_path, fake_harbor, tasks, **settings)
+        t0 = time.time()
+        second = resumed.run(rows["flow:two"], None)
+        took = time.time() - t0
+    finally:
+        stop_streams(tmp_path)
+    assert first.output["status"] == "ok" and took < 20     # its turn's wait is 60 s
+    assert (second.output["status"], second.output["failure_cause"]) == ("infra", "stream_order")
+    assert "the stream has no driver" in second.extra["exception_message"]
+    assert started == [first.output["trial"]]
+
+
+def test_a_resumed_step_of_a_stream_a_halt_stopped_ends_at_once_and_a_stream_the_step_holds_whole_runs_anew(
+        tmp_path, fake_harbor, monkeypatch):
+    """A halt in a step (an API account's usage limit) stops its stream's driver. Once restored, the training step
+    the halt ended runs again, its rollouts at once (run_tasks): that stream's steps there end at once, infra
+    (stream_order), none starting a driver (their earlier steps ran in an earlier training step, in the driver the halt
+    stopped; the stream's first step is in no rollout, whichever of its steps is), while a stream the step holds from
+    its first step runs again from it. Before, each of the former started a driver at the stream's first step and
+    waited its whole turn's wait for a turn that never came."""
+    from hermit.trainer.rollout import run_tasks
+    fake_driver(fake_harbor)
+    monkeypatch.setattr(stream, "POLL_S", 0.1)
+    started = driver_starts(monkeypatch)
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "flow", steps=("one", "two", "three"))
+    make_task(tasks, "whole", steps=("first", "second"))
+    rows = {r["id"]: r for r in dataset.index(tasks)}
+    settings = {"run_identity": "the-run", "keep_streams": True,
+                "stream": {"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 60}}
+    monkeypatch.setenv("FAKE_STEP_FAILS", "two:ApiUsageLimitError")    # each driver reads it as it starts
+    try:
+        first = make_agent(tmp_path, fake_harbor, tasks, **settings)    # the Trainer's pipeline
+        done = first.run(rows["flow:one"], None)                       # a training step, recorded
+        halted = [first.run(rows[t], None) for t in ("whole:first", "whole:second", "flow:two")]   # the next one
+        first.close()                                                  # its streams kept for a resume
+        monkeypatch.delenv("FAKE_STEP_FAILS")
+        first.halt_file().unlink()                                     # the account restored
+        resumed = make_agent(tmp_path, fake_harbor, tasks, **settings)
+        t0 = time.time()
+        again = run_tasks([rows[t] for t in ("whole:first", "whole:second", "flow:two", "flow:three")], None,
+                          resumed.run, judge.score, concurrency=4)
+        took = time.time() - t0
+    finally:
+        stop_streams(tmp_path)
+    assert done.output["status"] == "ok" and halted[2].extra["halt"] is True
+    assert [(r["status"], r["error"]) for r in again] == [("ok", None)] * 2 + [("infra", "stream_order")] * 2
+    assert took < 30                                         # each of the last two steps' turn's wait is 60 s
+    whole = again[0]["output"]["trial"]
+    assert started == [done.output["trial"], whole, whole]
+
+
+def test_a_batch_runs_a_streams_steps_in_order_while_the_first_is_still_to_reach_the_driver(tmp_path, fake_harbor,
+                                                                                             monkeypatch):
+    """run_tasks submits a batch's rows in order, all at once: a stream's later steps wait for their turns while the
+    step before is still in flight (here the first, slower to stage than the later steps' grace), none ends for a turn
+    taken for lost, and one driver runs them all."""
+    from hermit.trainer.rollout import run_tasks
+    fake_driver(fake_harbor)
+    monkeypatch.setattr(stream, "POLL_S", 0.1)                         # the shortest grace: the strictest check
+    started = driver_starts(monkeypatch)
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "flow", steps=("one", "two", "three"))
+    agent = make_agent(tmp_path, fake_harbor, tasks, stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 60})
+    real_stage = HarborAgent._stage
+
+    def stage(self, task, adapter, where):
+        if task["step"] == "one":
+            time.sleep(1.0)
+        return real_stage(self, task, adapter, where)
+    monkeypatch.setattr(HarborAgent, "_stage", stage)
+    try:
+        records = run_tasks(dataset.index(tasks), None, agent.run, judge.score, concurrency=3)
+    finally:
+        stop_streams(tmp_path)
+    assert [(r["id"], r["status"]) for r in records] == [("flow:one", "ok"), ("flow:two", "ok"), ("flow:three", "ok")]
+    assert started == ["flow__s1"]
+
+
+def test_a_steps_launch_plan_this_machine_could_not_write_is_infra_not_the_agents_0(tmp_path, fake_harbor,
+                                                                                      monkeypatch):
+    """A host OSError while a step's launch plan is rendered (a full disk) is this machine's, before the step: infra
+    (staging_failed), as one while its adapter is staged, and no driver is started. Before, it failed the rollout,
+    scored 0 as the agent's."""
+    fake_driver(fake_harbor)
+    started = driver_starts(monkeypatch)
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "flow", steps=("one", "two"))
+    row = {r["id"]: r for r in dataset.index(tasks)}["flow:one"]
+    agent = make_agent(tmp_path, fake_harbor, tasks, stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 6})
+    monkeypatch.setattr(HarborAgent, "_launch",
+                        lambda self, *a, **k: (_ for _ in ()).throw(OSError(28, "No space left on device")))
+    try:
+        out = agent.run(row, None)
+    finally:
+        stop_streams(tmp_path)
+    assert (out.output["status"], out.output["failure_cause"], out.extra["unscored"]) == \
+        ("infra", "staging_failed", "staging_failed")
+    assert "No space left on device" in out.extra["exception_message"] and started == []
+
+
+@pytest.mark.skipif(not Path("/proc/self/cmdline").is_file(), reason="a driver is told by its command line in /proc")
+def test_a_driver_that_answers_no_stop_is_killed_and_its_environment_taken_down(tmp_path, fake_harbor, monkeypatch):
+    """A driver hung in a step never answers it (the step expires), nor the stop then asked of it, which queues
+    behind the step; neither its idle stop nor the pipeline's close would end it: it is killed with its process group,
+    and its trial's compose projects are taken down by name, as an expired trial's are. Before, it stayed up with its
+    environment."""
+    import signal
+    fake_driver(fake_harbor)
+    monkeypatch.setattr(stream, "STOP_TIMEOUT_S", 1.0)
+    downs = []
+    monkeypatch.setattr(docker, "compose_down", lambda name, **kwargs: downs.append(name))
+    monkeypatch.setenv("FAKE_STEP_HANGS", "one")
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "flow", steps=("one", "two"))
+    row = {r["id"]: r for r in dataset.index(tasks)}["flow:one"]
+    agent = make_agent(tmp_path, fake_harbor, tasks, wait_budget_s=1,
+                       stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 6})
+    client = stream.StreamClient(tmp_path / "jobs" / "streams" / "flow__s1", python="unused")
+    try:
+        t0 = time.time()
+        out = agent.run(row, None)
+        took = time.time() - t0
+        gone = client.gone()
+    finally:
+        pid = client._driver_pid()                           # this test's own driver, were it not killed
+        if pid:
+            os.killpg(pid, signal.SIGKILL)
+        stop_streams(tmp_path)
+    assert (out.output["status"], out.output["failure_cause"]) == ("infra", "harbor_timeout")
+    assert gone and downs == ["flow__s1"] and took < 30
 
 
 def test_each_repeat_of_a_multi_step_task_runs_a_stream_of_its_own(tmp_path, fake_harbor):
@@ -2669,6 +2971,33 @@ def test_a_stream_run_again_after_its_last_step_runs_over_its_step_logs_and_one_
     assert [o.output["status"] for o in first] == ["ok"] * 3 and [o.output["status"] for o in second[:2]] == ["ok"] * 2
     assert [o.log for o in second[:2]] == [o.log for o in first[:2]]
     assert (second[2].output["status"], second[2].output["failure_cause"]) == ("infra", "stream_order")
+
+
+def test_a_stream_run_again_after_its_last_step_reads_none_of_the_first_runs_outputs(tmp_path, fake_harbor,
+                                                                                      monkeypatch):
+    """A stream run again after its last step (a validation task run_agent runs in each call) starts a new driver in
+    its directory, whose trial Harbor names as the first one's and would reuse step by step: the first run's trial
+    directory and replies are set aside first (earlier/1), so a step of the second run that leaves no output of its own
+    (its setup failed before its agent ran) is read with none of the first run's. Before, it was billed the first run's
+    usage again and curated with its stream."""
+    fake_driver(fake_harbor)
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "flow", steps=("one", "two"))
+    rows = {r["id"]: {**r, "fresh": True} for r in dataset.index(tasks)}           # run_agent's rows
+    agent = make_agent(tmp_path, fake_harbor, tasks, run_identity="the-run", keep_streams=True,
+                       stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 6})
+    try:
+        call = [agent.run(rows[t], None) for t in ("flow:one", "flow:two")]       # the stream finished
+        monkeypatch.setenv("FAKE_STEP_FAILS", "one:RuntimeError")               # the next driver's step one
+        again = agent.run(rows["flow:one"], None)
+    finally:
+        stop_streams(tmp_path)
+    stream_dir, trial = Path(again.extra["stream_dir"]), again.output["trial"]
+    name = json.loads((stream_dir / "steps" / "001-one" / "launch" / "plan.json").read_text())["stream"]
+    assert [o.output["status"] for o in call] == ["ok", "ok"] and call[0].tokens == 12 and call[0].cost_usd
+    assert (again.output["status"], again.tokens, again.cost_usd) == ("agent_error", None, None)
+    assert not (Path(again.log) / "agent" / name).exists()
+    assert (stream_dir / "earlier" / "1" / "trials" / trial / "steps" / "one" / "agent" / name).is_file()
 
 
 def test_a_resumed_train_meets_its_streams_again_and_a_train_started_over_or_any_other_pipeline_gets_new_ones(
@@ -3775,6 +4104,31 @@ def test_the_trial_cache_keys_the_answer_agents_model_with_its_clients_timeout_a
     keys = [make_agent(tmp_path, fake_harbor, tasks, **answer, binding={**BINDING, **client}).cache_key(row, None)
             for client in ({}, {"timeout": 1200}, {"timeout": 1200}, {"timeout": 1200, "max_retries": 1})]
     assert keys[1] == keys[2] and len({keys[0], keys[1], keys[3]}) == 3
+
+
+def test_an_answer_agent_on_a_model_a_cli_reaches_meets_its_trial_from_another_pipelines_endpoint(tmp_path,
+                                                                                                   fake_harbor):
+    """`model: {cli: ...}`: each pipeline serves the CLI through an endpoint of its own (hermit.isolate.agent_pipeline
+    gives the runner its spec: a URL with a port and a token of that pipeline's). A resumed run or another eval has
+    another endpoint and meets the same trial; another CLI or login is another trial."""
+    from types import SimpleNamespace
+    from hermit.agent.base.endpoint import endpoint_spec
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha", image="example/alpha:1")
+    row = dataset.index(tasks)[0]
+
+    def pipeline(port: int, token: str, cli: str = "codex", login: str | None = "chatgpt") -> HarborAgent:
+        endpoint = SimpleNamespace(agent=SimpleNamespace(settings={"model": "m"}),
+                                   url=f"http://127.0.0.1:{port}/{token}")
+        params = {"model": endpoint_spec(endpoint, {"cli": cli, "model": "m"}), "model_cli": cli,
+                  **({"model_login": login} if login else {})}
+        return make_agent(tmp_path, fake_harbor, tasks, acting_agent={"cli": "answer"}, binding=None,
+                          web_search=None, trial_cache=True, **params)
+
+    first, resumed = pipeline(40001, "a" * 32).cache_key(row, None), pipeline(40002, "b" * 32).cache_key(row, None)
+    assert first == resumed
+    assert pipeline(40003, "c" * 32, cli="claude").cache_key(row, None) != first
+    assert pipeline(40004, "d" * 32, login=None).cache_key(row, None) != first
 
 
 def test_the_disk_gate_waits_for_the_hosts_tmp_too(tmp_path, monkeypatch):

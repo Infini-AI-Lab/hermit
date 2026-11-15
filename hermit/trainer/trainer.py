@@ -170,7 +170,7 @@ def _ahead(wanted: list[str], done, tasks: dict) -> list[tuple[str, str]]:
     """The steps of a multi-step task that `wanted` names ahead of an earlier step of their stream (the task's
     rollout: its step rows in `tasks`, a smaller `step_index`, `wanted`'s or not) that has neither run (in `done`) nor
     been named before them in `wanted`, each with the first such step: a step taken ahead of an earlier one would
-    wait for it in the task's stream (for one that never runs, until the step ends infra)."""
+    wait for it in the task's stream, or, with no rollout running that one, end infra at once and stop the stream."""
     def place(task_id: str) -> tuple[tuple, int]:
         row = tasks[task_id]
         return (row["harbor_task"], row.get("rollout", 1)), int(row.get("step_index") or 0)
@@ -203,7 +203,7 @@ def out_of_step(ids: list[str], tasks: dict, which: str) -> str | None:
         return None
     listed = set(ids)
     return (f"{which} lists a step of a multi-step task ahead of an earlier step of its stream, which it would wait "
-            "for (up to hours, then ending infra): "
+            "for (or, with no rollout running it, end infra at once, stopping its stream): "
             + ", ".join(f"{t} ahead of {e}" + ("" if e in listed else ", which it leaves out")
                         + f" (task {tasks[t]['harbor_task']})" for t, e in ahead[:5])
             + (f" and {len(ahead) - 5} more" if len(ahead) > 5 else "")
@@ -632,7 +632,9 @@ class Trainer:
     def _raise_halt(results: list[dict], where: str) -> None:
         """The run ends, unfinished, when one of `results` (a step's rollouts, a run_agent call's runs) is infra and
         reports a halt (reports_halt), as at a failed sign-in: every later run would return at once, unrun, and the
-        learner would be called on runs that never ran. `hermit train` runs the step again once it is restored."""
+        learner would be called on runs that never ran. `hermit train` runs the step again once it is restored (a
+        Harbor multi-step task's rows there whose stream the halt stopped end infra at once, unless the step holds that
+        stream from its first step: hermit.harbor.runner)."""
         halt = next((r for r in results if r["status"] == "infra" and reports_halt(r)), None)
         if halt is None:
             return

@@ -369,8 +369,8 @@ def test_a_halt_in_run_agents_runs_ends_the_run_after_the_learners_call_even_one
 
 
 def test_eval_runs_no_step_of_a_multi_step_task_again_alone(tmp_path):
-    """A step runs in its task's stream, after the steps before it: run again alone it would start the stream over and
-    wait for a turn that never comes. Its infra run is kept, and the log says how many and why."""
+    """A step runs in its task's stream, after the steps before it: run again alone its turn could not come, and it
+    would end infra again at once. Its infra run is kept, and the log says how many and why."""
     path = _task(tmp_path)
     (tmp_path / "pipeline.py").write_text(FLAKY)
     _rows(tmp_path, t7={"flaky": 1}, t8={"flaky": 1, "harbor_task": "m", "step": "s2", "step_index": 2, "steps": 2})
@@ -511,6 +511,18 @@ def test_a_records_input_is_its_row_without_the_keys_only_a_pipeline_keeping_its
     assert len(handed) == 5 and all(t["epoch"] == 2 and t["fresh"] is True for t in handed)
 
 
+def test_an_eval_of_a_split_that_names_a_task_twice_keeps_a_row_for_each_as_on_main(tmp_path):
+    """A test split may name a task twice: results.jsonl keeps a row for each of its rows and the summary counts both,
+    as on main (which wrote a line per row). The rows of one id are one record (run_tasks keeps a task's last run by
+    its id, as on main)."""
+    path = _task(tmp_path)
+    (tmp_path / "test.txt").write_text("t7\nt7\nt8\n")
+    result = evaluate(load(path), "none", **QUIET)
+    assert (result["tasks"], result["scored"], result["unscored"]) == (3, 3, 0)
+    rows = _jsonl(tmp_path / "runs" / "toy-run" / "eval" / "none" / "results.jsonl")
+    assert sorted(r["id"] for r in rows) == ["t7", "t7", "t8"]
+
+
 def test_an_eval_that_fails_leaves_none_of_an_earlier_evals_results(tmp_path):
     """results.jsonl is emptied when an eval starts: one that failed in its first repeat leaves no rows of the eval
     before it looking like its own."""
@@ -530,11 +542,11 @@ def test_an_eval_that_fails_leaves_none_of_an_earlier_evals_results(tmp_path):
 # ---------- the order a multi-step task's steps run in ----------
 
 def test_data_shuffle_moves_a_multi_step_tasks_rows_as_one_in_step_order_and_any_other_row_as_before(tmp_path):
-    """A step taken ahead of an earlier step of its task waits for it in the task's stream (for hours), then ends
-    infra: under data.shuffle (the default) each epoch takes a multi-step task's rows together and in step order (the
-    split lists them out of it: the Trainer's one epoch of them, as such a split trains, and the order of another);
-    a train split without one (a task's own `steps` and `step_index` fields make no step of one) is shuffled as it
-    always was, row by row, each copy of a task it names twice a row of its own."""
+    """A step taken ahead of an earlier step of its task would wait for it in the task's stream, or end infra at once
+    with no rollout running it: under data.shuffle (the default) each epoch takes a multi-step task's rows together
+    and in step order (the split lists them out of it: the Trainer's one epoch of them, as such a split trains, and the
+    order of another); a train split without one (a task's own `steps` and `step_index` fields make no step of one)
+    is shuffled as it always was, row by row, each copy of a task it names twice a row of its own."""
     path = _task(tmp_path)
     _multi_step(tmp_path, "m", "n")
     rows = ["t0", "m:s3", "m:s1", "t1", "n:s1", "m:s2", "n:s2", "t2", "n:s3"]
@@ -559,11 +571,11 @@ def test_data_shuffle_moves_a_multi_step_tasks_rows_as_one_in_step_order_and_any
 
 
 def test_an_evolvers_request_of_a_step_ahead_of_an_earlier_step_of_its_task_is_refused_and_the_order_runs(tmp_path):
-    """A step taken ahead of an earlier step of its task still to run would wait for it in the task's stream (for
-    hours), then end infra, not run again that epoch: an Evolver that chooses its tasks may name a step of a
-    multi-step task only when each earlier step of its stream (the task's rollout) has run or comes before it in the
-    request. Another request is refused where it is made, as any bad request is, and the next step runs the order's
-    tasks; at an epoch's end the request is for the next epoch, which runs every step again."""
+    """A step taken ahead of an earlier step of its task still to run would wait for it in the task's stream, or end
+    infra at once with no rollout running it, not run again that epoch: an Evolver that chooses its tasks may name a
+    step of a multi-step task only when each earlier step of its stream (the task's rollout) has run or comes before it
+    in the request. Another request is refused where it is made, as any bad request is, and the next step runs the
+    order's tasks; at an epoch's end the request is for the next epoch, which runs every step again."""
     from hermit.agent.evolver.base import Progress, StepResult
     path = _task(tmp_path)
     _multi_step(tmp_path, "m")
@@ -602,8 +614,8 @@ def test_an_evolvers_request_of_a_step_ahead_of_an_earlier_step_of_its_task_is_r
 
 def test_an_evolvers_request_of_a_step_whose_earlier_step_the_training_split_leaves_out_is_refused(tmp_path):
     """An earlier step of a stream the training split does not hold never runs (hermit train refuses such a split
-    before it trains), and a step named without it would wait for it in the task's stream (for hours), then end
-    infra: the request is refused, during an epoch and at its end, as one naming a step ahead of an earlier one still
+    before it trains), and a step named without it would end infra at once, its turn in the task's stream unable to
+    come: the request is refused, during an epoch and at its end, as one naming a step ahead of an earlier one still
     to run is, saying so; the split's other tasks are taken."""
     from hermit.agent.evolver.base import Progress, StepResult
     path = _task(tmp_path)
@@ -623,16 +635,16 @@ def test_an_evolvers_request_of_a_step_whose_earlier_step_the_training_split_lea
         assert answer(remaining, ["t1"]) == {"next_tasks": ["t1"]}
 
 
-AHEAD = ("lists a step of a multi-step task ahead of an earlier step of its stream, which it would wait for (up to "
-         "hours, then ending infra): m:s2 ahead of m:s1 (task m); a task's steps run in order, each after the one "
-         "before it: list them in step order")
+AHEAD = ("lists a step of a multi-step task ahead of an earlier step of its stream, which it would wait for (or, with "
+         "no rollout running it, end infra at once, stopping its stream): m:s2 ahead of m:s1 (task m); a task's steps "
+         "run in order, each after the one before it: list them in step order")
 
 
 def test_a_train_split_taken_as_given_that_lists_a_step_ahead_of_an_earlier_one_is_refused_before_training(tmp_path):
-    """A step taken ahead of an earlier step of its task waits for it in the task's stream (for hours), then ends
-    infra, and so does each step after it: a train split the Trainer takes as it is given (data.shuffle false, as an
-    ordered stream runs) that lists one is refused before anything runs, naming the task and the steps, and hermit
-    check reports it; the same rows in step order train."""
+    """A step taken ahead of an earlier step of its task would wait for it in the task's stream, or end infra at once
+    with no rollout running it, and so would each step after it: a train split the Trainer takes as it is given
+    (data.shuffle false, as an ordered stream runs) that lists one is refused before anything runs, naming the task and
+    the steps, and hermit check reports it; the same rows in step order train."""
     path = _task(tmp_path)
     _multi_step(tmp_path, "m")
     (tmp_path / "ahead.txt").write_text("t0\nm:s2\nt1\nm:s1\nm:s3\n")
@@ -764,7 +776,8 @@ def test_a_train_that_finishes_stops_its_harbor_streams_with_its_pipeline_and_on
 
 def test_a_test_split_that_lists_a_step_ahead_of_an_earlier_one_is_refused_before_any_eval_runs_it(tmp_path):
     """hermit eval runs a split's rows in its order (one after the other with agent.concurrency 1): a step ahead of an
-    earlier step of its stream would wait for it, then end infra. data.test is refused before any run, naming the
+    earlier step of its stream would end infra at once, its turn unable to come. data.test is refused before any run,
+    naming the
     task and the steps, and hermit check of an eval config reports it. The same rows in step order are evaluated."""
     path = _task(tmp_path)
     _multi_step(tmp_path, "m")
@@ -795,8 +808,8 @@ def test_hermit_check_of_a_training_config_reports_a_test_split_that_hermit_eval
 
 
 def test_hermit_checks_probe_runs_no_later_step_of_a_multi_step_task(tmp_path):
-    """The probe runs one row alone, and a later step of a multi-step task alone would wait for the steps before it
-    (for hours, then end infra): it runs the split's first row that is no such step. data.shuffle may list m:s2 ahead
+    """The probe runs one row alone, and a later step of a multi-step task alone would end infra at once (the steps
+    before it never run): it runs the split's first row that is no such step. data.shuffle may list m:s2 ahead
     of m:s1 (the Trainer runs a task's steps in step order)."""
     path = _task(tmp_path)
     _multi_step(tmp_path, "m")
@@ -813,8 +826,8 @@ def _leaves_out(*pairs: tuple[str, str]) -> str:
 
 
 def test_a_split_that_leaves_out_an_earlier_step_of_a_stream_is_refused_before_any_eval_or_train(tmp_path):
-    """A step whose stream's earlier step never runs waits for it (for hours: the stream's driver starts at its first
-    step), then ends infra, as one listed ahead of it does: a split that lists m:s2 and m:s3 without m:s1, or m:s1
+    """A step whose stream's earlier step never runs ends infra at once (its turn cannot come: the stream's driver
+    starts at its first step), as one listed ahead of it may: a split that lists m:s2 and m:s3 without m:s1, or m:s1
     and m:s3 without m:s2, is refused as hermit eval starts, naming the step it leaves out, and hermit check reports it
     (an eval config's test split, a train split); hermit train refuses such a train split before it trains (taken as
     given, and as data.shuffle takes it, which moves a task's rows together but adds none the split leaves out). A
@@ -846,8 +859,8 @@ def test_a_split_that_leaves_out_an_earlier_step_of_a_stream_is_refused_before_a
 def test_a_validation_split_that_lists_a_step_ahead_of_an_earlier_one_or_without_it_is_refused_before_training(
         tmp_path):
     """GEPA, SkillOpt, ACE, OPRO and EvoSafe give run_agent the validation split's rows in its order, in one call: a
-    step it lists ahead of an earlier step of its stream, or without it, waits for it there (for hours), then ends
-    infra. hermit train refuses such a validation split before it trains, the train split shuffled or not, and hermit
+    step it lists ahead of an earlier step of its stream, or without it, would wait for it there or end infra at
+    once. hermit train refuses such a validation split before it trains, the train split shuffled or not, and hermit
     check reports it; neither checks the validation rows run_agent never runs (the train split's steps), nor an eval
     config's validation split, which nothing runs."""
     path = _task(tmp_path)

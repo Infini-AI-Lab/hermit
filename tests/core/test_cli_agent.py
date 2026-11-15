@@ -1205,6 +1205,29 @@ def test_take_back_reads_no_login_through_a_linked_directory(tmp_path):
     assert "refreshed" in master.read_text()                          # a real refresh is still taken back
 
 
+def test_a_copy_stamped_ahead_of_this_clock_keeps_out_an_earlier_file_a_session_hands_back(tmp_path):
+    """The shared copy may be stamped ahead of this machine's clock (taken from the user's own file, or a session on
+    another machine's clock, at most OTHER_CLOCK ahead): a local session's file stamped before it is no later refresh
+    and never replaces it, though the copy's stamp is past the session's own skew."""
+    from datetime import datetime, timedelta, timezone
+    from hermit.agent.base import login as L
+    root = tmp_path / "root"
+    (root / "login").mkdir(parents=True)
+    master = root / "login" / "auth.json"
+    stamp = lambda delta: (datetime.now(timezone.utc) + delta).strftime("%Y-%m-%dT%H:%M:%SZ")
+    master.write_text(sign_in(stamp(timedelta(minutes=30)), "mine"))           # 30 min ahead: past SKEW
+    home = tmp_path / "home"
+    home.mkdir()
+    for older in (timedelta(0), timedelta(hours=-3)):
+        (home / "auth.json").write_text(sign_in(stamp(older), "mine", n=2))
+        L.take_back(root, home / "auth.json", within=home, skew=L.SKEW)
+        assert '"n": 2' not in master.read_text()
+    master.write_text(sign_in(stamp(timedelta(seconds=-30)), "mine"))          # a copy behind the session's file
+    (home / "auth.json").write_text(sign_in(stamp(timedelta(0)), "mine", n=3))
+    L.take_back(root, home / "auth.json", within=home, skew=L.SKEW)
+    assert '"n": 3' in master.read_text()
+
+
 def test_take_back_keeps_the_shared_login_to_its_account(tmp_path):
     """A session can write its home's login: a later one for another ChatGPT account is not taken back."""
     import datetime

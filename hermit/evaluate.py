@@ -125,18 +125,22 @@ def _run(config: Config, target: Path | None, tests: list[dict], out: Path, *, l
     budget = Budget()
     t0 = time.time()
     by_id = {t["id"]: t for t in tests}
-    records: dict[tuple[int, str], dict] = {}       # (repeat, task id) -> the latest run's record
+    # (repeat, task id, which of the split's rows of that id) -> the latest run's record: a split that names a task
+    # twice keeps a row for each, as on main
+    records: dict[tuple[int, str, int], dict] = {}
     rerun = 0
     concurrency = int(d["agent"]["concurrency"])
     try:
         for r in range(1, repeats + 1):
             log(f"eval {label}: repeat {r}/{repeats} on {len(tests)} test tasks")
+            seen: dict[str, int] = {}
             for rec in run_tasks(_repeat(tests, r, repeats), target, pipeline, judge, concurrency=concurrency,
                                  budget=budget, part="rollout"):
-                records[(r, rec["id"])] = rec
+                records[(r, rec["id"], seen.setdefault(rec["id"], 0))] = rec
+                seen[rec["id"]] += 1
             _write(out, records)
-        # A step of a multi-step task runs in its task's stream, after the steps before it: alone it would start the
-        # stream again and wait for a turn that never comes. Its infra run is kept as it is.
+        # A step of a multi-step task runs in its task's stream, after the steps before it: alone its turn could not
+        # come, and it would end infra again at once. Its infra run is kept as it is.
         steps = {key for key, rec in records.items() if rec["status"] == "infra" and _one_step_of_many(by_id[key[1]])}
         if retries and steps:
             log(f"eval {label}: {len(steps)} infra run(s) are steps of multi-step tasks, not run again: a step runs "
@@ -160,9 +164,12 @@ def _run(config: Config, target: Path | None, tests: list[dict], out: Path, *, l
                 f"(retry {attempt}/{retries})")
             time.sleep(wait)
             for r in sorted({key[0] for key in again}):
-                for rec in run_tasks(_repeat([by_id[i] for rr, i in again if rr == r], r, repeats), target, pipeline,
-                                     judge, concurrency=concurrency, budget=budget, part="rollout"):
-                    records[(r, rec["id"])] = rec
+                slots: dict[str, list] = {}                 # each rerun of an id replaces one of its infra runs
+                for key in (k for k in again if k[0] == r):
+                    slots.setdefault(key[1], []).append(key)
+                for rec in run_tasks(_repeat([by_id[key[1]] for key in again if key[0] == r], r, repeats), target,
+                                     pipeline, judge, concurrency=concurrency, budget=budget, part="rollout"):
+                    records[slots[rec["id"]].pop(0)] = rec
             rerun += len(again)
             _write(out, records)
     finally:
@@ -182,7 +189,7 @@ def _run(config: Config, target: Path | None, tests: list[dict], out: Path, *, l
 def _write(out: Path, records: dict) -> None:
     """results.jsonl: one line per row of each repeat, its latest run, repeat by repeat in the split's order, no model
     key kept."""
-    rows = [redact_value({"repeat": r, **{k: rec.get(k) for k in RESULT_KEYS}}) for (r, _), rec in records.items()]
+    rows = [redact_value({"repeat": r, **{k: rec.get(k) for k in RESULT_KEYS}}) for (r, *_), rec in records.items()]
     with open(out / "results.jsonl", "w") as f:
         for row in rows:
             f.write(json.dumps(row, default=str) + "\n")

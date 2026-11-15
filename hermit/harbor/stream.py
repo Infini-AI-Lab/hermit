@@ -3,14 +3,20 @@
 The driver (`harborside/driver.py`, under Harbor's interpreter) holds the task's environment open between steps
 and answers on a Unix socket in the stream's directory; this client starts it when there is none (under a file
 lock, so concurrent rollouts of one stream start one driver), waits for its turn (the driver runs steps in order),
-asks for its step and reads the step's result back. The stream's directory:
+asks for its step and reads the step's result back. A driver that answers no stop (hung in a step) is ended with its
+process group, and its trial's compose projects are taken down by name, as an expired trial's are. The stream's
+directory:
 
     <jobs_dir>/streams/<stream>/
-      driver.json          {pid, socket, started, trial_dir}: the live driver
+      driver.json          {pid, socket, name, started, trial_dir}: the live driver (name: Harbor's trial)
       driver.log           its log (Harbor's trial log is in trial_dir)
       .lock                the start lock
       steps/<index>-<name>/   this step's staging (deploy/), launch plan (launch/) and curated log
       trials/<stream>/     Harbor's trial directory: steps/<name>/{agent,verifier,result.json}, result.json at the end
+      replies/<index>.json the driver's answer for each step it ran
+      earlier/<n>/         an earlier driver's trials/ and replies/, set aside when a new driver starts here (Harbor's
+                           trial of the same name would reuse its step directories: a step that leaves no output of
+                           its own would be read with the earlier run's); driver.log goes on, each start headed
 
 Protocol: one JSON object per line, one request per connection.
     {"op": "status"}                      -> {"ok": true, "ready": bool, "next_index": i, "running": name|null,
@@ -28,6 +34,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import signal
 import socket
 import subprocess
 import sys
@@ -35,8 +42,11 @@ import time
 
 DRIVER_INFO = "driver.json"
 DRIVER_LOG = "driver.log"
+EARLIER = "earlier"                                      # earlier drivers' trials and replies, set aside
 POLL_S = 5.0
+TURN_GRACE_POLLS = 2                                     # a missing earlier step is waited for this many polls more
 START_TIMEOUT_S = 3600.0                                 # the environment's build and the agent's install
+STOP_TIMEOUT_S = 900.0                                   # a stop's answer: the environment down, the result written
 HARBORSIDE = Path(__file__).resolve().parent / "harborside"
 
 
@@ -46,6 +56,16 @@ class StreamError(RuntimeError):
 
 class StreamOrderError(StreamError):
     """The step's turn did not come: an earlier step is missing, or this one was already run."""
+
+
+class TurnLostError(StreamOrderError):
+    """The step's turn cannot come: no rollout runs the step its driver waits for, or the stream has no driver and no
+    rollout of its first step is running to start one (`why`)."""
+
+    def __init__(self, index: int, why: str):
+        self.why = why
+        super().__init__(f"step {index}'s turn cannot come: {why}; a stream's steps run in order, each after the one "
+                         "before it")
 
 
 def socket_path(stream_dir: Path) -> Path:
@@ -145,6 +165,7 @@ class StreamClient:
         sock = socket_path(self.dir)
         sock.unlink(missing_ok=True)
         self.info_path.unlink(missing_ok=True)
+        self._set_aside()
         cmd = [self.python, "-m", "harborside.driver", "--task-dir", str(task_dir), "--stream-dir", str(self.dir),
                "--name", name, "--socket", str(sock), "--agent-json", json.dumps(agent),
                "--environment-json", json.dumps(environment), "--verifier-json", json.dumps(verifier),
@@ -168,6 +189,21 @@ class StreamClient:
                                   f"{self.dir / DRIVER_LOG}")
             time.sleep(0.5)
         raise StreamError(f"the stream driver did not listen within 120 s; see {self.dir / DRIVER_LOG}")
+
+    def _set_aside(self) -> None:
+        """What an earlier driver of this directory left, moved to earlier/<n>/ before a new one starts (under the start
+        lock): its trial directory, whose step directories Harbor's next trial of the same name would reuse (a step
+        that leaves no output of its own would be read with the earlier run's: its usage billed again, its reply and
+        outputs taken for the step's), and its replies. driver.log, which every step's curated log copies, stays: each
+        driver's part of it begins with the line its start writes."""
+        left = [self.dir / name for name in ("trials", "replies") if os.path.lexists(self.dir / name)]
+        if not left:
+            return
+        taken = [int(p.name) for p in (self.dir / EARLIER).glob("*") if p.name.isdigit()]
+        place = self.dir / EARLIER / str(max(taken, default=0) + 1)
+        place.mkdir(parents=True)
+        for path in left:
+            path.rename(place / path.name)
 
     def _wait_ready(self, info: dict, timeout_s: float) -> None:
         deadline = time.time() + timeout_s
@@ -213,10 +249,14 @@ class StreamClient:
     def status(self) -> dict:
         return self.request({"op": "status"}, timeout=60)
 
-    def wait_turn(self, index: int, *, timeout_s: float) -> dict:
+    def wait_turn(self, index: int, *, timeout_s: float, missing=None) -> dict:
         """Block until the driver's next step is `index` (earlier steps of the stream, running in other rollouts,
-        come first); the status then. Raises when the stream finished, aborted or died first."""
+        come first); the status then. Raises when the stream finished, aborted or died first, and when `missing`
+        (called with the step the driver waits for, while it is idle at an earlier one) says why no rollout will ask
+        for that step, on TURN_GRACE_POLLS polls more in a row (by then a rollout submitted just before this one has
+        come): a turn that cannot come ends at once (TurnLostError), not at the deadline."""
         deadline = time.time() + timeout_s
+        missed = 0
         while True:
             status = self.status()
             if status.get("error"):
@@ -229,6 +269,10 @@ class StreamClient:
             if status.get("finished") or status.get("aborted"):
                 raise StreamError(f"the stream {'aborted: ' + str(status.get('aborted')) if status.get('aborted') else 'finished'} "
                                   f"before step {index}")
+            why = missing(nxt) if missing is not None and not status.get("running") else None
+            missed = missed + 1 if why else 0
+            if missed > TURN_GRACE_POLLS:
+                raise TurnLostError(index, why)
             if time.time() >= deadline:
                 raise StreamOrderError(f"waited {timeout_s:.0f} s for step {index}'s turn (the driver is at step {nxt}): "
                                        "a stream's steps run in order, each after the one before it")
@@ -245,8 +289,54 @@ class StreamClient:
     def result(self, index: int) -> dict:
         return self.request({"op": "result", "index": index}, timeout=60)
 
-    def stop(self, *, timeout_s: float = 900) -> None:
+    def stop(self, *, timeout_s: float | None = None) -> None:
+        """Ask the driver to stop (its step loop ends, the environment goes down, the trial's result is written) and
+        wait for its answer. A driver that gives none within `timeout_s` (STOP_TIMEOUT_S) is hung in a step, which the
+        stop would wait behind (one whose request expired), and neither its idle stop nor a later stop would end it:
+        it is killed (kill)."""
         try:
-            self.request({"op": "stop"}, timeout=timeout_s)
+            self.request({"op": "stop"}, timeout=STOP_TIMEOUT_S if timeout_s is None else timeout_s)
+        except TimeoutError as exc:
+            killed = self.kill()
+            self.log(f"stopping the stream driver: no answer ({exc}); "
+                     + ("killed it, its compose projects taken down" if killed else "no process of it to kill"))
         except (OSError, StreamError, ValueError) as exc:
             self.log(f"stopping the stream driver: {exc}")
+
+    def kill(self) -> bool:
+        """End the driver's process group (it leads one: started in a session of its own), SIGTERM then SIGKILL, as
+        an expired trial's `harbor run` is ended, and take its trial's compose projects down by name (its environment,
+        which its own stop would have taken down: docker.compose_down); whether it did. Only a live process whose
+        command line names this stream's directory is signalled: the pid its record gives may since be another
+        program's."""
+        pid = self._driver_pid()
+        if pid is None:
+            return False
+        for sig, grace in ((signal.SIGTERM, 30.0), (signal.SIGKILL, 10.0)):
+            try:
+                os.killpg(pid, sig)
+            except (ProcessLookupError, PermissionError):
+                break
+            deadline = time.time() + grace
+            while time.time() < deadline and not self.gone():
+                time.sleep(0.2)
+        name = (self.info() or {}).get("name")
+        if name:
+            from hermit.harbor import docker
+            docker.compose_down(str(name))
+        return True
+
+    def _driver_pid(self) -> int | None:
+        """The pid of this directory's live driver, when its command line (/proc) says it is one and it leads its own
+        process group; None otherwise (no record, a process gone, one of another program, no /proc to tell)."""
+        pid = int((self.info() or {}).get("pid") or 0)
+        if pid <= 0 or self.gone():
+            return None
+        try:
+            argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+            leads = os.getpgid(pid) == pid
+        except OSError:
+            return None
+        where = argv.index(b"--stream-dir") + 1 if b"--stream-dir" in argv else len(argv)
+        named = where < len(argv) and Path(os.fsdecode(argv[where])).resolve() == self.dir.resolve()
+        return pid if leads and named and b"harborside.driver" in argv else None
