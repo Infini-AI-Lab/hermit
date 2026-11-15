@@ -9,13 +9,13 @@ asks for its step and reads the step's result back. The stream's directory:
       driver.json          {pid, socket, started, trial_dir}: the live driver
       driver.log           its log (Harbor's trial log is in trial_dir)
       .lock                the start lock
-      steps/<index>-<name>/   this step's staging (deploy/) and curated log
+      steps/<index>-<name>/   this step's staging (deploy/), launch plan (launch/) and curated log
       trials/<stream>/     Harbor's trial directory: steps/<name>/{agent,verifier,result.json}, result.json at the end
 
 Protocol: one JSON object per line, one request per connection.
     {"op": "status"}                      -> {"ok": true, "ready": bool, "next_index": i, "running": name|null,
                                               "finished": bool, "aborted": reason|null, "error": msg|null}
-    {"op": "step", "name", "index", "deploy_dir", "agent_kwargs"}
+    {"op": "step", "name", "index", "plan", "agent_kwargs"}   (plan: the step's launch plan, hermit.harbor.launch)
                                           -> {"ok": true, "step": <StepResult>, "paths": {...}, "aborted": ...}
                                            | {"ok": false, "out_of_order": true, "next_index": i} | {"ok": false, "error"}
     {"op": "result", "index": i}          -> the stored reply of a finished step, or {"ok": false, "error"}
@@ -99,10 +99,28 @@ class StreamClient:
             return info
         return None
 
+    def gone(self) -> bool:
+        """Whether the driver's process has ended: no record, no such process, or a zombie (a driver this process
+        started and that died stays one until it is reaped, and `alive` still finds it): no request reaches it again."""
+        info = self.info()
+        if not info:
+            return True
+        pid = int(info.get("pid") or 0)
+        if pid <= 0:
+            return False
+        if not alive(pid):
+            return True
+        try:
+            return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z"
+        except (OSError, IndexError):
+            return False                                  # no /proc here: alive's answer
+
     def ensure(self, *, task_dir: Path, name: str, agent: dict, environment: dict, verifier: dict | None = None,
-               idle_s: float = 4 * 3600, env: dict | None = None, start_timeout_s: float = START_TIMEOUT_S) -> dict:
+               idle_s: float = 4 * 3600, env: dict | None = None, start_timeout_s: float = START_TIMEOUT_S,
+               trial: dict | None = None) -> dict:
         """The live driver, started if there is none, ready (environment up, agent installed) or raising with the
-        error it reported."""
+        error it reported. A driver it starts runs with `env` as it is (this process's environment when none is
+        given), and `trial` holds the settings of Harbor's trial config (its timeout multipliers)."""
         self.dir.mkdir(parents=True, exist_ok=True)
         if os.environ.get("HA_ADAPTER_SANDBOX") == "1" and self.running() is None:
             # A driver started from a sandboxed worker would die with it (bubblewrap's --die-with-parent), and its
@@ -116,23 +134,25 @@ class StreamClient:
                 info = self.running()
                 if info is None:
                     info = self._start(task_dir=task_dir, name=name, agent=agent, environment=environment,
-                                       verifier=verifier or {}, idle_s=idle_s, env=env)
+                                       verifier=verifier or {}, idle_s=idle_s, env=env, trial=trial or {})
             finally:
                 fcntl.flock(lock, fcntl.LOCK_UN)
         self._wait_ready(info, start_timeout_s)
         return info
 
     def _start(self, *, task_dir: Path, name: str, agent: dict, environment: dict, verifier: dict, idle_s: float,
-               env: dict | None) -> dict:
+               env: dict | None, trial: dict) -> dict:
         sock = socket_path(self.dir)
         sock.unlink(missing_ok=True)
         self.info_path.unlink(missing_ok=True)
         cmd = [self.python, "-m", "harborside.driver", "--task-dir", str(task_dir), "--stream-dir", str(self.dir),
                "--name", name, "--socket", str(sock), "--agent-json", json.dumps(agent),
                "--environment-json", json.dumps(environment), "--verifier-json", json.dumps(verifier),
-               "--idle-s", str(idle_s)]
-        run_env = {**os.environ, **(env or {})}
-        run_env["PYTHONPATH"] = str(HARBORSIDE.parent) + (os.pathsep + run_env["PYTHONPATH"] if run_env.get("PYTHONPATH") else "")
+               "--trial-json", json.dumps(trial), "--idle-s", str(idle_s)]
+        # The environment as given (harbor_env: what Harbor's processes may have), never this process's back under it
+        run_env = dict(os.environ if env is None else env)
+        run_env["PYTHONPATH"] = str(HARBORSIDE.parent) + (os.pathsep + run_env["PYTHONPATH"]
+                                                          if run_env.get("PYTHONPATH") else "")
         with open(self.dir / DRIVER_LOG, "a") as log:
             log.write(f"=== {datetime.now().isoformat(timespec='seconds')} start: {' '.join(cmd)}\n")
             log.flush()
@@ -185,7 +205,10 @@ class StreamClient:
         data = b"".join(chunks).decode("utf-8", errors="replace").strip()
         if not data:
             raise StreamError("the stream driver closed the connection without an answer")
-        return json.loads(data)
+        try:
+            return json.loads(data)
+        except ValueError:                                # cut off: a driver killed while it wrote its answer
+            raise StreamError("the stream driver closed the connection before its answer was whole") from None
 
     def status(self) -> dict:
         return self.request({"op": "status"}, timeout=60)
@@ -211,10 +234,10 @@ class StreamClient:
                                        "a stream's steps run in order, each after the one before it")
             time.sleep(POLL_S)
 
-    def step(self, *, name: str, index: int, deploy_dir: str | None, agent_kwargs: dict | None,
+    def step(self, *, name: str, index: int, plan: str | None, agent_kwargs: dict | None,
              timeout_s: float) -> dict:
         try:
-            return self.request({"op": "step", "name": name, "index": index, "deploy_dir": deploy_dir,
+            return self.request({"op": "step", "name": name, "index": index, "plan": plan,
                                  "agent_kwargs": agent_kwargs or {}}, timeout=timeout_s)
         except (socket.timeout, TimeoutError):
             return {"ok": False, "expired": True, "error": f"no answer from the stream driver within {timeout_s:.0f} s"}

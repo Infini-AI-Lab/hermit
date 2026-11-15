@@ -35,8 +35,9 @@ the rest of the tree, the memory included, is in the workspace's copy under `her
 2. The Refiner reads each trajectory (a Codex event stream, or a message list), its final output and status, and
    extracts failure signatures: a session that erred or timed out, a command that exited non-zero, an answer that
    never came; with `feedback: true` (the default) the judge's verdict on each task scored below 1 is shown too, as a
-   signal to act on, not a score to optimise. With `feedback: false` the Refiner sees the trajectories alone, the
-   paper's own setting, where no judge exists.
+   signal to act on, not a score to optimise, and so is a Harbor trial whose verifier ran out of time on the solution
+   (`verifier_timeout: agent`), as that, not as a session that hit its wall clock. With `feedback: false` the Refiner
+   sees the trajectories alone, the paper's own setting, where no judge exists.
 3. Notes a session left in `memory/NOTES.md` are folded into the harness's memory (a known topic is replaced, a new
    one appended).
 4. Four passes, in order, each one call of the run's `llm` tool: the policy (`AGENTS.md`, rewritten whole, at most

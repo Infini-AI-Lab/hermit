@@ -233,9 +233,11 @@ per-token price, so `cost_usd` is unknown and the CLI's `total_cost_usd`, an est
 
 Not yet counted or stopped: the tokens of an attempt that is run again (a plan's rerun, an acting retry, a chat client's
 retry) and of a failed session through the acting endpoint are not added to the records or to `budget.tokens`, which
-therefore undercounts; a rollout waiting for the plan is not stopped by the Trainer's budget or stop until its wait ends
-(as on Codex's ChatGPT login). A lost sign-in met inside a Trainer tool that a learner's session calls over the tool
-server (`run_agent`, `llm`) stops the learner and ends the run after its call, unfinished, as at a step.
+therefore undercounts (a Harbor trial on the login is the exception: its usage is every run's,
+[Benchmarks](../framework/task.md#benchmarks)); a rollout waiting for the plan is not stopped by the Trainer's budget
+or stop until its wait ends (as on Codex's ChatGPT login). A lost sign-in met inside a Trainer tool that a learner's
+session calls over the tool server (`run_agent`, `llm`) stops the learner and ends the run after its call,
+unfinished, as at a step.
 
 ## The model contract
 
@@ -254,6 +256,10 @@ A session is not a model API. This is what a chat request through the endpoint g
 | `n` above 1; a `response_format` other than text | 400 |
 | `stream`, `stream_options` | Kept: the reply arrives whole, as chunks at the end |
 | `parallel_tool_calls`; `tools: []`; `tool_choice` `none` or `auto` | Accepted: they ask for nothing a session would do |
+
+Each 400 of this table refuses the request before any session starts: its error's `code` is `unsupported_request`
+and its `message` names what the session cannot take. So is the 400 of a request whose settings the CLI's Base Agent
+refuses to start a session with (its `message` the Base Agent's reason).
 
 The reply is the session's whole message (`content`; `result` alone holds only its last block), `finish_reason` `stop`,
 or `length` for a message that stopped at a limit, its usage, and the model the CLI says it used.
