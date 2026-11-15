@@ -103,8 +103,11 @@ and holds for the next step only. It must be distinct task ids, at most `data.st
 `progress.remaining`; at the last step of an epoch, where nothing remains, from the training split, which the next
 epoch runs again; `progress.remaining` is then empty, so an Evolver that chooses at an epoch's end keeps the ids it
 was given earlier (the bootstrap is given the first epoch's whole order, and may name the first step's tasks the
-same way). An empty list names nothing. A request is taken from any step result, a failed step's included; one
-made at the run's last step is recorded and has no step to apply to.
+same way). An empty list names nothing. A step of a multi-step Harbor task may be named only when each earlier step of
+its stream (its task's rollout) has run in the epoch or comes before it in the same request (at an epoch's end only the
+latter, since the next epoch runs every step again; one the training split leaves out never runs): any other request
+is refused, since a task's steps run in order in its stream. A request is taken from any step result, a failed step's
+included; one made at the run's last step is recorded and has no step to apply to.
 An epoch still runs every training task once: the tasks the Evolver leaves out come later in the epoch, in the
 Trainer's order. The step's record keeps an accepted request as `next_tasks` and a refused one as
 `next_tasks_refused` with the reason, and the next step then runs the order's tasks; a step that ran the Evolver's
@@ -166,10 +169,25 @@ For candidate experiments, the run offers:
 ctx.tools["run_agent"](task_ids=["task-1"], adapter=str(candidate_directory))
 ```
 
-Only training or validation IDs are accepted, and the candidate directory must be inside the run directory.
-Omitting `adapter` tests the current working copy. The response contains per-task status, output, judge results,
-cost, and time, how the session ended when the pipeline reports it (`exit_code`, `timed_out`: the CLI agents do), and
-for training tasks the path of the run's log; it does not return the trajectories themselves. Its usage counts toward the run's Evolver budget.
+Only training or validation IDs are run, never a training ID that is a step of a multi-step Harbor task (it runs only
+in the Trainer's own stream of that task, after the steps before it); the candidate directory must be inside the run
+directory. An ID outside these raises no error: it comes back as a result with status `error`, the reason in `error`,
+and a judge score of 0, which an Evolver that averages the results counts as a 0. The run's budget does fail the call:
+once one of its runs ends with the budget reached, the call starts no other, and when the runs in flight end it raises
+`BudgetExceeded` (a learner session's tool call gets an error) and returns nothing, not even the results of the runs it
+made, whose cost counts all the same. Omitting `adapter` tests the current working copy. The response contains
+per-task status, output, judge results, cost, and time, how the session ended when the pipeline reports it
+(`exit_code`, `timed_out`: the CLI agents do), and for training tasks the path of the run's log; it does not return the
+trajectories themselves. Its usage counts toward the run's Evolver budget. Each ID it runs is a new run: the rows it
+hands the pipeline name it (`fresh`), so that a pipeline keeping its trials by row (a Harbor task set's `trial_cache`)
+neither takes the run from there nor keeps it, and a second call on the same adapter is a second run.
+
+The validation steps of a multi-step Harbor task run in one stream (each rollout's own) for the whole run, whatever
+adapter each call names: give them all, in step order, in one call. A step runs only after the steps before it, in that
+call or an earlier one: one called without them waits for its turn (`stream.turn_wait_s`, by default over an hour) and
+comes back `infra` (`stream_order`); one called again while its driver is up (until the last step, an abort,
+`stream.idle_s` without a request, or the run's end) is `infra` at once; and one called with another adapter than the
+step before it continues the environment that step left.
 
 The Evolver may also call `check_spec` before returning. The Trainer still makes the acceptance decision from the
 returned files. Passing specification checks does not establish better performance.

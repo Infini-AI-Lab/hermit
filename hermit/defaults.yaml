@@ -103,3 +103,5 @@ trainer:
   call_timeout_min: 60
 eval:
   repeats: 1
+  infra_retries: 0             # rows that ended infra (not the agent's result) are run again up to this many times
+  infra_wait_s: 600            # ... this long after each pass

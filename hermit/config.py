@@ -1,4 +1,11 @@
-"""The run config: framework defaults, then run.yaml, then command-line overrides (key.sub=value)."""
+"""The run config: framework defaults, then run.yaml, then command-line overrides (key.sub=value).
+
+What a config must name depends on the command it is loaded for (`Config.load(..., command=)`): `hermit train` needs
+the training keys (data.train, template, evolver.name); `hermit eval` needs only what an eval reads (data.tasks,
+data.test, agent, judge; template or trainer.tree_dir only for an adapter of the run's tree), so a config with no
+training split is a config for `hermit eval` alone; `hermit check` checks a config as the command it serves: as
+hermit train's when it names a training split, else as hermit eval's.
+"""
 from __future__ import annotations
 
 import copy
@@ -9,7 +16,7 @@ import re
 import yaml
 
 from hermit.adapter.manifest import MANIFEST
-from hermit.agent.model.backends import normalize_config
+from hermit.agent.model.backends import harbor_cli, normalize_config
 
 DEFAULTS = Path(__file__).with_name("defaults.yaml")
 TEMPLATES = Path(__file__).resolve().parent / "adapter" / "templates"
@@ -228,12 +235,15 @@ def _override(config: dict, item: str) -> None:
 
 
 class Config:
-    def __init__(self, data: dict, base: Path):
+    def __init__(self, data: dict, base: Path, source: Path | None = None):
         self.data = data
         self.base = Path(base).resolve()     # relative paths in the config are relative to its directory
+        self.source = Path(source).resolve() if source is not None else None    # the run.yaml it was read from
 
     @classmethod
-    def load(cls, path: Path, overrides: list[str] = ()) -> "Config":
+    def load(cls, path: Path, overrides: list[str] = (), command: str | None = None) -> "Config":
+        """The config at `path` with `overrides`, validated for `command` (train | eval | check; None, the Python
+        API's, as check: hermit train's needs when the config names a training split, else hermit eval's)."""
         defaults = yaml.safe_load(DEFAULTS.read_text())
         user = yaml.safe_load(Path(path).read_text()) or {}
         data = _merge(defaults, user)
@@ -246,9 +256,9 @@ class Config:
             if data["pipeline"].get("concurrency") is not None:
                 data["agent"]["concurrency"] = data["pipeline"]["concurrency"]
         layered(data, Path(path).parent)               # per-layer settings -> the flat form
-        normalize_config(data)      # model references -> the endpoints they name
-        config = cls(data, Path(path).parent)
-        config.validate()
+        normalize_config(data, base=Path(path).parent)      # model references -> the endpoints they name
+        config = cls(data, Path(path).parent, source=Path(path))
+        config.validate(command)
         return config
 
     def __getitem__(self, key):
@@ -260,18 +270,35 @@ class Config:
         p = Path(os.path.expandvars(str(value))).expanduser()
         return p if p.is_absolute() else (self.base / p).resolve()
 
-    def validate(self) -> None:
+    def harbor_builtin(self) -> str | None:
+        """The acting agent of a Harbor task set when it is one of Harbor's own (agent.params.acting_agent by `name`,
+        or a class that is no HermitXXX, the benchmark file's read in: harbor_cli is None), which takes no adapter:
+        its name or class. None for any other agent."""
+        agent = self.data["agent"]
+        params = agent.get("params") or {}
+        if str(agent.get("name") or "") != "harbor" or harbor_cli(params) is not None:
+            return None
+        spec = params.get("acting_agent") or {}
+        return str(spec.get("import_path") or spec.get("name"))
+
+    def validate(self, command: str | None = None) -> None:
+        """What `command` needs (train | eval | check | None, see `load`): `hermit eval` needs no training keys
+        (data.train, template, evolver), `hermit train` does; the eval section is checked where an eval runs."""
         d = self.data
-        for key in ("tasks", "train"):
-            if not d["data"][key]:
-                raise ValueError(f"data.{key} is required")
+        if command not in (None, "train", "eval", "check"):
+            raise ValueError(f"no command {command!r} to validate the config for")
+        need = command if command in ("train", "eval") else ("train" if d["data"]["train"] else "eval")
+        if not d["data"]["tasks"]:
+            raise ValueError("data.tasks is required")
+        if need == "train" and not d["data"]["train"]:
+            raise ValueError("data.train is required")
         if not d["agent"]["name"]:
             raise ValueError("agent.name is required")
         if not d["judge"]["path"]:
             raise ValueError("judge.path is required")
-        if not d["template"]:
+        if need == "train" and not d["template"]:
             raise ValueError("template is required")
-        if not d["evolver"]["name"]:
+        if need == "train" and not d["evolver"]["name"]:
             raise ValueError("evolver.name is required")
         from hermit.isolate import validate as validate_sandboxes
         validate_sandboxes(self)
@@ -281,6 +308,27 @@ class Config:
             raise ValueError("data.step_size and trainer.epochs must be positive")
         if d["trainer"]["run_name"] and not re.fullmatch(r"[A-Za-z0-9][\w.-]{0,80}", str(d["trainer"]["run_name"])):
             raise ValueError("trainer.run_name may use letters, digits, '.', '_' and '-'")
+        if need == "eval":
+            self._validate_eval()
+
+    def _validate_eval(self) -> None:
+        ev = self.data.get("eval")
+        if not isinstance(ev, dict):
+            raise ValueError(f"eval is a section of settings (eval.<name>: <value>, as hermit/defaults.yaml lists them), "
+                             f"not {ev!r}")
+        try:
+            repeats = int(ev.get("repeats"))          # as hermit eval has always read it: "3" and 2.0 are 3 and 2
+        except (TypeError, ValueError):
+            repeats = 0
+        if repeats < 1:
+            raise ValueError(f"eval.repeats must be a whole number of at least 1, not {ev.get('repeats')!r}")
+        ev["repeats"] = repeats
+        value = ev.setdefault("infra_retries", 0)    # left out of a whole-section override (eval={repeats: 3}): 0
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"eval.infra_retries must be a whole number of at least 0, not {value!r}")
+        wait = ev.setdefault("infra_wait_s", 600)
+        if isinstance(wait, bool) or not isinstance(wait, (int, float)) or wait < 0:
+            raise ValueError(f"eval.infra_wait_s must be a number of seconds, not {wait!r}")
 
     def template_dir(self) -> Path:
         """`template` is a path to a template directory, or `id@version` / `id` of a built-in template."""
@@ -298,9 +346,14 @@ class Config:
         raise ValueError(f"No template {value!r} (neither a directory with {MANIFEST} nor a built-in id@version)")
 
     def run_name(self) -> str:
+        """trainer.run_name; else `<evolver>-<template>`; else (an eval config, which names neither) the config
+        file's stem."""
         if self.data["trainer"]["run_name"]:
             return str(self.data["trainer"]["run_name"])
-        return f"{self.data['evolver']['name']}-{Path(str(self.data['template'])).name.split('@')[0]}".replace("/", "-")
+        if (self.data["evolver"]["name"] and self.data["template"]) or self.source is None:
+            return f"{self.data['evolver']['name']}-{Path(str(self.data['template'])).name.split('@')[0]}".replace("/",
+                                                                                                                   "-")
+        return re.sub(r"[^\w.-]", "-", self.source.stem).lstrip(".-_") or "eval"
 
     def run_dir(self) -> Path:
         return self.path(self.data["trainer"]["output_dir"]) / self.run_name()

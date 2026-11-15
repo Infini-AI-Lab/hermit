@@ -41,7 +41,10 @@ asked to name the bullet ids it used on a `bullet_ids:` line of its final messag
 2. a wrong answer: up to `max_num_rounds` rounds of reflect, update the counters, run the agent again on the task
    with the reflection after its context (`run_agent`), stopping when it is right; a right answer: one reflection,
    to tag the bullets. The Reflector tags the named bullets helpful, harmful or neutral; the counters are updated
-   without a model;
+   without a model. A step of a multi-step Harbor task in the training split, which `run_agent` does not run, is refused
+   when run again and counts as a wrong answer, so the rounds after the first reflect on runs that never happened: such
+   a set trains with a method that learns from the Trainer's own rollouts
+   ([Known limitations](../reference/compatibility.md#known-limitations));
 3. every `curator_frequency` samples, the Curator turns the last reflection into ADD operations, merged into the
    playbook deterministically (new ids, a section that does not exist goes to OTHERS);
 4. with `use_bulletpoint_analyzer`, bullets whose embeddings are at least `bulletpoint_analyzer_threshold` similar are

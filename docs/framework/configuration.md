@@ -50,7 +50,7 @@ Use the same run name for training and evaluation. Unknown configuration keys ar
 |---|---|
 | `data` | Task JSONL file, split files, tasks per step, whether to shuffle the train split (`shuffle`, default true), and shuffle seed. |
 | `task_info` | Directory explaining the task and objective to the learner. |
-| `agent.name` | A built-in agent (`react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `hermes`), `file.py:Class` for the task's own `Agent` subclass, or `file.py:function` for a plain `run(task, adapter)`. `pipeline.run` is the older spelling. |
+| `agent.name` | A built-in agent (`react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `hermes`, or `harbor`: a benchmark's task set in Harbor's format, [Benchmarks](task.md#benchmarks)), `file.py:Class` for the task's own `Agent` subclass, or `file.py:function` for a plain `run(task, adapter)`. `pipeline.run` is the older spelling. |
 | `agent.concurrency` | Maximum concurrent task executions during rollout and evaluation. |
 | `agent.params` | The agent's settings: for a built-in agent its model, prompt and tools; for the task's own agent whatever it reads. |
 | `judge.path`, `judge.name` | Scoring module/file and function name; the default name is `score`. |
@@ -63,12 +63,33 @@ Use the same run name for training and evaluation. Unknown configuration keys ar
 | `llm` | Optional model endpoint, model ID, key environment variable, prices, and `extra_body` (fields added to every request, such as `reasoning_effort`) for the run's `llm` tool; or `cli: codex` or `cli: claude` with that Base Agent's settings (`model`, `login`, `effort`, `web_search`, ...), `isolation` and `timeout`, for a model only that CLI reaches: each call is one session in a bubblewrap sandbox of its own (`isolation: sandbox`, the default: its empty workspace, its model's hosts through a proxy, its key or the login's token, nothing of the run; its model is a `<backend>/<model>` reference, `login: chatgpt` (Codex) or `login: claude` (Claude Code), whose hosts it reaches) or in a container (`isolation: container` with `container`). A Codex session is an agent that can run commands; a Claude Code session has no tools and can only reply ([Agent layers](agent-layers.md#layer-3-agent), [Claude subscription](../guides/claude-subscription.md)). |
 | `trainer` | Run name and directories, epochs, budgets, checkpoint frequency, and recovery mode. |
 | `eval.repeats` | Repetitions per test task in the separate evaluation command. |
+| `eval.infra_retries`, `eval.infra_wait_s` | How many times `hermit eval` runs again the rows that were not the agent's result (status `infra`, below; never a multi-step task's step rows, which run only in their task's stream, nor a task Harbor runs for none of Hermit's agents, `unsupported_task`, nor any after a halt: a lost login, a usage limit), and how long it waits before each pass. |
+
+A run that is not the agent's result (the pipeline's `RunOutput.extra["unscored"]`: Harbor's infra trials) has status
+`infra`: it is never judged, its score is null in `steps.jsonl`, and the Trainer's and `hermit eval`'s means leave it
+out and count it (`unscored`). An Evolver that averages the records itself sees such a run as a 0 with status
+`infra`: GEPA, SkillOpt, ACE, Meta-Harness Adapter, AHE Adapter (an exception trial, in its pass@1) and RRSI Adapter
+(a missing trial with reward 0, in its score and pass rate); OPRO runs it again.
+
+The rows of a split run in its order where the order is kept (the train split with `data.shuffle: false`, the test
+split `hermit eval` runs, the validation split an Evolver gives `run_agent`), and a multi-step Harbor task's steps run
+in their stream, each after the one before it: a split that lists such a step ahead of an earlier step of its stream,
+which it would wait for, or a step but not every earlier step of its stream, is refused before any run that takes it,
+and `hermit check` reports it, for the training splits and the test split alike. `data.shuffle` moves a multi-step
+task's rows as one, in step order. A run runs each step of a stream once, in one environment: a train split with such
+steps is trained one epoch (`hermit train` refuses `trainer.epochs` above 1 for it), and a validation step that
+`run_agent` runs a second time in the run ends `infra` (`stream_order`).
 
 ## Starting from an adapter versus resuming a run
 
 `start_from` initializes a new run from an existing adapter. It does not load the previous Evolver's state.
 `trainer.resume_mode: auto` resumes an unfinished run with the same name from its last completed step, including
-saved learner state. `disable` starts over and renames the previous run directory and branch.
+saved learner state. `disable` starts over and renames the previous run directory and branch. A resume meets the
+streams of a Harbor task set's multi-step tasks again while their drivers still wait for a next step (`stream.idle_s`);
+a run started over gets new ones, and a training run that finishes (its `summary.json` written: a finished run is not
+resumed), all epochs done or stopped early, stops those it left unfinished. The streams of `hermit eval` and of
+`hermit check`'s probe, which no resume meets, are stopped when their run ends, fails or is stopped with Ctrl-C (a
+process killed by a signal leaves them up for `stream.idle_s`) ([Streams](task.md#benchmarks)).
 
 Use `auto` or `disable`; selecting a recovery step/tag through `resume_mode` is not implemented. To branch a new
 experiment from a checkpoint, use `start_from` and a new run name. See [Trainer](trainer.md#resuming-after-a-crash).
@@ -182,6 +203,11 @@ checked when an Evolver declares that need. It is not a network filter.
 
 ## What is checked at startup?
 
-Config parsing checks required fields and basic values. `train` also loads the template, data, pipeline, judge, and
-Evolver and checks the Evolver's declared needs and session-resume support. It does not run the full standalone
-`check` command for you. Use [Commands](commands.md) for preflight checks, the optional probe, and evaluation.
+Config parsing checks required fields and basic values, by the command: `hermit train` needs the training keys
+(`data.train`, `template`, `evolver.name`), while `hermit eval` needs only what an eval reads (`data.tasks`,
+`data.test`, the agent and the judge; a template, or `trainer.tree_dir`, only for an adapter of the run's tree) and
+checks the `eval` section. A config with no training split is for `hermit eval` alone (a baseline's), and `hermit
+check` checks it as `eval` runs it. `train` also loads the template, data, pipeline, judge, and Evolver and checks the
+Evolver's declared needs and session-resume support, the order of a multi-step task's steps in its splits (above), and
+it refuses an acting agent of Harbor's own, which takes no adapter ([Benchmarks](task.md#benchmarks)). It does not
+run the full standalone `check` command for you. Use [Commands](commands.md) for preflight checks, the optional probe, and evaluation.

@@ -39,7 +39,10 @@ The Trainer's rollouts run the current instruction on every training task. Then 
    compared by md5 with every instruction generated before (as upstream, not with the initial one);
 5. each new instruction passes the template check, runs on every training task (`run_agent`), and joins the history
    with its mean score. A wrong answer scores 0; a run that fails for an infrastructure reason (a container or
-   proxy error) is run again, and an instruction whose runs fail twice is left unscored rather than scored 0;
+   proxy error) is run again, and an instruction whose runs fail twice is left unscored rather than scored 0 (so is
+   every new instruction on a task set whose training split holds a multi-step Harbor task, whose steps `run_agent` does
+   not run: such a set trains with a method that learns from the Trainer's own rollouts,
+   [Known limitations](../reference/compatibility.md#known-limitations));
 6. the instruction with the best training score so far becomes the adapter.
 
 ```mermaid

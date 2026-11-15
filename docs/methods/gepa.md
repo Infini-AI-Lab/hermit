@@ -25,7 +25,10 @@ Add this to a complete task config with `llm` credentials. The
 
 GEPA reflects on the current batch's trajectories, tests a child on the same tasks, and evaluates accepted
 candidates on validation. Candidate records persist in the learner state. The configured strategy chooses the
-next parent; finalization selects the best validation candidate retained by the method.
+next parent; finalization selects the best validation candidate retained by the method. The child runs through
+`run_agent`, which runs no training row that is a step of a multi-step Harbor task: on a task set with one, the child's
+runs of those steps are refused and score 0, so such a set trains with a method that learns from the Trainer's own
+rollouts ([Known limitations](../reference/compatibility.md#known-limitations)).
 
 `data.step_size` is the reflection minibatch. Validation and candidate calls add cost beyond the main batch.
 Keep validation separate from test; repeated validation selection is part of training.

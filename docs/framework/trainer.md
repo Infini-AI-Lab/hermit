@@ -65,15 +65,19 @@ tag(adapter, "final")
 
 | Handoff | Input | Output |
 |---|---|---|
-| Trainer → pipeline | One task and the current adapter path. | `RunOutput`: answer and available execution evidence. |
+| Trainer → pipeline | One task and the current adapter path; with `trainer.epochs` above 1 a copy of the task that names its epoch (`epoch`), and a task the epoch's order names twice marked for a new run each time (`fresh`). | `RunOutput`: answer and available execution evidence. |
 | Trainer → scoring function | Task and `RunOutput`. | Score, feedback, and additional fields. |
 | Trainer → learning-material writer | Per-task records and any prior repair feedback. | Material for this batch. |
 | Trainer → Evolver | `StepContext`, including an editable copy of the same adapter. | Files left in `adapter/`, updated state, `StepResult`, and reports. |
 | Trainer → specification check | Changed candidate and the template reference. | Accepted files, or a repair followed by another check. |
 | Trainer → storage | Accepted files and step results. | Git changes, state snapshot, records, and any checkpoint tag. |
 
-The current implementation scores every rollout through the configured `judge.path`. In the component model,
-scoring feedback is one part of the Agent → Learning Material path.
+The current implementation scores every rollout through the configured `judge.path`, but three it never judges: one the
+pipeline says is not the agent's result (`RunOutput.extra["unscored"]`, [Execution result](task.md#execution-result)),
+recorded with status `infra` and left out of the means; and one whose agent session failed
+(`RunOutput.extra["session_failed"]`: no answer to judge) and one whose pipeline raised (a lost sign-in stops the run
+instead), both recorded with status `error` and score 0. In the component model, scoring feedback is one part of the
+Agent → Learning Material path.
 
 A step's rollout scores describe its **input** adapter. The returned adapter first affects a later execution.
 Successive steps can use different tasks, so their scores alone are not a controlled comparison of adapter versions.
@@ -143,11 +147,18 @@ collected and checked. `final` means this selection, not an automatically chosen
 Final evaluation is a separate command.
 
 An epoch is one pass over the training split. Each step takes up to `data.step_size` tasks; the order is reshuffled
-deterministically for each epoch, or kept as the split file gives it when `data.shuffle` is false (an ordered
-stream, such as a continual-learning sequence). The last batch can be smaller. An Evolver that declares `chooses_tasks` may
-instead name the next step's tasks from those the epoch has still to run ([Choosing the next tasks](evolver.md#choosing-the-next-tasks));
-the epoch still runs every training task once. Validation tasks are offered to the Evolver rather
-than included in the Trainer's training batches. Test tasks are reserved for `eval`.
+deterministically for each epoch (a multi-step Harbor task's rows moved as one, in step order: a step ahead of an
+earlier one would wait for it in the task's stream), or kept as the split file gives it when `data.shuffle` is false
+(an ordered stream, such as a continual-learning sequence). A split kept as given that lists a step of a multi-step
+Harbor task ahead of an earlier step of its stream, and any order that lists a step but not every earlier step of its
+stream, is refused before training, and `hermit check` reports it; so is more than one epoch of a train split with
+such steps (a run runs each step of a stream once, in one environment). The last batch can be smaller. An Evolver that
+declares `chooses_tasks` may instead name the next step's tasks from those the epoch has still to run, a step of a
+multi-step Harbor task only once each earlier step of its stream has run in the epoch or comes before it in the request
+(one the training split leaves out never runs: [Choosing the next tasks](evolver.md#choosing-the-next-tasks)); the
+epoch still runs every training task once.
+Validation tasks are offered to the Evolver rather than included in the Trainer's training batches. Test tasks are
+reserved for `eval`.
 
 ### Resuming after a crash
 
@@ -156,7 +167,9 @@ adapter commit and learner-state snapshot, drops later incomplete material, and 
 seed and the tasks the epoch's recorded steps already ran, honouring the last step's `next_tasks`.
 
 Budget accounting also resumes from that step's saved record. Work done after it and before the crash may therefore
-be absent from restored spending. Resuming a learner's external host session additionally depends on that host and
+be absent from restored spending. A Harbor task set's `trial_cache` gives the resumed step the trials it had finished
+(the same run, the same epoch, the same rows and adapter), spending nothing again; no other run takes them, and the
+Evolver's `run_agent` runs anew. Resuming a learner's external host session additionally depends on that host and
 Evolver.
 
 Use `start_from` and a new run name to branch from an adapter without its old learner state. `resume_mode: disable`

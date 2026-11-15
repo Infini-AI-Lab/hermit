@@ -25,11 +25,11 @@ guarantee that their consumer supports arbitrary fields.
 | Field | Type / default | Meaning and constraints |
 |---|---|---|
 | `data.tasks` | path / null; required | JSONL with unique `id` or `task_id` values |
-| `data.train` | path / null; required | One training task id per line |
+| `data.train` | path / null; required to train | One training task id per line |
 | `data.val` | path / null | Validation ids; required by methods declaring validation-data needs |
 | `data.test` | path / null | Test ids; a nonempty test split is required by `eval` |
 | `data.step_size` | integer / 8 | Positive number of task executions in a main training batch |
-| `data.shuffle` | boolean / true | Shuffle training order; set false for ordered streams |
+| `data.shuffle` | boolean / true | Shuffle training order (a multi-step Harbor task's rows as one, in step order); set false for ordered streams |
 | `data.shuffle_seed` | integer / 0 | Training shuffle seed; does not seed every model or method |
 | `task_info` | directory / null | Learner-facing task description; provide `README.md` |
 | `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `hermes`, `harbor` (a benchmark's task set in Harbor's format, see [Benchmarks](../framework/task.md#benchmarks)), an Agent class, or a `file.py:function` / `module:function` |
@@ -46,15 +46,19 @@ guarantee that their consumer supports arbitrary fields.
 | `judge.name` | string / `score` | Callable accepting `(task, RunOutput)` |
 
 Split ids must exist in the task data. Use disjoint train/validation/test splits; `check` reports overlaps.
-Task row fields become training material, so private labels require judge-owned storage.
+Task row fields become training material, so private labels require judge-owned storage. `data.train`, `template`
+and `evolver.name` are required by `hermit train` (and by `check` for a config with a training split): `hermit eval`
+and a config for it alone (no `data.train`) need none of them, except that an adapter of the run's tree (`--adapter
+final`, `root`, a tag or a commit) needs `template` or `trainer.tree_dir`, the tree being the template's, and the tree a
+`hermit train` made; `none` and an adapter directory need neither.
 
 ## Adapter and learning method
 
 | Field | Type / default | Meaning and constraints |
 |---|---|---|
-| `template` | string / null; required | Built-in id, `id@version`, or directory containing `.hermit/adapter.yaml` |
+| `template` | string / null; required to train | Built-in id, `id@version`, or directory containing `.hermit/adapter.yaml` |
 | `start_from` | string / null | Initial adapter tag, commit, or compatible directory; does not restore learner state |
-| `evolver.name` | string / null; required | Built-in method or directory containing its Evolver definition |
+| `evolver.name` | string / null; required to train | Built-in method or directory containing its Evolver definition |
 | `evolver.resume` | boolean / false | Request learner-session continuation; method must support it |
 | `evolver.params` | mapping / {} | Overrides merged with the chosen method's defaults |
 | `evolver.base` | string / null | Layer 2 the method runs on: `codex`, `claude`, `pi`, `opencode`, `dsh` or `hermes` (an agent Evolver: sets `evolver.params.backend`) or `direct`. On a method that calls the run's model, `pi` makes that model Pi (`llm: {cli: pi, ...}`) |
@@ -126,7 +130,7 @@ the Base Agent's setting (`hermit/agent/base/cli.py`).
 | `trainer.run_name` | string / null | Derived from method/template when null; explicit names use letters/digits, underscores, dots, hyphens, starting alphanumeric, at most 81 characters |
 | `trainer.output_dir` | path / `runs` | Parent of the run directory and default adapter-tree directory |
 | `trainer.tree_dir` | path / null | Overrides default `<output_dir>/trees/<template-id>` |
-| `trainer.epochs` | integer / 1 | Positive number of training passes |
+| `trainer.epochs` | integer / 1 | Positive number of training passes; above 1, each epoch's rows name it (`epoch`), so that a Harbor task set's trial cache runs each epoch anew |
 | `trainer.allow_early_stop` | boolean / false | Honor an Evolver's `stop` request |
 | `trainer.resume_mode` | string / `auto` | Use `auto` for unfinished-run recovery or `disable` for a deliberate restart |
 | `trainer.save_freq.steps` | integer / null | Checkpoint-tag frequency by step; null disables that frequency |
@@ -135,7 +139,9 @@ the Base Agent's setting (`hermit/agent/base/cli.py`).
 | `trainer.budget.tokens` | number / null | Token budget |
 | `trainer.budget.hours` | number / null | Training wall-time budget |
 | `trainer.call_timeout_min` | number / 60 | Per-call timeout in minutes |
-| `eval.repeats` | integer / 1 | Attempts per test task; use a positive value |
+| `eval.repeats` | integer / 1 | Attempts per test row (a Harbor task indexed with k rollouts is k rows); use a positive value |
+| `eval.infra_retries` | integer / 0 | `hermit eval` runs the rows that ended `infra` (not the agent's result) again up to this many times, unless one reports a halt; never a multi-step task's step rows, nor a task Harbor runs for none of Hermit's agents (`unsupported_task`) |
+| `eval.infra_wait_s` | number / 600 | Seconds before each such pass |
 
 Use at least one finite budget for a real experiment. Limits are observed at call/rollout boundaries; concurrent
 work can overshoot. Separate `check` probes and `eval` calls are outside the training budget.
