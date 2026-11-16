@@ -253,30 +253,6 @@ def test_failed_session_restores_the_adapter(tmp_path, monkeypatch):
     assert not list((run / "checkout" / "memory").glob("note*.md"))
 
 
-def test_a_session_whose_stream_holds_a_line_separator_or_a_brace_line_of_its_own_is_adopted_with_its_counts(
-        tmp_path, monkeypatch):
-    """A session's turns and actions are counted from its stream's events: a command whose output holds U+2028
-    (Codex's serde_json leaves it unescaped) is one event, and a line of Codex's own that starts with `{` but is no
-    JSON is none, never an error that fails the step."""
-    path = make(tmp_path, monkeypatch, steps=1)
-    fake = tmp_path / "fakebin" / "codex"
-    fake.write_text(FAKE_CODEX.replace(
-        'print(json.dumps({"type": "item.completed"',
-        'sys.stdout.reconfigure(encoding="utf-8")\n'
-        'print("{ codex: a line of its own, no JSON }")\n'
-        'print(json.dumps({"type": "item.completed", "item": {"type": "command_execution", '
-        '"aggregated_output": "a\\u2028b"}}, ensure_ascii=False))\n'
-        'print(json.dumps({"type": "item.completed"'))
-    cfg = Config.load(path, ["evolver.params.bootstrap=false"])
-    Trainer(cfg, log=lambda *_: None).train()
-    run = tmp_path / "runs" / "mwm-test"
-    steps = [json.loads(l) for l in (run / "steps.jsonl").read_text().splitlines()]
-    assert steps[-1]["evolver"]["status"] == "done", steps[-1]["evolver"].get("summary")
-    [session] = json.loads((run / "step_0001" / "output" / "sessions.json").read_text())
-    assert (session["status"], session["turns"], session["tool_calls"]) == ("adopted", 1, 2)
-    assert "a\u2028b" in (run / "step_0001" / "output" / "review_0001.codex.jsonl").read_text(encoding="utf-8")
-
-
 def test_editing_serving_code_discards_the_session(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_EDIT_CORE", "1")
     cfg = Config.load(make(tmp_path, monkeypatch, steps=1), [])
@@ -303,20 +279,3 @@ def test_deployment_parameter_and_a_shell_only_channel(tmp_path, monkeypatch):
     assert (run / "checkout" / "ADAPTER.md").read_text().strip()        # rendered with the venue's host.json
     seen = json.loads((run / "checkout" / "meta" / "seen.json").read_text())
     assert seen["gate_tools"] == ["echo"] and seen["echo"] == {"result": {"text": "hi"}}
-
-
-def test_a_blocks_records_are_found_under_the_names_the_learning_material_gives_them(tmp_path):
-    """The learning material names a task's record by hermit.isolate._safe (a run of other characters as one `_`, at
-    most 60 of them): an id with such a run, or a longer one, is still found (it read as {"id": ...} alone before)."""
-    from types import SimpleNamespace
-    from hermit.agent.evolver.methods.mwm.evolver import MwmEvolver
-    from hermit.isolate import _safe
-    ids = ["tb2/a  b#1", "x" * 70 + "#2"]
-    step = tmp_path / "step_0001"
-    (step / "tasks").mkdir(parents=True)
-    (step / "summary.json").write_text(json.dumps({"step": 1, "tasks": ids}))
-    for i in ids:
-        (step / "tasks" / f"{_safe(i)}.json").write_text(json.dumps({"id": i, "score": 1.0}))
-    ctx = SimpleNamespace(workspace=SimpleNamespace(learning_material=tmp_path), progress=SimpleNamespace(step=1))
-    records, tick = MwmEvolver._block_records(MwmEvolver.__new__(MwmEvolver), ctx)
-    assert [r.get("score") for r in records] == [1.0, 1.0] and tick == 2

@@ -6,8 +6,12 @@
 The score is the trial's reward (`/logs/verifier/reward.txt` or `reward.json`'s `reward_key`, carried in the runner's
 output) whenever the verifier gave one, whatever the trial's status: a trial that ran out of the agent's time or
 whose agent exited with an error still has its work scored, as Harbor's own job mean scores it. A trial without a
-reward scores 0, and so does one that is not the agent's result (infra: the Trainer does not judge one the runner
-marks `unscored`). A trial "passed" when its reward reaches the benchmark's pass reward (`agent.params.pass_reward`,
+reward scores 0. A trial that is not the agent's result (infra: the host, the provider, a session that never started;
+the runner marks it `unscored` after its own runs again, agent.params.infra_retries) gets no score: `score` raises
+Unscored, so that the run records a failed run (hermit.trainer.rollout: status judge_error, its usage and log kept),
+which `hermit eval` counts among its errors and as 0 in its mean, as EvoSafe's judge does with a run it cannot score;
+`python -m hermit.harbor.report <eval dir>` gives the pass@1 over the trials that are the agent's result beside it.
+A trial "passed" when its reward reaches the benchmark's pass reward (`agent.params.pass_reward`,
 1.0 unless the benchmark sets another; null for a benchmark whose reward is a scale with no pass, where none is said
 to pass); `passed` says so (None without a pass reward). The feedback names the
 status (and, for a context over the CLI's limit, by how much: the session never started) and, for a trial that did
@@ -22,6 +26,10 @@ TAIL = 1500                                              # characters of the ver
 PASS_REWARD = 1.0
 
 
+class Unscored(RuntimeError):
+    """A trial that is not the agent's result (infra): no score is the agent's."""
+
+
 def pass_reward(output) -> float | None:
     """The run's pass reward, as the runner gave it (`extra["judge"]["pass_reward"]`), else PASS_REWARD."""
     extra = getattr(output, "extra", None)
@@ -31,11 +39,26 @@ def pass_reward(output) -> float | None:
     return PASS_REWARD
 
 
+def unscored(output) -> str | None:
+    """Why a rollout is not the agent's result (the runner's `unscored` cause, or an infra status), or None."""
+    out = output.output if isinstance(output.output, dict) else {}
+    extra = getattr(output, "extra", None)
+    why = extra.get("unscored") if isinstance(extra, dict) else None
+    if why or (out.get("status") or "infra") == "infra":
+        return str(why or out.get("failure_cause") or "infra")
+    return None
+
+
 def score(task: dict, output) -> dict:
+    why = unscored(output)
+    if why is not None:
+        extra = getattr(output, "extra", None)
+        said = str((extra.get("exception_message") if isinstance(extra, dict) else None) or "")[:600]
+        raise Unscored(f"the trial is not the agent's result ({why}{': ' + said if said else ''}): it has no score")
     out = output.output if isinstance(output.output, dict) else {}
     status = out.get("status") or "infra"
     raw = out.get("reward")
-    reward = float(raw) if raw is not None and status != "infra" else None
+    reward = float(raw) if raw is not None else None
     bar = pass_reward(output)
     passed = reward is not None and bar is not None and reward >= bar
     cause = out.get("failure_cause") or status

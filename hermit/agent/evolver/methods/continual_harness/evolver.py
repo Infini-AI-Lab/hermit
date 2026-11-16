@@ -141,12 +141,6 @@ def message_trajectory(messages: list) -> str:
     return "\n".join(lines)
 
 
-# A Harbor trial whose verifier ran out of time on the agent's solution (hermit.harbor.runner.verifier_timeout_verdict:
-# verifier_timeout: agent): its `timed_out` is the verifier's verdict, not how the session ended.
-VERIFIER_TIMED_OUT = "solution_timed_out"
-VERIFIER_TIMEOUT_ERROR = "VerifierTimeoutError"
-
-
 def trajectory_text(record: dict, traj: Path | None, limit: int) -> str:
     steps = trajectory.log_steps(traj) if traj else None
     if steps is not None:
@@ -160,17 +154,12 @@ def trajectory_text(record: dict, traj: Path | None, limit: int) -> str:
 
 def failure_signatures(record: dict, traj: Path | None, feedback: bool) -> list[str]:
     """What went wrong, read from the run itself: status, timeout, failed commands, a missing answer; and, with
-    `feedback`, the judge's verdict on a task scored below 1, and a verifier that ran out of time on the solution (a
-    Harbor trial's `timed_out` then: the verifier's verdict, not how the session ended)."""
+    `feedback`, the judge's verdict on a task scored below 1."""
     out = []
     if record.get("status") and record["status"] != "ok":
         out.append(f"run status {record['status']}" + (f": {_tail(record.get('error'), 200)}" if record.get("error") else ""))
     extra = record.get("pipeline_extra") or {}
-    if extra.get("timed_out") and (extra.get("failure_cause") == VERIFIER_TIMED_OUT
-                                   or extra.get("exception_type") == VERIFIER_TIMEOUT_ERROR):
-        if feedback:
-            out.append("the verifier ran out of time on the solution")
-    elif extra.get("timed_out") or extra.get("session_timed_out"):     # session_timed_out: logs before the host agent
+    if extra.get("timed_out") or extra.get("session_timed_out"):       # session_timed_out: logs before the host agent
         out.append("the session hit its wall clock")
     elif extra.get("exit_code"):
         out.append(f"the session exited with code {extra['exit_code']}")

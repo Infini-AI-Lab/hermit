@@ -753,8 +753,7 @@ def test_a_sandboxed_codex_call_takes_the_shared_login_and_hands_its_refresh_bac
             inner = work / "workspaces" / "t2-abc" / "home"
         inner.mkdir(parents=True)
         stamp = "2026-10-30T12:00:00Z" if job["task"]["id"] == "t1" else "2026-10-30T13:00:00Z"
-        (inner / "auth.json").write_text(_json.dumps({"last_refresh": stamp, "tokens": {      # a refresh: stand-ins
-            "access_token": "at-stand-in", "refresh_token": "rt-rotated-stand-in"}}))
+        (inner / "auth.json").write_text(_json.dumps({"last_refresh": stamp}))
         return {"output": {"output": "ok"}}
     monkeypatch.setattr(isolate, "_run_worker", worker)
     agent = SandboxedAgent(config, "rollout", records=None)

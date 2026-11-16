@@ -35,7 +35,7 @@ the block), everything written beside that file:
       split: {train: 50, val: 31, test: rest, seed: 0}   # task counts (test: rest = what train and val leave), or
                                    # in_sample: train and test are every row
       smoke: [figqa-0001]          # rows <task>#0 (splits/smoke.txt, in tasks.jsonl too): a smoke trial is never an
-                                   # eval trial's row, so the trial cache never mixes them
+                                   # eval trial's row
       patch: patches.py:drop_seed  # fn(tasks_dir) run on the download in its own folder, before it is moved into
                                    # place (and on a reuse: it must be idempotent); it and its file's digest
                                    # recorded in the download and in the lock (with what it returns): a patched set
@@ -213,9 +213,23 @@ def index(tasks_dir: Path, *, rollouts: int = 1, include: list[str] | None = Non
     return out
 
 
+# what str.splitlines() ends a line at that JSON leaves unescaped (ensure_ascii=False): hermit.task reads tasks.jsonl
+# so, and a raw one in an instruction would split its row
+LINE_BREAKS = {"\x85": "\\u0085", "\u2028": "\\u2028", "\u2029": "\\u2029"}
+
+
+def jsonl_line(row: dict) -> str:
+    """One row of a JSONL file Hermit reads with str.splitlines(): JSON with its text as is (ensure_ascii=False), but
+    for the characters that end a line there (LINE_BREAKS), escaped, which only a string can hold."""
+    text = json.dumps(row, ensure_ascii=False)
+    for raw, escaped in LINE_BREAKS.items():
+        text = text.replace(raw, escaped)
+    return text
+
+
 def write_jsonl(rows: list[dict], out: Path) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    out.write_text("".join(jsonl_line(r) + "\n" for r in rows), encoding="utf-8")
 
 
 # ---- the lock ----------------------------------------------------------------------------------------------------
@@ -223,19 +237,23 @@ def write_jsonl(rows: list[dict], out: Path) -> None:
 def digest(task_dir: Path) -> str:
     """sha256 of the task directory's contents: every file's relative path, mode and bytes, in path order (what
     RSIHub's dataset manifests hash too); of the mode only whether the file is executable, as git keeps it (755 or
-    644): the group's and others' bits are the umask's at download, not the task's."""
+    644): the group's and others' bits are the umask's at download, not the task's. A link is hashed by its own text,
+    as git keeps it, never by what it leads to (a file or a folder outside the task, or none)."""
     task_dir = Path(task_dir)
     h = hashlib.sha256()
     for top, dirs, names in os.walk(task_dir):
         dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
-        for name in [d for d in dirs if (Path(top) / d).is_symlink()]:   # a link to a folder: by its text (os.walk
-            rel = (Path(top) / name).relative_to(task_dir).as_posix()      # never enters it)
+        for name in [d for d in dirs if (Path(top) / d).is_symlink()]:   # a link to a folder (os.walk never enters
+            rel = (Path(top) / name).relative_to(task_dir).as_posix()      # it)
             h.update(f"{rel}\0link\0{os.readlink(Path(top) / name)}\0".encode())
         for name in sorted(names):
             path = Path(top) / name
-            if name.endswith(".pyc") or path.is_symlink() and not path.exists():
+            if name.endswith(".pyc"):
                 continue
             rel = path.relative_to(task_dir).as_posix()
+            if path.is_symlink():                                          # a link to a file, or to nothing
+                h.update(f"{rel}\0link\0{os.readlink(path)}\0".encode())
+                continue
             mode = 0o755 if path.stat().st_mode & stat.S_IXUSR else 0o644
             h.update(f"{rel}\0{mode:o}\0".encode())
             h.update(path.read_bytes())

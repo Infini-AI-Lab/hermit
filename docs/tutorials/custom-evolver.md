@@ -79,11 +79,7 @@ For candidate tests:
 result = ctx.tools["run_agent"](task_ids=["train-1"], adapter=str(candidate_directory))
 ```
 
-Candidate directories must be inside the run directory; only training/validation task ids are run (never a training
-id that is a step of a multi-step Harbor task, which runs only in the Trainer's own stream of that task). An id outside
-these comes back as a result with status `error` and a judge score of 0, not as an exception. The run's budget does
-raise: a call in which a run ends with the budget reached raises `BudgetExceeded` once its runs in flight end (a
-learner session's call gets an error), and returns no results, not even those of the runs it made.
+Candidate directories must be inside the run directory; only training/validation task ids are accepted.
 Those calls count toward learner usage. They do not expose test evaluation to the learner.
 
 ## Choose a different execution form

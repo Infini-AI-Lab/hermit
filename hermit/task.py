@@ -79,9 +79,7 @@ def read_ids(path: Path | None) -> list[str]:
 class TaskData:
     def __init__(self, tasks: Path, train: Path | None, val: Path | None, test: Path | None):
         self.tasks: dict[str, dict] = {}
-        # "\n" alone ends a row: a string's U+0085, U+2028 or U+2029, which a JSONL written with ensure_ascii=False
-        # (hermit.harbor.dataset's) keeps unescaped, ends none, where str.splitlines() would cut the row in pieces
-        for line in Path(tasks).read_text().split("\n"):
+        for line in Path(tasks).read_text().splitlines():
             if line.strip():
                 row = json.loads(line)
                 tid = str(row.get("id", row.get("task_id")))

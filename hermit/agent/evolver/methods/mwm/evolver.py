@@ -55,10 +55,8 @@ import sys
 import time
 import uuid
 
-from hermit.agent.base import trajectory
 from hermit.agent.base.interface import LoginFailed, make
 from hermit.agent.evolver.base import Context, Evolver, FinalResult, StepContext, StepResult, Usage
-from hermit.isolate import _safe                         # the learning material's file name of a task
 
 HERE = Path(__file__).resolve().parent
 
@@ -150,7 +148,7 @@ class MwmEvolver(Evolver):
         records = []
         if current.is_dir():
             for task in json.loads((current / "summary.json").read_text())["tasks"]:
-                path = current / "tasks" / f"{_safe(task)}.json"     # as the material names it
+                path = current / "tasks" / f"{''.join(c if c.isalnum() or c in '-_.' else '_' for c in task)}.json"
                 records.append(json.loads(path.read_text()) if path.exists() else {"id": task})
         return records, tick
 
@@ -328,7 +326,8 @@ class MwmEvolver(Evolver):
             _restore(snapshot, adapter)
             raise LoginFailed(f"a learner session: {result.extra.get('failure')}")
         session_id, usage = result.session, result.usage
-        events = trajectory.events(log)                    # a line that is no JSON object (the CLI's own) is skipped
+        events = [json.loads(l) for l in log.read_text(errors="replace").splitlines() if l.startswith("{")] \
+            if log.exists() else []
         if backend == "codex":
             turns = sum(1 for e in events if e.get("type") == "turn.completed")
             actions = sum(1 for e in events if e.get("type") == "item.completed"

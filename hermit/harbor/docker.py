@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -38,13 +39,31 @@ def compose_project(name: str) -> str:
     return re.sub(r"[^a-z0-9_-]", "-", name)
 
 
+MAX_VERIFIER_SESSION = 63                    # Harbor's _MAX_VERIFIER_ENV_SESSION_ID_LEN (harbor/trial/trial.py)
+
+
+def _session_safe(text: str) -> str:
+    return "".join(c if c.isalnum() or c in "-._" else "_" for c in text)
+
+
+def verifier_session(trial_name: str, key: str) -> str:
+    """The session of a trial's separate verifier environment for `key` (a single-step trial's is "trial", a step's
+    its name), as Harbor 0.25.0 names it (harbor/trial/trial.py `_separate_verifier_session_id`):
+    `<trial>__verifier__<key>` with characters outside [A-Za-z0-9-._] made `_`; past MAX_VERIFIER_SESSION characters,
+    its first 53 less trailing '-', '.' and '_', then `__` and the first 8 hex digits of the whole one's SHA-1."""
+    safe = _session_safe(f"{trial_name}__verifier__{key}")
+    if len(safe) <= MAX_VERIFIER_SESSION:
+        return safe
+    suffix = "__" + hashlib.sha1(safe.encode()).hexdigest()[:8]
+    return safe[:MAX_VERIFIER_SESSION - len(suffix)].rstrip("-._") + suffix
+
+
 def verifier_prefix(trial_name: str) -> str:
-    """The start of the compose project of each separate verifier environment of a trial: Harbor names its session
-    `<trial>__verifier__<key>` (harbor/trial/trial.py `_separate_verifier_session_id`: characters outside [A-Za-z0-9-._]
-    made `_`, at most 63 with a digest past that, which keeps the `<trial>__verifier` a trial name of at most 41
-    characters gives), then sanitises it as every project name."""
-    safe = "".join(c if c.isalnum() or c in "-._" else "_" for c in f"{trial_name}__verifier")
-    return compose_project(safe)
+    """The start of the compose project of each separate verifier environment of a trial whose sessions Harbor keeps
+    whole (`<trial>__verifier__<key>` of at most MAX_VERIFIER_SESSION characters: verifier_session), sanitised as every
+    project name: it finds a session of any key, but not one Harbor cut and named by its digest (a long trial name, a
+    stream's), which only its key finds (compose_down's `keys`)."""
+    return compose_project(_session_safe(f"{trial_name}__verifier"))
 
 
 def compose_projects(prefix: str, *, timeout: float = 60) -> list[str]:
@@ -57,10 +76,12 @@ def compose_projects(prefix: str, *, timeout: float = 60) -> list[str]:
     return [name for name in out.split() if name.startswith(prefix)]
 
 
-def compose_down(trial_name: str, *, timeout: float = 180) -> None:
+def compose_down(trial_name: str, *, keys=("trial",), timeout: float = 180) -> None:
     """Take a trial's compose projects down (volumes and orphans included), best effort: Harbor leaves the containers
     running when its own client is killed. The projects are the trial's environment (`<trial>__env`, as Harbor
-    sanitises the name) and each separate verifier environment it started (verifier_prefix), named alone (`-p`) and
+    sanitises the name) and each separate verifier environment it started: the one of each of `keys` by its exact name
+    (verifier_session: a single-step trial's "trial", a stream's step names), and any other whose name Harbor kept
+    whole (verifier_prefix), named alone (`-p`) and
     taken down from an empty directory of their own (`/` when none can be made: a full /tmp) with none of this
     process's COMPOSE_* variables (COMPOSE_FILE, COMPOSE_ENV_FILES, COMPOSE_PROFILES, ...): no compose file or .env
     that this process's working directory holds or its environment names is read, whose volumes `down --volumes`
@@ -71,7 +92,10 @@ def compose_down(trial_name: str, *, timeout: float = 180) -> None:
     except OSError:
         empty = contextlib.nullcontext("/")
     with empty as where:
-        for project in [compose_project(f"{trial_name}__env"), *compose_projects(verifier_prefix(trial_name))]:
+        exact = [compose_project(verifier_session(trial_name, str(key))) for key in keys]
+        projects = [compose_project(f"{trial_name}__env"), *exact,
+                    *(p for p in compose_projects(verifier_prefix(trial_name)) if p not in exact)]
+        for project in projects:
             try:
                 subprocess.run([DOCKER, "compose", "-p", project, "down", "--volumes", "--remove-orphans"],
                                capture_output=True, timeout=timeout, check=False, cwd=where, env=env)
@@ -134,11 +158,11 @@ class Pulls:
 
 def wait_for_disk(root: Path, gate_gb: float, wait_s: float, *, poll_s: float = DISK_GATE_POLL_S, log=None,
                   image: str | None = None, image_gb: float = 0.0, pulls: Pulls | None = None,
-                  admitted: list | None = None) -> bool:
+                  admitted: list | None = None, cancel=None) -> bool:
     """True once the data root has `gate_gb` free, and room for `image` (`image_gb` on disk) when it is not there yet,
     beside the room `pulls` holds for images other trials are still to pull (the image's room is then held there too:
-    its key goes into `admitted`, for `pulls.done` after the trial); False after `wait_s` of waiting. `gate_gb <= 0`
-    never waits."""
+    its key goes into `admitted`, for `pulls.done` after the trial); False after `wait_s` of waiting, or once `cancel`
+    (a threading.Event) is set. `gate_gb <= 0` never waits."""
     if gate_gb <= 0:
         return True
     deadline = time.time() + wait_s
@@ -153,13 +177,17 @@ def wait_for_disk(root: Path, gate_gb: float, wait_s: float, *, poll_s: float = 
                     if admitted is not None:
                         admitted.append(key)
                 return True
-        if time.time() >= deadline:
+        if time.time() >= deadline or (cancel is not None and cancel.is_set()):
             return False
         if not waited:
             (log or (lambda m: print(m, file=sys.stderr)))(f"disk gate: {free:.1f} GB free on {root} (less what other "
                                                             f"trials are still to pull), waiting for {need:g} GB")
             waited = True
-        time.sleep(poll_s)
+        pause = min(poll_s, max(0.0, deadline - time.time()))      # never past the deadline
+        if cancel is not None:
+            cancel.wait(pause)
+        else:
+            time.sleep(pause)
 
 
 def image_size(image: str) -> int | None:

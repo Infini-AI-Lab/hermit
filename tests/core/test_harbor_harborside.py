@@ -1701,6 +1701,19 @@ def harbor_side(check: str, scratch: Path) -> dict:
         trial.agent = SimpleNamespace()                         # an agent with no plan: the step runs as configured
         trial._apply({"name": "s4", "plan": str(first)})
         report["no_plan_agent"] = "ran"
+        # the hosts each step's agent phase may reach (Harbor's extra_allowed_hosts, normalised as Harbor does): a
+        # request that names none keeps them, one that names an empty list has none; a host Harbor refuses fails it
+        trial.config = SimpleNamespace(agent=SimpleNamespace(extra_allowed_hosts=None))
+        trial._apply({"name": "s5", "allowed_hosts": ["API.Example.com", "10.0.0.0/8"]})
+        report["hosts"] = trial.config.agent.extra_allowed_hosts
+        trial._apply({"name": "s6"})
+        report["hosts_kept"] = trial.config.agent.extra_allowed_hosts
+        trial._apply({"name": "s7", "allowed_hosts": []})
+        report["hosts_none"] = trial.config.agent.extra_allowed_hosts
+        try:
+            trial._apply({"name": "s8", "allowed_hosts": ["https://models.example/v1"]})
+        except Exception as exc:                                # noqa: BLE001 - its type is what is reported
+            report["bad_hosts"] = f"{type(exc).__name__}: {exc}"
 
     elif check == "driver_loop":
         import logging
@@ -2997,6 +3010,8 @@ def test_the_driver_gives_each_step_its_own_launch_plan(checks):
     assert r["from_kwargs"] == ["codex", "exec", "second"]
     assert r["from_request"] == ["codex", "exec", "-C", "@@HERMIT_WORKDIR@@", "@@HERMIT_PROMPT@@"]
     assert r["kept"] == r["from_request"] and r["no_plan_agent"] == "ran"
+    assert r["hosts"] == ["api.example.com", "10.0.0.0/8"] and r["hosts_kept"] == r["hosts"] and r["hosts_none"] == []
+    assert r["bad_hosts"].startswith("HermitLaunchError: the step's allowed hosts: ")
 
 
 def test_a_request_for_a_step_the_task_has_not_gets_an_error_reply_and_the_driver_goes_on(checks):

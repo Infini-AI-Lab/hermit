@@ -81,8 +81,8 @@ SGLang server with one override, `model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP
   config shares (`agent.params.benchmark` names the file) and a `dataset:` block naming the set
   (`ref: <name>@<version>`), from which `python -m hermit.harbor.dataset prepare utils/benchmark.yaml` downloads the
   tasks outside the checkout (by default under `~/.cache/hermit/harbor-tasks`, or `$HERMIT_HARBOR_TASKS`, a relative one
-  the working directory's) and writes beside the file the `tasks` link to them (git-ignored: it names a path of this
-  machine), `tasks.jsonl`, `dataset.lock` (the tasks' contents, which every later prepare checks), `splits/` and, with
+  the working directory's) and writes beside the file the `tasks` link to them (it names a path of this machine),
+  `tasks.jsonl`, `dataset.lock` (the tasks' contents, which every later prepare checks), `splits/` and, with
   `image_sizes: true`, `image_sizes.json`. A benchmark of your own has a `utils/prepare.py` that builds the task
   directories (`task.toml`, `environment/`, `tests/test.sh` writing the reward) and indexes them into `tasks.jsonl`. The
   configs name `agent.name: harbor` and `judge.path: hermit.harbor.judge`, and a benchmark whose tasks carry state from

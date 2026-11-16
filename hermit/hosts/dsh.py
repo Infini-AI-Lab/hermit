@@ -29,9 +29,9 @@ import sys
 from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, not_portable
 from hermit.agent.base.cli import DSH_INSTRUCTION_BYTES, DSH_INSTRUCTION_FRAME
 from hermit.hosts.context import PROJECT_CONTEXT, START, append_context
-from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, add_session_flags, adapter_files,
-                                 adapter_folder, check_skills, check_workspace, context_of, copy_adapter, copy_skills,
-                                 folder_note, render_exports, resources, retire_skills, server_name, source_label)
+from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, adapter_files, adapter_folder,
+                                 check_skills, check_workspace, copy_adapter, copy_skills, folder_note, render_exports,
+                                 resources, retire_skills, server_name, source_label)
 
 NATIVE = {"skills"}
 PATCH = Path(".dsh") / "hermit.patch.yml"     # the workspace's patch layer: the adapter's tool server and skills
@@ -43,8 +43,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     """`context`: the adapter's context for one task, which the harness computed, in place of the one rendered
     here; an adapter whose context is per task deploys only so. `serve_tools`: false when the caller serves the
     adapter's tools to the session itself (a container session, which cannot start a server on this machine): the
-    patch layer then holds no server row for them (the caller's server is named in the session's own layer, whose
-    name the dsh Base Agent checks)."""
+    patch layer then holds no server row for them."""
     adapter, output = adapter.resolve(), output.resolve()
     refused = not_portable(load_manifest(adapter), "A DeepSeek Harness workspace")   # before anything is written
     if refused and context is None:
@@ -119,7 +118,5 @@ if __name__ == "__main__":
     parser.add_argument("--adapter", type=Path, required=True)
     parser.add_argument("--workspace", "--output", dest="workspace", type=Path, required=True)
     parser.add_argument("--python", default=sys.executable)
-    add_session_flags(parser)
     args = parser.parse_args()
-    print(json.dumps(prepare(args.adapter, args.workspace, str(Path(args.python).absolute()),
-                             context=context_of(args.context_file), serve_tools=args.serve_tools), indent=2))
+    print(json.dumps(prepare(args.adapter, args.workspace, str(Path(args.python).absolute())), indent=2))

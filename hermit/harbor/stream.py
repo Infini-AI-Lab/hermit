@@ -8,10 +8,12 @@ process group, and its trial's compose projects are taken down by name, as an ex
 directory:
 
     <jobs_dir>/streams/<stream>/
-      driver.json          {pid, socket, name, started, trial_dir}: the live driver (name: Harbor's trial)
+      driver.json          {pid, socket, name, steps, started, trial_dir}: the live driver (name: Harbor's trial;
+                           steps: the task's step names, which name each step's separate verifier environment)
       driver.log           its log (Harbor's trial log is in trial_dir)
       .lock                the start lock
-      steps/<index>-<name>/   this step's staging (deploy/), launch plan (launch/) and curated log
+      steps/<index>-<name>-<id>/   a rollout of this step: its staging (deploy/), launch plan (launch/) and curated
+                           log, each rollout in a directory of its own
       trials/<stream>/     Harbor's trial directory: steps/<name>/{agent,verifier,result.json}, result.json at the end
       replies/<index>.json the driver's answer for each step it ran
       earlier/<n>/         an earlier driver's trials/ and replies/, set aside when a new driver starts here (Harbor's
@@ -21,7 +23,9 @@ directory:
 Protocol: one JSON object per line, one request per connection.
     {"op": "status"}                      -> {"ok": true, "ready": bool, "next_index": i, "running": name|null,
                                               "finished": bool, "aborted": reason|null, "error": msg|null}
-    {"op": "step", "name", "index", "plan", "agent_kwargs"}   (plan: the step's launch plan, hermit.harbor.launch)
+    {"op": "step", "name", "index", "plan", "agent_kwargs", "allowed_hosts"}   (plan: the step's launch plan,
+                                          hermit.harbor.launch; allowed_hosts: the hosts the step's agent phase lets
+                                          the CLI reach, Harbor's extra_allowed_hosts, set for each step)
                                           -> {"ok": true, "step": <StepResult>, "paths": {...}, "aborted": ...}
                                            | {"ok": false, "out_of_order": true, "next_index": i} | {"ok": false, "error"}
     {"op": "result", "index": i}          -> the stored reply of a finished step, or {"ok": false, "error"}
@@ -280,10 +284,11 @@ class StreamClient:
             time.sleep(POLL_S)
 
     def step(self, *, name: str, index: int, plan: str | None, agent_kwargs: dict | None,
-             timeout_s: float) -> dict:
+             timeout_s: float, allowed_hosts: list[str] | None = None) -> dict:
         try:
             return self.request({"op": "step", "name": name, "index": index, "plan": plan,
-                                 "agent_kwargs": agent_kwargs or {}}, timeout=timeout_s)
+                                 "agent_kwargs": agent_kwargs or {}, "allowed_hosts": list(allowed_hosts or [])},
+                                timeout=timeout_s)
         except (socket.timeout, TimeoutError):
             return {"ok": False, "expired": True, "error": f"no answer from the stream driver within {timeout_s:.0f} s"}
 
@@ -323,10 +328,10 @@ class StreamClient:
                 time.sleep(0.2)
         if self.gone():                     # its socket, which a killed driver leaves (its own exit removes it)
             socket_path(self.dir).unlink(missing_ok=True)
-        name = (self.info() or {}).get("name")
-        if name:
+        info = self.info() or {}
+        if info.get("name"):
             from hermit.harbor import docker
-            docker.compose_down(str(name))
+            docker.compose_down(str(info["name"]), keys=[str(s) for s in info.get("steps") or []])
         return True
 
     def _driver_pid(self) -> int | None:

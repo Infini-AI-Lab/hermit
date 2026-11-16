@@ -119,11 +119,7 @@ def main(argv=None) -> int:
         print(json.dumps(result, indent=2))
         return 0
     from hermit.config import Config
-    try:
-        config = Config.load(args.config, args.overrides, command=args.command)
-    except ValueError as error:
-        print(f"hermit {args.command}: {error}", file=sys.stderr)
-        return 2
+    config = Config.load(args.config, args.overrides)
     if args.command == "check":
         from hermit.settings_check import run_check
         return 0 if run_check(config, probe=not args.no_probe) else 1

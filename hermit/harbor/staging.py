@@ -3,21 +3,24 @@
 `stage` prepares the acting CLI's workspace from the adapter exactly as `hermit deploy` would, by the host of that
 CLI (`HOSTS`: hermit.hosts.codex, claude_code, pi, opencode, dsh, mini_swe_agent): the context block in the CLI's
 context file, the native roles, skills and hooks where the CLI looks for them, the whole adapter copied to
-`hermit/<adapter id>/`, in a child process that renders the adapter's exports in the strict sandbox
-(HA_ADAPTER_SANDBOX=1: the adapter read-only, no network, none of this process's keys). What differs from a host
-deployment, because the workspace goes into a container whose paths are not this machine's:
+`hermit/<adapter id>/`: the host's own `prepare`, called as Hermit's acting agents call it
+(hermit.agent.acting.workspace.deploy), in a child process of this module (`python -m hermit.harbor.staging`) that
+renders the adapter's exports in the strict sandbox (HA_ADAPTER_SANDBOX=1: the adapter read-only, no network, none of
+this process's keys). What differs from a host deployment, because the workspace goes into a container whose paths
+are not this machine's:
 
 - the hooks (Codex's `.codex/hooks.json`, Claude Code's in `.claude/settings.json`) are rewritten with every command
   run from `hermit/<adapter id>/` relative to the session's directory (the task's workdir, where the CLI runs; for
   Claude Code, which runs a hook in the shell's current directory, under `$CLAUDE_PROJECT_DIR`), not from the absolute
   host folder;
-- no host starts the adapter's tools (`--no-serve-tools`): a trial's tools are served from this machine
+- no host starts the adapter's tools (`prepare(serve_tools=False)`): a trial's tools are served from this machine
   (hermit.harbor.tools) and named to the CLI by the launch plan (hermit.harbor.launch), in its home (Claude Code's on
   its command line, `--mcp-config`; mini-swe-agent's shell calls them as the `hermit-tool` command);
 - an adapter whose context is per task (a `context_tool`, or one that is not plugin-portable) gets this task's
   context, computed beforehand in the adapter sandbox (hermit.harbor.context) and handed to the host
-  (`--context-file`), as the acting agents' workspace hands it (`deploy(context=...)`); the context tool's result is
-  kept in the record (`context_tool`).
+  (`prepare(context=...)`), as the acting agents' workspace hands it; the context tool's result is kept in the record
+  (`context_tool`). Codex's deployment checks the context against the CLI's limit on its AGENTS.md
+  (`context_limit`: the session's project_doc_max_bytes).
 
 The answer-only agent (`host` answer) has no workspace: its whole deployment is the adapter's context for the task, the
 system text of its one model call (`context.md`).
@@ -27,10 +30,12 @@ Without an adapter nothing is staged and the CLI runs without one.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 STAGING_INFO = "staging.json"
 CONTEXT_FILE = "context.md"
@@ -42,18 +47,49 @@ HOOK_HOSTS = ("codex", "claude")                         # the CLIs whose hooks 
 
 def prepare_workspace(adapter: Path, deploy: Path, python: str, enforce: str | None = None, host: str = "codex", *,
                       context_file: Path | None = None, context_limit: int | None = None) -> dict:
-    """The host's `prepare` (`HOSTS`) in a child process under the strict adapter sandbox, its tools not served;
-    its JSON report."""
+    """The host's `prepare` (`HOSTS`) in a child process under the strict adapter sandbox (`main`, run by `python`),
+    its tools not served; its JSON report. `context_limit` is Codex's alone."""
     from hermit.adapter.session import ENV_ENFORCE, ENV_SANDBOX
     from hermit.sandbox import framework_env
     env = framework_env({ENV_SANDBOX: "1", ENV_ENFORCE: enforce or os.environ.get(ENV_ENFORCE, "required")})
-    flags = ["--no-serve-tools", *(["--context-file", str(context_file)] if context_file is not None else []),
+    flags = [*(["--context-file", str(context_file)] if context_file is not None else []),
              *(["--context-limit", str(int(context_limit))] if host == "codex" and context_limit else [])]
-    run = subprocess.run([python, "-m", HOSTS[host], "--adapter", str(adapter), "--workspace", str(deploy),
-                          "--python", python, *flags], capture_output=True, text=True, env=env)
+    run = subprocess.run([python, "-m", "hermit.harbor.staging", "--host", host, "--adapter", str(adapter),
+                          "--workspace", str(deploy), "--python", python, *flags], capture_output=True, text=True,
+                         env=env)
     if run.returncode != 0:
         raise RuntimeError(f"deploying the adapter failed: {run.stderr.strip()[-1500:]}")
     return json.loads(run.stdout)
+
+
+def deploy_here(host: str, adapter: Path, workspace: Path, python: str, *, context: str | None = None,
+                context_limit: int | None = None) -> dict:
+    """The host's `prepare` in this process (prepare_workspace's child): the adapter's tools not served (the runner
+    serves them, hermit.harbor.tools), the task's context when it is per task, and for Codex the session's limit on
+    its AGENTS.md (None: the host's default)."""
+    from importlib import import_module
+    module = import_module(HOSTS[host])
+    extra = {"context_limit": context_limit} if host == "codex" and context_limit else {}
+    return module.prepare(Path(adapter), Path(workspace), python, context=context, serve_tools=False, **extra)
+
+
+def main(argv=None) -> int:
+    """`python -m hermit.harbor.staging --host <cli> --adapter <dir> --workspace <dir> --python <interpreter>
+    [--context-file <file>] [--context-limit <bytes>]`: deploy_here, its report as JSON on stdout."""
+    parser = argparse.ArgumentParser(description="One Harbor trial's adapter deployment (hermit.harbor.staging).")
+    parser.add_argument("--host", required=True, choices=sorted(HOSTS))
+    parser.add_argument("--adapter", type=Path, required=True)
+    parser.add_argument("--workspace", type=Path, required=True)
+    parser.add_argument("--python", default=sys.executable)
+    parser.add_argument("--context-file", type=Path)
+    parser.add_argument("--context-limit", type=int)
+    args = parser.parse_args(argv)
+    context = args.context_file.read_text(encoding="utf-8") if args.context_file is not None else None
+    # the interpreter's own path: resolve() would follow a venv's link out of it, as the hosts' own CLIs keep it
+    report = deploy_here(args.host, args.adapter, args.workspace, str(Path(args.python).absolute()), context=context,
+                         context_limit=args.context_limit)
+    print(json.dumps(report, ensure_ascii=False, default=str))
+    return 0
 
 
 def container_hooks(adapter: Path, manifest: dict, deploy: Path, host: str = "codex") -> bool:
@@ -156,3 +192,7 @@ def stage(adapter: Path | None, staging: Path, python: str, enforce: str | None 
                context_file=str(context_file) if context_file else None, context_tool=record, deploy=str(deploy))
     (staging / STAGING_INFO).write_text(json.dumps(out, indent=1, default=str) + "\n")
     return out
+
+
+if __name__ == "__main__":
+    sys.exit(main())

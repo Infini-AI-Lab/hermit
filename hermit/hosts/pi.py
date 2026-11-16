@@ -17,9 +17,9 @@ import sys
 
 from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, not_portable
 from hermit.hosts.context import PROJECT_CONTEXT, START, append_context
-from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, add_session_flags, adapter_files,
-                                 adapter_folder, check_skills, check_workspace, context_of, copy_adapter, copy_skills,
-                                 folder_note, render_exports, resources, retire_skills, server_name, source_label)
+from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, adapter_files, adapter_folder, check_skills, check_workspace,
+                                 copy_adapter, copy_skills, folder_note, render_exports, resources, retire_skills,
+                                 server_name, source_label)
 
 NATIVE = {"skills"}
 
@@ -58,7 +58,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     if has_tools:
         server = {"command": python, "exposure": "direct", "timeout": 120,     # Codex's tool_timeout_sec, not 60 s
                   "args": ["-m", "hermit.runtime.mcp_server", "--adapter", str(adapter), "--audit-log", str(audit)],
-                  "env": {"PYTHONPATH": PACKAGE_ROOT, **_adapter_sandbox_env(python)}}
+                  "env": {"PYTHONPATH": PACKAGE_ROOT}}
         if learning_material is not None:
             server["args"].extend(["--learning-material", str(Path(learning_material).resolve())])
     (output / ".pi").mkdir(exist_ok=True)
@@ -83,7 +83,5 @@ if __name__ == "__main__":
     parser.add_argument("--adapter", type=Path, required=True)
     parser.add_argument("--workspace", "--output", dest="workspace", type=Path, required=True)
     parser.add_argument("--python", default=sys.executable)
-    add_session_flags(parser)
     args = parser.parse_args()
-    print(json.dumps(prepare(args.adapter, args.workspace, str(Path(args.python).absolute()),
-                             context=context_of(args.context_file), serve_tools=args.serve_tools), indent=2))
+    print(json.dumps(prepare(args.adapter, args.workspace, str(Path(args.python).absolute())), indent=2))

@@ -29,9 +29,9 @@ hermit eval  --config run.yaml --adapter none       # optional: the agent withou
 |---|---|
 | Template | The starting adapter fails `check_spec` |
 | Evolver | The class does not load; a need is not given; resume is requested but not supported |
-| Task | `task-info/README.md` missing; splits overlap; the judge cannot score a sample task; a split lists a step of a multi-step Harbor task ahead of an earlier step of its stream, or a train split with such steps is set to more than one epoch; a training config's acting agent is one of Harbor's own, which takes no adapter |
+| Task | `task-info/README.md` missing; splits overlap; the judge cannot score a sample task |
 | Budgets | No hard budget or no iteration budget |
-| Pipeline probe | One training task (for a config with no training split, one test row) without an adapter; score, time, reported API speed, and cost are printed |
+| Pipeline probe | One training task without an adapter; score, time, reported API speed, and cost are printed |
 | Risky settings | The warnings listed in [Configuration](configuration.md#sandboxes) |
 
 `check` prints a disclaimer: it checks only these basic items. Passing `check` does not guarantee that the settings are
@@ -57,19 +57,13 @@ hermit eval --config run.yaml --adapter none          # no harness adapter: a pu
 |---|---|
 | Data | The test split only |
 | Deployment and scoring | The same pipeline and judge as the training rollouts |
-| Repeats | `eval.repeats`; reports the mean and the share of tasks solved at least once, over the scored runs: a run that ended `infra` (not the agent's result: the machine, the model provider) is left out and counted in `unscored`, and `eval.infra_retries` runs such rows again |
+| Repeats | `eval.repeats`; reports the mean and the share of tasks solved at least once |
 | Records | Per-task score, cost, time and API speed under `<run>/eval/<adapter>/`; the summary counts runs that errored |
 | `.hermit/CARD.md` | With the literal `--adapter final` selector, the results are written into the run's final card |
 
 `eval` evaluates exactly what it is given and runs no baseline by itself. A baseline is one more `eval`, run when the
 user chooses: `--adapter none` runs the acting agent with no harness adapter at all (the pipeline receives
 `adapter=None`); `--adapter root` runs the template's initial content, which may already deploy tools or context.
-`root`, `final`, a tag and a commit name adapters of a training run's tree, which `hermit train` makes; without one,
-`eval` refuses them before anything runs.
-
-A config for `eval` alone, such as a baseline's, needs only what an eval reads: `data.tasks`, `data.test`, the agent
-and the judge, with no `data.train`, template or Evolver (a template, or `trainer.tree_dir`, only to find a run's tree).
-`hermit train` refuses such a config, and `hermit check` checks it as `eval` runs it, its probe on a test row.
 
 ## deploy
 

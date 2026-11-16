@@ -2,14 +2,22 @@
 transcripts, the CLI's home or a sign-in.
 
     hermit-log/
+      agent-<backend>.jsonl    the CLI's stream, under the name Hermit's own sessions keep it (hermit.agent.base.
+                               trajectory.STREAMS, which the methods' readers look for first at a log's top): a table
+                               CLI's (agent/agent-<backend>.jsonl), Harbor's own codex's (agent/codex.txt, as
+                               agent-codex.jsonl) or claude-code's (agent/claude-code.txt, as agent-claude.jsonl)
+      task.md                  the task's (or the step's) instruction, as Harbor gives it to the agent
+      prompt.txt               the prompt the CLI was given: the instruction, then the launch plan's prompt_suffix (the
+                               memory note), with its prompt_slash_prefix before one that starts with `/`
+      last_message.txt         the CLI's last message, as its Base Agent read it (the session's reply)
+      hook-calls.jsonl, hook-state/   what the adapter's hooks wrote (their audit, each session's state)
       result.json              the trial's or step's result as Harbor wrote it
       exception.txt            the exception type, message and traceback, when there was one
       harbor.log, job.yaml     the job's own log and config (a trial; a stream's step has the driver's log)
-      agent/                   the agent's outputs: the CLI's stream (agent-<backend>.jsonl), the answer agent's
-                               answer.json, Harbor's own agents' text outputs and trajectory.json (ATIF), task.md,
-                               hook-state/, hermit-collect/ (the CLI's files brought out: its last message); never
-                               sessions/ (a CLI's session logs, collected ones included), nor a binary file of the
-                               CLI's home (OpenCode's database)
+      agent/                   the agent's other outputs: the answer agent's answer.json, Harbor's own agents' text
+                               outputs and trajectory.json (ATIF), hermit-collect/ (the CLI's files brought out: its
+                               last message); never sessions/ (a CLI's session logs, collected ones included), nor a
+                               binary file of the CLI's home (OpenCode's database)
       memory/                  the notes the deployed adapter kept (hermit/<id>/memory, copied back after the session:
                                Continual Harness reads memory/NOTES.md)
       tool-calls.jsonl         each call of the adapter's tools served for the trial (hermit.harbor.tools)
@@ -38,6 +46,12 @@ COLLECT_DIR = "hermit-collect"                           # the CLI's home files 
 MEMORY = "memory"
 TOOL_AUDIT = "tool-calls.jsonl"
 REDACTED = "[redacted]"
+HOOK_AUDIT, HOOK_STATE = "hook-calls.jsonl", "hook-state"   # an adapter's hooks' audit and state (HERMIT_HOOK_LOGS)
+# the CLI's stream in a trial's agent/ and its name at the log's top: a table CLI's under its own name, Harbor's own
+# agents' under the name Hermit's sessions of that CLI keep (hermit.agent.base.trajectory.CODEX_STREAM, CLAUDE_STREAM)
+TOP_STREAMS = {**{f"agent-{b}.jsonl": f"agent-{b}.jsonl"
+                  for b in ("codex", "claude", "pi", "mini-swe-agent", "opencode", "dsh")},
+               "codex.txt": "agent-codex.jsonl", "claude-code.txt": "agent-claude.jsonl"}
 
 
 def seconds(timing: dict | None) -> float | None:
@@ -112,11 +126,14 @@ def _files(src: Path, dst: Path, *, text_only: bool = False, skip=()) -> None:
 
 
 def curate(outputs: Path | None, job: Path, verdict: dict, *, result: dict | None = None,
-           extra_files: dict[str, Path] | None = None, redact=(), audit: Path | None = None) -> Path:
+           extra_files: dict[str, Path] | None = None, redact=(), audit: Path | None = None,
+           instruction: str | None = None, plan: Path | None = None, reply: str | None = None) -> Path:
     """The curated log directory under `job`: the result and the agent's and verifier's outputs from `outputs`
     (a trial directory, or a step's directory holding agent/ and verifier/), the verdict's exception,
     `extra_files` ({name: path}: the job's harbor.log, the stream's driver.log), the tools' `audit` log; `redact`
-    the verifier_redact patterns."""
+    the verifier_redact patterns. At its top, where Hermit's own logs keep them (the module's docstring), the CLI's
+    stream, `instruction` (task.md) and the prompt the launch `plan` made of it (prompt.txt), the session's `reply`
+    (last_message.txt) and the hooks' files."""
     from hermit.redact import redact_tree
     log = job / "hermit-log"
     shutil.rmtree(log, ignore_errors=True)
@@ -138,8 +155,27 @@ def curate(outputs: Path | None, job: Path, verdict: dict, *, result: dict | Non
                 f.write("\n" + str(trace))
     if outputs is not None:
         _outputs(Path(outputs), log, result, redact)
+    if instruction:
+        (log / "task.md").write_text(instruction if instruction.endswith("\n") else instruction + "\n",
+                                     encoding="utf-8")
+        (log / "prompt.txt").write_text(_prompt(instruction, plan), encoding="utf-8")
+    if reply is not None:
+        (log / "last_message.txt").write_text(str(reply), encoding="utf-8")
     redact_tree(log)
     return log
+
+
+def _prompt(instruction: str, plan: Path | None) -> str:
+    """The prompt harborside gives the CLI (harborside/hermit.py): the instruction and the plan's prompt_suffix, the
+    plan's prompt_slash_prefix before one that starts with `/`; the instruction alone without a plan."""
+    try:
+        data = json.loads(Path(plan).read_text(encoding="utf-8")) if plan is not None else {}
+    except (OSError, ValueError):
+        data = {}
+    prompt = instruction + str(data.get("prompt_suffix") or "")
+    if prompt.startswith("/") and data.get("prompt_slash_prefix"):
+        prompt = str(data["prompt_slash_prefix"]) + prompt
+    return prompt
 
 
 def _outputs(outputs: Path, log: Path, result: dict | None, redact) -> None:
@@ -147,13 +183,16 @@ def _outputs(outputs: Path, log: Path, result: dict | None, redact) -> None:
         shutil.copy2(outputs / "result.json", log / "result.json")
     agent = outputs / "agent"
     if agent.is_dir():
+        stream = next((n for n in TOP_STREAMS if (agent / n).is_file() and not (agent / n).is_symlink()), None)
         for child in sorted(agent.iterdir()):
             if child.is_symlink():
                 continue
             if child.is_dir():
                 if child.name in AGENT_SKIP:
                     continue
-                if child.name in ("hook-state", ".hermit"):
+                if child.name == HOOK_STATE:                 # at the top, beside the stream
+                    _files(child, log / HOOK_STATE)
+                elif child.name == ".hermit":
                     _files(child, log / "agent" / child.name)
                 elif child.name == COLLECT_DIR:              # Codex's collected session logs are its transcripts
                     _files(child, log / "agent" / COLLECT_DIR, text_only=True, skip=AGENT_SKIP)
@@ -162,7 +201,9 @@ def _outputs(outputs: Path, log: Path, result: dict | None, redact) -> None:
                 continue
             # a regular file only: a FIFO or a device the session left under a text name is never opened
             if child.suffix in AGENT_SUFFIXES and child.is_file() and child.stat().st_size <= AGENT_FILE_LIMIT:
-                shutil.copy2(child, log / "agent" / child.name)
+                top = TOP_STREAMS[child.name] if child.name == stream else HOOK_AUDIT if child.name == HOOK_AUDIT \
+                    else None
+                shutil.copy2(child, log / top if top else log / "agent" / child.name)
     verifier = outputs / "verifier"
     text = regular_text(verifier / "test-stdout.txt")
     if text is not None:

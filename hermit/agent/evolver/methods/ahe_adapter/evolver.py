@@ -36,8 +36,7 @@ One step (`step`):
   5. the evolution query (`build_evolution_query`, the Debugger overview bounded to OVERVIEW_MAX_BYTES) ->
      `state/queries/step_N.md`; `START.md` + the query -> `scratch/evolve_prompt.md`, given to the CLI on stdin; the
      Evolve session through `AgentEvolver.step` (the `tools: [check_spec]` gate, a fresh session, `evolve_timeout_s`
-     as the Base Agent's own wall clock, which starts once the CLI runs, so that a wait for the login's plan or a
-     session slot pauses the session instead of spending its time; the Trainer's cancel stops it too).
+     as a wall clock: the Trainer's cancel for the call, which stops the session).
   6. post-step (B.8): `state/change_manifest.json` (removed before the session: only the session's own counts)
      validated (`iteration == N`, `changes[]` of objects whose `files`, `predicted_fixes` and `risk_tasks` are lists
      of strings and `description` a string) and archived to
@@ -264,12 +263,9 @@ class AHEAdapterEvolver(AgentEvolver):
 
     def settings(self, ctx: Context, backend: str) -> dict:
         """AgentEvolver's settings for the CLI Base Agent, with the prompt on stdin (the evolve prompt and a
-        Debugger question can be long), the program `bin` names and `evolve_timeout_s` as the Evolve session's clock
-        (the Base Agent's own, which starts once the CLI runs: a wait for the login's plan or a session slot pauses
-        it; null: none); the Agent Debugger starts from these too, with a clock of its own."""
+        Debugger question can be long) and the program `bin` names; the Agent Debugger starts from these too."""
         params = ctx.params
-        return {**super().settings(ctx, backend), "stdin": True, "timeout_s": params.get("evolve_timeout_s"),
-                **({"bin": params["bin"]} if params.get("bin") else {})}
+        return {**super().settings(ctx, backend), "stdin": True, **({"bin": params["bin"]} if params.get("bin") else {})}
 
     # ---- one step ----
 
@@ -419,14 +415,17 @@ class AHEAdapterEvolver(AgentEvolver):
         else:
             left.unlink(missing_ok=True)
         e0 = time.monotonic()
-        try:                                            # its clock: evolve_timeout_s, the Base Agent's own (`settings`)
+        local, stop = D.deadline_cancel(ctx.cancel, p.get("evolve_timeout_s"))
+        try:
             result = super().step(dataclasses.replace(ctx, params={**p, "prompt": str(prompt.resolve()), "resume_prompt": None},
-                                                      session=None))
+                                                      cancel=local, session=None))
         except Exception as exc:                        # noqa: BLE001 - a session that could not run (no program, no
             # login, a limit the isolation refuses) fails the step as a failed session does; the Debugger's usage stays
             result = StepResult("failed", f"the Evolve session raised {type(exc).__name__}: {exc}"[:300])
+        finally:
+            stop.set()
         cancelled = ctx.cancel is not None and ctx.cancel.is_set()
-        timed_out = bool(result.extra.get("timed_out"))
+        timed_out = local.cause == "deadline"
         timing["evolve_min"] = minutes(time.monotonic() - e0)
         timing["total_min"] = minutes(time.monotonic() - started)
         usage += [role_usage(u, "evolve") for u in result.usage]

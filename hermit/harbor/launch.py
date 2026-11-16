@@ -9,7 +9,7 @@ container by harborside/hermit.py, which imports nothing of Hermit.
       work/            the empty workspace a trial without an adapter is rendered against
       bundle/          mini-swe-agent: the Hermit modules its runner imports (hermit.agent.base.mini_swe_agent_run)
       return/          what the container hands back to this machine (a ChatGPT sign-in Codex refreshed, at most
-                       the entry's max_bytes)
+                       the entry's max_bytes: hermit.harbor.signin.take_back reads it)
 
 The Base Agent renders against host paths (the home above, the staged deployment or work/ as the workspace); the plan
 names container paths: the home is CONTAINER_HOME, the workspace `@@HERMIT_WORKDIR@@` (the task's working directory,
@@ -18,19 +18,20 @@ which harborside finds), in the command, the environment and the home's text fil
 value anywhere but a secret file: a key reaches the container by its variable's name (`env_from_host`: the value is in
 Harbor's process environment, never in an argument, a file or the plan), Claude Code's subscription token on a
 descriptor (`env_by_fd`), the ChatGPT sign-in as a secret file of the home that comes back after the trial
-(`return_files`). The prompt goes on stdin for every CLI: Harbor's instruction, then `prompt_suffix`, the memory note
+(`return_files`; a stream's step copies it in at its turn: `sign_in`). The prompt goes on stdin for every CLI: Harbor's instruction, then `prompt_suffix`, the memory note
 (hermit.agent.acting.workspace's MEMORY_NOTE) when the deployed adapter keeps notes, which are copied back after the
 session (`copy_back`); `prompt_slash_prefix` goes before a prompt that starts with `/`, as the Base Agent's
 prompt_text puts it (Claude Code's line break: it would run the prompt as a command). After the trial the runner reads
 `agent/<stream>` with the same Base Agent (`outcome`, `parse`, `adjust_usage`), from the files `collect` brings out
-(on a ChatGPT login, Codex's session logs too: their reports of the plan's usage).
+(on a ChatGPT login, Codex's session logs too: their reports of the plan's usage). What the Base Agent's `run` would
+refuse before a session (mini-swe-agent's settings, a login of another CLI) is refused when the plan is rendered
+(`check_settings`), as the plan is carried out without `run`.
 
 The answer-only agent (`cli: answer`) has no home and no command: its plan's `answer` block names the model endpoint
 the runner serves on this machine, the adapter's context as the system text, and where the answer goes.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -123,16 +124,46 @@ def settings_for(cli: str, *, model=None, binding=None, effort=None, web_search:
 
 
 # ---- rendering ----------------------------------------------------------------------------------------------------
+def check_settings(agent) -> None:
+    """What the CLI Base Agent's `run` refuses before any session (hermit.agent.base.cli), refused for a plan, which
+    harborside carries out without `run`: a login that is not the CLI's own (CliAgent.run), and mini-swe-agent's
+    settings (MiniSweAgent.run: no login, no web search, a model, a model class whose messages Hermit reads), the
+    same checks with the same messages."""
+    from hermit.agent.base.interface import Unsupported
+    from hermit.agent.base.login import LOGINS
+    s = agent.settings
+    if s.get("login") and LOGINS.get(s["login"]) != agent.backend:
+        raise Unsupported(f"{agent.name} does not sign in with login: {s['login']}")
+    if agent.backend != "mini-swe-agent":
+        return
+    if s.get("login"):
+        raise Unsupported("mini-swe-agent has no login: give a <backend>/<model> reference or a litellm model")
+    if s.get("web_search"):
+        raise Unsupported("mini-swe-agent has no web search: set web_search false")
+    if not (s.get("binding") or s.get("model")):
+        raise ValueError("mini-swe-agent needs a model: a <backend>/<model> reference or a litellm model id")
+    model_class = s.get("model_class") or "litellm"
+    if s.get("binding") and model_class not in agent.binding_classes:
+        raise Unsupported(f"mini-swe-agent's model_class {model_class!r} calls its own service; a "
+                          f"<backend>/<model> reference takes {' or '.join(agent.binding_classes)}")
+    if model_class not in agent.binding_classes:
+        raise Unsupported(f"mini-swe-agent's model_class {model_class!r}: Hermit reads "
+                          f"{' and '.join(agent.binding_classes)} only; another provider's model goes through "
+                          "litellm (openrouter/<model>, ...)")
+
+
 def render(cli: str, settings: dict, *, deploy: dict | None, tools_url: str | None, job: Path,
            login: str | None = None, tools_name: str | None = None, workdir: str | None = None,
            bin_path: str | None = None, path_prepend: list[str] | None = None, metadata: dict | None = None,
-           login_root: Path | None = None, sign_in: bool = True) -> Path:
+           login_root: Path | None = None, sign_in: bool | str = True) -> Path:
     """The launch plan of a trial of `cli` (a table key other than answer) under `<job>/launch/`; its path. `settings`
     are the Base Agent's (settings_for), `deploy` the staging record (hermit.harbor.staging.stage) or None,
     `tools_url` the MCP URL of the adapter's tools served for the trial (hermit.harbor.tools) or None, `tools_name`
     their server's name (the adapter id with `-` as `_`, as the context names them). `bin_path` and `path_prepend`:
-    a mounted CLI's program and folder in the container. `sign_in` false renders without the sign-in's copy (a check,
-    a digest)."""
+    a mounted CLI's program and folder in the container. On login: chatgpt the home gets the shared copy of the
+    sign-in (hermit.agent.base.login.prepare) as a secret file that comes back after the trial; `sign_in` "later" lists
+    it in the plan and leaves the copy to `sign_in()` (a stream's step, at its turn), false renders without it (a
+    check)."""
     from hermit.agent.base.interface import make
     from hermit.agent.base.login import NO_TOKEN, TOKEN_ENV
     row = entry(cli)
@@ -162,7 +193,7 @@ def render(cli: str, settings: dict, *, deploy: dict | None, tools_url: str | No
         if backend == "opencode":             # the only skills OpenCode may load: the deployment's
             settings["skills"] = list(deploy.get("skills") or [])
     agent = make(backend, settings)
-    agent.check_settings()                    # what its run() refuses: a trial's plan is rendered without it
+    check_settings(agent)                     # what its run() refuses: a trial's plan is carried out without it
     if login == "claude" and not os.environ.get(TOKEN_ENV):
         raise ValueError(NO_TOKEN)
     agent.prepare_home(home, [], tools_url, settings.get("tools_name") or "hermit_tools")
@@ -185,12 +216,13 @@ def render(cli: str, settings: dict, *, deploy: dict | None, tools_url: str | No
     secret_files, return_files = [], []
     if login == "chatgpt" and sign_in:
         from hermit.agent.base import login as codex_login
-        codex_login.prepare(Path(login_root or codex_login.ROOT), home)
+        from hermit.harbor.signin import MAX_BYTES
+        if sign_in != "later":
+            codex_login.prepare(Path(login_root or codex_login.ROOT), home)
         secret_files.append(codex_login.FILE)
         (launch / RETURN_DIR).mkdir()
         return_files.append({"from": f"{CONTAINER_HOME}/{codex_login.FILE}",
-                             "to": str((launch / RETURN_DIR / codex_login.FILE).resolve()),
-                             "max_bytes": codex_login.MAX_BYTES})
+                             "to": str((launch / RETURN_DIR / codex_login.FILE).resolve()), "max_bytes": MAX_BYTES})
     try:
         return _finish(cli, row, agent, settings, command, env, from_host, by_fd, home=home, work=work, launch=launch,
                        job=Path(job), deploy=deploy, tools_url=tools_url, workdir=workdir, path_prepend=path_prepend,
@@ -199,6 +231,17 @@ def render(cli: str, settings: dict, *, deploy: dict | None, tools_url: str | No
         for name in secret_files:                        # a plan refused: no copy of the sign-in is left behind
             (home / name).unlink(missing_ok=True)
         raise
+
+
+def sign_in(plan_path: Path, login_root: Path | None = None) -> None:
+    """The ChatGPT sign-in copied into the home of a plan rendered with `sign_in="later"` (a stream's step, at its turn):
+    the shared copy as it is then (hermit.agent.base.login.prepare), never as it was when the step's rollout began,
+    which an earlier step's session may since have refreshed, and so spent. A plan with no sign-in file gets none."""
+    from hermit.agent.base import login as codex_login
+    plan = json.loads(Path(plan_path).read_text(encoding="utf-8"))
+    home = plan.get("home") or {}
+    if codex_login.FILE in (home.get("secret_files") or []):
+        codex_login.prepare(Path(login_root or codex_login.ROOT), Path(home["host_dir"]))
 
 
 def _finish(cli, row, agent, settings, command, env, from_host, by_fd, *, home: Path, work: Path, launch: Path,
@@ -401,39 +444,3 @@ def check(plan: dict, *, job: Path, secret_files) -> None:
         if job_text in text and where != "the answer block":
             raise RuntimeError(f"hermit: the launch plan names a path of this machine in {where} ({job_text}): the "
                                "container would not find it")
-
-
-def digest(plan_path: Path) -> str:
-    """A plan's identity for the trial cache: its command, environment, settings and home files (their paths and
-    bytes, the secret files by name only), with what differs between two renders of the same launch taken out: the
-    job's paths, the tools' URL (a token of each trial's server) and the answer endpoint's."""
-    plan = json.loads(Path(plan_path).read_text(encoding="utf-8"))
-    job = str(Path(plan_path).resolve().parent.parent)
-    url = re.compile(r"https?://[\w.:-]+/[0-9a-f]{32}")
-
-    def plain(text: str) -> str:
-        return url.sub("<url>", text.replace(job, "<job>"))
-    h = hashlib.sha256()
-    same = {k: v for k, v in plan.items() if k not in ("home", "bundle", "return_files", "deploy", "metadata")}
-    if plan.get("deploy"):
-        same["deploy"] = {k: v for k, v in plan["deploy"].items() if k != "work_dir"}
-    h.update(plain(json.dumps(same, sort_keys=True)).encode())
-    home = plan.get("home") or {}
-    if home.get("host_dir"):
-        root = Path(home["host_dir"])
-        skip = set(home.get("secret_files") or [])
-        for path in sorted(p for p in root.rglob("*") if p.is_file() and not p.is_symlink()):
-            rel = path.relative_to(root).as_posix()
-            h.update(b"\0" + rel.encode() + b"\0")
-            if rel not in skip:
-                data = path.read_bytes()
-                try:
-                    data = plain(data.decode("utf-8")).encode()
-                except UnicodeDecodeError:
-                    pass
-                h.update(hashlib.sha256(data).digest())
-    if plan.get("bundle"):
-        root = Path(plan["bundle"]["host_dir"])
-        for path in sorted(p for p in root.rglob("*") if p.is_file()):
-            h.update(path.relative_to(root).as_posix().encode() + hashlib.sha256(path.read_bytes()).digest())
-    return h.hexdigest()

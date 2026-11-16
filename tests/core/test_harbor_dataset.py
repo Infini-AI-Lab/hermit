@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 
 import pytest
 import yaml
@@ -717,21 +716,6 @@ def test_a_relative_data_directory_is_the_benchmark_files_not_the_working_direct
 
 
 @pytest.mark.skipif(not shutil.which("git"), reason="needs git")
-def test_git_ignores_the_tasks_link_prepare_writes_beside_an_examples_benchmark_file(tmp_path):
-    """The `tasks` link names a directory of this machine: the repository's .gitignore keeps it out of an example's
-    commits (a link, which a pattern ending in / would not match), where conftest.py keeps it out of pytest's
-    collection."""
-    repo, data = tmp_path / "repo", tmp_path / "data"
-    subprocess.run(["git", "init", "-q", str(repo)], check=True, capture_output=True)
-    shutil.copy(Path(__file__).resolve().parents[2] / ".gitignore", repo / ".gitignore")
-    utils = repo / "examples" / "some-benchmark" / "utils"
-    utils.mkdir(parents=True)
-    data.mkdir()
-    (utils / "tasks").symlink_to(data, target_is_directory=True)
-    run = subprocess.run(["git", "-C", str(repo), "check-ignore", "-v", "examples/some-benchmark/utils/tasks"],
-                         capture_output=True, text=True)
-    assert run.returncode == 0 and run.stdout.startswith(".gitignore:"), run
-
 
 def test_a_trials_compose_projects_are_taken_down_from_an_empty_directory_of_their_own(tmp_path, monkeypatch):
     """hermit.harbor.docker.compose_down names the trial's projects alone (`-p`): it runs where no compose file or
@@ -751,7 +735,7 @@ def test_a_trials_compose_projects_are_taken_down_from_an_empty_directory_of_the
             downs.append((cmd[cmd.index("-p") + 1], where, sorted(p.name for p in where.iterdir())))
         return Done()
     monkeypatch.setattr(docker.subprocess, "run", run)
-    docker.compose_down("alpha__abc1234")
+    docker.compose_down("alpha__abc1234", keys=["main"])       # found by its name and by the prefix: taken down once
     assert [project for project, _, _ in downs] == ["alpha__abc1234__env", "alpha__abc1234__verifier__main"]
     assert all(where != tmp_path and entries == [] for _, where, entries in downs), downs
 
@@ -776,7 +760,7 @@ def test_a_trials_compose_projects_are_taken_down_with_none_of_this_processs_com
             envs.append(dict(os.environ if kwargs.get("env") is None else kwargs["env"]))   # None: this process's
         return Done()
     monkeypatch.setattr(docker.subprocess, "run", run)
-    docker.compose_down("alpha__abc1234")
+    docker.compose_down("alpha__abc1234", keys=["main"])
     assert len(envs) == 2
     for env in envs:
         assert [k for k in env if k.startswith("COMPOSE_")] == []
@@ -803,8 +787,47 @@ def test_with_no_room_for_an_empty_directory_a_trials_projects_are_taken_down_fr
             downs.append((cmd[cmd.index("-p") + 1], kwargs.get("cwd")))
         return Done()
     monkeypatch.setattr(docker.subprocess, "run", run)
-    docker.compose_down("alpha__abc1234")
+    docker.compose_down("alpha__abc1234", keys=["main"])
     assert downs == [("alpha__abc1234__env", "/"), ("alpha__abc1234__verifier__main", "/")]
+
+
+# Harbor 0.25.0's own names of a trial's separate verifier sessions (harbor/trial/trial.py
+# _separate_verifier_session_id, run under Harbor's interpreter for these names and keys)
+VERIFIER_SESSIONS = {
+    ("abc__XyZ1234", "trial"): "abc__XyZ1234__verifier__trial",
+    ("a" * 41, "step-one"): "a" * 41 + "__verifier__step-one",
+    ("a" * 43 + "__s1__deadbeef", "trial"): "a" * 43 + "__s1__dead__2c70c71c",
+    ("long-task-name-for-a-stream-of-steps-x__s1__0a1b2c3d", "s"):
+        "long-task-name-for-a-stream-of-steps-x__s1__0a1b2c3d__23f43385",
+}
+
+
+def test_a_verifier_sessions_name_is_harbors_own_and_a_cut_one_is_taken_down_by_its_key(monkeypatch):
+    """A separate verifier environment's session is named as Harbor names it (docker.verifier_session): whole up to
+    63 characters, past them cut and named by its digest, which no prefix of the trial's name finds. compose_down
+    takes the one of each key down by that exact name (a single-step trial's "trial", a stream's step names), and any
+    other Harbor kept whole by the prefix, each project once."""
+    from hermit.harbor import docker
+    for (trial, key), name in VERIFIER_SESSIONS.items():
+        assert docker.verifier_session(trial, key) == name
+    trial = "long-task-name-for-a-stream-of-steps-x__s1__0a1b2c3d"           # a stream's trial: 52 characters
+    cut = docker.compose_project(docker.verifier_session(trial, "s"))
+    assert not cut.startswith(docker.verifier_prefix(trial))                  # the prefix would never find it
+    downs = []
+
+    class Done:
+        stdout = f"{cut}\nalpha__abc1234__verifier__main\n"
+
+    def run(cmd, **kwargs):
+        if "down" in cmd:
+            downs.append(cmd[cmd.index("-p") + 1])
+        return Done()
+    monkeypatch.setattr(docker.subprocess, "run", run)
+    docker.compose_down(trial, keys=["s"])
+    assert downs == [docker.compose_project(f"{trial}__env"), cut]
+    downs.clear()
+    docker.compose_down("alpha__abc1234")                                     # a trial's: its "trial" and the rest
+    assert downs == ["alpha__abc1234__env", "alpha__abc1234__verifier__trial", "alpha__abc1234__verifier__main"]
 
 
 def test_prepare_refuses_what_it_cannot_make(tmp_path, monkeypatch):
@@ -950,4 +973,35 @@ def test_a_link_to_a_folder_in_a_task_is_in_its_digest_by_its_text(tmp_path):
     first = dataset.digest(task)
     (task / "environment" / "data").unlink()
     (task / "environment" / "data").symlink_to(tmp_path / "two", target_is_directory=True)
+    assert dataset.digest(task) != first
+
+
+def test_a_rows_line_breaks_that_end_a_line_where_hermit_reads_tasks_jsonl_are_escaped(tmp_path):
+    """hermit.task reads tasks.jsonl with str.splitlines(), which ends a line at U+0085, U+2028 and U+2029 too: a row
+    whose instruction holds one is written with it escaped (jsonl_line), so it stays one row, its text as it was."""
+    row = {"id": "alpha", "instruction": "one\x85two three four é"}
+    line = dataset.jsonl_line(row)
+    assert len(line.splitlines()) == 1 and "é" in line and json.loads(line) == row
+    dataset.write_jsonl([row, {"id": "beta"}], tmp_path / "tasks.jsonl")
+    assert [json.loads(r) for r in (tmp_path / "tasks.jsonl").read_text(encoding="utf-8").splitlines()] == \
+        [row, {"id": "beta"}]
+
+
+def test_a_tasks_link_is_hashed_by_its_own_text_never_by_what_it_leads_to(tmp_path):
+    """A task's link (to a file, to a folder, or to nothing) is hashed by its own text, as git keeps it: what it leads
+    to may change (a file of this machine, outside the task) without changing the task's digest, and another target's
+    text changes it."""
+    task = tmp_path / "alpha"
+    (task / "environment").mkdir(parents=True)
+    (task / "task.toml").write_text("[verifier]\n")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("one\n")
+    (task / "environment" / "data.txt").symlink_to(outside)
+    (task / "environment" / "gone.txt").symlink_to(tmp_path / "nowhere.txt")
+    (task / "environment" / "shared").symlink_to(tmp_path, target_is_directory=True)
+    first = dataset.digest(task)
+    outside.write_text("two\n")
+    assert dataset.digest(task) == first
+    (task / "environment" / "data.txt").unlink()
+    (task / "environment" / "data.txt").symlink_to(tmp_path / "other.txt")
     assert dataset.digest(task) != first

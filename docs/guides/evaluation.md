@@ -15,8 +15,8 @@ file-check success, and a learner's own claims are different evidence.
 
 `final` is the Evolver's final selection, defaulting to the current adapter. It is not a universal best-score
 checkpoint. GEPA and SkillOpt use their retained validation candidates for final selection. A Harbor task set whose
-acting agent is one of Harbor's own takes no adapter: only `--adapter none` evaluates it, and `hermit check` reports it
-for a training config.
+acting agent is one of Harbor's own takes no adapter: only `--adapter none` evaluates it (given any other, its
+rollouts fail).
 
 ## Keep the protocol fixed
 
@@ -39,23 +39,15 @@ hermit eval --config run.yaml --adapter final eval.repeats=3
 
 Results are written under `<output_dir>/<run_name>/eval/<selector>/`. Re-evaluating the same selector replaces its
 `results.jsonl` and `summary.json`; archive records or use separate output directories when preserving comparisons.
-A config for `hermit eval` alone (no `data.train`) needs none of the training keys, but an adapter of a run's tree
-(`final`, `root`, a tag or a commit) needs `template` or `trainer.tree_dir`, and the tree a `hermit train` made: without
-one, `eval` refuses it before anything runs. With `eval.repeats` above 1, each repeat hands a Harbor task set's
-pipeline, and so the judge, copies of the test rows that name it (`repeat`, which no record's `input` keeps; any other
-pipeline gets the rows as they are): with its `trial_cache` each repeat is a trial of its own, and each repeat of a
-multi-step task, in each run of `hermit eval` (one into the same output included), a
-stream of its own, stopped when the eval ends, fails or is stopped with Ctrl-C (a process killed by a signal leaves it
-up for `stream.idle_s`) ([Streams](../framework/task.md#benchmarks)).
+On a Harbor task set each repeat runs a multi-step task's stream again from its first step, in a new environment,
+once the repeat before it has finished the stream ([Benchmarks](../framework/task.md#benchmarks)).
 
 | Summary field | Meaning |
 |---|---|
-| `tasks`, `repeats` | Test rows and attempts per row (`eval.repeats`): a Harbor task set indexed with k rollouts (`dataset index --rollouts k`, or `rollouts: k` in a benchmark file's `dataset:` block) has k rows per task, `<task>#1..k`, each counted |
-| `mean_score` | Arithmetic mean across the scored attempts (null when none was scored) |
-| `solved_once` | Fraction of the test tasks with a scored attempt (each id once: a row a split names twice counts once) that have at least one attempt scoring **at least 1.0** |
-| `scored`, `unscored` | Attempts with a verdict, and those that were not the agent's result (status `infra`: the host, the provider), left out of the summary's means and shares |
-| `errors` | Pipeline or judge failures, recorded with score zero |
-| `infra_rerun` | With `eval.infra_retries`: the attempts run again because they ended `infra` |
+| `tasks`, `repeats` | Test task count and attempts per task (a Harbor task set indexed with k rollouts, `dataset index --rollouts k`, has k rows per task, `<task>#1..k`, each counted) |
+| `mean_score` | Arithmetic mean across all task attempts |
+| `solved_once` | Fraction of tasks with at least one attempt scoring **at least 1.0** |
+| `errors` | Pipeline or judge failures, recorded with score zero (on a Harbor task set, a trial that was not the agent's result among them, below) |
 | `cost_usd` | Reported evaluation cost, or null if some task costs are unknown |
 | `unknown_cost_tasks` | Calls/tasks with unknown cost in the evaluator's accounting |
 | `commit` | Resolved Git commit for tree selectors; null for a directory or no adapter |
@@ -63,12 +55,14 @@ up for `stream.idle_s`) ([Streams](../framework/task.md#benchmarks)).
 The `solved_once` threshold is fixed at 1.0. For a 0–100 score or a non-success metric, it is not a meaningful
 solved rate; use the benchmark's own definition and raw scores. It is also distinct from mean per-attempt accuracy.
 
-`eval.infra_retries: N` runs the `infra` rows again, up to N passes, `eval.infra_wait_s` before each; a halt (a lost
-login, a usage limit) stops the reruns until a person restores it. `results.jsonl` keeps each row's latest run; the
-summary's `cost_usd` counts the runs it replaced too, and `infra_rerun` how many ran again. A multi-step task's step
-rows are not run again (a step runs only in its task's stream, after the steps before it), nor is a task Harbor runs
-for none of Hermit's agents (`unsupported_task`: a rerun would be refused the same way). A split that lists a step
-ahead of an earlier step of its stream, or without an earlier step of its stream, is refused before any run.
+On a Harbor task set, a trial that is not the agent's result (`infra`: the host, the model provider, a session that
+never started) runs again in the runner itself (`agent.params.infra_retries`, default 2, each after `infra_wait_s`,
+default 300 s). One that ends `infra` all the same gets no score: the judge refuses it, so its record has status
+`judge_error`, its cost and log kept, and it counts in `errors` and as 0 in `mean_score`. A benchmark's own figure
+leaves such trials out: `python -m hermit.harbor.report <output_dir>/<run_name>/eval/<selector>` reads the eval's
+`results.jsonl` and gives, over all repeats and for each, the trials scored, infra and otherwise failed, pass@1 over
+the scored ones (the judge's `passed`), their mean score and `mean_score`. A lost sign-in, or an API account's usage
+limit, stops the eval ([Benchmarks](../framework/task.md#benchmarks)).
 
 ## Preserve the artifact and evidence
 

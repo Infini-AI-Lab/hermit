@@ -1,7 +1,8 @@
 """A Harbor trial's launch plan (hermit.harbor.launch) and the per-CLI table (hermit.harbor.clis), without Docker or
 Harbor: what each CLI's plan holds as Hermit's own CLI Base Agents render it, that no secret's value and no path of
 this machine reaches the container, the sign-ins (ChatGPT's file that comes back, Claude's token on a descriptor),
-the memory note, the mini-swe-agent bundle's imports, the answer agent's plan and the plan's digest."""
+the memory note, the mini-swe-agent bundle's imports, the answer agent's plan, and what the Base Agents' run() refuses
+before a session (check_settings)."""
 import ast
 import json
 import os
@@ -66,8 +67,6 @@ def test_the_table_names_one_class_per_cli():
         clis.cli_of({"cli": "codex", "name": "codex"})
     with pytest.raises(ValueError, match="one of"):
         clis.cli_of({"cli": "aider"})
-    from hermit.agent.model.backends import HARBOR_ACTING              # the model layer's copy of the class names
-    assert HARBOR_ACTING == {row["import_path"].partition(":")[2]: cli for cli, row in clis.HARBOR_CLIS.items()}
     assert clis.bin_mount("opencode") == "/opt/hermit-opencode"
     assert all(clis.entry(c)["context_file"] for c in ("codex", "claude", "pi", "opencode", "dsh"))
 
@@ -186,6 +185,7 @@ def test_a_secret_reaches_the_container_by_its_name_only(tmp_path, monkeypatch):
 
 def test_a_chatgpt_sign_in_is_a_secret_file_that_comes_back(tmp_path):
     from hermit.agent.base import login
+    from hermit.harbor import signin
     user = Path(os.environ["CODEX_HOME"]) / "auth.json"                   # the test's own (tests/conftest.py)
     user.parent.mkdir(parents=True, exist_ok=True)
     user.write_text(json.dumps({"last_refresh": "2026-01-01T00:00:00Z", "tokens": {"refresh_token": "rt-stand-in"}}))
@@ -196,10 +196,10 @@ def test_a_chatgpt_sign_in_is_a_secret_file_that_comes_back(tmp_path):
     assert plan["home"]["secret_files"] == ["auth.json"] and "rt-stand-in" in (home / "auth.json").read_text()
     assert plan["return_files"] == [{"from": f"{clis.CONTAINER_HOME}/auth.json",            # no larger than a sign-in
                                      "to": str((job / "launch" / "return" / "auth.json").resolve()),
-                                     "max_bytes": login.MAX_BYTES}]
+                                     "max_bytes": signin.MAX_BYTES}]
     assert "rt-stand-in" not in (job / "launch" / "plan.json").read_text()
     assert login.master(login.ROOT).is_file()                            # the shared copy the home got
-    # without the sign-in (a check, a digest): no secret file at all
+    # without the sign-in (a check): no secret file at all
     dry = plan_of(launch.render("codex", settings("codex", login="chatgpt"), deploy=None, tools_url=None,
                                 job=tmp_path / "dry", login="chatgpt", sign_in=False))
     assert dry["home"]["secret_files"] == [] and not (tmp_path / "dry" / "launch" / "home" / "auth.json").exists()
@@ -292,23 +292,50 @@ def test_the_answer_agents_null_options_keep_their_meaning(tmp_path):
     assert answer(answer_file="")["answer_file"] == "/app/answer.txt"           # an empty one is none given
 
 
-# ---- the digest --------------------------------------------------------------------------------------------------
+# ---- a stream's step: the sign-in at its turn ----------------------------------------------------------------------
 
-def test_the_digest_is_the_launch_not_the_trial(tmp_path):
-    def digest(job, url=URL, **kwargs):
-        return launch.digest(launch.render("codex", settings("codex", **kwargs), deploy=None, tools_url=url,
-                                           job=tmp_path / job, tools_name="demo"))
-    first = digest("a")
-    # another job and another server's token: the same launch
-    assert digest("b", url="http://172.17.0.1:9/" + "cd" * 16 + "/mcp") == first
-    assert digest("c", effort="high") != first                          # another setting: another launch
-    assert digest("d", url=None) != first                                # no tools: another launch
+def test_a_steps_plan_lists_the_sign_in_and_takes_the_shared_copy_as_it_is_at_its_turn(tmp_path):
+    """`sign_in="later"` (a stream's step, rendered when its rollout begins) lists the sign-in as a secret file that
+    comes back, as a trial's plan does, but copies none into the home; `sign_in` copies the shared copy in when the
+    step's turn comes, as it is then (an earlier step's session may have refreshed it since): never the one there was
+    when the plan was rendered."""
+    from hermit.agent.base import login
     user = Path(os.environ["CODEX_HOME"]) / "auth.json"
     user.parent.mkdir(parents=True, exist_ok=True)
-    user.write_text(json.dumps({"last_refresh": "2026-01-01T00:00:00Z", "tokens": {"refresh_token": "one"}}))
-    signed = launch.digest(launch.render("codex", settings("codex", login="chatgpt"), deploy=None, tools_url=None,
-                                         job=tmp_path / "e", login="chatgpt"))
-    user.write_text(json.dumps({"last_refresh": "2026-01-02T00:00:00Z", "tokens": {"refresh_token": "two"}}))
-    again = launch.digest(launch.render("codex", settings("codex", login="chatgpt"), deploy=None, tools_url=None,
-                                        job=tmp_path / "f", login="chatgpt"))
-    assert signed == again                                               # a sign-in's contents are no part of it
+    user.write_text(json.dumps({"last_refresh": "2026-01-01T00:00:00Z", "tokens": {"refresh_token": "rt-first"}}))
+    path = launch.render("codex", settings("codex", login="chatgpt"), deploy=None, tools_url=None, job=tmp_path / "s",
+                         login="chatgpt", sign_in="later")
+    plan = plan_of(path)
+    home = Path(plan["home"]["host_dir"])
+    assert plan["home"]["secret_files"] == ["auth.json"] and not (home / "auth.json").exists()
+    assert plan["return_files"][0]["to"] == str((tmp_path / "s" / "launch" / "return" / "auth.json").resolve())
+    # meanwhile an earlier step's session refreshed the shared copy
+    login.master(login.ROOT).parent.mkdir(parents=True, exist_ok=True)
+    login.master(login.ROOT).write_text(json.dumps({"last_refresh": "2026-01-03T00:00:00Z",
+                                                   "tokens": {"refresh_token": "rt-refreshed"}}))
+    launch.sign_in(path)
+    assert "rt-refreshed" in (home / "auth.json").read_text()
+    # a plan without a sign-in gets none
+    plain = launch.render("codex", settings("codex"), deploy=None, tools_url=None, job=tmp_path / "p")
+    launch.sign_in(plain)
+    assert not (Path(plan_of(plain)["home"]["host_dir"]) / "auth.json").exists()
+
+
+# ---- what the Base Agents' run() refuses ---------------------------------------------------------------------------
+
+def test_a_plan_is_refused_for_what_the_base_agents_run_would_refuse_before_a_session(tmp_path):
+    """harborside carries a plan out without the Base Agent's run(), so what run() refuses before any session is
+    refused when the plan is rendered (launch.check_settings, the same checks and messages): a login of another CLI,
+    and mini-swe-agent's settings (no login, no web search, a model, a model class whose messages Hermit reads)."""
+    from hermit.agent.base.interface import Unsupported, make
+    with pytest.raises(Unsupported, match="does not sign in with login: claude"):
+        launch.check_settings(make("codex", {"login": "claude"}))
+    launch.check_settings(make("codex", {"login": "chatgpt"}))
+    for extra, match in (({"web_search": True}, "no web search"), ({"model_class": "portkey"}, "calls its own service")):
+        with pytest.raises(Unsupported, match=match):
+            launch.render("mini-swe-agent", {**settings("mini-swe-agent"), **extra}, deploy=None, tools_url=None,
+                          job=tmp_path / f"m{len(extra)}{match[:3]}")
+    with pytest.raises(ValueError, match="needs a model"):
+        launch.check_settings(make("mini-swe-agent", {}))
+    with pytest.raises(Unsupported, match="Hermit reads litellm"):
+        launch.check_settings(make("mini-swe-agent", {"model": "openai/gpt-x", "model_class": "openrouter"}))

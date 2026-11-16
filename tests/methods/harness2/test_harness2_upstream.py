@@ -10,7 +10,7 @@ import pytest
 
 from hermit.config import Config
 from hermit.trainer.trainer import Trainer
-from toy_task import PIPELINE, make_task
+from toy_task import make_task
 
 pytest.importorskip("harness2.core.schedule")
 
@@ -101,7 +101,7 @@ def task_files(task, dest):
 '''
 
 
-def run(tmp_path: Path, pipeline: str | None = None, **params) -> Path:
+def run(tmp_path: Path, **params) -> Path:
     (tmp_path / "proposer.py").write_text(PROPOSER)
     (tmp_path / "sources.py").write_text(SOURCES)
     (tmp_path / "slots.yaml").write_text("work: Adding two numbers given in the task.\ndeliverable_word: sum\n")
@@ -111,8 +111,6 @@ def run(tmp_path: Path, pipeline: str | None = None, **params) -> Path:
                                          "slots": "slots.yaml", "name": "toy", "sources": "sources.py:task_files",
                                          "calls_log": str(tmp_path / "calls.jsonl"), **params}},
                      trainer={"run_name": "h2u", "output_dir": "runs", "epochs": 1, "budget": {"usd": 5}})
-    if pipeline is not None:                                              # another acting pipeline than the toy's
-        (tmp_path / "pipeline.py").write_text(pipeline)
     (tmp_path / "stream.txt").write_text("t0\nt1\nt2\n")
     Trainer(Config.load(path, ["data.train=stream.txt", "data.step_size=1", "data.shuffle=false"])).train()
     return tmp_path / "runs" / "h2u"
@@ -130,29 +128,6 @@ def test_one_task_per_step_is_required(tmp_path):
     steps = [json.loads(l) for l in (tmp_path / "runs" / "h2u" / "steps.jsonl").read_text().splitlines()]
     assert all(s["evolver"]["status"] == "failed" for s in steps)
     assert not (tmp_path / "calls.jsonl").exists()
-
-
-def test_a_step_of_a_multi_step_task_is_refused_before_any_editor_session_runs(tmp_path):
-    """A stream of a multi-step Harbor task's steps: run_agent runs no candidate on such a step (only the Trainer's own
-    stream of the task runs it), so each step is refused, saying why, before an editor session is spent on it."""
-    (tmp_path / "proposer.py").write_text(PROPOSER)
-    (tmp_path / "slots.yaml").write_text("work: Adding two numbers given in the task.\n")
-    path = make_task(tmp_path, template=str(TEMPLATE),
-                     evolver={"name": "harness2_upstream",
-                              "params": {"proposer": "proposer.py:Scripted", "backend": None, "model": "scripted",
-                                         "slots": "slots.yaml", "calls_log": str(tmp_path / "calls.jsonl")}},
-                     trainer={"run_name": "h2u", "output_dir": "runs", "epochs": 1, "budget": {"usd": 5}})
-    with open(tmp_path / "tasks.jsonl", "a") as f:                     # step rows as hermit.harbor.dataset makes them
-        for i in (1, 2, 3):
-            f.write(json.dumps({"id": f"m:s{i}", "a": i, "b": 0, "harbor_task": "m", "step": f"s{i}",
-                                "step_index": i, "steps": 3}) + "\n")
-    (tmp_path / "stream.txt").write_text("m:s1\nm:s2\nm:s3\n")
-    Trainer(Config.load(path, ["data.train=stream.txt", "data.step_size=1", "data.shuffle=false"])).train()
-    steps = [json.loads(l) for l in (tmp_path / "runs" / "h2u" / "steps.jsonl").read_text().splitlines()]
-    assert [s["tasks"] for s in steps] == [["m:s1"], ["m:s2"], ["m:s3"]]
-    assert all(s["evolver"]["status"] == "failed" and "a step of the multi-step task m" in s["evolver"]["summary"]
-               for s in steps)
-    assert not (tmp_path / "calls.jsonl").exists()                      # no editor session ran
 
 
 @pytest.mark.parametrize("failure", ["endpoint_down", "spent_then_down"])
@@ -221,40 +196,6 @@ def test_every_task_starts_from_h0_and_a_run_continues_the_stream_from_its_libra
     assert sorted(p.name for p in (state / "agg" / "default" / "harnesses").iterdir()) == ["t0", "t1", "t2", "t3", "t4"]
     done = first / "workspace" / "state" / "library" / "agg" / "default" / "harnesses"
     assert sorted(p.name for p in done.iterdir()) == ["t0", "t1", "t2"]   # the stream continued is left as it was
-
-
-# The toy pipeline, but the composed harness's run (AGENTS.md "Always add the numbers.") answers and then meets a
-# failure that is not the agent's (its verifier's machine): an infra run that delivered its answer.
-COMPOSED_INFRA = PIPELINE.replace("tokens=100)", "tokens=100,\n"
-                                                 "                     extra={\"unscored\": \"verifier_failed\"} "
-                                                 "if \"add the numbers\" in text else {})")
-
-
-def test_an_execution_that_is_not_the_agents_result_is_not_graded(tmp_path):
-    """The deliverable's execution ended infra: Harness²'s own scores give it no grade (not the 0 of its record), and
-    its run's record says why."""
-    assert "verifier_failed" in COMPOSED_INFRA
-    run_dir = run(tmp_path, pipeline=COMPOSED_INFRA)
-    result = json.loads((run_dir / "step_0001" / "step_result.json").read_text())["extra"]["harness2"]
-    assert result["selection"]["chosen_label"] == "agg1" and not result["judged"]["graded"]
-    assert result["runs"]["agg1"] == {"answered": True, "score": None, "unscored": "verifier_failed"}
-    assert result["runs"]["base1"] == {"answered": True, "score": 0.0}
-    scores = [json.loads(l) for l in (run_dir / "step_0001" / "output" / "scores.jsonl").read_text().splitlines()]
-    assert [r["score"] for r in scores if r["run_id"].endswith("/agg1")] == [None]
-
-
-def test_a_harbor_trials_final_message_reads_past_json_nested_deeper_than_the_parser_goes(tmp_path):
-    """The container wrote the trial's agent/ files: a Claude Code stream line or an answer record nested past the JSON
-    parser's depth is no message (the line is skipped, the record gives none), never an error out of the step."""
-    from hermit.agent.evolver.methods.harness2_upstream.bench import final_message
-    deep = "[" * 100000 + "]" * 100000
-    result = {"type": "result", "subtype": "success", "is_error": False, "result": "The sum is 5.", "usage": {}}
-    claude, answer = tmp_path / "claude", tmp_path / "answer"
-    for log in (claude, answer):
-        (log / "agent").mkdir(parents=True)
-    (claude / "agent" / "agent-claude.jsonl").write_text(json.dumps(result) + "\n" + deep + "\n")
-    (answer / "agent" / "answer.json").write_text(deep)
-    assert (final_message(claude), final_message(answer)) == ("The sum is 5.", "")
 
 
 def test_a_codex_run_keeps_the_codex_pin_where_no_codex_is_installed(tmp_path, monkeypatch):

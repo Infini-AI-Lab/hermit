@@ -7,8 +7,6 @@ from pathlib import Path
 import shutil
 import stat
 import sys
-import time
-from types import SimpleNamespace
 
 import pytest
 
@@ -35,9 +33,7 @@ EVENTS = [
 
 FAKE_CODEX = f'''#!{sys.executable}
 """A stand-in for `codex exec --json ... -o LAST PROMPT`: records its arguments, CODEX_HOME and what it saw; fails
-like an unavailable provider while FAKE_UNAVAILABLE counts down (codex exec's 429, or the stream of Codex's that
-FAKE_UNAVAILABLE_STREAM names); refreshes a login it finds, as Codex does (a new access token, the refresh token
-rotated: stand-ins)."""
+like an unavailable provider while FAKE_UNAVAILABLE counts down; refreshes a login it finds."""
 import json, os, sys
 from pathlib import Path
 args = sys.argv[1:]
@@ -50,10 +46,7 @@ state.write_text(str(calls + 1))
                                             "task": Path("task.md").read_text() if Path("task.md").exists() else None,
                                             "docs": sorted(p.name for p in Path("docs").iterdir()) if Path("docs").exists() else None}}))
 if calls < int(os.environ.get("FAKE_UNAVAILABLE", "0")):
-    if os.environ.get("FAKE_UNAVAILABLE_STREAM"):
-        sys.stdout.write(Path(os.environ["FAKE_UNAVAILABLE_STREAM"]).read_text())
-    else:
-        print("ERROR: unexpected status 429 Too Many Requests")
+    print("ERROR: unexpected status 429 Too Many Requests")
     sys.exit(1)
 if os.environ.get("FAKE_REFUSED"):                     # the plan's limit, as Codex reports it: an error event
     print(json.dumps({{"type": "thread.started", "thread_id": "th1"}}))
@@ -64,8 +57,6 @@ if os.environ.get("FAKE_OWN_TEXT"):                    # the session's own work 
                      "exit_code": 0, "aggregated_output": os.environ["FAKE_OWN_TEXT"]}}}}))
 if (home / "auth.json").exists():
     auth = json.loads((home / "auth.json").read_text())
-    auth["tokens"] = {{**auth.get("tokens", {{}}), "access_token": "at-stand-in",
-                      "refresh_token": "rt-rotated-stand-in"}}
     auth["last_refresh"] = "2026-10-30T12:00:00Z"
     (home / "auth.json").write_text(json.dumps(auth))
 for e in json.loads({json.dumps(json.dumps(EVENTS))}):
@@ -112,13 +103,6 @@ def fake(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setenv("FAKE_STATE", str(tmp_path / "calls"))
     return tmp_path
-
-
-def sign_in(when: str, account: str | None = None, **fields) -> str:
-    """A ChatGPT login file (Codex's auth.json) refreshed at `when`: its tokens stand-ins, `fields` beside them."""
-    tokens = {"id_token": "id-stand-in", "access_token": "at-stand-in", "refresh_token": "rt-stand-in",
-              **({"account_id": account} if account else {})}
-    return json.dumps({"auth_mode": "chatgpt", "last_refresh": when, "tokens": tokens, **fields})
 
 
 def seed(tmp_path: Path) -> Path:
@@ -202,19 +186,6 @@ def test_a_provider_that_could_not_serve_is_run_again(fake, monkeypatch):
     assert _time.time() - t0 < 20
 
 
-def test_a_codex_session_that_could_not_reach_its_provider_is_run_again_never_an_empty_answer(fake, monkeypatch):
-    """Codex 0.164 on a ChatGPT login whose requests to chatgpt.com fail retries them, fails its turn with "workspace
-    routing discovery failed" and exits 1 (tests/fixtures/codex/unreachable.jsonl): no answer of the agent's, so the
-    session is run again, and once every attempt failed so the run is an error, never an empty answer judged wrong."""
-    tmp_path = fake
-    monkeypatch.setenv("FAKE_UNAVAILABLE_STREAM", str(ROOT / "tests" / "fixtures" / "codex" / "unreachable.jsonl"))
-    monkeypatch.setenv("FAKE_UNAVAILABLE", "9")
-    with pytest.raises(RuntimeError, match="could not be served after 3 attempts"):
-        cli.run({"id": "q1"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws", "retry_wait_s": 0},
-                base=tmp_path)
-    assert (tmp_path / "calls").read_text() == "3"
-
-
 def test_the_session_is_given_what_is_left_of_deadline_s_after_its_preparation(fake, monkeypatch):
     """A container session must end before its worker is stopped: the time the deployment takes comes off the
     session's timeout."""
@@ -244,84 +215,11 @@ def test_a_line_of_the_clis_own_output_that_parses_as_json_is_not_an_event(fake)
     assert out.tokens == 1050                                                 # the usage was read past it
 
 
-def test_a_codex_session_that_ran_out_of_its_time_after_its_log_quoted_a_lost_sign_in_is_the_runs_timeout(fake):
-    """Codex logs a patch whose lines it did not find on its stderr, those lines after the record (the model's text),
-    and the run merges its stderr into the session's stream. A session that then ran out of its time, its log having
-    quoted the words of a lost sign-in, is the run's timeout (its result), never a lost sign-in that ends the run."""
-    tmp_path = fake
-    (tmp_path / "bin" / "codex").write_text(f"""#!{sys.executable}
-import json, sys, time
-for e in ({{"type": "thread.started", "thread_id": "th1"}}, {{"type": "turn.started"}},
-          {{"type": "item.completed", "item": {{"type": "agent_message", "text": "editing the handler"}}}}):
-    print(json.dumps(e), flush=True)
-sys.stderr.write("2026-11-12T01:02:03.456789Z ERROR codex_core::tools::router: error=apply_patch verification failed: "
-                 "Failed to find expected lines in auth.py:\\n"
-                 "        return jsonify(error='Invalid API key'), 401\\n    raise AuthError('Not logged in')\\n")
-sys.stderr.flush()
-time.sleep(60)                  # still working when its time runs out: no completed turn
-""")
-    out = cli.run({"id": "q1"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws", "timeout_s": 2},
-                  base=tmp_path)
-    assert out.extra["timed_out"] is True and out.extra["attempts"] == 1
-    assert "Invalid API key" in (out.log / "agent-codex.jsonl").read_text()     # the log's record reached the stream
-
-
-def test_a_codex_session_whose_command_printed_a_lost_sign_in_around_a_unicode_line_separator_is_the_runs_timeout(fake):
-    """Codex writes U+2028 unescaped in an event's strings, and the run reads the session's stream back from its file:
-    a session that ran out of its time after a command printed the words of a lost sign-in on either side of one is
-    the run's timeout (its result), never a lost sign-in that ends the run."""
-    tmp_path = fake
-    (tmp_path / "bin" / "codex").write_text(f"""#!{sys.executable}
-import json, sys, time
-sys.stdout.reconfigure(encoding="utf-8")
-output = "401\\u2028Not logged in\\u2028Invalid API key"
-for e in ({{"type": "thread.started", "thread_id": "th1"}}, {{"type": "turn.started"}},
-          {{"type": "item.completed", "item": {{"type": "command_execution", "command": "cat auth.log", "exit_code": 0,
-                                               "aggregated_output": output}}}}):
-    print(json.dumps(e, ensure_ascii=False), flush=True)
-time.sleep(60)                  # still working when its time runs out: no completed turn
-""")
-    out = cli.run({"id": "q1"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws", "timeout_s": 2},
-                  base=tmp_path)
-    assert out.extra["timed_out"] is True and out.extra["attempts"] == 1
-    assert "401\u2028Not logged in" in (out.log / "agent-codex.jsonl").read_text(encoding="utf-8")    # unescaped
-
-
-def test_a_line_of_the_sessions_stream_nested_past_the_parsers_depth_is_not_an_event(fake):
-    """A line of the session's stream nested past the JSON parser's depth (an array, or an object: what the steps'
-    reader parses) is no event, as one that does not parse is: the run still returns the session's answer and usage,
-    never an error that fails the session's call."""
-    tmp_path = fake
-    exe = tmp_path / "bin" / "codex"
-    exe.write_text(FAKE_CODEX.replace("for e in json.loads(",
-                                      "print('[' * 100_000 + ']' * 100_000)\n"
-                                      "print('{\"type\": \"x\", \"a\": ' + '[' * 100_000 + ']' * 100_000 + '}')\n"
-                                      "for e in json.loads(", 1))
-    out = cli.run({"id": "q1"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws"}, base=tmp_path)
-    stream = (out.log / "agent-codex.jsonl").read_text()
-    assert "[" * 100_000 in stream and '{"type": "x", "a": [[' in stream    # both lines reached the stream
-    assert out.output.endswith("<answer>44,463</answer>") and out.extra["exit_code"] == 0   # the session's reply
-    assert out.tokens == 1050                                                 # the usage was read past it
-
-
 def test_a_cli_that_never_started_is_an_error_not_a_wrong_answer(fake, monkeypatch):
     tmp_path = fake
     (tmp_path / "bin" / "codex").write_text(f"#!{sys.executable}\nimport sys\nprint('Error finding codex home')\nsys.exit(1)\n")
     with pytest.raises(RuntimeError, match="before starting a session: Error finding codex home"):
         cli.run({"id": "q1"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws", "answer": "x(.)"}, base=tmp_path)
-
-
-def test_a_cli_whose_own_line_holds_a_unicode_line_separator_before_a_brace_never_started(fake):
-    """U+0085, U+2028 and U+2029 end no line of a stream: a CLI's own line that holds U+2028 before a `{` (a value it
-    quotes) starts no event, so a CLI that exited with it alone never started a session."""
-    tmp_path = fake
-    (tmp_path / "bin" / "codex").write_text(f"#!{sys.executable}\nimport sys\n"
-                                            "sys.stdout.reconfigure(encoding='utf-8')\n"
-                                            "print('Error loading config.toml: unknown key\\u2028{ model = 1 }')\n"
-                                            "sys.exit(1)\n")
-    with pytest.raises(RuntimeError, match="before starting a session: Error loading config.toml"):
-        cli.run({"id": "q1"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws", "answer": "x(.)"},
-                base=tmp_path)
 
 
 def test_the_chatgpt_login_is_copied_refreshed_back_and_removed(fake, monkeypatch):
@@ -599,12 +497,12 @@ def test_a_login_file_from_the_future_or_no_login_is_not_taken(tmp_path):
     master = login.master(tmp_path)
     master.parent.mkdir(parents=True)
     master.write_text(json.dumps({"last_refresh": "2026-10-01T00:00:00Z"}))
-    for content in (sign_in("2999-01-01T00:00:00Z"), sign_in("soon"), json.dumps(["no", "login"])):
+    for content in ({"last_refresh": "2999-01-01T00:00:00Z"}, {"last_refresh": "soon"}, ["no", "login"]):
         left = tmp_path / "left.json"
-        left.write_text(content)
+        left.write_text(json.dumps(content))
         login.take_back(tmp_path, left)
         assert json.loads(master.read_text())["last_refresh"] == "2026-10-01T00:00:00Z"
-    left.write_text(sign_in("2026-10-30T12:00:00Z"))
+    left.write_text(json.dumps({"last_refresh": "2026-10-30T12:00:00Z"}))
     login.take_back(tmp_path, left)
     assert json.loads(master.read_text())["last_refresh"] == "2026-10-30T12:00:00Z"
 
@@ -674,25 +572,6 @@ def test_a_session_waiting_for_a_slot_waits_again_if_paused_meanwhile(fake, monk
     assert (plan / "SLOTS").is_file() and [p.name for p in plan.iterdir() if p.is_dir()] == [L.LOCKS]   # apart
 
 
-def test_a_wait_for_the_plan_records_why_it_held_the_session_back_and_whether_it_still_waits(tmp_path):
-    """A caller's record of a session's wait (a chat endpoint's call): why the plan held the session back, kept once
-    the session may start, and the same while it waits, so that a wait cancelled (its call given up) or past its time
-    says the session was still waiting; a wait the plan never held records none."""
-    import threading
-    from hermit.agent.base import login as L
-    note = {}
-    assert L.wait(tmp_path, max_s=0, note=note) == "" and not note.get("waited")      # never held back
-    (tmp_path / "PAUSE").write_text("")
-    cancel = threading.Event()
-    cancel.set()
-    assert L.wait(tmp_path, cancel, max_s=60, note=note) == "cancelled"
-    assert note["waited"].startswith("paused") and note["waiting"] == note["waited"]   # still waiting when cut off
-    assert L.wait(tmp_path, max_s=0, note=note) == "timeout" and note["waiting"].startswith("paused")
-    (tmp_path / "PAUSE").unlink()
-    assert L.wait(tmp_path, max_s=0, note=note) == "" and note["waiting"] == ""      # it may start: no longer waiting
-    assert note["waited"].startswith("paused")                                       # and it did wait
-
-
 def test_the_plan_holds_sessions_after_a_refusal_and_counts_slots(tmp_path):
     import time
     from hermit.agent.base import login as L
@@ -722,183 +601,6 @@ def test_the_plan_holds_sessions_after_a_refusal_and_counts_slots(tmp_path):
         "rate_limits": {"primary": {"used_percent": 12, "resets_at": 1}}}}) + "\n")
     assert L.note_usage(tmp_path, tmp_path / "home")["primary"]["used_percent"] == 12
     assert json.loads((L.plan_dir(tmp_path) / "plan.json").read_text())["primary"]["used_percent"] == 12
-
-
-def test_a_session_log_line_that_is_json_but_no_event_is_skipped_when_the_plans_usage_is_read(tmp_path):
-    """A Codex session's log is in a home its commands can write: a line of it that is JSON but no object (a list, a
-    string) is no event, and the plan's usage is read from the events around it; a log of nothing else reports none,
-    and the session's report of the plan is skipped, never an error."""
-    logs = tmp_path / "home" / "sessions" / "2026"
-    logs.mkdir(parents=True)
-    event = {"timestamp": "2026-11-02T00:00:00Z", "payload": {"rate_limits": {"primary": {"used_percent": 12}}}}
-    (logs / "s.jsonl").write_text('["rate_limits"]\n' + json.dumps(event) + '\n"rate_limits"\n')
-    assert login.usage_of(tmp_path / "home")["primary"]["used_percent"] == 12
-    (logs / "s.jsonl").write_text('["rate_limits"]\n"rate_limits"\n')
-    assert login.usage_of(tmp_path / "home") is None
-    assert login.note_usage(tmp_path / "plan", tmp_path / "home") is None and not (tmp_path / "plan").exists()
-
-
-def test_a_session_log_line_nested_past_the_parsers_depth_is_skipped_when_the_plans_usage_is_read(tmp_path):
-    """A line of a Codex session's log (in a home its commands can write) nested past the JSON parser's depth is no
-    event either: the plan's usage is read from the events around it, and a log of nothing else reports none, so the
-    session's report of the plan is skipped, never an error (one at the session's end would skip the removal of the
-    home's copy of the login)."""
-    logs = tmp_path / "home" / "sessions" / "2026"
-    logs.mkdir(parents=True)
-    nested = '{"rate_limits": ' + "[" * 100_000 + "]" * 100_000 + "}\n"
-    event = {"timestamp": "2026-11-02T00:00:00Z", "payload": {"rate_limits": {"primary": {"used_percent": 12}}}}
-    (logs / "s.jsonl").write_text(json.dumps(event) + "\n" + nested)
-    assert login.usage_of(tmp_path / "home")["primary"]["used_percent"] == 12
-    (logs / "s.jsonl").write_text(nested)
-    assert login.usage_of(tmp_path / "home") is None
-    assert login.note_usage(tmp_path / "plan", tmp_path / "home") is None and not (tmp_path / "plan").exists()
-
-
-def test_a_rate_limits_event_whose_strings_hold_a_unicode_line_separator_is_still_the_plans_usage(tmp_path):
-    """usage_of reads a Codex session's log one event per line: U+0085, U+2028 and U+2029, which Codex's serde_json
-    leaves unescaped in an event's strings, end no line, so such an event is still the plan's usage."""
-    logs = tmp_path / "home" / "sessions" / "2026"
-    logs.mkdir(parents=True)
-    for separator in ("\u0085", "\u2028", "\u2029"):
-        event = {"timestamp": "2026-11-02T00:00:00Z", "type": "event_msg",
-                 "payload": {"type": "token_count", "rate_limits": {"primary": {"used_percent": 12},
-                                                                    "limit_name": f"a{separator}b"}}}
-        (logs / "s.jsonl").write_text(json.dumps(event, ensure_ascii=False) + "\n", encoding="utf-8")
-        assert login.usage_of(tmp_path / "home")["primary"]["used_percent"] == 12, repr(separator)
-
-
-def test_a_plan_report_holding_a_time_past_a_floats_range_holds_nothing_and_is_replaced(tmp_path):
-    """plan.json is in a directory the sessions can write: a held_until past a float's range (an integer JSON reads
-    whole) is no hold in force, so a session's report replaces it and a refusal's hold is written over it; neither is
-    an error (an OverflowError at a Codex session's end would skip the removal of the home's copy of the login)."""
-    plan = tmp_path / "plan"
-    plan.mkdir()
-    huge = '{"time": "2026-11-01T00:00:00Z", "rate_limit_reached_type": "primary", "held_until": 1' + "0" * 400 + "}\n"
-    (plan / "plan.json").write_text(huge)
-    seen = {"time": "2026-11-02T00:00:00Z", "primary": {"used_percent": 12}}
-    assert login.note_usage(plan, None, seen) == seen
-    assert json.loads((plan / "plan.json").read_text())["primary"]["used_percent"] == 12
-    (plan / "plan.json").write_text(huge)
-    login.hold(plan, until=10 ** 400, max_s=0.0)
-    report = json.loads((plan / "plan.json").read_text())
-    assert time.time() < report["held_until"] <= time.time() + 3600 + 5         # an hour's hold, not the huge time
-
-
-def test_a_claude_usage_window_whose_utilization_is_past_a_floats_range_is_skipped_and_the_others_kept():
-    """A Claude Code stream's rate_limit_event can give a window's utilization as an integer past a float's range
-    (JSON reads it whole): that window says nothing usable of its use and is skipped, as one without a utilization is,
-    the other windows kept; never an OverflowError, which at the session's end would lose its result."""
-    line = ('{"type": "rate_limit_event", "rate_limit_info": {"status": "allowed", "unifiedWindows": {'
-            '"five_hour": {"utilization": 1' + "0" * 400 + ', "resetsAt": 4102444800}, '
-            '"seven_day": {"utilization": 0.25, "resetsAt": 4102444900}}}}')
-    report = login.claude_report([json.loads(line)])
-    assert report["windows"] == {"seven_day": {"used_percent": 25.0, "resets_at": 4102444900}}
-    assert report["status"] == "allowed" and report["using_credits"] is False
-
-
-def test_a_login_or_a_plan_report_nested_past_the_parsers_depth_is_no_login_and_no_report(tmp_path):
-    """A session can write its home and the plan's directory: a login file it leaves there (auth.json) or a plan report
-    (plan.json) nested past the JSON parser's depth is no login and no report, as one that does not parse is: the
-    shared copy is left as it was, the plan holds no session for it, and a session's report or a refusal's hold
-    replaces it; never an error (one at the session's end, beside the plan's report, would skip the removal of the
-    home's copy of the login)."""
-    nested = "[" * 100_000 + "]" * 100_000
-    master = login.master(tmp_path / "root")
-    master.parent.mkdir(parents=True)
-    master.write_text(json.dumps({"last_refresh": "2026-10-01T00:00:00Z"}))
-    (tmp_path / "home").mkdir()
-    (tmp_path / "home" / login.FILE).write_text('{"last_refresh": ' + nested + "}\n")
-    login.keep_refreshed(tmp_path / "root", tmp_path / "home")
-    assert json.loads(master.read_text())["last_refresh"] == "2026-10-01T00:00:00Z"
-    plan = tmp_path / "plan"
-    plan.mkdir()
-    (plan / "plan.json").write_text('{"primary": ' + nested + "}\n")
-    assert login.held(plan) == ""
-    seen = {"time": "2026-11-02T00:00:00Z", "primary": {"used_percent": 12}}
-    assert login.note_usage(plan, None, seen) == seen
-    assert json.loads((plan / "plan.json").read_text())["primary"]["used_percent"] == 12
-    (plan / "plan.json").write_text('{"primary": ' + nested + "}\n")
-    login.hold(plan)
-    assert "refused" in login.held(plan)
-
-
-def test_a_shared_login_nested_past_the_parsers_depth_names_no_account_and_a_later_refresh_replaces_it(tmp_path):
-    """A session on the host (isolation: none) can write the shared copy of the login: one nested past the JSON
-    parser's depth is no login and names no account, as one that does not parse, so a session's later refresh replaces
-    it; never an error (one at the session's end would skip the plan's report and the removal of the home's copy of the
-    login)."""
-    master = login.master(tmp_path / "root")
-    master.parent.mkdir(parents=True)
-    master.write_text('{"last_refresh": "2026-10-01T00:00:00Z", "tokens": ' + "[" * 100_000 + "]" * 100_000 + "}\n")
-    (tmp_path / "home").mkdir()
-    (tmp_path / "home" / login.FILE).write_text(sign_in("2026-10-30T12:00:00Z", "mine"))
-    login.keep_refreshed(tmp_path / "root", tmp_path / "home")
-    assert json.loads(master.read_text())["tokens"]["account_id"] == "mine"
-
-
-def _past_the_encoder() -> int:
-    """A nesting depth the JSON parser reads and json.dumps with an indent (how plan.json is written) cannot write:
-    Python 3.12's encoder with an indent is pure Python (about 1000 levels) and its parser reads about 10000; 0 on a
-    Python whose encoder writes as deep as its parser reads (3.13's C encoder takes an indent)."""
-    for depth in (2000, 5000, 9000):
-        try:
-            value = json.loads("[" * depth + "]" * depth)
-        except RecursionError:
-            return 0
-        try:
-            json.dumps(value, indent=1)
-        except RecursionError:
-            return depth
-    return 0
-
-
-def test_a_plan_report_nested_too_deep_to_write_back_is_skipped_and_a_hold_over_one_waits_instead(tmp_path):
-    """Where the JSON parser reads deeper than plan.json is written (_past_the_encoder): a session's report of the plan
-    nested in between (one read from a Claude Code stream) is skipped, and a refusal's hold over a plan.json nested so
-    (the plan's directory is shared with the sessions) waits as for a hold that cannot be written; neither is an error,
-    which would lose the session's result, and no temporary file is left behind."""
-    depth = _past_the_encoder()
-    if not depth:
-        pytest.skip("this Python's json.dumps writes, with an indent, as deep as json.loads reads")
-    nested = "[" * depth + "]" * depth
-    plan = tmp_path / "plan"
-    seen = login.claude_report([{"type": "rate_limit_event", "rate_limit_info": {
-        "status": json.loads(nested), "unifiedWindows": {"five_hour": {"utilization": 0.12, "resetsAt": 4102444800}}}}])
-    assert login.note_usage(plan, None, seen) is None and not (plan / "plan.json").exists()
-    assert json.loads((plan / "plan.jsonl").read_text())["used_percent"] == 12      # the usage is still recorded
-    (plan / "plan.json").write_text('{"primary": ' + nested + "}\n")
-    waited = []
-    login.hold(plan, max_s=5.0, cancel=SimpleNamespace(wait=waited.append))
-    assert waited == [5.0]                                          # it waits rather than ask again at once
-    assert (plan / "plan.json").read_text() == '{"primary": ' + nested + "}\n" and not list(plan.glob("plan.*.tmp"))
-
-
-def test_a_codex_sessions_plan_report_too_deep_to_write_back_is_skipped_and_its_login_still_removed(fake, monkeypatch):
-    """A Codex session's log (in a home its commands can write) can report the plan's usage nested deeper than plan.json
-    is written and within what the parser reads (_past_the_encoder): the report is skipped at the session's end, never
-    an error there, which would skip the removal of the home's copy of the login and lose the session's answer."""
-    depth = _past_the_encoder()
-    if not depth:
-        pytest.skip("this Python's json.dumps writes, with an indent, as deep as json.loads reads")
-    tmp_path = fake
-    line = ('{"timestamp": "2026-11-02T00:00:00Z", "payload": {"rate_limits": {"primary": {"used_percent": 12}, '
-            '"extra": ' + "[" * depth + "]" * depth + "}}}\n")
-    (tmp_path / "bin" / "codex").write_text(FAKE_CODEX.replace(
-        "for e in json.loads(", "(home / 'sessions' / '2026').mkdir(parents=True, exist_ok=True)\n"
-        f"(home / 'sessions' / '2026' / 's.jsonl').write_text({line!r})\nfor e in json.loads(", 1))
-    user = tmp_path / "user-codex"
-    user.mkdir()
-    (user / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt", "last_refresh": "2026-10-01T00:00:00Z"}))
-    monkeypatch.setenv("CODEX_HOME", str(user))
-    plan = tmp_path / "plan"
-    params = {"web_search": False, "prompt": "go", "workspaces": "ws", "login": "chatgpt", "model": "gpt-6-luna",
-              "plan_dir": str(plan)}
-    out = cli.run({"id": "q1"}, None, params=params, base=tmp_path)
-    home = Path(out.extra["workspace"]).parent / "home"
-    assert out.output.endswith("<answer>44,463</answer>") and (home / "sessions" / "2026" / "s.jsonl").is_file()
-    assert not (home / "auth.json").exists()                                  # the login does not outlive the run
-    assert json.loads((plan / "plan.jsonl").read_text())["used_percent"] == 12      # the usage is still recorded
-    assert not (plan / "plan.json").exists() and not list(plan.glob("plan.*.tmp"))
 
 
 def test_a_cli_answers_chat_requests_for_code_that_calls_a_chat_api(fake):
@@ -1192,7 +894,7 @@ def test_take_back_reads_no_login_through_a_linked_directory(tmp_path):
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    (elsewhere / "auth.json").write_text(sign_in(now, who="else"))
+    (elsewhere / "auth.json").write_text(json.dumps({"last_refresh": now, "who": "else"}))
     work = tmp_path / "work"
     (work / "workspaces").mkdir(parents=True)
     (work / "workspaces" / "login").symlink_to(elsewhere)
@@ -1200,32 +902,9 @@ def test_take_back_reads_no_login_through_a_linked_directory(tmp_path):
     assert "else" not in master.read_text()
     (work / "workspaces" / "login").unlink()
     (work / "workspaces" / "login").mkdir()
-    (work / "workspaces" / "login" / "auth.json").write_text(sign_in(now, who="refreshed"))
+    (work / "workspaces" / "login" / "auth.json").write_text(json.dumps({"last_refresh": now, "who": "refreshed"}))
     L.take_back(root, work / "workspaces" / "login" / "auth.json", within=work)
     assert "refreshed" in master.read_text()                          # a real refresh is still taken back
-
-
-def test_a_copy_stamped_ahead_of_this_clock_keeps_out_an_earlier_file_a_session_hands_back(tmp_path):
-    """The shared copy may be stamped ahead of this machine's clock (taken from the user's own file, or a session on
-    another machine's clock, at most OTHER_CLOCK ahead): a local session's file stamped before it is no later refresh
-    and never replaces it, though the copy's stamp is past the session's own skew."""
-    from datetime import datetime, timedelta, timezone
-    from hermit.agent.base import login as L
-    root = tmp_path / "root"
-    (root / "login").mkdir(parents=True)
-    master = root / "login" / "auth.json"
-    stamp = lambda delta: (datetime.now(timezone.utc) + delta).strftime("%Y-%m-%dT%H:%M:%SZ")
-    master.write_text(sign_in(stamp(timedelta(minutes=30)), "mine"))           # 30 min ahead: past SKEW
-    home = tmp_path / "home"
-    home.mkdir()
-    for older in (timedelta(0), timedelta(hours=-3)):
-        (home / "auth.json").write_text(sign_in(stamp(older), "mine", n=2))
-        L.take_back(root, home / "auth.json", within=home, skew=L.SKEW)
-        assert '"n": 2' not in master.read_text()
-    master.write_text(sign_in(stamp(timedelta(seconds=-30)), "mine"))          # a copy behind the session's file
-    (home / "auth.json").write_text(sign_in(stamp(timedelta(0)), "mine", n=3))
-    L.take_back(root, home / "auth.json", within=home, skew=L.SKEW)
-    assert '"n": 3' in master.read_text()
 
 
 def test_take_back_keeps_the_shared_login_to_its_account(tmp_path):
@@ -1239,67 +918,16 @@ def test_take_back_keeps_the_shared_login_to_its_account(tmp_path):
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     home = tmp_path / "home"
     home.mkdir()
-    (home / "auth.json").write_text(sign_in(now, "theirs"))
+    (home / "auth.json").write_text(json.dumps({"last_refresh": now, "tokens": {"account_id": "theirs"}}))
     L.take_back(root, home / "auth.json", within=home)
     assert "theirs" not in master.read_text()
-    (home / "auth.json").write_text(sign_in(now, "mine", n=2))
+    (home / "auth.json").write_text(json.dumps({"last_refresh": now, "tokens": {"account_id": "mine"}, "n": 2}))
     L.take_back(root, home / "auth.json", within=home)
     assert '"n": 2' in master.read_text()                             # the same account's refresh is taken back
     master.write_text(json.dumps({"last_refresh": "2026-01-01T00:00:00Z"}))   # a copy that names no account
-    (home / "auth.json").write_text(sign_in(now, "mine", n=3))
+    (home / "auth.json").write_text(json.dumps({"last_refresh": now, "tokens": {"account_id": "mine"}, "n": 3}))
     L.take_back(root, home / "auth.json", within=home)
     assert '"n": 3' in master.read_text()
-
-
-def test_a_file_a_session_hands_back_replaces_the_copy_only_as_a_well_formed_later_refresh_within_the_clocks_skew(
-        tmp_path):
-    """A session can write the login file it hands back (in a Harbor trial's container its commands run as the file's
-    owner, with no Codex sandbox, and read the account from the same file): the shared copy takes only a ChatGPT
-    sign-in of its account with a refresh and an access token, of at most MAX_BYTES (one larger is not read), never
-    through a link, stamped after the copy and at most SKEW ahead of this machine's clock (OTHER_CLOCK for a session
-    on another machine's: a cloud sandbox's). Each refused file below replaced the copy before: one without its
-    refresh token left every session after it signed out until the user signed in again."""
-    from datetime import datetime, timedelta, timezone
-
-    def at(delta: timedelta) -> str:
-        return (datetime.now(timezone.utc) + delta).isoformat()
-    root, home = tmp_path / "root", tmp_path / "home"
-    master = login.master(root)
-    master.parent.mkdir(parents=True)
-    copy = sign_in(at(-timedelta(days=3)), "acct-1")
-    master.write_text(copy)
-    home.mkdir()
-    refresh = json.loads(sign_in(at(-timedelta(seconds=5)), "acct-1"))
-    refresh["tokens"]["refresh_token"] = "rt-rotated-stand-in"
-    tokens = refresh["tokens"]
-    refused = {"no refresh token": {**refresh, "tokens": {k: v for k, v in tokens.items() if k != "refresh_token"}},
-               "an empty access token": {**refresh, "tokens": {**tokens, "access_token": ""}},
-               "a refresh token that is no text": {**refresh, "tokens": {**tokens, "refresh_token": 7}},
-               "too large": {**refresh, "pad": "x" * login.MAX_BYTES},
-               "ahead of the clock": json.loads(sign_in(at(timedelta(minutes=5)), "acct-1")),
-               "older than the copy": json.loads(sign_in(at(-timedelta(days=4)), "acct-1")),
-               "another account's": json.loads(sign_in(at(-timedelta(seconds=5)), "acct-2"))}
-    for why, content in refused.items():
-        (home / login.FILE).write_text(json.dumps(content))
-        login.keep_refreshed(root, home)
-        assert master.read_text() == copy, why
-    elsewhere = tmp_path / "elsewhere.json"                                # a link to a refresh: never read
-    elsewhere.write_text(json.dumps(refresh))
-    (home / login.FILE).unlink()
-    (home / login.FILE).symlink_to(elsewhere)
-    login.keep_refreshed(root, home)
-    assert master.read_text() == copy
-    (home / login.FILE).unlink()
-    (home / login.FILE).write_text(sign_in(at(timedelta(hours=2)), "acct-1"))
-    login.keep_refreshed(root, home, skew=login.OTHER_CLOCK)             # another clock: an hour ahead, no more
-    assert master.read_text() == copy
-    (home / login.FILE).write_text(json.dumps(refresh))
-    login.keep_refreshed(root, home)
-    assert json.loads(master.read_text()) == refresh                       # a refresh: taken
-    ahead = sign_in(at(timedelta(minutes=30)), "acct-1")
-    (home / login.FILE).write_text(ahead)
-    login.keep_refreshed(root, home, skew=login.OTHER_CLOCK)
-    assert master.read_text() == ahead
 
 
 def test_no_link_on_the_way_to_a_sessions_output_is_followed(tmp_path):
@@ -1339,7 +967,7 @@ def test_a_ledger_the_session_rewrote_is_no_earlier_total(tmp_path):
     reported = Usage("m", input_tokens=1000, cached_input_tokens=0, output_tokens=50, calls=1)
     (tmp_path / "usage").mkdir()
     for text in ("not json", json.dumps({"input_tokens": 10 ** 9, "output_tokens": 10 ** 9}), json.dumps([1]),
-                 '{"input_tokens": 1e1000}', '{"input_tokens": ' + "[" * 100_000 + "]" * 100_000 + "}"):
+                 '{"input_tokens": 1e1000}'):
         (tmp_path / "usage" / "th1.json").write_text(text)
         u = _this_call(tmp_path, "th1", reported, resumed=True)
         assert (u.input_tokens, u.output_tokens) == (1000, 50)

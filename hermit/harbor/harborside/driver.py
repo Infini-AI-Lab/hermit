@@ -11,14 +11,16 @@ multipliers: TRIAL_FIELDS), which the stream's trial takes as a job's trials do;
 Harbor's own `MultiStepTrial` runs every step of a task in one go. This subclass keeps its lifecycle (the
 environment, the agent's install, each step's setup, agent phase, verifier and archive, the trial's result at the
 end) and hands the step loop to whoever connects to the socket: a request names the next step (and the launch plan
-Hermit rendered for it, which the agent takes before the step: `set_plan`), the driver runs it and answers with the
-step's result; `stop` ends the trial (the aggregate reward, the environment down). Between
+Hermit rendered for it, which the agent takes before the step: `set_plan`, and the hosts the step's agent phase lets
+the agent reach: the trial's agent config's extra_allowed_hosts, which Harbor reads for each step's network plan), the
+driver runs it and answers with the step's result; `stop` ends the trial (the aggregate reward, the environment down). Between
 requests the environment waits; after `--idle-s` without one it stops by itself. Steps run in order; a request for
 another step is refused with the index the driver is at, so concurrent rollouts of one stream queue up outside, and
 one for a step the task has not gets an error reply. A step whose launch plan the agent cannot take fails as
 HermitLaunchError (infra on Hermit's side).
 
-The driver writes `driver.json` (pid, socket, trial dir) in the stream directory once it listens and logs to its
+The driver writes `driver.json` (pid, socket, trial name and dir, the task's step names) in the stream directory
+once it listens and logs to its
 stderr (the client sends that to driver.log); Harbor's trial log, each step's agent/ and verifier/ and the final
 result.json are under the trial directory. Each step's result is also kept as `replies/<index>.json`, for a client
 that asked, lost the connection and asks again (`result`). A step whose result cannot be kept (a full disk: its reply's
@@ -153,10 +155,19 @@ class StepDriverTrial(MultiStepTrial):
             self._resolve(future, reply)
 
     def _apply(self, command: dict) -> None:
-        """What a step changes on the agent: the launch plan Hermit rendered for it (its deployment, the CLI's home,
-        the command), given as the request's `plan` or in its agent kwargs (the stream client sends the step's). A
-        step that gives none runs with the plan the agent already has; one the agent cannot use fails the step as
-        HermitLaunchError (infra on Hermit's side, not the agent's 0)."""
+        """What a step changes on the agent: the hosts its agent phase lets the agent reach (the request's
+        `allowed_hosts`, the step's own: Harbor's extra_allowed_hosts, read for each step's network plan, none for a
+        step whose agent phase is public; a request that names none leaves them as they are), and the launch plan
+        Hermit rendered for it (its deployment, the CLI's home, the command), given as the request's `plan` or in its
+        agent kwargs (the stream client sends the step's). A step that gives no plan runs with the one the agent
+        already has; hosts or a plan the agent cannot use fail the step as HermitLaunchError (infra on Hermit's side,
+        not the agent's 0)."""
+        if "allowed_hosts" in command:
+            from harbor.models.task.config import normalize_allowed_hosts
+            try:
+                self.config.agent.extra_allowed_hosts = normalize_allowed_hosts(list(command["allowed_hosts"] or []))
+            except (ValueError, TypeError) as exc:
+                raise HermitLaunchError(f"the step's allowed hosts: {exc}") from exc
         plan = command.get("plan") or (command.get("agent_kwargs") or {}).get("plan")
         if not plan:
             log(f"step {command['name']} gives no launch plan: it runs with the agent's current one")
@@ -255,6 +266,7 @@ async def serve(args) -> int:
     sock.unlink(missing_ok=True)
     server = await asyncio.start_unix_server(on_connect, path=str(sock))
     (stream_dir / "driver.json").write_text(json.dumps({"pid": os.getpid(), "socket": str(sock), "name": args.name,
+                                                        "steps": [s.name for s in trial.task.config.steps or []],
                                                         "trial_dir": str(trial.paths.trial_dir),
                                                         "started": time.strftime("%Y-%m-%dT%H:%M:%S")}) + "\n")
     log(f"listening on {sock}; trial {trial.paths.trial_dir}")

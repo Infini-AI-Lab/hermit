@@ -12,28 +12,22 @@ text when every attempt failed. Here the same three phases run on Hermit's learn
    the Codex agent's `pipeline_extra.timed_out`, is a timeout; infra and agent errors are exceptions that carry
    nothing to analyze). A task of exceptions only is skipped unless one of them is a timeout; `mode` is `debug` when
    any trial failed or timed out, else `summary`; jobs are sorted debug-first, most failures first, and cut at
-   `max_tasks`. A trial without a trajectory under the record's `trajectory` directory is left out; a trial keeps
-   the record's `input.instruction`.
+   `max_tasks`. A trial without a trajectory under the record's `trajectory` directory is left out.
 2. `prepare_job_dir(job, scratch, params)` — `scratch/debugger/<task>/`: per trial `trace0i.events.jsonl` (the Codex
    event stream, `agent-codex.jsonl`) with the optional per-step explode `trace0i/NNNN-<kind>.md` of its standard
    steps (hermit.agent.base.trajectory), `prompt0i.txt` and `task0i.md` (the prompt and the task file the log
-   carries; for a log with neither, a Harbor trial's, `task0i.md` is the record's instruction, which the prompt
-   begins with), `hooks0i.jsonl` (the hook audit), `verifier_0i.txt` (the verdict's feedback) for non-passing trials,
+   carries), `hooks0i.jsonl` (the hook audit), `verifier_0i.txt` (the verdict's feedback) for non-passing trials,
    and `question.md` = DEBUGGER.md's rules + the file list + upstream's query (`queries.debugger_query`,
-   byte-for-byte) + where to write the answer. A Harbor trial gives its acting CLI's stream as the HermitXXX that
-   ran it wrote it (`agent/agent-<backend>.jsonl`, any CLI's, exploded as the record's own), else, a trial recorded
-   before that or one of Harbor's own agents, `trace0i.json` (its ATIF trajectory, exploded as
-   `trace0i/NNNN-<source>.md`) or Harbor's output of the CLI (`agent/codex.txt`, `agent/claude-code.txt`) instead
-   (LOG_FILES: the record's own files first, a Harbor trial's as the fallback). The middleware's per-session state
-   (`hook-state/` in the log) is not
+   byte-for-byte) + where to write the answer. A trial Harbor recorded gives `trace0i.json` (its ATIF trajectory,
+   exploded as `trace0i/NNNN-<source>.md`) or its `agent/codex.txt` instead (LOG_FILES: the record's own files
+   first, a Harbor trial's as the fallback). The middleware's per-session state (`hook-state/` in the log) is not
    copied: upstream's Debugger read the traces and the verifier output alone, and the Evolve Agent reads the state
    in the learning material, where START.md and the evolution query name it.
 3. `run_jobs(jobs, ctx, params, base=...)` — each attempt is one call of the Evolver's CLI Base Agent (Layer 2,
    hermit.agent.base): `make(backend, settings).run(question, workspace=job_dir)`, with the Evolve Agent's settings
    (`base`: the run's sandbox as the isolation and Codex's own sandbox off, the login and its plan, web search, the
-   price) and the Debugger's own model, effort, program and clock, the clock the Base Agent's `timeout_s`, which starts
-   once the CLI runs (a wait for the login's plan or a session slot pauses the attempt instead of spending it, where
-   upstream's subprocess timeout had neither to wait for), and the Trainer's cancel stopping the call; the question
+   price) and the Debugger's own model, effort, program and clock, the clock a deadline over the whole attempt (a wait
+   for the login's plan included, as upstream's subprocess timeout) that the Trainer's cancel also sets; the question
    on stdin, a home per job (`scratch/debugger-homes/<task>/`: a call rewrites its home's config and last message)
    and a stream per attempt (`output/debugger/<task>.<attempt>.jsonl`). The first job runs alone (warm-up), the rest
    under `ThreadPoolExecutor(concurrency)`. The answer is the `answer.md` the agent wrote, else its last message (the
@@ -57,8 +51,7 @@ import threading
 import time
 
 from hermit.agent.base.interface import LoginFailed, Unsupported, make
-from hermit.agent.base.trajectory import (ATIF_FILES, CODEX_STREAM, HARBOR_STREAMS as TRIAL_STREAMS, OTHER_STREAMS,
-                                          STREAMS, log_steps)
+from hermit.agent.base.trajectory import CODEX_STREAM, STREAMS, log_steps
 from hermit.agent.evolver.base import Usage
 from hermit.agent.evolver.methods.ahe_adapter import trajectory as _trajectory
 from hermit.agent.evolver.methods.ahe_adapter.analysis import task_file_name, task_name_of
@@ -74,14 +67,9 @@ SECTIONS = {("debug", False): ["ROOT CAUSE", "PASS vs FAIL", "CRITICAL MISTAKE",
             ("summary", False): ["KEY STRATEGY", "REUSABLE PATTERN", "FRAGILITY RISK"],
             ("summary", True): ["KEY STRATEGY", "SUCCESS FACTORS", "REUSABLE PATTERN"]}
 # Where a rollout's log (the record's `trajectory` directory) keeps each thing: the framework's Codex agent writes the
-# first name of each (the task's collect adds `task.md` and the hook audit), a trial Harbor recorded the others. The
-# acting CLI's own stream is Hermit's (`stream`: at the log's top, or under a Harbor trial's agent/ as a HermitXXX
-# wrote it); `harbor_stream` is Harbor's output of the CLI, which a trial recorded before that keeps (under its agent/,
-# or at the top of a log that is that agent/ itself). The streams and the ATIF trajectory are where
-# hermit.agent.base.trajectory reads them.
-LOG_FILES = {"stream": (*STREAMS, *TRIAL_STREAMS),
-             "atif": ATIF_FILES,
-             "harbor_stream": tuple(name for name in OTHER_STREAMS if name not in TRIAL_STREAMS),
+# first name of each (the task's collect adds `task.md` and the hook audit), a trial Harbor recorded the others.
+LOG_FILES = {"atif": ("agent/trajectory.json", "trajectory.json"),
+             "harbor_stream": ("agent/codex.txt", "codex.txt"),
              "hooks": ("hook-calls.jsonl", "agent/hook-calls.jsonl"),
              "verifier": ("verifier/test-stdout.txt", "test-stdout.txt"),
              "prompt": ("prompt.txt",), "task": ("task.md",)}
@@ -109,7 +97,6 @@ class Trial:
     reward: float                     # upstream's convention: >= 1 pass, < 0 timeout, else fail
     log: Path | None                  # the trial's log directory in the learning material
     verifier_output: str = ""         # the tail of the verdict's feedback (empty when not collected)
-    instruction: str = ""             # the record's input.instruction (a Harbor row's: its log keeps no prompt)
 
 
 @dataclass
@@ -173,13 +160,14 @@ def log_file(log: Path | None, kind: str) -> Path | None:
 
 def trace_source(log: Path | None) -> tuple[Path, str] | None:
     """The trial's trajectory and the suffix it gets in the job dir: the CLI's event stream the framework's agent
-    keeps at the log's root (`agent-codex.jsonl`, which hermit.agent.base.trajectory reads), else under a Harbor
-    trial's agent/ (`agent/agent-<backend>.jsonl`) -> `events.jsonl`; else a Harbor trial's `agent/trajectory.json` ->
-    `json`, else Harbor's output of the CLI (`agent/codex.txt`, `agent/claude-code.txt`, or `codex.txt`,
-    `claude-code.txt` in a log that is that agent/ itself) -> `events.jsonl`; None when the trial carries none."""
-    stream = log_file(log, "stream")
-    if stream is not None:
-        return stream, "events.jsonl"
+    keeps at the log's root (`agent-codex.jsonl`, which hermit.agent.base.trajectory reads) -> `events.jsonl`; else a
+    Harbor trial's `agent/trajectory.json` -> `json`, else its `agent/codex.txt` -> `events.jsonl`; None when the
+    trial carries none."""
+    if log is None:
+        return None
+    for name in STREAMS:
+        if (log / name).is_file():
+            return log / name, "events.jsonl"
     atif = log_file(log, "atif")
     if atif is not None:
         return atif, "json"
@@ -189,82 +177,42 @@ def trace_source(log: Path | None) -> tuple[Path, str] | None:
 
 # The texts the learners read name the acting agent's event stream as the framework's Codex agent keeps it; with
 # another acting agent the same sentences name its own (the Debugger and the Evolve Agent run on the Evolver's CLI).
-# Each CLI's stream as the texts name it: (its name in a sentence, the command that writes it).
-STREAM_NAMES = {CODEX_STREAM: ("Codex", "codex exec --json"),
-                "agent-claude.jsonl": ("Claude Code", "claude -p --output-format stream-json"),
-                "agent-pi.jsonl": ("Pi", "pi --mode json"),
-                "agent-mini-swe-agent.jsonl": ("mini-swe-agent", "python -m hermit.agent.base.mini_swe_agent_run"),
-                "agent-opencode.jsonl": ("OpenCode", "opencode run --format json"),
-                "agent-dsh.jsonl": ("DeepSeek Harness", "dsh --profile headless --json")}
-
-
-def _stream_words(stream: str, label: str, command: str) -> tuple:
-    """The replacements that make a text written for Codex's stream name `stream`, a `label` session's that `command`
-    writes."""
-    return (("agent-codex.jsonl", stream), ("the raw Codex event stream", f"the raw {label} event stream"),
-            ("the Codex event stream", f"the {label} event stream"),
-            ("`codex exec --json` event stream", f"`{command}` event stream"))
-
-
-# START.md's tree of a trial's log as the framework's agent keeps it, line by line
-TREE_PROMPT = ("│   │       ├── prompt.txt             ← The prompt the agent was given (task.md beside it: the task "
-               "file of its workspace)\n")
-TREE_LAST = "│   │       ├── last_message.txt       ← The agent's final message (the answer is read from it)\n"
-TREE_HOOKS = ("│   │       ├── hook-calls.jsonl       ← Every middleware call: event, decision, reason, errors (READ "
-              "after changing middleware)\n")
-TREE_STATE = "│   │       └── hook-state/            ← The middleware's final per-session state (<session_id>.json)\n"
-LAST_COLLECTED = ("agent-codex.jsonl", "agent-mini-swe-agent.jsonl")   # hermit.harbor.launch.COLLECT's CLIs
-
-
-def _trial_words(stream: str, label: str, command: str, atif: str = "", top: bool = False) -> tuple:
-    """The same for a Harbor trial's `stream`, whose log (hermit.harbor.curate) keeps the hook audit under agent/
-    beside it, the CLI's last message (Codex's, mini-swe-agent's) under agent/hermit-collect/, which no answer is read
-    from (the trial's reward is the verifier's), the verifier's output under verifier/, and no prompt file: the task's
-    instruction is the record's input (`atif`: what the sentence says of the trial's ATIF steps, for a trial that has
-    them). `top`: the log is that agent/ itself, what it holds (the hook audit, the last message) at the log's top and
-    no verifier's output in it."""
-    under = "" if top else "agent/"                      # where the log keeps what the trial's agent/ holds
-    last = (TREE_LAST.replace("├── last_message.txt       ", f"├── {under}hermit-collect/last_message.txt ")
-            .replace(" (the answer is read from it)", "") if Path(stream).name in LAST_COLLECTED else "")
-    beside = ("`hook-calls.jsonl` and `hook-state/`" if top
-              else "`agent/hook-calls.jsonl`, `agent/hook-state/` and the verifier's `verifier/test-stdout.txt`")
-    hooks = () if top else (                             # the hook audit and its state under agent/
-        ("`hook-calls.jsonl`", "`agent/hook-calls.jsonl`"),          # wherever else a text names the hook audit
-        (TREE_HOOKS, TREE_HOOKS.replace("├── hook-calls.jsonl       ", "├── agent/hook-calls.jsonl ")),
-        (TREE_STATE, TREE_STATE.replace("└── hook-state/            ", "└── agent/hook-state/      ")))
-    return (("the Codex event stream, with `prompt.txt`, `hook-calls.jsonl` and `hook-state/` beside it",
-             f"the {label} event stream{atif}, with {beside} beside it; the task's instruction is the record's "
-             "`input.instruction`"),
-            (TREE_PROMPT, ""), (TREE_LAST, last), *hooks, *_stream_words(stream, label, command))
-
-
-STREAM_TEXTS = {**{name: _stream_words(name, *words) for name, words in STREAM_NAMES.items() if name != CODEX_STREAM},
-                # Hermes Agent's stream, which hermit's plugin writes (no command of its own)
+STREAM_TEXTS = {"agent-pi.jsonl": (("agent-codex.jsonl", "agent-pi.jsonl"),
+                                   ("the raw Codex event stream", "the raw Pi event stream"),
+                                   ("the Codex event stream", "the Pi event stream"),
+                                   ("`codex exec --json` event stream", "`pi --mode json` event stream")),
+                "agent-mini-swe-agent.jsonl": (("agent-codex.jsonl", "agent-mini-swe-agent.jsonl"),
+                                               ("the raw Codex event stream", "the raw mini-swe-agent event stream"),
+                                               ("the Codex event stream", "the mini-swe-agent event stream"),
+                                               ("`codex exec --json` event stream",
+                                                "`python -m hermit.agent.base.mini_swe_agent_run` event stream")),
+                "agent-claude.jsonl": (("agent-codex.jsonl", "agent-claude.jsonl"),
+                                       ("the raw Codex event stream", "the raw Claude Code event stream"),
+                                       ("the Codex event stream", "the Claude Code event stream"),
+                                       ("`codex exec --json` event stream",
+                                        "`claude -p --output-format stream-json` event stream")),
+                "agent-opencode.jsonl": (("agent-codex.jsonl", "agent-opencode.jsonl"),
+                                         ("the raw Codex event stream", "the raw OpenCode event stream"),
+                                         ("the Codex event stream", "the OpenCode event stream"),
+                                         ("`codex exec --json` event stream",
+                                          "`opencode run --format json` event stream")),
+                "agent-dsh.jsonl": (("agent-codex.jsonl", "agent-dsh.jsonl"),
+                                    ("the raw Codex event stream", "the raw DeepSeek Harness event stream"),
+                                    ("the Codex event stream", "the DeepSeek Harness event stream"),
+                                    ("`codex exec --json` event stream",
+                                     "`dsh --profile headless --json` event stream")),
                 "agent-hermes.jsonl": (("agent-codex.jsonl", "agent-hermes.jsonl"),
                                        ("the raw Codex event stream", "the raw Hermes Agent event stream"),
                                        ("the Codex event stream", "the Hermes Agent event stream"),
                                        ("`codex exec --json` event stream",
-                                        "Hermes Agent event stream (hermit's plugin)")),
-                # a Harbor trial of a HermitXXX: the CLI's stream as Hermit names it, under the trial's agent/
-                **{f"agent/{name}": _trial_words(f"agent/{name}", *words) for name, words in STREAM_NAMES.items()},
-                # a Harbor trial of Claude Code recorded before that (HermitClaude's agent/claude-code.txt), with its
-                # ATIF steps
-                "agent/claude-code.txt": _trial_words("agent/claude-code.txt", *STREAM_NAMES["agent-claude.jsonl"],
-                                                      atif=" (`agent/trajectory.json` holds its steps in ATIF)"),
-                # the same at the top of a log that is such a trial's agent/ itself (its hook audit and ATIF steps at
-                # its top too)
-                "claude-code.txt": _trial_words("claude-code.txt", *STREAM_NAMES["agent-claude.jsonl"],
-                                                atif=" (`trajectory.json` holds its steps in ATIF)", top=True)}
-# a Harbor trial's streams the texts can name, under its agent/ or at the top of a log that is that agent/ itself
-# (Harbor's own Codex output, agent/codex.txt or codex.txt: the texts' own, unchanged)
-HARBOR_STREAMS = (*TRIAL_STREAMS, "agent/claude-code.txt", "claude-code.txt")
+                                        "Hermes Agent event stream (hermit's plugin)"))}
 
 
 def stream_of(logs) -> str:
     """The event stream file the rollouts' logs carry (hermit.agent.base.trajectory.STREAMS): the first one found,
     else Codex's."""
     for log in logs:
-        for name in (*STREAMS, *HARBOR_STREAMS):
+        for name in STREAMS:
             if log is not None and (Path(log) / name).is_file():
                 return name
     return CODEX_STREAM
@@ -334,11 +282,8 @@ def build_jobs(records: list[dict], params: dict, base: Path | None = None) -> l
                 continue
             reward = -1.0 if verdict == "timeout" else (1.0 if verdict == "pass"
                                                        else float((record.get("judge") or {}).get("score") or 0.0))
-            given = record.get("input")
-            instruction = given.get("instruction") if isinstance(given, dict) else None
             job.trials.append(Trial(id=str(record.get("id", task)), verdict=verdict, reward=reward, log=log,
-                                    verifier_output=verifier_tail(record, log, limit) if collect else "",
-                                    instruction=instruction if isinstance(instruction, str) else ""))
+                                    verifier_output=verifier_tail(record, log, limit) if collect else ""))
             if verdict == "pass":
                 job.n_pass += 1
             elif verdict == "timeout":
@@ -418,10 +363,6 @@ def prepare_job_dir(job: Job, scratch: Path, params: dict | None = None, texts=N
             if path is not None:
                 shutil.copy2(path, job_dir / name)
                 files.append(name)
-            elif kind == "task" and trial.instruction.strip() and log_file(trial.log, "prompt") is None:
-                # a Harbor trial: its log keeps no prompt, nor its CLI's stream: the prompt began with the instruction
-                (job_dir / name).write_text(trial.instruction.strip() + "\n", encoding="utf-8")
-                files.append(name)
         if trial.reward < 1.0 and trial.verifier_output and params.get("verifier_output"):
             (job_dir / f"verifier_{i:02d}.txt").write_text(trial.verifier_output, encoding="utf-8")
             files.append(f"verifier_{i:02d}.txt")
@@ -443,14 +384,14 @@ def _last_line(text: str) -> str:
 
 class Deadline(threading.Event):
     """An event set by deadline_cancel's watcher, with `cause` recorded before it is set: "cancel" (the Trainer's
-    cancel, set while the watcher ran) or "deadline" (`seconds` ran out)."""
+    cancel) or "deadline" (the clock ran out). Read from the cause, not from the Trainer's event afterwards: the
+    Trainer may stop while a timed-out call is still tearing down."""
     cause: str | None = None
 
 
 def deadline_cancel(cancel, seconds: float | None) -> tuple[Deadline, threading.Event]:
-    """An event that is set when the Trainer's `cancel` is set or `seconds` have passed (None: no clock; a Debugger
-    attempt's clock is the Base Agent's own), for a process the Trainer's runner kills on it; and the event that
-    stops the watcher."""
+    """An event that is set when the Trainer's `cancel` is set or `seconds` have passed, for a process the Trainer's
+    runner kills on it; and the event that stops the watcher."""
     local, stop = Deadline(), threading.Event()
     end = time.monotonic() + float(seconds) if seconds else None
 
@@ -485,8 +426,7 @@ class Runner:
     def agent_settings(self, job: Job, job_dir: Path, attempt: int, timeout_s: float, cancel=None) -> dict:
         """The CLI Base Agent's settings for one attempt: the Evolve Agent's (the isolation, the login, web search,
         the price), the Debugger's model, effort, program and args (after a bound model's provider arguments), its
-        clock (`timeout_s` in place of the Evolve Agent's: the Base Agent's own, from the CLI's start), `cancel` (the
-        attempt's watcher of the Trainer's cancel; the Trainer's cancel when None), the question on stdin, the job's
+        clock, `cancel` (the attempt's deadline; the Trainer's cancel when None), the question on stdin, the job's
         own home and the attempt's own stream; the job directory writable."""
         p, name = self.params, task_file_name(job.task)
         args = list(p.get("args") or [])
@@ -510,12 +450,11 @@ class Runner:
         answer = job_dir / ANSWER
         answer.unlink(missing_ok=True)
         question = (job_dir / "question.md").read_text(encoding="utf-8")
-        # The attempt's clock is the Base Agent's own `timeout_s`, which starts once the CLI runs: a wait for the
-        # login's plan or a session slot pauses the attempt instead of spending it (upstream's subprocess timeout had
-        # neither to wait for). The watcher follows the Trainer's cancel alone and records whether it stopped the call.
-        watcher, stop = deadline_cancel(self.ctx.cancel, None)
+        # The attempt's clock covers the whole call, as upstream's subprocess timeout did: the Base Agent's own
+        # `timeout_s` starts only once the CLI runs, after any wait for the login's plan or a session slot.
+        deadline, stop = deadline_cancel(self.ctx.cancel, timeout_s)
         try:
-            result = make(self.backend, self.agent_settings(job, job_dir, attempt, timeout_s, watcher)).run(
+            result = make(self.backend, self.agent_settings(job, job_dir, attempt, timeout_s, deadline)).run(
                 question, workspace=job_dir)
         except Unsupported:
             raise                                                # the settings: every attempt would be refused alike
@@ -529,10 +468,10 @@ class Runner:
         tail = _last_line(extra.get("failure") or extra.get("output_tail", ""))
         if extra.get("login_failed"):
             raise LoginFailed(f"an Agent Debugger session: {extra.get('failure')}")
-        if result.timed_out:                     # first: the Trainer may stop while a timed-out call tears down
-            return None, f"{FAILURE_PREFIX} timeout] exceeded {timeout_s:g}s"
-        if watcher.cause == "cancel" or extra.get("cancelled"):
+        if deadline.cause == "cancel" or (deadline.cause is None and extra.get("cancelled")):
             return None, f"{FAILURE_PREFIX} cancelled] stopped by the Trainer"
+        if deadline.cause == "deadline" or result.timed_out:
+            return None, f"{FAILURE_PREFIX} timeout] exceeded {timeout_s:g}s"
         if not extra.get("started", True) and (extra.get("unavailable") or result.exit_code in (0, None)):
             # held back by the login's plan past its wait, or gone before a single event: nothing served it
             return None, f"{FAILURE_PREFIX} unavailable] {tail or 'the session never started'}"

@@ -19,12 +19,13 @@ acting side.
 ## Update and selection
 
 Each framework step runs a SkillOpt update on the batch. With `use_gate: true`, the method keeps an update only
-if its validation score improves. The slow update and meta skill run at an epoch boundary when enabled. Both compare the
-previous and the current skill on a sample of training tasks through `run_agent`, which runs no training row that is a
-step of a multi-step Harbor task: on a task set with one, those runs are refused (score 0), so such a set trains with
-both off (`use_slow_update: false`, `use_meta_skill: false`), when SkillOpt learns from the Trainer's own rollouts
-([Known limitations](../reference/compatibility.md#known-limitations)). Finalization considers the method's retained
-validation candidates.
+if its validation score improves. The slow update and meta skill run at an epoch boundary when enabled. Both compare
+the previous and the current skill on a sample of training tasks through `run_agent`: on a Harbor task set whose
+training split holds a multi-step task, such a run of one of its steps is out of its turn in the Trainer's own stream
+of that task and ends `stream_order` (score 0), so such a set trains with both off (`use_slow_update: false`,
+`use_meta_skill: false`), when SkillOpt learns from the Trainer's own rollouts
+([Known limitations](../reference/compatibility.md#known-limitations)).
+Finalization considers the method's retained validation candidates.
 
 A slow update can make the last step of an epoch substantially more expensive than other steps. Set
 `trainer.call_timeout_min` with that work in mind.
@@ -47,7 +48,7 @@ A slow update can make the last step of an epoch substantially more expensive th
 | `gate_metric`, `gate_mixed_weight` | `hard`, `soft`, or `mixed`; weight in [0, 1] | Select the metric for validation comparison; see below |
 | `use_slow_update`, `slow_update_gate` | Booleans / true and false | Enable epoch-end work and separately choose whether its slow-update candidate must pass validation |
 | `promote_final` | Boolean / true | If final current skill differs from best, re-evaluate it at finalization and promote it only on improvement |
-| `codex_trace_to_optimizer` | Boolean / true | Show the analyst each run's Codex trace summary (`codex_trace_summary.txt` in the run's log, written by SkillOpt's Codex harness, else one built from the run's Codex stream, Hermit's or a Harbor trial's), as SkillOpt does for a Codex target |
+| `codex_trace_to_optimizer` | Boolean / true | Show the analyst each run's Codex trace summary (`codex_trace_summary.txt` in the run's log, written by SkillOpt's Codex harness), as SkillOpt does for a Codex target |
 
 ### Understand the validation score
 

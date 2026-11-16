@@ -18,7 +18,11 @@ CLI's launch plan is rendered by Hermit's own CLI Base Agent (`launch`: the CLI'
 `clis`, the table of what differs per CLI). Harbor then starts the task's container and the HermitXXX class runs the
 plan in it (harborside/hermit.py), then the task's own verifier; the trial's reward and the CLI's own stream come back,
 read as Hermit reads its own sessions (`errors` for the trial's verdict, the Base Agent's `outcome` and `parse` for
-the session's), and `judge.score` scores it. A task with `[[steps]]` (a stream: one environment that lives through
+the session's, `signin` for what a trial in a container adds to them: a Codex sign-in or key refused, a refreshed
+ChatGPT sign-in handed back), and `judge.score` scores it. A trial that is not the agent's result (infra) runs again
+in the runner, and one that stays so gets no score (the run records a failed run, which `hermit eval` counts as 0);
+`report` gives an eval's pass@1 over the trials that are the agent's result. A lost sign-in or an API account's usage
+limit ends the run (hermit.agent.base.interface.LoginFailed). A task with `[[steps]]` (a stream: one environment that lives through
 many steps, each with its instruction and verifier) is run one step per rollout by a driver (`stream`,
 `harborside/driver.py`) that keeps the environment between the Trainer's steps, so a learner acts between them.
 

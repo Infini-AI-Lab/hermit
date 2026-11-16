@@ -11,18 +11,24 @@ stream's life and swaps the Session behind it at each step, whose adapter may ha
 
 `ModelEndpoint`: the answer-only agent's model, a ChatEndpoint on 127.0.0.1 (the agent runs in Harbor's own process
 on this machine) over the `direct` Base Agent of the model's spec: a relay that sends the agent's request on with
-the backend's key, which never leaves this process; or, for a model only a CLI reaches, over that CLI's sessions
-(cli_endpoint, each in a sandbox of its own). It counts each call from its arrival, what it used (`usage`, priced at
-the spec's price, an explicit price included) and how it was answered (`statuses`, `facts`), and for a CLI's model on a
-login whether the call's session waited for the login's plan, as that session recorded it (`plan_notes`, through the
-relay to the pipeline's CLI endpoint too: hermit.agent.base.endpoint.NOTE_HEADER). Closed after the trial
-(or the step), it gives up the calls still in flight (an agent Harbor stopped leaves its request running), whose
-tokens would otherwise be spent after the trial's usage was read, and waits for them up to CLOSE_WAIT_S.
+the backend's key, which never leaves this process; or, for a model only a CLI reaches that the
+runner serves (the benchmark file's `model: {cli: ...}`), over that CLI's sessions (cli_endpoint's Base Agent, each
+session in a sandbox of its own), each request answered here as the endpoint answers it (cli_answer), with three
+things of the relay's own: on the model's login it waits while the login's plan holds sessions back before the
+session starts, and records why (`plan`: the call's `waited`, which the trial's facts read); what a session cannot take
+(contract_problems: a figure, tool calls, another model; settings it cannot start with) is refused with the relay's own
+code (UNSUPPORTED), which the trial's facts read as the run's configuration refused; and what a call used is read from
+its reply, a failed one's error body included (a CLI session's failure reports its usage there: endpoint._no_reply).
+It counts each call from its arrival, what it used (`usage`, priced at the spec's price, an explicit price included)
+and how it was answered (`statuses`, `facts`). Closed after the trial (or the step), it gives up the calls still in
+flight (an agent Harbor stopped leaves its request running), whose tokens would otherwise be spent after the trial's
+usage was read, and waits for them up to CLOSE_WAIT_S.
 """
 from __future__ import annotations
 
 import dataclasses
 import json
+import os
 import subprocess
 import threading
 from pathlib import Path
@@ -32,6 +38,9 @@ from hermit.agent.base.endpoint import ChatEndpoint
 _GATEWAY: dict[str, str] = {}
 _LOCK = threading.Lock()
 CLOSE_WAIT_S = 15.0         # how long a closing ModelEndpoint waits for the calls it gave up to end
+# the error code of a request the relay refused because a CLI session cannot take it (ModelEndpoint), which a trial's
+# facts read as the run's configuration refused (hermit.harbor.runner.config_refused)
+UNSUPPORTED = "hermit_unsupported"
 
 
 def docker_gateway(network: str = "bridge") -> str:
@@ -133,20 +142,29 @@ class AdapterTools:
             self.session = self.sandbox = None
 
 
+def _add(total, used: list[dict]) -> None:
+    """The chat-completions usage of each reply in `used` added into `total` (hermit.agent.model.usage.Usage)."""
+    for u in used:
+        total.input_tokens += int(u.get("prompt_tokens") or 0)
+        total.output_tokens += int(u.get("completion_tokens") or 0)
+        total.cached_input_tokens += int((u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
+
+
 class ModelEndpoint:
     """The answer-only agent's model on 127.0.0.1 (the module's docstring). `spec` is a model spec (a Binding's: the
     `direct` Base Agent relays each request to the backend, with the spec's client `timeout` and `max_retries`), or a
     model only a CLI reaches (`{cli: codex | claude | pi, model, login, ...}`: each request one session of that CLI, in
     a sandbox of its own, hermit.isolate.cli_sandbox, as a run's `llm: {cli: ...}`; its event streams kept under
-    `records`). `plan_notes`: the model is a CLI's on a login, here or behind the CLI endpoint of this process the spec
-    relays to (hermit.isolate.agent_pipeline's), whose session records each call's waits for its plan (`facts`)."""
+    `records`). `plan`: (the plan, whether its sessions may draw usage credits) of the login that CLI's sessions run
+    on (hermit.harbor.runner.HarborAgent.model_plan), which the relay waits for before each session (`facts`)."""
 
     def __init__(self, spec: dict, *, host: str = "127.0.0.1", records: Path | None = None,
-                 enforce: str | None = None, plan_notes: bool = False):
+                 enforce: str | None = None, plan: tuple | None = None):
         self.spec, self.host = dict(spec), host
         self.records = Path(records) if records is not None else None
         self.enforce = enforce
-        self.plan_notes = plan_notes
+        self.plan = tuple(plan) if plan is not None else None
+        self.plan_notes = self.plan is not None
         self.client = self.endpoint = None
         self.lock = threading.Condition()                  # the calls' records; notified as each call ends
         self.running: set = set()                          # the calls in flight, by their own abort event
@@ -155,8 +173,9 @@ class ModelEndpoint:
         self.statuses: list = []
         self.codes: list = []
         self.messages: list = []                           # each call's error message (its last 1000 characters)
-        self.used: list[dict] = []                         # each answered call's usage (a CLI session's reply)
-        self.notes: list[dict] = []                        # each call's waits for its plan, by arrival (plan_notes)
+        self.used: list[dict] = []                         # each call's usage its reply reported (any status)
+        self.failed_used: list[dict] = []                  # ... of a relayed call that failed (not in the client's)
+        self.notes: list[dict] = []                        # each call's waits for its plan, by arrival (plan)
 
     def start(self) -> "ModelEndpoint":
         if self.spec.get("cli"):
@@ -173,6 +192,7 @@ class ModelEndpoint:
                         thing.close()
                 raise
             endpoint.closing += [t for t in (box, proxy) if t is not None]
+            answer = self._cli_answer(endpoint.agent)
         else:
             from hermit.agent.base.interface import make
             from hermit.agent.model.llm import ChatClient
@@ -180,12 +200,12 @@ class ModelEndpoint:
             given = self.spec.get("max_retries")
             self.client = ChatClient.from_spec(self.spec, **({} if given is None else {"max_retries": int(given)}))
             endpoint = ChatEndpoint(make("direct", {}, self.client), host=self.host).start()
-        answer = endpoint.answer
+            relayed = endpoint.answer
+            answer = lambda request, authorization, abort, note: relayed(request, authorization, abort)  # noqa: E731
 
-        def metered(request, authorization, abort=None, note=None):
+        def metered(request, authorization, abort=None):
             # each call from its arrival (in flight under its own abort event, which close sets), then its status, a
-            # failed one's error code and message; with plan_notes, the record its session keeps of its waits for the
-            # plan, the endpoint's own (a record the request named, NOTE_HEADER, is not taken)
+            # failed one's error code and message; with a plan, the relay's record of its wait for the plan
             abort = abort if abort is not None else threading.Event()
             mine = {} if self.plan_notes else None
             with self.lock:
@@ -203,6 +223,81 @@ class ModelEndpoint:
         endpoint.answer = metered
         self.endpoint = endpoint
         return self
+
+    def _cli_answer(self, agent):
+        """The answer of each request to a CLI's model (hermit.agent.base.endpoint.cli_answer, as the endpoint's own
+        answer gives it) with the relay's three things: the plan's wait first (`plan`; `note` records why it waited,
+        `waited`, and while it waits, `waiting`; a call given up while it waits, the endpoint closing, gets no reply
+        and stays `waiting`, as a session cancelled gets none: endpoint._DROP), a request a session cannot take refused
+        with UNSUPPORTED, and the settings a session cannot start with (ValueError, Unsupported) refused the same way;
+        any other failure of the session's start is a 502, as the endpoint's. A Codex session that gave no reply and
+        whose stream says its sign-in or key was refused (signin.codex_signin_lost, which the Base Agent's Codex
+        reading does not report) is a 401 with LOGIN_FAILED, as the endpoint says a Claude session's: the runner then
+        ends the run (no later call on that sign-in can be served)."""
+        from hermit.agent.base.endpoint import _DROP, cli_answer, contract_problems
+        from hermit.agent.base.interface import LOGIN_FAILED, Unsupported
+        from hermit.harbor import signin
+        folder = agent.settings.get("log_dir") if getattr(agent, "backend", None) == "codex" else None
+
+        def refused(why: str):
+            return 400, json.dumps({"error": {"code": UNSUPPORTED, "message": why}}).encode(), {}
+
+        def streams() -> set:
+            return set(os.listdir(folder)) if folder and os.path.isdir(folder) else set()
+
+        def lost(before: set) -> bool:
+            # the streams this call's sessions left in the agent's log_dir (endpoint.cli_answer keeps each there)
+            for name in sorted(streams() - before):
+                path = Path(folder) / name
+                if not name.endswith(".jsonl") or path.is_symlink() or not path.is_file():
+                    continue
+                try:
+                    raw = path.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                if signin.codex_signin_lost(raw.replace("\r\n", "\n").replace("\r", "\n")):
+                    return True
+            return False
+
+        def checked(reply, before: set):
+            if not isinstance(reply, tuple) or reply[0] == 200 or folder is None or not lost(before):
+                return reply
+            try:
+                body = json.loads(reply[1])
+            except (ValueError, TypeError, RecursionError):
+                body = {}
+            body = body if isinstance(body, dict) else {}
+            error = body.get("error") if isinstance(body.get("error"), dict) else {}
+            # the code first, as the endpoint writes it: a client's error text keeps only the start of the body
+            body["error"] = {"code": LOGIN_FAILED, **{k: v for k, v in error.items() if k != "code"}}
+            return 401, json.dumps(body).encode(), reply[2]
+
+        def answer(request, authorization, abort, note):
+            problems, _ = contract_problems(agent, request)
+            if problems:
+                return refused("; ".join(problems))
+            if self.plan is not None:
+                from hermit.agent.base import login
+                plan, credits = self.plan[0], bool(self.plan[1])
+                why = login.held(plan, credits)
+                if why:
+                    note.update(waited=why, waiting=True)
+                    max_s = agent.settings.get("plan_max_wait_s", login.MAX_WAIT_S)
+                    got = login.wait(plan, abort, None, max_s, credits)
+                    if got == "cancelled":                   # given up as it waited (the endpoint closed)
+                        return _DROP
+                    note["waiting"] = False
+                    if got:                                  # past plan_max_wait_s
+                        return 503, json.dumps({"error": {"message": f"the login's plan held the session back "
+                                                                     f"({why}): {got}"}}).encode(), {}
+            before = streams()
+            try:
+                return checked(cli_answer(agent, request, abort), before)
+            except (ValueError, Unsupported) as exc:            # the session's settings: no session can take them
+                return refused(f"{type(exc).__name__}: {exc}")
+            except Exception as exc:                            # noqa: BLE001 - the session failed to run
+                return 502, json.dumps({"error": {"message": f"{type(exc).__name__}: {exc}"}}).encode(), {}
+        return answer
 
     def _note(self, reply, call: threading.Event | None = None) -> None:
         """A call's end: its reply, and the call (its abort event) no longer in flight; one given up before its reply
@@ -234,6 +329,8 @@ class ModelEndpoint:
             self.messages.append(message)
             if used is not None:
                 self.used.append(used)
+                if status != 200:                            # the relay's client counts a served call's alone
+                    self.failed_used.append(used)
             if call is not None:
                 self.running.discard(call)
                 self.aborted += int(call.is_set() and not isinstance(reply, tuple))
@@ -245,24 +342,32 @@ class ModelEndpoint:
 
     @property
     def usage(self):
-        """What the calls used (hermit.agent.model.usage.Usage): the relay's client's total, priced at the spec's price
-        (with the spec's `count_error_usage`, a model a CLI reaches through an endpoint of this process, a failed
-        call's too, each attempt's, as its error reply reports it); a CLI's sessions' replies, a failed one's too,
-        priced the same way (none on a login). A call given up before its reply, or still
-        in flight when the endpoint closed, is among its calls as one whose tokens no reply reported
-        (`unreported_calls`): the cost is then unknown (None), never what the other calls cost."""
+        """What the calls used (hermit.agent.model.usage.Usage): the relay's client's total (its served calls), with what
+        a failed call's error body reported, each such call counted (a CLI session's failure behind the pipeline's
+        endpoint reports its usage there; of a call the client retried, the last attempt's alone: the client keeps no
+        failed attempt's), priced at the spec's price; a CLI's sessions' replies,
+        a failed one's too, priced the same way (none on a login). A call given up before its reply, or still in flight
+        when the endpoint closed, is among its calls as one whose tokens no reply reported (`unreported_calls`): the
+        cost is then unknown (None), never what the other calls cost."""
         from hermit.agent.base.records import price_usage
         from hermit.agent.model.usage import Usage
         with self.lock:
-            used, uncounted = list(self.used), self.aborted + len(self.running)
+            used, failed, uncounted = list(self.used), list(self.failed_used), self.aborted + len(self.running)
         if self.client is not None:
             total = dataclasses.replace(self.client.total)
+            if failed:                                       # calls the client counted none of
+                total.calls += len(failed)
+                spent = Usage(model=total.model)
+                _add(spent, failed)
+                price_usage([spent], self.spec)
+                total.input_tokens += spent.input_tokens
+                total.output_tokens += spent.output_tokens
+                total.cached_input_tokens += spent.cached_input_tokens
+                total.cost_usd = None if total.cost_usd is None or spent.cost_usd is None else \
+                    total.cost_usd + spent.cost_usd
         else:
             total = Usage(model=str(self.spec.get("model") or self.spec.get("cli")))
-            for u in used:
-                total.input_tokens += int(u.get("prompt_tokens") or 0)
-                total.output_tokens += int(u.get("completion_tokens") or 0)
-                total.cached_input_tokens += int((u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
+            _add(total, used)
             total.calls = len(used)
         total.calls += uncounted
         total.unreported_calls += uncounted
@@ -278,8 +383,8 @@ class ModelEndpoint:
         CLI-reached model's sign-in lost: the endpoint's code), rejected (a status no retry changes), code and failure
         (the last call's error code and message); started: a call was made, counted from its arrival (a request still
         in flight when the agent's time ran out was made); usage_incomplete: a call was given up before its reply, or
-        was still in flight when the endpoint closed, so what it used is not in `usage`; with plan_notes, plan_waited
-        (why the plan held the last call's session back, as that session met it: login.wait; "" when it never waited)
+        was still in flight when the endpoint closed, so what it used is not in `usage`; with a plan, plan_waited (why
+        the plan held the last call back, as the relay met it before its session: login.held; "" when it never waited)
         and plan_waiting (it was still waiting when it was read: the call cut off, or given up, while it waited)."""
         from hermit.agent.base.interface import LOGIN_FAILED
         with self.lock:

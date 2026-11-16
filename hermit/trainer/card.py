@@ -5,11 +5,6 @@ import json
 from pathlib import Path
 
 
-def number(value, digits: int = 3) -> str:
-    """A score for the card: `n/a` when nothing was scored."""
-    return "n/a" if value is None else f"{value:.{digits}f}"
-
-
 def render(*, template: dict, run_name: str, parent: str, evolver: str, task: str, epochs_done: int, steps_done: int,
            budget: dict, settings: dict, warnings: list[str], summary: str, eval_results: dict | None = None,
            report: str | None = None) -> str:
@@ -38,8 +33,8 @@ def render(*, template: dict, run_name: str, parent: str, evolver: str, task: st
         lines += ["| Adapter | Tasks | Repeats | Mean score | Solved at least once | Cost (USD) |", "|---|---|---|---|---|---|"]
         for label, r in eval_results.items():
             cost = "unknown" if r.get("cost_usd") is None else f"{r['cost_usd']:.4f}"
-            lines.append(f"| {label} | {r['tasks']} | {r['repeats']} | {number(r['mean_score'])} | "
-                         f"{number(r['solved_once'])} | {cost} |")
+            lines.append(f"| {label} | {r['tasks']} | {r['repeats']} | {r['mean_score']:.3f} | "
+                         f"{r['solved_once']:.3f} | {cost} |")
     else:
         lines.append("Not evaluated yet (`hermit eval`).")
     lines += ["", "Where it has not been tested: any task, model or pipeline other than the one above."]

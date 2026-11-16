@@ -570,7 +570,7 @@ A run's records are under `examples/officeqa/<method>/runs/<run name>/` (`<run>`
 | `<run>/workspace/state/` | the method's candidates and records, saved per step in `step_NNNN/state/` |
 | `<run>/step_NNNN/output/report.md` | the method's report for that step |
 | `<run>/summary.json` | final tag, checkpoints and stop reason |
-| `<run>/eval/<selector>/summary.json` | `mean_score` over the scored attempts, `solved_once`, `errors`, `cost_usd` |
+| `<run>/eval/<selector>/summary.json` | `mean_score` over all attempts, `solved_once`, `errors`, `cost_usd` |
 | `<run>/eval/<selector>/results.jsonl` | per attempt: the judge's score and feedback, `tokens`, `wall_s`, log path |
 | `examples/officeqa/<method>/runs/trees/<run name>/` | Git history of the adapter versions |
 | `examples/officeqa/<method>/.logs/rollout/<task>-<id>/agent-logs/0/` | direct-chat rollouts: SkillOpt's prediction files (each call's own `.logs`, the directory the agent sees beside its file; `agent.params.logs` moves them); the learner reads the rollouts' copies in `<run>/learning_material/step_NNNN/trajectories/`, and its own `run_agent` calls' in `<run>/agent_logs/` |

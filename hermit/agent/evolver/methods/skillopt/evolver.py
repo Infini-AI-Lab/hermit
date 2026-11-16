@@ -133,17 +133,15 @@ def paper_view(entries: list[dict], system: str, user: str) -> tuple[list[dict],
 
 def codex_trace(record: dict, step_dir: Path) -> str:
     """The summary of a Codex run SkillOpt's analyst reads: the one SkillOpt's own Codex harness wrote next to its
-    prediction files (codex_trace_summary.txt), else one built from a host agent's Codex stream in the same form, the
-    stream found where hermit.agent.base.trajectory finds a run's (a Harbor trial's under its agent/ too)."""
+    prediction files (codex_trace_summary.txt), else one built from a host agent's Codex stream in the same form."""
     root = step_dir / record["trajectory"] if record.get("trajectory") else None
     if root is None:
         return ""
     if (root / "codex_trace_summary.txt").is_file():
         return (root / "codex_trace_summary.txt").read_text()
-    found = trajectory.find_stream(root)
-    if found is None or found[1] != "codex":
+    if not (root / trajectory.CODEX_STREAM).is_file():
         return ""
-    return trace_summary(trajectory.log_steps(found[0]) or [], record)
+    return trace_summary(trajectory.log_steps(root) or [], record)
 
 
 def trace_summary(steps: list, record: dict) -> str:

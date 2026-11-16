@@ -7,23 +7,20 @@ from pathlib import Path
 import shutil
 
 from hermit.isolate import _safe
-from hermit.trainer.rollout import mean_score, scored
 
 README = """# Learning material
 
 One directory per training step (`step_0001/`, ...); `current` points at the latest; `index.jsonl` has one line per
-step: step, epoch, number of tasks, mean score, how many tasks were not scored, rollout cost, and whether the adapter
-used for these rollouts differed from the previous step's.
+step: step, epoch, number of tasks, mean score, rollout cost, and whether the adapter used for these rollouts differed
+from the previous step's.
 
 Each step directory:
 
-- `summary.json` — step, epoch, the adapter commit the rollouts used, task ids, mean score, cost, time. A task that
-  was not scored (status `infra`) is left out of the mean and counted in `unscored`.
-- `tasks/<task id>.json` — for each task: `input` (the task's row, as the task set gives it), `output` (what the agent
+- `summary.json` — step, epoch, the adapter commit the rollouts used, task ids, mean score, cost, time.
+- `tasks/<task id>.json` — for each task: `input` (the task as given to the pipeline), `output` (what the agent
   produced), `judge` (everything the judge returned: score, feedback, anything else), `cost_usd` (null = unknown),
-  `wall_s`, `api_speed`, `tokens`, `status` (`ok`; `error` or `judge_error`: the run or its judge failed, scored 0;
-  `infra`: not the agent's result, the machine or the model provider failed, not scored), `error`, `trajectory`
-  (where the full trajectory is) and `messages` (a normalised message list, when the pipeline provides one).
+  `wall_s`, `api_speed`, `tokens`, `status` (ok or error), `error`, `trajectory` (where the full trajectory is) and
+  `messages` (a normalised message list, when the pipeline provides one).
 - `trajectories/<task id>/` — the host's original log, copied unchanged.
 - `check_feedback.json` — present when the adapter the previous step handed back failed check_spec: each repaired
   file, where it was restored from, and why.
@@ -64,17 +61,18 @@ class Material:
             record.pop("log", None)
             (d / "tasks" / f"{_safe(r['id'])}.json").write_text(json.dumps(record, ensure_ascii=False, indent=1,
                                                                            default=str))
+        scores = [r["judge"]["score"] for r in results if r.get("judge")]
         summary = {"step": step, "epoch": epoch, "adapter_commit": commit, "adapter_changed": changed,
-                   "tasks": [r["id"] for r in results], "mean_score": mean_score(results),
-                   "unscored": len(results) - len(scored(results)), "cost_usd": sum(costs) if costs else None,
+                   "tasks": [r["id"] for r in results], "mean_score": sum(scores) / len(scores) if scores else None,
+                   "cost_usd": sum(costs) if costs else None,
                    "unknown_cost_tasks": sum(1 for r in results if r.get("cost_usd") is None),
                    "wall_s": max((r.get("wall_s") or 0) for r in results) if results else 0}
         (d / "summary.json").write_text(json.dumps(summary, indent=1))
         if check_feedback:
             (d / "check_feedback.json").write_text(json.dumps(check_feedback, indent=1))
         with open(self.root / "index.jsonl", "a") as index:
-            index.write(json.dumps({k: summary[k] for k in ("step", "epoch", "mean_score", "unscored", "cost_usd",
-                                                            "adapter_changed")} | {"tasks": len(results)}) + "\n")
+            index.write(json.dumps({k: summary[k] for k in ("step", "epoch", "mean_score", "cost_usd", "adapter_changed")}
+                                   | {"tasks": len(results)}) + "\n")
         current = self.root / "current"
         if current.is_symlink() or current.exists():
             current.unlink()
@@ -90,8 +88,7 @@ class Material:
                 shutil.rmtree(d)
         index = self.root / "index.jsonl"
         if index.exists():
-            # "\n" alone ends a line: U+0085, U+2028 and U+2029 end none (as in Trainer._completed_steps)
-            keep = [l for l in index.read_text().split("\n") if l and json.loads(l)["step"] <= last_step]
+            keep = [l for l in index.read_text().splitlines() if l and json.loads(l)["step"] <= last_step]
             index.write_text("".join(l + "\n" for l in keep))
         current = self.root / "current"
         if current.is_symlink():

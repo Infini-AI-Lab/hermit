@@ -11,12 +11,6 @@ sys.path.insert(0, str(TESTS))                       # the shared helpers: fakes
 
 import pytest
 
-# A Harbor example's task set (`utils/tasks`, the link `python -m hermit.harbor.dataset prepare` writes) holds the
-# benchmark's own tests, which are no tests of Hermit's; a run's folder beside an example's configs (`runs/`, their
-# output_dir, at any depth) holds what its trials and learners wrote, a task container's files among them, which the
-# suite never imports
-collect_ignore_glob = ["examples/*/utils/tasks", "examples/*/runs"]
-
 
 def pytest_addoption(parser):
     parser.addoption("--integration", action="store_true", default=False,

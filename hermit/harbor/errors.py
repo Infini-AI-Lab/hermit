@@ -33,8 +33,9 @@ not serve the run, or refused its configuration, is not the agent's result.
                  tools not served (tools_failed)
 
 The judge (judge.py) scores the verifier's reward whenever there is one (ok, timeout, agent_error), else 0. An infra
-rollout is not the agent's result: the runner marks it `unscored`, and the Trainer keeps it out of every mean. Tokens
-and cost are Hermit's reading of the CLI's stream (runner.session); Harbor's own for its built-in agents.
+rollout is not the agent's result: the runner marks it `unscored` and runs it again (agent.params.infra_retries); the
+judge refuses to score one that stays so (judge.Unscored), and the run records a failed run (judge_error). Tokens and
+cost are Hermit's reading of the CLI's stream (runner.session); Harbor's own for its built-in agents.
 """
 from __future__ import annotations
 
@@ -168,8 +169,8 @@ def classify(result: dict | None, *, expired: bool = False, harbor_exit: int | N
                     float(reward) if reward is not None else None, halt=exc_type in HALTING)
 
 
-def no_trial(cause: str, message: str, *, halt: bool = False) -> dict:
-    """An infra verdict for a rollout that never reached a container (the halt sentinel, the disk gate, the adapter's
-    staging, a stream step its driver was never asked for): no session ran, so it spent nothing (`ran` False: its cost
-    is 0, never unknown). A stream step lost after its request was sent may have run one: its caller sets `ran` None."""
-    return {**_verdict("infra", cause, None, message, None, halt=halt), "ran": False}
+def no_trial(cause: str, message: str) -> dict:
+    """An infra verdict for a rollout that never reached a container (the disk gate, the adapter's staging, a stream
+    step its driver was never asked for): no session ran, so it spent nothing (`ran` False: its cost is 0, never
+    unknown). A stream step lost after its request was sent may have run one: its caller sets `ran` None."""
+    return {**_verdict("infra", cause, None, message, None), "ran": False}

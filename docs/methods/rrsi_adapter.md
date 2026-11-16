@@ -136,7 +136,7 @@ digesters' sessions in the traces, 17).
 | `analyze` (analyst and digesters) | upstream's code; its `generate` is one session of the `codex`, `claude` or `pi` Base Agent per call, the digesters' sessions in the round's rendered traces |
 | proposer (a JSON-action Claude agent, `done()`) | a session of the `codex`, `claude` or `pi` Base Agent on a copy of the incumbent adapter, writing `done.json`; upstream's `done()` contract is checked and every problem goes back to the same session |
 | critic with five repairs, tag validation | upstream's `review` and `normalize`; each objection goes back to the same proposer session with upstream's repair text |
-| liveness smoke | `check_spec`, then `run_agent` on the domain's smoke tasks (never a step of a multi-step Harbor training task: `run_agent` refuses it, so every candidate would fail the smoke; [Known limitations](../reference/compatibility.md#known-limitations)) |
+| liveness smoke | `check_spec`, then `run_agent` on the domain's smoke tasks (never a step of a multi-step Harbor training task: through `run_agent` it is out of its turn in the Trainer's own stream and ends `stream_order`, so every candidate would fail the smoke; [Known limitations](../reference/compatibility.md#known-limitations)) |
 | `select_round`, history, attribution, frontier | `select_round` and the history are upstream's code, unchanged; the attribution and the frontier are ported from upstream's driver (H_{t+1}, S* and the trajectory in `state/rrsi/frontier.json`) |
 | the result H_T | `finalize` hands back the incumbent |
 

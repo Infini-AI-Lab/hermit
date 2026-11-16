@@ -1,6 +1,4 @@
-"""`hermit check`: basic checks of the settings before training (or, for a config with no training split, before
-`hermit eval`: no Evolver, template or budget is needed, and the probe runs a test row). Passing does not guarantee
-success."""
+"""`hermit check`: basic checks of the settings before training. Passing does not guarantee success."""
 from __future__ import annotations
 
 import json
@@ -15,16 +13,14 @@ from hermit.agent.base.endpoint import cli_problems
 from hermit.agent.base.interface import LoginFailed
 from hermit.agent.model.backends import bindings_of, list_models, probe as probe_model, problems_of, registry, warnings_of
 from hermit.config import Config
-from hermit.evaluate import _harbor_rows
 from hermit.sandbox import hidden_paths, set_hidden
 from hermit.agent.evolver.loader import find, instantiate, load_class
 from hermit.spec import check_spec
 from hermit.agent.acting.agent import load_agent
-from hermit.isolate import (agent_pipeline, config_paths, host_pipeline, judge_for, keeps_trials,
-                            validate as validate_sandboxes)
+from hermit.isolate import agent_pipeline, config_paths, host_pipeline, judge_for, validate as validate_sandboxes
 from hermit.task import TaskData, load_callable
-from hermit.trainer.rollout import REPEAT, TRIAL_KEYS, own_row_keys, run_one
-from hermit.trainer.trainer import agent_errors, needs_errors, out_of_step, step_order_problems, warnings_for
+from hermit.trainer.rollout import run_one
+from hermit.trainer.trainer import needs_errors, warnings_for
 
 DISCLAIMER = ("check looks only at the basic items above. Passing it does not guarantee that the settings are free of "
               "problems or that the run will succeed.")
@@ -42,38 +38,31 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
         for p in problems:
             log(f"    - {p}")
 
-    evaluating = not d["data"]["train"]             # a config for hermit eval alone: no Evolver, no budget
-    # Template and starting adapter (an eval config names a template only to find the run's tree).
-    if evaluating and not d["template"]:
-        report("template", [], "none (hermit eval of a directory or none)")
-    else:
-        try:
-            template_dir = config.template_dir()
-            start = config.path(d["start_from"]) if d.get("start_from") else template_dir
-            problems = []
-            if start is not None and (start / MANIFEST).is_file():
-                enforce = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] else None
-                result = check_spec(start, template_dir, enforce=enforce)
-                problems = [f"{i.path or '-'}: check {i.check}: {i.problem}" for i in result.issues]
-            report("template", problems, f"{read_manifest(template_dir)['template']}")
-        except Exception as exc:
-            report("template", [str(exc)])
+    # Template and starting adapter.
+    try:
+        template_dir = config.template_dir()
+        start = config.path(d["start_from"]) if d.get("start_from") else template_dir
+        problems = []
+        if start is not None and (start / MANIFEST).is_file():
+            enforce = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] else None
+            result = check_spec(start, template_dir, enforce=enforce)
+            problems = [f"{i.path or '-'}: check {i.check}: {i.problem}" for i in result.issues]
+        report("template", problems, f"{read_manifest(template_dir)['template']}")
+    except Exception as exc:
+        report("template", [str(exc)])
     # Evolver.
     evolver_params = None
-    if evaluating:
-        report("evolver", [], "not used (a config for hermit eval: no training split)")
-    else:
-        try:
-            spec = find(d["evolver"]["name"], config.base)
-            cls = load_class(spec)
-            _, evolver_params = instantiate(spec, d["evolver"]["params"], backends=registry(d.get("backends")),
-                                            default_model=d.get("model"))
-            # an Evolver's own settings (with a login, its problems are the login's, below)
-            report("evolver", needs_errors(config, spec.needs, cls.supports_resume) +
-                   ([] if evolver_params.get("login") else subscription.evolver_problems(evolver_params)),
-                   f"{spec.name} ({spec.class_path})")
-        except Exception as exc:
-            report("evolver", [str(exc)])
+    try:
+        spec = find(d["evolver"]["name"], config.base)
+        cls = load_class(spec)
+        _, evolver_params = instantiate(spec, d["evolver"]["params"], backends=registry(d.get("backends")),
+                                        default_model=d.get("model"))
+        # an Evolver's own settings (with a login, its problems are the login's, below)
+        report("evolver", needs_errors(config, spec.needs, cls.supports_resume) +
+               ([] if evolver_params.get("login") else subscription.evolver_problems(evolver_params)),
+               f"{spec.name} ({spec.class_path})")
+    except Exception as exc:
+        report("evolver", [str(exc)])
     # Models: every model the run calls, the backend each is bound to, and whether that backend speaks the caller's
     # dialect and has its key. With the probe: GET /models, then one short request in the dialect.
     for who, binding, api in bindings_of(d, evolver_params):
@@ -107,28 +96,15 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
     # Task.
     problems = []
     info = config.path(d["task_info"])
-    if not evaluating and (info is None or not (info / "README.md").is_file()):
-        problems.append("task_info/README.md is missing")       # the learner's: hermit eval has none
-    if not evaluating:
-        problems += agent_errors(config)       # training's rollouts each take an adapter: hermit eval may run none
+    if info is None or not (info / "README.md").is_file():
+        problems.append("task_info/README.md is missing")
     data = None
-    split = "test" if evaluating else "train"         # the split the probe runs a row of
     try:
         data = TaskData(config.path(d["data"]["tasks"]), config.path(d["data"]["train"]),
                         config.path(d["data"]["val"]), config.path(d["data"]["test"]))
         problems += data.overlaps()
-        if not data.splits[split]:
-            problems.append(f"the {'test' if evaluating else 'training'} split is empty")
-        # a multi-step Harbor task's steps in the order each split runs them: training's (hermit train), and the
-        # test split's, which hermit eval of the same config runs
-        if not evaluating:
-            problems += step_order_problems(config, data)
-            if keeps_trials(config):                  # hermit train's rows name their epoch and new run
-                problems += own_row_keys(list(data.tasks.values()), TRIAL_KEYS, "training")
-        if int(d["eval"]["repeats"]) > 1 and _harbor_rows(config):   # hermit eval's rows name their repeat
-            problems += own_row_keys([data.tasks[t] for t in data.splits["test"]], (REPEAT,), "the test split")
-        problem = out_of_step(data.splits["test"], data.tasks, "the test split")
-        problems += [problem] if problem else []
+        if not data.splits["train"]:
+            problems.append("the training split is empty")
     except Exception as exc:
         problems.append(f"data: {exc}")
     try:
@@ -172,17 +148,11 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
            f"network={d['environment'].get('network')}, judge={d['judge'].get('mode') or 'host'}")
     # Budgets.
     b = d["trainer"]["budget"]
-    if evaluating:
-        report("budgets", [], "hermit eval runs without a budget")
-    else:
-        report("budgets", [] if any(b.get(k) for k in ("usd", "tokens", "hours")) else ["no hard budget is set"],
-               f"hard {b}, {d['trainer']['epochs']} epoch(s)")
-    # Probe: one training task (an eval config's: one test task) through the agent and the judge, without an adapter;
-    # never a later step of a multi-step task, which alone would wait for the steps before it (and end infra)
-    first = next((t for t in data.splits[split] if out_of_step([t], data.tasks, split) is None), None) \
-        if data is not None else None
-    if probe and data is not None and pipeline is not None and first is not None:
-        task = data.tasks[first]
+    report("budgets", [] if any(b.get(k) for k in ("usd", "tokens", "hours")) else ["no hard budget is set"],
+           f"hard {b}, {d['trainer']['epochs']} epoch(s)")
+    # Probe: one training task through the agent and the judge, without an adapter.
+    if probe and data is not None and pipeline is not None and data.splits["train"]:
+        task = data.tasks[data.splits["train"][0]]
         t0 = time.time()
         # The probe runs the agent as a rollout would: in the task sandbox, not in this process.
         probe_pipeline, close = None, (lambda: None)

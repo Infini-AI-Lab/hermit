@@ -33,8 +33,7 @@ params:
   task_field: task                 # the row field naming the benchmark task, which its k rows <task>#1..#k share
                                    # (OfficeQA: uid); a row without it: its id without the #n
   k: null                          # rollouts per task; null: inferred from the rows sharing task_field
-  evolve_timeout_s: 7200           # the Evolve session's wall clock, from the CLI's start: a wait for the login's plan
-                                   # or a session slot pauses it (upstream: 500 turns, no clock); null: none
+  evolve_timeout_s: 7200           # the Evolve session's wall clock (upstream: 500 turns, no clock)
   timeout_as: exception            # exception (released code) | fail: a timed-out trial in the diff/attribution; pass@1 counts it 0 either way
   target_pass_rate: 0.95           # base.yaml:10; needs trainer.allow_early_stop
   stability_min_iterations: 3
@@ -50,7 +49,7 @@ params:
     bin: null
     args: null
     concurrency: 16
-    timeout_s: 600                 # one attempt's wall clock, from the CLI's start (as evolve_timeout_s)
+    timeout_s: 600                 # one attempt's wall clock
     retries: 3
     backoff_s: 2.0
     max_tasks: 90

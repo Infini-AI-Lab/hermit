@@ -5,11 +5,7 @@ session, acting and learning alike (`ROOT/login/auth.json`, outside any run's di
 from it, and a token a session refreshed is written back to it under a lock, so that no session starts from a token a
 refresh has replaced (ChatGPT rotates its refresh tokens). The user's own file is read, never written: it replaces the
 copy when it is newer (a later `codex login`). A session in the task sandbox, which cannot write that copy, gets it
-from the sandbox's caller and hands its refresh back the same way (hermit.isolate), and so does a Harbor trial's
-container (hermit.harbor.runner). A session can write the file it hands back: the copy takes it only as a later refresh
-of the copy's own login (take_back), never a file without a refresh or an access token, nor one larger than a sign-in,
-nor one stamped further ahead than the clock it was written on can be (SKEW, OTHER_CLOCK). An agent that can read the
-sign-in can also write a well-formed one, which the take-back cannot tell from a refresh.
+from the sandbox's caller and hands its refresh back the same way (hermit.isolate).
 
 `login: claude` is Claude Code on a Claude subscription, signed in with the token `claude setup-token` prints, which
 the user exports as CLAUDE_CODE_OAUTH_TOKEN: Anthropic's way for scripts (a year, model requests only, no refresh). The
@@ -50,16 +46,6 @@ HOSTS = {"chatgpt": ("chatgpt.com", "auth.openai.com"), "claude": CLAUDE_HOSTS} 
 CLAUDE_MIN_VERSION = (2, 1, 248)                              # --restricted, which a text session needs
 NO_TOKEN = (f"login: claude signs in with the token `claude setup-token` prints, in {TOKEN_ENV}, which is not set: run "
             "`claude setup-token` once and export the token (docs/guides/claude-subscription.md)")
-# How far past this machine's clock a login's last_refresh may lie (no further: a file a session could write must not
-# pin the copy). Codex stamps a refresh when it makes it, so one stamped on this clock (Hermit's own sessions, the task
-# sandbox's, a local Docker container's, which shares the host's clock) is never ahead of it but for a step of the
-# clock since: a minute. One stamped on another machine's clock keeps the hour every login was allowed before: the
-# user's own file (`codex login` on a machine with a browser, its auth.json copied here) and a session in a Harbor
-# environment other than local Docker (a cloud sandbox's clock).
-SKEW = timedelta(minutes=1)
-OTHER_CLOCK = timedelta(hours=1)
-MAX_BYTES = 64 << 10      # a login file larger than this is none, never read whole (Codex's auth.json is a few KB: two
-                          # tokens of about 2 KB each, a refresh token, the account and a time)
 
 
 def hosts(*logins) -> list[str]:
@@ -71,26 +57,21 @@ def source() -> Path:
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / FILE
 
 
-def _last_refresh(path: Path, skew: timedelta):
-    """When the login in `path` was refreshed, or None for a file that is no login: not a JSON object (nor one nested
-    past the parser's depth), or a last_refresh that does not parse or lies more than `skew` ahead (a session that
-    could write the file must not pin the copy)."""
+def _last_refresh(path: Path):
+    """When the login in `path` was refreshed, or None for a file that is no login: not a JSON object, or a
+    last_refresh that does not parse or lies ahead (a session that could write the file must not pin the copy)."""
     try:
         data = json.loads(Path(path).read_text())
         when = datetime.fromisoformat(str(data["last_refresh"]).replace("Z", "+00:00"))
-    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError):
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
         return None
     if when.tzinfo is None:
         when = when.replace(tzinfo=timezone.utc)
-    return when if when <= datetime.now(timezone.utc) + skew else None
+    return when if when <= datetime.now(timezone.utc) + timedelta(hours=1) else None
 
 
-def _newer(candidate: Path, than: Path, skew: timedelta) -> bool:
-    """Whether `candidate` is a later login than `than`, the shared copy: the candidate stamped at most `skew` ahead
-    of this machine's clock; the copy's own stamp read as any accepted copy may hold it (one taken from the user's own
-    file or another machine's session, at most OTHER_CLOCK ahead), never as no stamp, which any older file would beat."""
-    mine = _last_refresh(candidate, skew)
-    theirs = _last_refresh(than, max(skew, OTHER_CLOCK)) if Path(than).is_file() else None
+def _newer(candidate: Path, than: Path) -> bool:
+    mine, theirs = _last_refresh(candidate), _last_refresh(than) if Path(than).is_file() else None
     return mine is not None and (theirs is None or mine > theirs)
 
 
@@ -110,7 +91,7 @@ def prepare(root: Path, home: Path, user_file: Path | None = None) -> None:
     master.parent.mkdir(parents=True, exist_ok=True)
     with open(master.parent / ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        if user_file.is_file() and _newer(user_file, master, OTHER_CLOCK):
+        if user_file.is_file() and _newer(user_file, master):
             _replace(user_file, master)
         if not master.is_file():
             raise RuntimeError(f"login: chatgpt, but there is no Codex login at {user_file} (run `codex login`)")
@@ -121,9 +102,9 @@ def master(root: Path | None = None) -> Path:
     return Path(root or ROOT) / "login" / FILE
 
 
-def keep_refreshed(root: Path, home: Path, *, skew: timedelta = SKEW) -> None:
-    """The session's login, if Codex refreshed it (a later last_refresh), becomes the shared copy (take_back)."""
-    take_back(root, Path(home) / FILE, within=Path(home), skew=skew)
+def keep_refreshed(root: Path, home: Path) -> None:
+    """The session's login, if Codex refreshed it (a later last_refresh), becomes the shared copy."""
+    take_back(root, Path(home) / FILE, within=Path(home))
 
 
 def _plain(path: Path, home: Path | None = None) -> bool:
@@ -168,47 +149,26 @@ def remove(path: Path, within: Path) -> None:
         path.unlink()
 
 
-def _tokens(path: Path) -> dict:
-    """A login file's `tokens`, or {} (none, or no JSON object, nested past the parser's depth included)."""
+def _account(path: Path):
+    """The ChatGPT account a login file is for (`tokens.account_id`), or None."""
     try:
         tokens = json.loads(Path(path).read_text()).get("tokens")
-    except (OSError, ValueError, AttributeError, RecursionError):
-        return {}
-    return tokens if isinstance(tokens, dict) else {}
+        return tokens.get("account_id") if isinstance(tokens, dict) else None
+    except (OSError, ValueError, AttributeError):
+        return None
 
 
-def _account(path: Path):
-    """The ChatGPT account a login file is for (`tokens.account_id`), or None (none named, or no JSON object, nested
-    past the parser's depth included)."""
-    return _tokens(path).get("account_id")
-
-
-def _signed_in(path: Path) -> bool:
-    """Whether a login file holds a ChatGPT sign-in: its tokens' refresh and access tokens, each a string, not empty
-    (one without them, taken for the copy, would leave every session after it signed out)."""
-    tokens = _tokens(path)
-    return all(isinstance(tokens.get(name), str) and tokens[name] for name in ("refresh_token", "access_token"))
-
-
-def take_back(root: Path, path: Path, within: Path | None = None, *, skew: timedelta = SKEW) -> None:
+def take_back(root: Path, path: Path, within: Path | None = None) -> None:
     """A login file a session left: the shared copy if it is a later refresh of it (a regular file, never one read
-    through a link: none below `within`, the directory the caller trusts, and not the file itself), of at most
-    MAX_BYTES, a ChatGPT sign-in (its refresh and access tokens) for the account the copy names, when it names one (a
-    session could write another account's login there, or one without its tokens), stamped after the copy and at most
-    `skew` past this machine's clock (SKEW for a session on it, OTHER_CLOCK for one on another machine's clock). A
-    session that can read its login can write a well-formed one, which this cannot tell from a refresh."""
+    through a link: none below `within`, the directory the caller trusts, and not the file itself) for the account
+    the copy names, when it names one (a session could write another account's login there)."""
     master = Path(root) / "login" / FILE
     if not _plain(path, Path(within) if within is not None else Path(path).parent) or not master.is_file():
-        return
-    try:
-        if os.lstat(path).st_size > MAX_BYTES:       # no login: never read whole
-            return
-    except OSError:
         return
     with open(master.parent / ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         account = _account(master)                  # a copy that names its account keeps to it
-        if _signed_in(path) and _newer(path, master, skew) and (account is None or _account(path) == account):
+        if _newer(path, master) and (account is None or _account(path) == account):
             _replace(path, master)
 
 
@@ -301,27 +261,20 @@ def _read_own(path: Path, limit: int = 1 << 20) -> str | None:
 
 
 def _report(d: Path) -> dict:
-    """plan.json as a mapping ({} when missing or not one, nested past the parser's depth included)."""
+    """plan.json as a mapping ({} when missing or not one)."""
     try:
         report = json.loads(_read_own(d / "plan.json") or "{}")
-    except (ValueError, RecursionError):
+    except ValueError:
         return {}
     return report if isinstance(report, dict) else {}
 
 
 def _write_report(d: Path, report: dict) -> None:
-    """plan.json replaced whole (a reader without the lock never sees half of it), by a file of its own. A report
-    nested deeper than this encoder writes (about 1000 levels; the parser reads deeper, so a report read from a
-    session's log or from plan.json can be) cannot be written, as on a full disk: an OSError, raised before any file
-    is made."""
-    try:
-        text = json.dumps(report, indent=1)
-    except RecursionError:
-        raise OSError(errno.EINVAL, "the plan's report is nested past the JSON encoder's depth") from None
+    """plan.json replaced whole (a reader without the lock never sees half of it), by a file of its own."""
     tmp = d / f"plan.{os.getpid()}.{threading.get_ident()}.tmp"
     fd = _own_fd(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
     try:
-        os.write(fd, text.encode())
+        os.write(fd, json.dumps(report, indent=1).encode())
     finally:
         os.close(fd)
     if os.path.isdir(d / "plan.json") and not os.path.islink(d / "plan.json"):
@@ -417,15 +370,11 @@ def _held(d: Path, credits: bool) -> str:
 
 
 def wait(plan: Path | str | None = None, cancel=None, log=None, max_s: float | None = MAX_WAIT_S,
-         credits: bool = False, note: dict | None = None) -> str:
+         credits: bool = False) -> str:
     """Block while `held` (`credits` as there); "" once a session may start, "cancelled" when `cancel` was set,
-    "timeout" past `max_s` seconds (None: no limit). Says why at the start and every half hour. `note` (a caller's
-    record of the session's wait) gets why the plan held it back as `waited`, kept, and as `waiting` while it waits,
-    "" once the session may start: a wait cancelled or timed out leaves it set."""
+    "timeout" past `max_s` seconds (None: no limit). Says why at the start and every half hour."""
     started, told = time.time(), 0.0
     while (reason := held(plan, credits)):
-        if note is not None:
-            note["waited"] = note["waiting"] = reason
         if log is not None and time.time() - told >= 1800:
             log(f"sessions on the login held back: {reason} (waiting {(time.time() - started) / 3600:.1f} h)")
             told = time.time()
@@ -436,8 +385,6 @@ def wait(plan: Path | str | None = None, cancel=None, log=None, max_s: float | N
             return "cancelled"
         if cancel is None:
             time.sleep(poll)
-    if note is not None:
-        note["waiting"] = ""
     return ""
 
 
@@ -490,14 +437,12 @@ def usage_of(home: Path) -> dict | None:
                   key=lambda p: p.stat().st_mtime)
     for log in reversed(logs):
         last = None
-        for line in log.read_text(errors="replace").split("\n"):  # U+0085, U+2028, U+2029 end no line (cli._objects)
+        for line in log.read_text(errors="replace").splitlines():
             if '"rate_limits"' not in line:
                 continue
             try:
                 event = json.loads(line)
-            except (ValueError, RecursionError):    # no JSON, or nested past the parser's depth
-                continue
-            if not isinstance(event, dict):         # a line that is JSON but no event (a list, a string)
+            except ValueError:
                 continue
             payload = event.get("payload") or {}
             if isinstance(payload, dict) and isinstance(payload.get("rate_limits"), dict):
@@ -531,8 +476,8 @@ def claude_report(events: list[dict]) -> dict | None:
         try:
             windows[str(name)] = {"used_percent": float(window["utilization"]) * 100,
                                   "resets_at": window.get("resetsAt")}
-        except (KeyError, TypeError, ValueError, OverflowError):   # a window that says nothing of its use (or an
-            continue                                               # integer past a float's range): no limit to hold at
+        except (KeyError, TypeError, ValueError):       # a window that says nothing of its use: no limit to hold at
+            continue
     return {"time": datetime.now(timezone.utc).isoformat(), "windows": windows, "status": info.get("status"),
             "resets_at": info.get("resetsAt"), "using_credits": credits is not None,
             **({"credits_resets_at": credits.get("resetsAt")} if credits is not None else {})}
@@ -541,8 +486,7 @@ def claude_report(events: list[dict]) -> dict | None:
 def note_usage(plan: Path | str | None, home: Path | None, seen: dict | None = None) -> dict | None:
     """Keep a session's report of the plan's usage as plan.json when it is newer, and append it to plan.jsonl. The
     report is `seen` (one the caller read from the session's stream), else the one in the Codex home's session logs. A
-    record that cannot be written (a full disk, a report nested too deep to write: _write_report) is skipped: it never
-    fails the session."""
+    record that cannot be written (a full disk) is skipped: it never fails the session."""
     try:
         return _note_usage(plan, home, seen)
     except OSError:
@@ -572,7 +516,7 @@ def _note_usage(plan: Path | str | None, home: Path | None, seen: dict | None = 
             report = dict(seen)
             try:
                 in_force = float(current.get("held_until") or 0) > time.time()
-            except (TypeError, ValueError, OverflowError):  # OverflowError: an integer past a float's range
+            except (TypeError, ValueError):
                 in_force = False
             if in_force:
                 # A hold lasts to its end: a later report comes from a session that started before it (none starts
@@ -593,9 +537,8 @@ def hold(plan: Path | str | None = None, until: float | None = None, why: str = 
     """A session was refused for the plan's limit: hold every session back until `until` (a reset time the refusal
     named), else until a report says otherwise, or for an hour when no report says when the window resets. `why` is the
     hold's reason when the plan names none yet: usage_credits (a session drew the account's usage credits) holds only
-    the sessions that may not draw them. If the hold cannot be written (a full disk, a plan report nested too deep to
-    write: _write_report), this session waits five minutes itself rather than ask again at once (at most `max_s`, until
-    `cancel` is set)."""
+    the sessions that may not draw them. If the hold cannot be written, this session waits five minutes itself rather
+    than ask again at once (at most `max_s`, until `cancel` is set)."""
     try:
         _hold(plan, until, why)
     except OSError:
@@ -618,7 +561,7 @@ def _hold(plan: Path | str | None = None, until: float | None = None, why: str =
             full = []
         try:
             until = min(float(until), now + LONGEST_HOLD_S) if until and float(until) > now else None
-        except (TypeError, ValueError, OverflowError):      # read from a stream: not a time
+        except (TypeError, ValueError):             # read from a stream: not a time
             until = None
         # A refusal outranks a credits hold: the credits hold lets the sessions that may draw credits through, a refusal
         # holds every session (a session allowed credits refused while a credits hold stands must wait, not rerun).
@@ -629,7 +572,7 @@ def _hold(plan: Path | str | None = None, until: float | None = None, why: str =
         # session that started before a long hold may end on a short window's refusal).
         try:
             in_force = float(current.get("held_until") or 0)
-        except (TypeError, ValueError, OverflowError):
+        except (TypeError, ValueError):
             in_force = 0.0
         in_force = min(in_force, now + LONGEST_HOLD_S) if math.isfinite(in_force) else 0.0
         current["held_until"] = max(until or (max(full) if full else now + 3600), in_force)
@@ -641,21 +584,12 @@ def _hold(plan: Path | str | None = None, until: float | None = None, why: str =
 def logins_of(data: dict, evolver_params: dict | None = None) -> list[tuple[str, str, str | None, bool, str | None]]:
     """Every subscription a run signs in to, from the normalized config: (who, login, the CLI's program if named,
     whether its sessions run in a container, with the image's CLI: the acting agent's with environment.image and the
-    sandbox on, or a Harbor task set's (`agent.name: harbor`, `agent.params.login`: the CLI in the task's container)
-    unless `claude_bin` mounts this machine's Claude Code there, a model's through a CLI with isolation: container;
-    never the learner's or its roles' (RRSI's, on the learner's CLI), which run in the evolver sandbox on this machine's
-    CLI; the Codex login's shared copy if named, `login_root`). The program and the copy are the ones the sessions use:
-    `bin` or `claude_bin` (Harness²'s, a Harbor task set's), and `login_root`; a Harbor task set's with `~` expanded,
-    made absolute, as the runner reads them (its benchmark file's among them, read in by backends.normalize_config)."""
+    sandbox on, a model's through a CLI with isolation: container; never the learner's or its roles' (RRSI's, on the
+    learner's CLI), which run in the evolver sandbox on this machine's CLI; the Codex login's shared copy if named,
+    `login_root`). The program and the copy are the ones the sessions use: `bin`, or Harness²'s `claude_bin`."""
     params = (data.get("agent") or {}).get("params") or {}
-    harbor = str((data.get("agent") or {}).get("name")) == "harbor"
     image = bool((data.get("environment") or {}).get("image")) and \
         bool((data.get("sandbox") or {}).get("enabled", True))          # agent_pipeline's container (ContainerAgent)
-    # the CLI Harbor runs in the task's container: the image's, unless claude_bin is this machine's, mounted there
-    image = image or (harbor and not params.get("claude_bin"))
-    if harbor:                                      # where the runner finds them (HarborAgent.bin, .login_root)
-        params = {**params, **{key: str(Path(os.path.expanduser(str(params[key]))).resolve())
-                               for key in ("claude_bin", "login_root") if params.get(key)}}
     learner = evolver_params or {}
     roles = learner.get("roles") if isinstance(learner.get("roles"), dict) else {}
     out = []
