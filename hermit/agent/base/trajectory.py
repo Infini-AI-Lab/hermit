@@ -424,7 +424,8 @@ def hermes_steps(stream: list[dict]) -> list[Step]:
     stream = hermes_events(stream)
     steps, texts = [], set()
     # the requests that came after: a failed request Hermes then served, or tried again, is no error of the session's
-    later = [i for i, e in enumerate(stream) if e.get("type") in ("hermes.api_request", "hermes.api_error")]
+    later = [i for i, e in enumerate(stream) if e.get("type") in ("hermes.api_request", "hermes.api_error",
+                                                                  "hermes.request_start")]
     for i, event in enumerate(stream):
         kind = event.get("type")
         if kind == "hermes.api_request":

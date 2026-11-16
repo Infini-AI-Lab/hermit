@@ -63,11 +63,11 @@ it assumes 1,000,000 tokens and asks for up to 128,000 output tokens a request, 
 For Hermes Agent a reference becomes the provider `hermit` of its `config.yaml` (rewritten for every call): its
 `api_mode` is `chat_completions`, else `anthropic_messages` (at the backend's Messages root), else `codex_responses`,
 the first the backend serves; the key is named by its variable (`key_env`, which Hermes reads when it starts, so no
-file holds the key); the backend's `extra_body` and `max_output_tokens` go on the provider, its `context_window` on
-the model (`context_length`). Hermes runs a reference only (no login, no provider of its own); `provider` in
-`agent.hermes` or `evolver.hermes` replaces the one a reference makes with your own (`api_mode`, `base_url`,
-`key_env`, ...). The cost recorded follows the price (the agent's own `price`, else the backend's), not Hermes's own
-figure.
+file holds the key); the backend's `extra_body` goes on the provider, its `context_window` and `max_output_tokens` on
+the model (`context_length`, `max_tokens`). Hermes runs a reference only (no login, no provider of its own);
+`provider` in `agent.hermes` or `evolver.hermes` replaces the one a reference makes with your own (`api_mode`,
+`base_url`, `key_env`, ...). The cost recorded follows the price (the agent's own `price`, else the backend's), not
+Hermes's own figure.
 
 A string whose first segment is no backend's name is not a reference: for a Codex or Claude Code agent it is a
 model of the CLI's own provider (`gpt-5.4`), as before. So a provider id that happens to start with a backend's

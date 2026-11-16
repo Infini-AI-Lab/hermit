@@ -117,7 +117,7 @@ python -m pip install "hermit-harness[mini-swe-agent]"
 | Pi acting agent or learner | The `pi` release binary on `PATH` (GitHub release `pi-linux-x64.tar.gz`, checked against its `SHA256SUMS`) and a model reference. For a Pi acting agent put the release's directory on `PATH`, or link `pi` from outside `/usr`: its task sandbox shows a program's own directory and follows no link from `/usr` |
 | OpenCode acting agent or learner | The `opencode` 2.2 release binary on `PATH` (GitHub release `opencode-linux-x64.tar.gz` of `anomalyco/opencode`, checked against the release's sha256 digest) and a model reference |
 | DeepSeek Harness acting agent or learner | The `dsh` command on `PATH` (Node.js 24.9 or later, `npm install -g @deepseek-ai/dsh@0.2.2-rc.1`) and a model reference |
-| Hermes Agent acting agent or learner | The `hermes` command on `PATH` (Python 3.11 to 3.13, `uv tool install 'hermes-agent[mcp]==0.19.0'`: the `mcp` extra is required for Hermit's tools) and a model reference |
+| Hermes Agent acting agent or learner | The `hermes` command on `PATH` (Python 3.11 to 3.13, `uv tool install 'hermes-agent[mcp,anthropic]==0.19.0'`: the `mcp` extra is required for Hermit's tools, and the `anthropic` extra for a backend Hermes reaches over the Messages API, which it cannot install inside the run's sandbox) and a model reference |
 | Benchmark recipe | Its dataset, scorer, model settings, and environment; see [catalog](../recipes/index.md) |
 
 Core installation and the deterministic tutorial work on macOS. The sandboxes (the acting agent's, the judge's, the

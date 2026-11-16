@@ -234,7 +234,9 @@ def parse_hermes(log: Path, model: str) -> tuple[str | None, list[Usage]]:
     `hermes.api_request` event reports it. Hermes's `input_tokens` leaves the cache out, so the input counted is
     input, cache reads and cache writes, as Codex and Claude Code count it; its `output_tokens` holds the reasoning.
     A request that answered is a call even when its tokens are not reported (an unreported call: the cost is then
-    unknown, price_usage); a failed one (`hermes.api_error`) is none. So is the summary request Hermes makes when a
+    unknown, price_usage); a failed one (`hermes.api_error`) is none. A request sent (`hermes.request_start`) that
+    neither answered nor failed (a reply cut at its output limit, which Hermes continues before its hook reports a
+    request; a content filter's refusal) is an unreported call. So is the summary request Hermes makes when a
     session runs out of turns, which fires no hook: a reply that is no reported request's text, in a turn that did
     not complete, is that request, an unreported call. Hermes's own cost figure is left out: it is priced from the
     backend's price (price_usage).
@@ -245,6 +247,7 @@ def parse_hermes(log: Path, model: str) -> tuple[str | None, list[Usage]]:
     empty summary once, a second request this counts as none.)"""
     main, aux = Usage(model=model), Usage(model=model + HERMES_AUX)
     session, texts, reply, completed = None, set(), None, None
+    starts = failed = 0
     if not log.exists():
         return None, []
     for event in hermes_events(events(log)):          # the turn's own, never a reply printed after its end
@@ -262,6 +265,12 @@ def parse_hermes(log: Path, model: str) -> tuple[str | None, list[Usage]]:
             main.input_tokens += tokens
             main.cached_input_tokens += cached
             main.output_tokens += output
+        elif kind == "hermes.request_start":
+            starts += 1
+        elif kind == "hermes.api_error" and (event.get("reason") != "content_policy_blocked"
+                                              or isinstance(event.get("status_code"), int)):
+            failed += 1                    # a request that failed; a content filter's refusal of a 200 (no status)
+                                           # was billed
         elif kind == "hermes.reply":
             reply = event.get("text")
         elif kind == "hermes.session_end":
@@ -275,6 +284,12 @@ def parse_hermes(log: Path, model: str) -> tuple[str | None, list[Usage]]:
                 aux.cached_input_tokens += cached
                 aux.output_tokens += int(row.get("output_tokens") or 0)
                 aux.calls += int(row.get("api_call_count") or 0)
+    # requests sent that answered but no hook reported: a reply cut at its output limit, which Hermes asks to continue,
+    # a content filter's refusal (streams of a plugin that reports no request's start have none)
+    skipped = starts - main.calls - failed
+    if skipped > 0:
+        main.calls += skipped
+        main.unreported_calls += skipped
     if completed is False and isinstance(reply, str) and reply and reply not in texts:
         main.calls += 1                                     # the summary request at the turns' limit
         main.unreported_calls += 1

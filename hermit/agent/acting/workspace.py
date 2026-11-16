@@ -443,8 +443,9 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
         facts = _call(fn, task, work, log, params=params, base=base)
     _clean(work, [m.target for m in mounts])
     cost = tokens = None
-    if usage:
-        cost, tokens = usage[0].cost_usd, usage[0].input_tokens + usage[0].output_tokens
+    if usage:                         # every model of the session (Hermes's auxiliary calls are a usage of their own)
+        cost = None if any(u.cost_usd is None for u in usage) else sum(u.cost_usd for u in usage)
+        tokens = sum(u.input_tokens + u.output_tokens for u in usage)
     extra = {"backend": backend, "model": params.get("model"), "effort": params.get("effort"),
              "web_search": params["web_search"],
              "deploy": deployed.get("mode"), "isolation": params.get("isolation") or "none",
@@ -458,4 +459,4 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
     if facts:
         extra["task"] = facts
     return RunOutput(output=output, log=log, cost_usd=cost, wall_s=round(time.time() - started, 1), tokens=tokens,
-                     api_speed={"model_calls": usage[0].calls} if usage else None, extra=extra)
+                     api_speed={"model_calls": sum(u.calls for u in usage)} if usage else None, extra=extra)

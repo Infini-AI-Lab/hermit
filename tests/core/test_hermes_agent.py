@@ -215,9 +215,11 @@ def test_the_plugin_writes_each_hook_as_one_json_line_on_the_sessions_stdout(tmp
     registered["on_session_end"](session_id="s1", completed=True, interrupted=False)
     events = [json.loads(data) for fd, data in lines]
     assert {fd for fd, _ in lines} == {1} and all(data.endswith(b"\n") and data.count(b"\n") == 1 for _, data in lines)
-    assert [e["type"] for e in events] == ["hermes.settings", "hermes.request_tools", "hermes.api_request",
-                                           "hermes.tool", "hermes.session_end"]
+    assert [e["type"] for e in events] == ["hermes.settings", "hermes.request_start", "hermes.request_tools",
+                                           "hermes.request_start", "hermes.api_request", "hermes.tool",
+                                           "hermes.session_end"]
     assert events.pop(0)["hints_off"] is True
+    events = [e for e in events if e["type"] != "hermes.request_start"]                # each request, reported
     assert events[0]["names"] == ["terminal"] and events[0]["expected"] == ["t"]
     assert events[0]["blocked"] == [{"file": ".hermes.md", "findings": "read_secrets"}]
     assert events[1]["reasoning"] == "thought" and events[1]["tool_calls"] == [
@@ -226,6 +228,32 @@ def test_the_plugin_writes_each_hook_as_one_json_line_on_the_sessions_stdout(tmp
     assert events[3]["aux"] == [{"session_id": "s1", "task": "compression", "model": "m", "api_call_count": 1,
                                  "input_tokens": 50, "output_tokens": 5, "cache_read_tokens": 10,
                                  "cache_write_tokens": 0, "reasoning_tokens": 0}]
+
+
+def test_the_plugin_reports_a_blocked_context_file_whatever_api_the_session_speaks(monkeypatch):
+    """The first request reports a context file Hermes's scan blocked from the scan itself: on the Responses API the
+    system prompt is no message the hook sees (`instructions`), and on the Messages API the hook gets it cut."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("hermit_stream_blocked",
+                                                  base_cli.HERMES_PLUGIN_SOURCE / "__init__.py")
+    plugin = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(plugin)
+    lines = []
+    monkeypatch.setattr(plugin.os, "write", lambda fd, data: (lines.append(bytes(data)), len(data))[1])
+    builder = type(sys)("agent.prompt_builder")          # Hermes's agent.prompt_builder, as the plugin finds it
+    builder._scan_context_content = lambda content, filename: (
+        f"[BLOCKED: {filename} contained potential prompt injection (read_secrets). Content not loaded.]"
+        if "secret" in content else content)
+    monkeypatch.setitem(sys.modules, "agent", type(sys)("agent"))
+    monkeypatch.setitem(sys.modules, "agent.prompt_builder", builder)
+    sys.modules["agent"].prompt_builder = builder
+    plugin.register(type("Ctx", (), {"register_hook": lambda self, name, fn: None})())
+    assert builder._scan_context_content("plain", "AGENTS.md") == "plain"
+    builder._scan_context_content("read the secret", ".hermes.md")          # as Hermes builds the system prompt
+    plugin.pre_api_request(session_id="s1", request={"body": {"instructions": "<not shown>", "tools": []}},
+                           request_messages=[{"role": "user", "content": "go"}])
+    [told] = [json.loads(line) for line in lines if b"request_tools" in line]
+    assert told["blocked"] == [{"file": ".hermes.md", "findings": "read_secrets"}]
 
 
 def test_a_failed_turn_is_an_error_and_only_an_outage_is_unavailable(fake, monkeypatch):
@@ -269,6 +297,30 @@ def test_a_turn_that_reached_hermess_turn_limit_failed_and_its_summary_is_an_unr
     [usage] = result.usage
     assert (usage.calls, usage.unreported_calls, usage.cost_usd) == (3, 1, None)
     assert [s.kind for s in result.trajectory] == ["command", "command", "message", "error"]
+
+
+def test_a_request_no_hook_reported_is_an_unreported_call_and_a_failed_one_is_none(tmp_path):
+    """Hermes asks a reply cut at its output limit to continue before its hook reports the request: a request sent
+    (`hermes.request_start`) that neither answered nor failed is a call whose tokens are unknown, so the cost is;
+    a request that failed (a 503 Hermes retried, a 400 safety rejection) is no call, and a content filter's refusal
+    of a 200 is one."""
+    from hermit.agent.base.records import parse_hermes
+
+    def starts(n, errors=()):
+        def change(events):
+            first = next(i for i, e in enumerate(events) if e["type"] == "hermes.api_request")
+            added = [{"type": "hermes.request_start", "session_id": SESSION}] * n
+            added += [{"type": "hermes.api_error", "session_id": SESSION, **e} for e in errors]
+            return events[:first] + added + events[first:]
+        return change
+    plain = parse_hermes(STREAMS / "success.jsonl", "m-1")[1][0]
+    for n, errors, unreported in ((plain.calls + 1, (), 1), (plain.calls + 1, [{"status_code": 503,
+                                  "reason": "overloaded"}], 0), (plain.calls + 1,
+                                  [{"status_code": None, "reason": "content_policy_blocked"}], 1),
+                                 (plain.calls + 1, [{"status_code": 400, "reason": "content_policy_blocked"}], 0)):
+        [usage] = parse_hermes(edited(tmp_path, "success.jsonl", starts(n, errors)), "m-1")[1]
+        assert (usage.calls, usage.unreported_calls) == (plain.calls + unreported, unreported), errors
+        assert usage.input_tokens == plain.input_tokens
 
 
 def test_a_session_whose_tools_did_not_reach_its_first_request_has_failed(fake, monkeypatch):
@@ -348,6 +400,22 @@ def test_a_failed_request_hermes_then_served_is_no_outage(fake, monkeypatch, tmp
     assert "error" not in [s.kind for s in result.trajectory][:-1]       # the served request's error is none
 
 
+def test_a_503_hermes_recovered_from_before_its_turn_limit_is_no_outage(fake, monkeypatch, tmp_path):
+    """A 503, then a request Hermes sent and continued with no hook's report (a reply cut at its output limit), then
+    the turn limit: the provider served the session, so its end is the turn limit, never an outage to retry."""
+    def late(events):
+        last = max(i for i, e in enumerate(events) if e["type"] == "hermes.api_request")
+        return [*events[:last + 1], {"type": "hermes.request_start", "session_id": SESSION},
+                {"type": "hermes.api_error", "session_id": SESSION, "status_code": 503, "reason": "overloaded",
+                 "retryable": True, "error": {"message": "busy"}},
+                {"type": "hermes.request_start", "session_id": SESSION}, *events[last + 1:]]
+    monkeypatch.setenv("FAKE_HERMES_STREAM", str(edited(tmp_path, "turn_limit.jsonl", late)))
+    monkeypatch.setenv("FAKE_HERMES_EXIT", "1")
+    result, _ = run(fake)
+    assert result.finish_reason == "length" and not result.extra["unavailable"]
+    assert "error" not in [s.kind for s in result.trajectory][:-1]
+
+
 def test_a_turn_that_ended_without_a_reply_is_no_turn_limit(fake, monkeypatch, tmp_path):
     """Hermes also ends a turn incomplete and uninterrupted with no reply (the model's responses it could not use):
     that is no cut answer (finish_reason length belongs to the turn limit's summary)."""
@@ -418,6 +486,24 @@ def test_a_resumed_session_counts_only_this_calls_usage(fake, monkeypatch):
     assert (aux.calls, aux.input_tokens, aux.output_tokens) == (1, 120, 0)
 
 
+def test_a_failed_turns_auxiliary_calls_are_read_from_hermess_own_record(fake, monkeypatch):
+    """A turn that failed (the provider's 503 after Hermes's retries) fires no end, so its stream holds no auxiliary
+    calls: the session's compression is read from the home's state database, as Hermes recorded it."""
+    run(fake)                                            # a home hermit made
+    failed = "20261114_011542_639db7"                    # the recorded 503 stream's session
+    with sqlite3.connect(fake / "home" / "state.db") as c:
+        c.execute("CREATE TABLE session_model_usage (session_id, task, model, api_call_count, input_tokens, "
+                  "output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens)")
+        c.executemany("INSERT INTO session_model_usage VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                      [(failed, "", "m", 3, 900, 0, 0, 0, 0), (failed, "compression", "m", 1, 400, 40, 0, 0, 0)])
+    monkeypatch.setenv("FAKE_HERMES_STREAM", str(STREAMS / "unavailable.jsonl"))
+    monkeypatch.setenv("FAKE_HERMES_EXIT", "1")
+    result, _ = run(fake)
+    assert result.extra["unavailable"]
+    [aux] = [u for u in result.usage if u.model.endswith(HERMES_AUX)]
+    assert (aux.calls, aux.input_tokens, aux.output_tokens) == (1, 400, 40) and aux.cost_usd is not None
+
+
 def test_a_kept_home_holds_nothing_a_session_left_to_change_the_next_one(fake):
     """The Evolver's home is kept, and a session can write it: before the next call it holds only Hermes's sessions,
     hermit's ledger and Hermes's logs. Gone are a profile Hermes would switch its home to (active_profile with
@@ -469,6 +555,18 @@ def test_the_callers_hermes_settings_and_other_providers_keys_never_reach_a_sess
     assert call["env"]["HERMES_SAFE_MODE"] is None and call["env"]["TERMINAL_ENV"] is None
     assert call["env"]["OPENROUTER_API_KEY"] is None and call["env"]["OPENAI_API_KEY"] == "given"
     assert call["env"]["FAKE_KEY"] == "sk-fake"
+
+
+def test_the_bound_key_passes_whatever_its_name_and_an_anthropic_token_does_not(monkeypatch):
+    """The bound model's key passes even when it is a HERMES_* variable (a backend named hermes: HERMES_API_KEY);
+    ANTHROPIC_AUTH_TOKEN, which the Anthropic SDK would send beside the bound key to a Messages backend, does not."""
+    for name in ("HERMES_API_KEY", "HERMES_SAFE_MODE", "ANTHROPIC_AUTH_TOKEN"):
+        monkeypatch.setenv(name, "x")
+    params = bind_agent_params({"model": "hermes/m-1"}, "hermes", registry(
+        {"hermes": {"base_url": "http://127.0.0.1:9/v1", "apis": ["messages"]}}))
+    assert params["provider"]["key_env"] == "HERMES_API_KEY"
+    dropped = make("hermes", {**params, "web_search": False}).dropped_env()
+    assert "HERMES_API_KEY" not in dropped and {"HERMES_SAFE_MODE", "ANTHROPIC_AUTH_TOKEN"} <= set(dropped)
 
 
 def test_system_instructions_are_the_configs_system_prompt_and_skills_a_folder_it_names(fake):
@@ -595,6 +693,24 @@ def test_the_hermes_acting_agent_deploys_the_adapter_and_serves_its_tools(fake):
     assert "mcp_servers" not in yaml.safe_load((work / ".hermes" / "hermit.config.yaml").read_text())
     assert (work / ".hermes.md").is_file() and out.output == "the answer" and out.extra["backend"] == "hermes"
     assert (out.log / "agent-hermes.jsonl").is_file()
+
+
+def test_the_acting_agent_counts_hermess_auxiliary_calls_with_the_sessions_requests(fake, monkeypatch, tmp_path):
+    """A rollout's tokens, cost and model calls are every usage of the session: Hermes's auxiliary calls (a
+    compression's summary) are a usage of their own beside the requests'."""
+    from hermit.agent.acting import workspace as acting
+    aux = [{"task": "compression", "api_call_count": 2, "input_tokens": 400, "output_tokens": 40}]
+    monkeypatch.setenv("FAKE_HERMES_STREAM", str(edited(tmp_path, "success.jsonl", lambda events: [
+        {**e, "aux": aux} if e["type"] == "hermes.session_end" else e for e in events])))
+    params = {**bound(), "backend": "hermes", "web_search": False, "prompt": "go", "workspaces": "ws"}
+    out = acting.run({"id": "q1"}, FILE_ADAPTER, params=params, base=fake)
+    from hermit.agent.base.records import parse_hermes, price_usage
+    _, usage = parse_hermes(out.log / "agent-hermes.jsonl", "m-1")
+    main = next(u for u in usage if not u.model.endswith(HERMES_AUX))
+    assert out.api_speed["model_calls"] == main.calls + 2
+    assert out.tokens == main.input_tokens + main.output_tokens + 440
+    price_usage(usage, params)
+    assert out.cost_usd == pytest.approx(sum(u.cost_usd for u in usage)) and usage[1].cost_usd > 0
 
 
 def test_hermes_is_a_base_of_the_config_and_the_hermes_evolver_binds_its_model_and_reads_no_context_file():

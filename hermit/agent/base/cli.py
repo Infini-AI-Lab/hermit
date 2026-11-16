@@ -2484,8 +2484,8 @@ class Hermes(CliAgent):
         settings and its model's key (a variable `env` gives still passes)."""
         own = self._key_env()
         return tuple(name for name in os.environ
-                     if name.startswith(("HERMES_", "TERMINAL_", "TIRITH_")) or
-                     (name in HERMES_PROVIDER_KEYS and name != own))
+                     if name != own and (name.startswith(("HERMES_", "TERMINAL_", "TIRITH_")) or
+                                         name in HERMES_PROVIDER_KEYS))
 
     def _sign_in(self, home):
         """None: Hermes runs a model reference, its key read from the backend's variable."""
@@ -2629,7 +2629,10 @@ class Hermes(CliAgent):
         objects = hermes_events(_objects(raw)[0])
         notes, done = self.notices(raw), self.served(raw)
         error = next((e for e in reversed(objects) if e.get("type") == "hermes.api_error"), {})
-        later = error and any(e.get("type") == "hermes.api_request" for e in objects[objects.index(error):])
+        # a request after it (one that answered, or any sent: a reply cut at its output limit answers with no
+        # hermes.api_request) means Hermes went on past that failure
+        later = error and any(e.get("type") in ("hermes.api_request", "hermes.request_start")
+                              for e in objects[objects.index(error) + 1:])
         reason, status = str(error.get("reason") or ""), error.get("status_code")
         status = status if isinstance(status, int) and not later else None
         reason = "" if later else reason
@@ -2678,6 +2681,10 @@ class Hermes(CliAgent):
         resumed session's earlier calls taken off (_this_call). A bound model's cost is left to its price
         (price_usage): Hermes's own figure is its catalog's."""
         from hermit.agent.base.records import HERMES_AUX
+        if handle and not any(u.model.endswith(HERMES_AUX) for u in usage):
+            # a turn that failed reports no end, so neither its auxiliary calls: Hermes's own record of them is read
+            usage = [*usage, *_hermes_aux(home, handle, (usage[0].model if usage else str(self.settings.get("model")))
+                                          + HERMES_AUX)]
         out = []
         for u in usage:
             if u.model.endswith(HERMES_AUX) and handle:
@@ -2726,7 +2733,9 @@ class Hermes(CliAgent):
 
 # The variables of the providers Hermes reaches on its own (a fallback, an auxiliary task's `auto` choice): never a
 # session's, but for its own model's key
+# (ANTHROPIC_AUTH_TOKEN too: the Anthropic SDK of a Messages-API session sends it beside the bound key, to that backend)
 HERMES_PROVIDER_KEYS = ("OPENROUTER_API_KEY", "NOUS_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN",
+                        "ANTHROPIC_AUTH_TOKEN",
                         "GEMINI_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY", "DEEPSEEK_API_KEY", "GROQ_API_KEY",
                         "MISTRAL_API_KEY", "FIREWORKS_API_KEY", "TOGETHER_API_KEY", "KIMI_API_KEY", "ZAI_API_KEY",
                         "GLM_API_KEY", "MINIMAX_API_KEY", "DASHSCOPE_API_KEY", "HF_TOKEN", "COPILOT_GITHUB_TOKEN",
@@ -2755,6 +2764,35 @@ def _hermes_session(home: Path, handle) -> str | None:
         except sqlite3.Error:
             return None
     return str(handle) if row else None
+
+
+def _hermes_aux(home: Path, handle, model: str) -> list:
+    """Session `handle`'s auxiliary calls (a compression's summary, ...) as Hermes recorded them in the home's state
+    database, running totals as the plugin's `hermes.session_end` reports them: [] when there are none or the database
+    cannot be read. Read as copies, as _hermes_session reads it."""
+    import sqlite3
+    from hermit.agent.model.usage import Usage
+    with tempfile.TemporaryDirectory(prefix="hermit-hermes-") as tmp:
+        for name in ("state.db", "state.db-wal"):
+            source = Path(os.path.abspath(home)) / name
+            if _regular(source) and Path(os.path.realpath(source)).parent == Path(os.path.realpath(home)):
+                shutil.copyfile(source, Path(tmp) / name, follow_symlinks=False)
+        if not (Path(tmp) / "state.db").is_file():
+            return []
+        try:
+            with contextlib.closing(sqlite3.connect(Path(tmp) / "state.db")) as c:
+                rows = c.execute("SELECT api_call_count, input_tokens, output_tokens, cache_read_tokens, "
+                                 "cache_write_tokens FROM session_model_usage WHERE session_id = ? AND "
+                                 "COALESCE(task, '') != ''", (str(handle),)).fetchall()
+        except sqlite3.Error:
+            return []
+    u = Usage(model=model)
+    for calls, given, output, read, written in rows:
+        u.calls += int(calls or 0)
+        u.input_tokens += int(given or 0) + int(read or 0) + int(written or 0)
+        u.cached_input_tokens += int(read or 0)
+        u.output_tokens += int(output or 0)
+    return [u] if u.calls or u.input_tokens or u.output_tokens else []
 
 
 # Every CLI Base Agent, by each name make() takes for it.

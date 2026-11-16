@@ -168,7 +168,9 @@ What the agent does for every task:
   even through `environment.env`: give them in the agent's `env` setting.
   Nor does a Hermes Agent session get the caller's `HERMES_*`, `TERMINAL_*` or `TIRITH_*`, or another provider's key
   (`OPENROUTER_API_KEY`, ...): give them in `env`. Its auxiliary tasks go to its own model, and it has no fallback
-  provider, no memory, no skill-creation nudges, no title request, no update check and no tirith download.
+  provider, no memory, no skill-creation nudges, no title request, no update check and no tirith download. Hermes
+  itself still loads the `.env` beside its own source (a checkout installed from source) and a machine-wide managed
+  `.env`, over what Hermit passed: keep keys out of those files for a Hermes that Hermit runs.
 - **Web search.** `web_search` must be set, `true` or `false`: Codex's hosted search runs at the provider, past any
   sandbox or proxy, so it is never left to a default. Claude Code's `WebSearch` and `WebFetch` follow it too, and every
   Claude Code session is denied the tools whose work outlives it or reaches past it: `RemoteTrigger`, `CronCreate`,

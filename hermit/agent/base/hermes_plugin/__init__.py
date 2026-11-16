@@ -11,6 +11,8 @@ stream hermit keeps, carries one event per hook Hermes fires, with Hermes's own 
                          (`expected`): a server Hermes could not reach in time leaves its tools out, and Hermes goes
                          on without them; and the context files Hermes's prompt-injection scan refused (`blocked`:
                          the whole file is replaced by a `[BLOCKED: ...]` notice, which the model alone sees)
+  hermes.request_start   a model request about to be sent, each attempt: one that answered but no later hook reports
+                         (a reply cut at its output limit, which Hermes asks to continue) is a request all the same
   hermes.api_request     a model request that answered: its text, reasoning, tool calls, finish reason and usage
   hermes.api_error       a model request that failed: Hermes's classification (`reason`), status, whether it retries
   hermes.tool            a tool call that ran: its name, arguments, result and status
@@ -36,6 +38,7 @@ import threading
 _LOCK = threading.Lock()
 _SESSIONS: list[str] = []          # every session id this process reported (compression continues in a new one)
 _TOLD: list[bool] = []             # the first request's tools are reported once
+_BLOCKED: list[dict] = []          # the context files Hermes's prompt-injection scan blocked, as it blocked them
 BLOCKED = re.compile(r"\[BLOCKED: (.+?) contained potential prompt injection \(([^)]*)\)\. Content not loaded\.\]")
 
 
@@ -62,6 +65,25 @@ def _hints_off() -> bool:
         return True
     except Exception:
         return False
+
+
+def _watch_blocked() -> None:
+    """Record each context file Hermes's prompt-injection scan blocks (agent.prompt_builder, Hermes 0.19), whatever
+    API the session speaks: its notice reaches a hook only inside the request's system prompt, which the hook is given
+    cut at 8,000 characters (the Messages API's `system`) or not at all (the Responses API's `instructions`)."""
+    try:
+        from agent import prompt_builder
+        scan = prompt_builder._scan_context_content
+
+        def watched(content, filename):
+            out = scan(content, filename)
+            found = BLOCKED.fullmatch(out) if isinstance(out, str) else None
+            if found:
+                _BLOCKED.append({"file": found.group(1), "findings": found.group(2)})
+            return out
+        prompt_builder._scan_context_content = watched
+    except Exception:
+        pass
 
 
 def _text(content) -> str:
@@ -115,7 +137,8 @@ def on_session_start(session_id=None, model=None, **_):
     _emit("session_start", session_id=_seen(session_id), model=model)
 
 
-def pre_api_request(session_id=None, request=None, request_messages=None, **_):
+def pre_api_request(session_id=None, request=None, request_messages=None, api_call_count=None, **_):
+    _emit("request_start", session_id=_seen(session_id), api_call_count=api_call_count)
     if _TOLD:
         return
     _TOLD.append(True)
@@ -128,7 +151,9 @@ def pre_api_request(session_id=None, request=None, request_messages=None, **_):
     messages = request_messages if isinstance(request_messages, list) else body.get("messages") or []
     system = "".join(_text(m.get("content")) for m in messages if isinstance(m, dict) and m.get("role") == "system")
     system += _text(body.get("system"))                     # the Messages API's, beside the messages
-    blocked = [{"file": f, "findings": why} for f, why in BLOCKED.findall(system)]
+    blocked = list(_BLOCKED)
+    blocked += [item for item in ({"file": f, "findings": why} for f, why in BLOCKED.findall(system))
+                if item not in blocked]
     _emit("request_tools", session_id=_seen(session_id), names=[n for n in names if n], expected=_expected(),
           blocked=blocked)
 
@@ -188,6 +213,7 @@ def on_session_end(session_id=None, completed=None, interrupted=None, reason=Non
 
 
 def register(ctx) -> None:
+    _watch_blocked()
     if _settings().get("subdirectory_hints") is False:
         _emit("settings", hints_off=_hints_off())
     for name in ("on_session_start", "pre_api_request", "post_api_request", "api_request_error", "post_tool_call",
