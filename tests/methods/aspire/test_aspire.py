@@ -555,7 +555,7 @@ def test_the_task_sandbox_is_shown_the_staged_docs_and_never_a_page_that_lost_it
     from hermit.config import Config
     configs = [p for folder in (EXAMPLE.parent / "aspire", LIBERO / "aspire", LIBERO / "prompt_only")
                for p in sorted(folder.glob("*.yaml"))]
-    assert len(configs) == 17
+    assert len(configs) == 18
     for path in configs:
         data = Config.load(path).data
         read = [str(p) for p in (data.get("environment") or {}).get("read") or []]
@@ -619,6 +619,8 @@ def test_the_libero_tasks_are_liberos_five_suites_and_liberos_pros_eighty_with_a
     assert split("libero_90.txt") == by("libero_90") and split("libero_pro.txt") == by(*pro)
     assert split("libero_pro_long.txt") == by("libero_10_swap", "libero_10_task")
     assert split("smoke.txt") == split("libero.txt")[:2] and split("smoke_pro.txt") == split("libero_pro.txt")[:2]
+    assert split("libero_sample.txt") == [f"{s}-t{n:02d}" for s in ("libero_object", "libero_spatial", "libero_goal")
+                                          for n in (0, 5)]
     for path in sorted((LIBERO / "aspire").glob("*.yaml")) + sorted((LIBERO / "prompt_only").glob("*.yaml")):
         data = Config.load(path).data["data"]
         rows_file = Path(data["tasks"])

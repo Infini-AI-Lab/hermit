@@ -5,7 +5,7 @@ the engine sets, so that a seed is a scene of its own).
 
     python prepare.py                                  # ASPIRE's seeds
     python prepare.py --preset smoke                   # the smoke's: three development seeds, one unseen, three held-out
-    # tasks.jsonl, splits/{all,libero,libero_90,libero_pro,libero_pro_long,<suite>,smoke,smoke_pro}.txt,
+    # tasks.jsonl, splits/{all,libero,libero_90,libero_pro,libero_pro_long,<suite>,smoke,smoke_pro,libero_sample}.txt,
     # their *_rerun.txt (rerun.txt for all), verify.txt
 
 LIBERO's own five suites (Liu et al., 2023): `libero_object`, `libero_spatial`, `libero_goal` and `libero_10`
@@ -33,6 +33,9 @@ BENCHMARK = "libero-pro"                 # cap-harness's name for its LIBERO ada
 SUITES = {"libero_object": 10, "libero_spatial": 10, "libero_goal": 10, "libero_10": 10, "libero_90": 90}
 PRO_FAMILIES = ("object", "spatial", "goal", "10")       # the curriculum's order; `10` is Long
 PRO_SUITES = {f"libero_{family}_{kind}": 10 for family in PRO_FAMILIES for kind in ("swap", "task")}
+# A sample of the forty that a run on one GPU finishes in a day or two: task ids 0 and 5 of Object, Spatial and Goal
+# (Long's two-stage tasks are left out for their length)
+SAMPLE = [f"{suite}-t{n:02d}" for suite in ("libero_object", "libero_spatial", "libero_goal") for n in (0, 5)]
 PRESETS = {"aspire": {"dev": "51-65", "unseen": "66-80", "eval": "1-50", "verify": "51-55"},
            "smoke": {"dev": "51-53", "unseen": "66", "eval": "1-3", "verify": "51-55"}}
 
@@ -50,7 +53,7 @@ def main() -> None:
           {"all": ids, "libero": original, "libero_90": of("libero_90"), "libero_pro": pro,
            "libero_pro_long": of("libero_10_swap", "libero_10_task"),
            **{suite: of(suite) for suite in (*SUITES, *PRO_SUITES) if suite != "libero_90"},
-           "smoke": original[:2], "smoke_pro": pro[:2]})
+           "smoke": original[:2], "smoke_pro": pro[:2], "libero_sample": SAMPLE})
 
 
 if __name__ == "__main__":
