@@ -31,11 +31,11 @@ def main(argv=None) -> int:
         if name == "check":
             p.add_argument("--no-probe", action="store_true", help="skip running one task through the pipeline")
     dep = sub.add_parser("deploy", help="deploy an adapter's exports into a Codex, Claude Code, Pi, mini-swe-agent, "
-                                        "OpenCode or DeepSeek Harness workspace")
+                                        "OpenCode, DeepSeek Harness or Hermes Agent workspace")
     dep.add_argument("--adapter", type=Path, required=True)
     dep.add_argument("--workspace", "--output", dest="workspace", type=Path, required=True,
                      help="the project directory the agent will work in (--output is the older spelling)")
-    dep.add_argument("--host", choices=["codex", "claude-code", "pi", "mini-swe-agent", "opencode", "dsh"],
+    dep.add_argument("--host", choices=["codex", "claude-code", "pi", "mini-swe-agent", "opencode", "dsh", "hermes"],
                      default="codex")
     dep.add_argument("--python", default=sys.executable)
     dep.add_argument("--context-limit", type=int, default=None,
@@ -105,6 +105,8 @@ def main(argv=None) -> int:
             from hermit.hosts.opencode import prepare
         elif args.host == "dsh":
             from hermit.hosts.dsh import prepare
+        elif args.host == "hermes":
+            from hermit.hosts.hermes import prepare
         else:
             from hermit.hosts.claude_code import prepare
         try:

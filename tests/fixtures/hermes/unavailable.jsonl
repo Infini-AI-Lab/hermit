@@ -1,0 +1,8 @@
+{"type": "hermes.session_start", "session_id": "20261114_011542_639db7", "model": "m-1"}
+{"type": "hermes.request_tools", "session_id": "20261114_011542_639db7", "names": ["mcp__hermit_tools__echo", "patch", "process", "read_file", "search_files", "terminal", "todo", "write_file"], "expected": ["hermit_tools"]}
+{"type": "hermes.api_error", "session_id": "20261114_011542_639db7", "api_call_count": 1, "model": "m-1", "status_code": 503, "reason": "overloaded", "retryable": true, "retry_count": 0, "max_retries": 3, "error": {"type": "InternalServerError", "message": "Error code: 503 - {'error': {'message': 'scripted 503', 'type': 'error'}}"}}
+{"type": "hermes.api_error", "session_id": "20261114_011542_639db7", "api_call_count": 1, "model": "m-1", "status_code": 503, "reason": "overloaded", "retryable": true, "retry_count": 1, "max_retries": 3, "error": {"type": "InternalServerError", "message": "Error code: 503 - {'error': {'message': 'scripted 503', 'type': 'error'}}"}}
+{"type": "hermes.api_error", "session_id": "20261114_011542_639db7", "api_call_count": 1, "model": "m-1", "status_code": 503, "reason": "overloaded", "retryable": true, "retry_count": 2, "max_retries": 3, "error": {"type": "InternalServerError", "message": "Error code: 503 - {'error': {'message': 'scripted 503', 'type': 'error'}}"}}
+
+session_id: 20261114_011542_639db7
+API call failed after 3 retries: HTTP 503: scripted 503

@@ -37,7 +37,7 @@ import time
 
 LOGINS = {"chatgpt": "codex", "claude": "claude"}             # a `login`: the CLI it signs in
 # the CLIs that sign in only through a <backend>/<model> reference
-NO_LOGIN = ("pi", "mini-swe-agent", "opencode", "dsh")
+NO_LOGIN = ("pi", "mini-swe-agent", "opencode", "dsh", "hermes")
 FILE = "auth.json"
 ROOT = Path.home() / ".cache" / "hermit" / "codex-login"      # the shared copy: ROOT/login/auth.json
 TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN"                         # the token of `claude setup-token`, the user's to export
@@ -607,14 +607,17 @@ def logins_of(data: dict, evolver_params: dict | None = None) -> list[tuple[str,
 def evolver_problems(params: dict | None) -> list[str]:
     """What an agent Evolver's own sign-in or settings cannot run, found before the first step rather than at each
     step's session (after its rollouts): a login that is not its CLI's (`backend`), a Claude login with no model name
-    to run, a dsh setting dsh refuses (cli.dsh_problems). `params` are the Evolver's as the Trainer gives them: its
-    method's own under the run's, the model bound."""
+    to run, a dsh or Hermes setting the CLI refuses (cli.dsh_problems, cli.hermes_problems). `params` are the
+    Evolver's as the Trainer gives them: its method's own under the run's, the model bound."""
     params = params or {}
     login = params.get("login")
     out = []
     if params.get("backend") == "dsh":
         from hermit.agent.base.cli import dsh_problems
         out += dsh_problems(params, "evolver")
+    if params.get("backend") == "hermes":
+        from hermit.agent.base.cli import hermes_problems
+        out += hermes_problems(params, "evolver")
     if not login:
         return out
     own = LOGINS.get(login)

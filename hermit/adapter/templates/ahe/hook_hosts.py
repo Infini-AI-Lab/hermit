@@ -16,9 +16,10 @@ tests/fixtures/ahe_hosts/ holds real payloads of those runs, which tests/methods
 the wires, and the same file re-runs both CLIs on a scripted model when they are installed and `--integration` is
 given.
 
-Pi and DeepSeek Harness read no hook file: their deployments list the hook commands in AGENTS.md for the agent to
-run by hand. Run so, with no payload (the `pi` and `dsh` wires), session_start still hands over the memory; the other
-hooks have no tool call, prompt or stop to act on.
+Pi, DeepSeek Harness and Hermes Agent read no hook file: their deployments list the hook commands in their context
+file (AGENTS.md, Hermes's .hermes.md) for the agent to run by hand. Run so, with no payload (the `pi`, `dsh` and
+`hermes` wires), session_start still hands over the memory; the other hooks have no tool call, prompt or stop to act
+on.
 
 Stdlib only, beside hook_runner.py in the adapter's copy: nothing of the framework is installed where the agent runs.
 """
@@ -486,8 +487,14 @@ class Dsh(Pi):
     name, label = "dsh", "DeepSeek Harness"
 
 
-CODEX, CLAUDE_CODE, PI, DSH = Codex(), ClaudeCode(), Pi(), Dsh()
-HOSTS = {CODEX.name: CODEX, CLAUDE_CODE.name: CLAUDE_CODE, PI.name: PI, DSH.name: DSH}
+class Hermes(Pi):
+    """Hermes Agent runs no hook file of a project (its shell hooks are settings of its own home): its deployment
+    lists each hook command in .hermes.md, as Pi's does in AGENTS.md, and a command run so has no payload."""
+    name, label = "hermes", "Hermes Agent"
+
+
+CODEX, CLAUDE_CODE, PI, DSH, HERMES = Codex(), ClaudeCode(), Pi(), Dsh(), Hermes()
+HOSTS = {CODEX.name: CODEX, CLAUDE_CODE.name: CLAUDE_CODE, PI.name: PI, DSH.name: DSH, HERMES.name: HERMES}
 HOOK_HOSTS = (CODEX.name, CLAUDE_CODE.name)               # the hosts that run the hooks themselves
 
 

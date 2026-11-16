@@ -57,7 +57,8 @@ def fixtures(host):
 def test_the_hooks_file_registers_every_event_of_every_host_and_nothing_else():
     hooks = json.loads((TEMPLATE / "hooks.json").read_text())["hooks"]
     assert set(hooks) == set(CODEX.events) | set(CLAUDE.events) == set(wires.PI.events)
-    assert set(wires.HOSTS) == {"codex", "claude-code", "pi", "dsh"} and wires.HOOK_HOSTS == ("codex", "claude-code")
+    assert set(wires.HOSTS) == {"codex", "claude-code", "pi", "dsh", "hermes"} and \
+        wires.HOOK_HOSTS == ("codex", "claude-code")
     for wire in wires.HOSTS.values():
         assert set(wire.flush) <= set(wire.events) and set(wire.specific) <= set(wire.events)
         assert {f for f in wire.events.values() if f} <= set(runner.hooks.MIDDLEWARE_EVENTS)
@@ -484,10 +485,10 @@ def test_text_that_cannot_be_encoded_is_escaped_not_a_crash(tmp_path, capsys):
     assert _audit(work)[-1]["error"] is None
 
 
-@pytest.mark.parametrize("host", ["pi", "dsh"])
-def test_on_a_host_without_hooks_a_hook_run_by_hand_hands_the_memory_over(tmp_path, host):
-    """Pi and DeepSeek Harness run no hooks: the deployment tells the agent to run each hook command itself, without a
-    payload. The SessionStart one prints the memory; the others have nothing to act on and print nothing. (A host
+@pytest.mark.parametrize("host, context_file", [("pi", "AGENTS.md"), ("dsh", "AGENTS.md"), ("hermes", ".hermes.md")])
+def test_on_a_host_without_hooks_a_hook_run_by_hand_hands_the_memory_over(tmp_path, host, context_file):
+    """Pi, DeepSeek Harness and Hermes Agent run no hooks: the deployment tells the agent (in its context file) to run
+    each hook command itself, without a payload. The SessionStart one prints the memory; the others have nothing to act on and print nothing. (A host
     the template has no wire for printed nothing at all, so the memory never reached the session.)"""
     import importlib
     prepare = importlib.import_module(f"hermit.hosts.{host}").prepare
@@ -495,7 +496,7 @@ def test_on_a_host_without_hooks_a_hook_run_by_hand_hands_the_memory_over(tmp_pa
     (adapter / "MEMORY.md").write_text(T.MEMORY_WITH_ENTRIES)
     work = tmp_path / f"work-{host}"
     result = prepare(adapter, work, sys.executable)
-    agents_md = (work / "AGENTS.md").read_text()
+    agents_md = (work / context_file).read_text()
     line = next(l for l in agents_md.splitlines() if "On `SessionStart`" in l)
     command = line.split("run `", 1)[1].rstrip("`")
     proc = subprocess.run(["sh", "-c", command], cwd=work, input="", capture_output=True, text=True,
@@ -740,6 +741,20 @@ def test_the_evolvers_texts_name_a_dsh_acting_agents_stream():
         assert "codex exec --json" not in words
     assert DSH_STREAM in D.for_stream(texts[0], DSH_STREAM)
     assert "`dsh --profile headless --json` event stream" in D.for_stream(texts[1], DSH_STREAM)
+
+
+def test_the_evolvers_texts_name_a_hermes_acting_agents_stream():
+    """A Hermes Agent acting agent's sessions keep their own stream (agent-hermes.jsonl, hermit's plugin's events):
+    the learners' texts name it, not Codex's file."""
+    from hermit.agent.base.trajectory import HERMES_STREAM
+    from hermit.agent.evolver.methods.ahe_adapter import debugger as D
+    methods = T.ROOT / "hermit" / "agent" / "evolver" / "methods" / "ahe_adapter"
+    texts = [(methods / name).read_text() for name in ("START.md", "DEBUGGER.md")]
+    for text in texts:
+        words = D.for_stream(text, HERMES_STREAM)
+        assert "agent-codex.jsonl" not in words and "Codex event stream" not in words
+        assert "codex exec --json" not in words
+    assert HERMES_STREAM in D.for_stream(texts[0], HERMES_STREAM)
 
 
 # --- the real CLIs, each on a scripted local model ----------------------------------------------------------------

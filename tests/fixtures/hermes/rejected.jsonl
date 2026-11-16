@@ -1,0 +1,6 @@
+{"type": "hermes.session_start", "session_id": "20261114_011509_452a9b", "model": "m-1"}
+{"type": "hermes.request_tools", "session_id": "20261114_011509_452a9b", "names": ["mcp__hermit_tools__echo", "patch", "process", "read_file", "search_files", "terminal", "todo", "write_file"], "expected": ["hermit_tools"]}
+{"type": "hermes.api_error", "session_id": "20261114_011509_452a9b", "api_call_count": 1, "model": "m-1", "status_code": 400, "reason": "format_error", "retryable": false, "retry_count": 0, "max_retries": 3, "error": {"type": "BadRequestError", "message": "Error code: 400 - {'error': {'message': 'scripted 400', 'type': 'error'}}"}}
+
+session_id: 20261114_011509_452a9b
+HTTP 400: scripted 400

@@ -1,0 +1,7 @@
+{"type": "hermes.session_start", "session_id": "20261114_011515_afffbf", "model": "m-1"}
+{"type": "hermes.request_tools", "session_id": "20261114_011515_afffbf", "names": ["mcp__hermit_tools__echo", "patch", "process", "read_file", "search_files", "terminal", "todo", "write_file"], "expected": ["hermit_tools"]}
+{"type": "hermes.api_request", "session_id": "20261114_011515_afffbf", "api_call_count": 1, "model": "m-1", "response_model": null, "api_mode": "chat_completions", "finish_reason": "tool_calls", "content": null, "reasoning": null, "tool_calls": [{"id": "call_0", "name": "terminal", "arguments": "{\"command\": \"sleep 60\"}"}], "usage": {"input_tokens": 600, "output_tokens": 20, "cache_read_tokens": 400, "cache_write_tokens": 0, "reasoning_tokens": 0, "request_count": 1, "prompt_tokens": 1000, "total_tokens": 1020}}
+{"type": "hermes.tool", "session_id": "20261114_011515_afffbf", "tool_name": "terminal", "tool_call_id": "call_0", "args": {"command": "sleep 60"}, "result": "{\"error\": \"Tool execution cancelled by user interrupt\", \"status\": \"cancelled\"}", "status": "cancelled", "error_type": "keyboard_interrupt", "error_message": "Tool execution cancelled by user interrupt", "duration_ms": 8070}
+{"type": "hermes.session_end", "session_id": "20261114_011515_afffbf", "completed": false, "interrupted": true, "reason": "keyboard_interrupt", "sessions": ["20261114_011515_afffbf"], "aux": []}
+
+session_id: 20261114_011515_afffbf
