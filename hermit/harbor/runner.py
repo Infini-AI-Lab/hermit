@@ -190,6 +190,9 @@ DISK_GATE_WAIT_S = 7200.0
 TMP_GATE_GB = 1.0
 HOST_TMP = Path("/tmp")
 HALT_FILE = "HALT"
+# a variable an acting_agent.env value names: ${NAME} and ${NAME:-default}, which Harbor fills in from this
+# process's environment (harbor.utils.env.resolve_env_vars), and $NAME, which it hands on as that text
+ENV_REF = re.compile(r"\$(?:\{(\w+)(?::-[^}]*)?\}|(\w+))")
 NESTED = ("acting_agent", "environment", "verifier", "retry", "stream", "answer")   # params merged one level deep
 BINS = ("codex", "claude", "pi", "opencode", "dsh")              # the CLIs a binary of this machine may be mounted for
 # What has Harbor's own codex agent sign in with the user's ChatGPT file (~/.codex/auth.json, or the file named)
@@ -927,17 +930,19 @@ class HarborAgent(Agent):
     def check_env(self) -> None:
         """`acting_agent.env` holds no secret: its values are written into the trial's job (job.yaml, agent.json) and
         handed to each `docker compose exec` on its command line, which every user of this machine can read. A
-        variable of a secret's name (launch.SECRET_VAR: OPENAI_API_KEY, GH_TOKEN) or a value naming one ($NAME,
-        ${NAME}, which Harbor fills in) is refused: a table CLI's secret is passed by name (the CLI's settings.env,
-        NAME: $NAME), and Harbor's own agents read theirs from this process's environment."""
+        variable of a secret's name (launch.SECRET_VAR: OPENAI_API_KEY, GH_TOKEN) or a value naming one is refused:
+        `${NAME}` and `${NAME:-default}`, which Harbor fills in from this process's environment, and `$NAME`, which it
+        hands on as that text (never the secret the config meant). A table CLI's secret is passed by name (the CLI's
+        settings.env, NAME: $NAME), and Harbor's own agents read theirs from this process's environment."""
         for name, value in (self.acting_agent.get("env") or {}).items():
-            named = [a or b for a, b in launch.VAR_REF.findall(str(value))]
+            named = [a or b for a, b in ENV_REF.findall(str(value))]
             secret = str(name) if launch.SECRET_VAR.search(str(name)) else \
-                next((n for n in named if launch.SECRET_NAME.search(n)), None)
+                next((n for n in named if launch.SECRET_VAR.search(n)), None)
             if secret:
                 raise ValueError(f"agent.params.acting_agent.env {name} holds a secret ({secret}): its values are "
-                                 "written into each trial's job and onto `docker compose exec`'s command line; pass "
-                                 "a table CLI's by name in its settings.env (NAME: $NAME), and export one of Harbor's "
+                                 "written into each trial's job and onto `docker compose exec`'s command line (Harbor "
+                                 "fills ${NAME} and ${NAME:-default} in, and hands $NAME on as that text); pass a "
+                                 "table CLI's by name in its settings.env (NAME: $NAME), and export one of Harbor's "
                                  "own agents in this process's environment")
 
     def builtin_kwargs(self) -> dict:

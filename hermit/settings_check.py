@@ -15,6 +15,7 @@ from hermit.agent.base.endpoint import cli_problems
 from hermit.agent.base.interface import LoginFailed
 from hermit.agent.model.backends import bindings_of, list_models, probe as probe_model, problems_of, registry, warnings_of
 from hermit.config import Config
+from hermit.evaluate import _harbor_rows
 from hermit.sandbox import hidden_paths, set_hidden
 from hermit.agent.evolver.loader import find, instantiate, load_class
 from hermit.spec import check_spec
@@ -124,7 +125,7 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
             problems += step_order_problems(config, data)
             if keeps_trials(config):                  # hermit train's rows name their epoch and new run
                 problems += own_row_keys(list(data.tasks.values()), TRIAL_KEYS, "training")
-        elif str(d["agent"].get("name")) == "harbor" and int(d["eval"]["repeats"]) > 1:     # each repeat's rows name it
+        if int(d["eval"]["repeats"]) > 1 and _harbor_rows(config):   # hermit eval's rows name their repeat
             problems += own_row_keys([data.tasks[t] for t in data.splits["test"]], (REPEAT,), "the test split")
         problem = out_of_step(data.splits["test"], data.tasks, "the test split")
         problems += [problem] if problem else []

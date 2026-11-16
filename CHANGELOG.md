@@ -561,29 +561,31 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   whose environment never started costs 0, not an unknown cost; `run_agent`'s rows of a multi-step task run in step
   order whatever order the call lists them in; a step whose stream aborted before its turn is never asked for (it costs
   0); a stream step run again sets an earlier run's tool-call log aside; a killed driver leaves no socket; and a failed
-  `hermit eval` leaves no earlier summary beside its emptied results. Only a Harbor task set's rows name their repeat
-  (`repeat`), and a record keeps a row's own `epoch` or `fresh` field: every other pipeline gets its rows and records as
-  on `main`.
+  `hermit eval` leaves no earlier summary beside its emptied results, while one refused at its start leaves both as they
+  were. Only a Harbor task set's rows name their repeat (`repeat`), and a record keeps a row's own `epoch` or `fresh`
+  field: every other pipeline gets its rows and records as on `main`.
 - `python -m pytest` imports no file of a run's folder beside an example's configs (`examples/*/runs`, at any depth:
   what the run's trials and learners wrote, a task container's files among them), as it imports none of a Harbor task
   set's. A Harbor pipeline that deploys adapters is refused at startup where bubblewrap is not installed and the
   adapter sandbox that renders each adapter is required (`agent.params.sandbox_enforce`), rather than each trial ending
   in the sandbox's error, scored 0.
-- A Harbor rollout that met a halt (a lost sign-in, an account's limit) still reports it when an OSError of this
-  machine follows (its curated log not written: a full disk), with or without its HALT file, and a jobs directory that
-  cannot be made is `host_failed` at a cost of 0. A stream step whose turn never came curates no tool call, never an
-  earlier run's. A verifier's words of a full disk are the host's only before its tests wrote a report (`ctrf.json`).
-  The copy-back and the collect write into new folders of root's in `/logs/agent`, following no link the agent's user
-  put there; the docs say that a command a CLI ran in a session of its own outlives the kill of its group. A secret in
+- A Harbor rollout that met a halt (a lost sign-in, an account's limit) still reports it when an OSError of this machine
+  follows (its curated log not written: a full disk), with or without its HALT file, and a jobs directory that cannot be
+  made is `host_failed` at a cost of 0. A stream step whose turn never came curates no tool call, never an earlier
+  run's. A verifier's words of a full disk are the host's only before its tests wrote a report (`ctrf.json`). The
+  copy-back and the collect write into new folders of root's in `/logs/agent`, following no link the agent's user put
+  there; the docs say that a command a CLI ran in a session of its own outlives the kill of its group. A secret in
   `acting_agent.env`, which is written into each trial's job and onto `docker compose exec`'s command line, is refused
-  at startup; the runner follows the `tasks` link once; a codex trial of a model a CLI reaches is refused for what it
-  is. A row of its own `epoch`, `fresh` or `repeat` field is refused where the framework adds those keys (`hermit
-  train` with the trial cache, `hermit eval`'s repeats of a Harbor task set), rather than replaced and dropped from its
-  record. `dataset prepare` takes a data directory that is the set's own folder in another download for that
-  download's, marks a download before it is moved into place, keeps an image's earlier size it cannot read anew,
-  writes nothing when it refuses (a split of a fraction or of more tasks than there are, a smoke task named twice, a
-  `data` naming a variable that is not set) and says this machine's errors as `error:`; a task's link to a folder is in
-  its digest. An ATIF tool call whose id is no string reads as one without an id.
+  at startup: a variable of a secret's name, or a value naming one as `${NAME}` or `${NAME:-default}`, which Harbor
+  fills in, or as `$NAME`, which it hands on as that text; the runner follows the `tasks` link once; a codex trial of a
+  model a CLI reaches is refused for what it is. A row of its own `epoch`, `fresh` or `repeat` field is refused where
+  the framework adds those keys (`hermit train` with the trial cache, `hermit eval`'s repeats of a Harbor task set, and
+  `hermit check` of either, a training config's eval too), rather than replaced and dropped from its record.
+  `dataset prepare` takes a data directory that is the set's own folder in another download for that download's, marks a
+  download before it is moved into place, keeps an image's earlier size it cannot read anew, writes nothing when it
+  refuses (a split of a fraction or of more tasks than there are, a smoke task named twice, a `data` naming a variable
+  that is not set) and says this machine's errors as `error:`; a task's link to a folder is in its digest. An ATIF tool
+  call whose id is no string reads as one without an id.
 
 ## 0.2.0 - 2026-11-04
 

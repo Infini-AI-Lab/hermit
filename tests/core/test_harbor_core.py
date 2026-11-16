@@ -552,6 +552,15 @@ def test_a_row_of_its_own_epoch_fresh_or_repeat_is_refused_where_the_framework_n
                                              r"\(t8\)"):
             evaluate(load(path, "eval.repeats=2"), "none", **QUIET)
         assert evaluate(load(path), "none", **QUIET)["unscored"] == 0          # one repeat names none
+        m.setattr(hermit.settings_check, "_harbor_rows", lambda config: True)
+        for args in (("data.train=null",), ("evolver.name=learn",)):          # an eval-only config, a training one
+            lines = []
+            assert not run_check(load(path, "eval.repeats=2", *args, command="check"), probe=False,
+                                 log=lines.append)
+            assert "the test split: rows of a field named repeat (t8)" in "\n".join(lines), (args, lines)
+            lines = []
+            run_check(load(path, *args, command="check"), probe=False, log=lines.append)      # one repeat names none
+            assert "a field named repeat" not in "\n".join(lines), (args, lines)
     assert evaluate(load(path, "eval.repeats=2"), "none", **QUIET)["unscored"] == 0     # nor does another pipeline
 
 
@@ -999,6 +1008,33 @@ def test_an_eval_that_failed_leaves_no_summary_of_an_earlier_eval_beside_its_emp
     with pytest.raises(SystemExit):
         evaluate(load(path), "none", **QUIET)
     assert not (out / "summary.json").exists() and (out / "results.jsonl").read_text() == ""
+
+
+def test_an_eval_refused_at_its_start_leaves_the_earlier_evals_results_and_summary_as_they_were(tmp_path,
+                                                                                                   monkeypatch):
+    """An eval that refuses to start runs nothing, so the earlier eval's results.jsonl and summary.json stay as they
+    were, as on main: a row of its own reserved key, and a pipeline whose startup checks refuse it (no bubblewrap, a
+    secret in its env), before the eval empties them."""
+    from hermit import evaluate as evaluate_module
+    path = _task(tmp_path)
+    evaluate(load(path, "eval.repeats=2"), "none", **QUIET)
+    out = load(path).run_dir() / "eval" / "none"
+    before = {name: (out / name).read_text() for name in ("results.jsonl", "summary.json")}
+    assert len(_jsonl(out / "results.jsonl")) == 6
+    _rows(tmp_path, t8={"repeat": "its own"})
+    with monkeypatch.context() as m:
+        m.setattr(evaluate_module, "_harbor_rows", lambda config: True)
+        with pytest.raises(SystemExit, match="eval refuses to start"):
+            evaluate(load(path, "eval.repeats=2"), "none", **QUIET)
+    assert {name: (out / name).read_text() for name in before} == before
+
+    def refused(*args, **kwargs):
+        raise ValueError("agent.params: refused at startup")
+    with monkeypatch.context() as m:
+        m.setattr(evaluate_module, "agent_pipeline", refused)
+        with pytest.raises(ValueError, match="refused at startup"):
+            evaluate(load(path), "none", **QUIET)
+    assert {name: (out / name).read_text() for name in before} == before
 
 
 def test_the_suite_imports_no_file_of_a_task_set_or_of_a_runs_folder(tmp_path):

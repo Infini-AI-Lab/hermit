@@ -957,7 +957,6 @@ def test_a_mini_swe_agent_eval_that_deploys_no_adapter_starts_without_the_packag
     assert given == [False, True]
 
 
-
 def test_a_pipeline_that_deploys_adapters_without_bubblewrap_is_refused_at_startup(tmp_path, fake_harbor, monkeypatch):
     """Staging renders every adapter a trial deploys (its exports, its per-task context) in the strict adapter sandbox,
     which, its enforce required (`sandbox_enforce`, the default), refuses to run without bubblewrap: each such trial
@@ -977,6 +976,7 @@ def test_a_pipeline_that_deploys_adapters_without_bubblewrap_is_refused_at_start
             assert make_agent(tmp_path, fake_harbor, tasks, deploys_adapters=False, **params).cli == cli
             assert make_agent(tmp_path, fake_harbor, tasks, sandbox_enforce="best_effort", **params).cli == cli
     assert make_agent(tmp_path, fake_harbor, tasks).cli == "codex"                        # bubblewrap here: as before
+
 
 def test_a_multi_step_task_set_whose_harbor_has_no_python_beside_it_is_refused_at_startup(tmp_path, fake_harbor):
     """A multi-step task's steps run in a stream whose driver runs under the python of Harbor's venv, beside `harbor`
@@ -4351,7 +4351,7 @@ def test_a_step_whose_stream_aborted_before_its_turn_is_never_asked_for(tmp_path
 
 
 def test_a_halt_the_rollout_met_stays_its_verdict_when_this_machines_failure_follows_it(tmp_path, fake_harbor,
-                                                                                       monkeypatch, capsys):
+                                                                                       monkeypatch):
     """A rollout that met a halt (an API account's limit) and then this machine's OSError (its curated log not
     written: a full disk) still reports the halt, with or without its HALT file: the Trainer ends the run and hermit
     eval reruns nothing, rather than every later trial starting on the dead account. A jobs directory this machine
@@ -4450,18 +4450,24 @@ def test_the_task_sets_link_is_followed_once_so_a_prepare_mid_run_changes_no_tri
 
 def test_a_secret_in_the_acting_agents_env_is_refused_at_startup(tmp_path, fake_harbor):
     """acting_agent.env is written into each trial's job and onto `docker compose exec`'s command line: a variable of
-    a secret's name, or a value naming one, is refused at startup, for a table CLI and Harbor's own agents alike; a
-    count named like one (MAX_OUTPUT_TOKENS) is no secret."""
+    a secret's name, or a value naming one, is refused at startup, for a table CLI and Harbor's own agents alike: as
+    `${NAME}` or `${NAME:-default}`, which Harbor fills in from this process's environment, or as `$NAME`, which it
+    hands on as that text. A count or a setting named like one (MAX_OUTPUT_TOKENS, TOKENIZERS_PARALLELISM) is no
+    secret, nor is a value naming one."""
     tasks = tmp_path / "tasks"
     make_task(tasks, "alpha")
     for spec in ({"cli": "codex", "env": {"OPENAI_API_KEY": "sk-stand-in"}},
                  {"cli": "codex", "env": {"GITHUB": "${GH_TOKEN}"}},
+                 {"cli": "codex", "env": {"GITHUB": "${GH_TOKEN:-}"}},
+                 {"cli": "codex", "env": {"GITHUB": "$GH_TOKEN"}},
+                 {"cli": "codex", "env": {"AUTH": "Bearer ${HF_TOKEN:-none}"}},
                  {"name": "claude-code", "env": {"ANTHROPIC_API_KEY": "stand-in"}}):
         with pytest.raises(ValueError, match=r"acting_agent.env \w+ holds a secret"):
             make_agent(tmp_path, fake_harbor, tasks, acting_agent=spec)
-    agent = make_agent(tmp_path, fake_harbor, tasks,
-                       acting_agent={"cli": "codex", "env": {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": "8000", "A": "1"}})
-    assert agent.agent_config(dataset.index(tasks)[0])["env"] == {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": "8000", "A": "1"}
+    env = {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": "8000", "A": "1", "PARALLEL": "${TOKENIZERS_PARALLELISM:-false}",
+           "LIMIT": "$MAX_OUTPUT_TOKENS"}
+    agent = make_agent(tmp_path, fake_harbor, tasks, acting_agent={"cli": "codex", "env": env})
+    assert agent.agent_config(dataset.index(tasks)[0])["env"] == env
 
 
 def test_a_table_clis_trial_of_a_model_a_cli_reaches_is_refused_for_what_it_is(tmp_path, fake_harbor):

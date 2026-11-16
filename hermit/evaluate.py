@@ -115,8 +115,6 @@ def _run(config: Config, target: Path | None, tests: list[dict], out: Path, *, l
     repeats = int(d["eval"]["repeats"])
     retries, wait = int(d["eval"].get("infra_retries") or 0), float(d["eval"].get("infra_wait_s") or 0)
     out.mkdir(parents=True, exist_ok=True)
-    (out / "results.jsonl").write_text("")        # an earlier eval's results are not this one's, should this one fail,
-    (out / "summary.json").unlink(missing_ok=True)       # nor is its summary
     named = repeats > 1 and _harbor_rows(config)             # each repeat's rows name it (_repeat)
     added = (REPEAT,) if named else ()
     problems = own_row_keys(tests, added, "the test split") if named else []
@@ -137,6 +135,10 @@ def _run(config: Config, target: Path | None, tests: list[dict], out: Path, *, l
     rerun = 0
     concurrency = int(d["agent"]["concurrency"])
     try:
+        # Started: an earlier eval's results are not this one's, should this one fail, nor is its summary (an eval
+        # refused at its start, above, leaves them as they were)
+        (out / "results.jsonl").write_text("")
+        (out / "summary.json").unlink(missing_ok=True)
         for r in range(1, repeats + 1):
             log(f"eval {label}: repeat {r}/{repeats} on {len(tests)} test tasks")
             seen: dict[str, int] = {}
