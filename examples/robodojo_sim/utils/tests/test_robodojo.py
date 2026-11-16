@@ -584,3 +584,5 @@ def test_the_configs_load_and_show_the_task_sandbox_nothing_of_robodojo():
         data = Config.load(path).data
         assert data["environment"]["read"] == ["../utils/agent"], path
         assert data["environment"]["env"] == ["ROBODOJO_SIM_URL"], path
+        # Codex reads AGENTS.md (the adapter) only up to this: past it every session is refused
+        assert data["agent"]["params"]["project_doc_max_bytes"] >= 65536, path

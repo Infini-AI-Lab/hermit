@@ -22,6 +22,7 @@ agent:
     timeout_s: 5400
     codex_sandbox: danger-full-access   # the task sandbox is the boundary; the session reaches bin/sim's service
     shell_env: all                      # only the declared variables are in the sandbox
+    project_doc_max_bytes: 65536        # AGENTS.md carries ADAPTER.md (the template caps it at 40,000 bytes)
 environment:                        # the task sandbox: the actor's code and the interface page, nothing of RoboDojo
   read:
     - ../utils/agent
