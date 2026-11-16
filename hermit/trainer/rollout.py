@@ -10,7 +10,7 @@ import time
 import traceback
 
 from hermit.agent.base.interface import LoginFailed, login_failure
-from hermit.task import RunOutput, normalise_judge
+from hermit.task import RunOutput, RunUnavailable, normalise_judge
 from hermit.trainer.budget import Budget, BudgetExceeded
 
 
@@ -20,6 +20,8 @@ def run_one(task: dict, adapter: Path | None, pipeline, judge) -> dict:
         out = pipeline(dict(task), adapter)
         if not isinstance(out, RunOutput):
             raise TypeError(f"the pipeline returned {type(out).__name__}, not RunOutput")
+    except RunUnavailable:
+        raise
     except Exception as exc:
         why = login_failure(exc)                     # as text from a sandbox's worker, or from a chat endpoint
         if why is not None:
@@ -40,6 +42,8 @@ def run_one(task: dict, adapter: Path | None, pipeline, judge) -> dict:
         verdict = normalise_judge(judge(dict(task), out))
         judged = asdict(verdict)
         status, error = "ok", None
+    except RunUnavailable:
+        raise
     except Exception as exc:
         judged = {"score": 0.0, "feedback": f"the judge failed: {type(exc).__name__}: {exc}"}
         status, error = "judge_error", f"{type(exc).__name__}: {exc}"
@@ -60,7 +64,7 @@ def run_tasks(tasks: list[dict], adapter: Path | None, pipeline, judge, *, concu
             return None
         try:
             record = run_one(task, adapter, pipeline, judge)
-        except LoginFailed:
+        except (LoginFailed, RunUnavailable):
             stop.set()                                   # the tasks waiting would fail the same way
             raise
         if budget is not None:

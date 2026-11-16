@@ -14,6 +14,15 @@ import sys
 from typing import Any, Callable
 
 
+
+class RunUnavailable(RuntimeError):
+    """An external prerequisite failed; keep the current step unfinished for resume.
+
+    This is not a task failure and must not become a zero-valued training example.
+    A pipeline, judge or Evolver may raise it after preserving diagnostic artifacts.
+    """
+
+
 @dataclass
 class RunOutput:
     output: Any                          # what the judge scores
