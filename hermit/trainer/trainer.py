@@ -53,7 +53,8 @@ from hermit.tools import FunctionTool, ToolServer, assemble, evolver_agent
 from hermit.trainer import card
 from hermit.trainer.budget import Budget, BudgetExceeded
 from hermit.trainer.material import Material
-from hermit.trainer.rollout import EPOCH, FRESH, TRIAL_KEYS, mean_score, reports_halt, run_tasks, scored
+from hermit.trainer.rollout import (EPOCH, FRESH, TRIAL_KEYS, mean_score, own_row_keys, reports_halt, run_tasks,
+                                    scored)
 from hermit.tree import INVALID_MARK, ROOT_TAG, Tree
 
 
@@ -365,6 +366,8 @@ class Trainer:
             errors += [f"{who}: {p}" for p in subscription.problems_of(login, program, contained, root)]
         errors += [f"evolver: {p}" for p in subscription.evolver_problems(self.params)]
         errors += step_order_problems(self.config, self.data)
+        if keeps_trials(self.config):                       # its rows name their epoch and new run (_rollout_rows)
+            errors += own_row_keys(list(self.data.tasks.values()), TRIAL_KEYS, "training")
         if errors:
             raise SystemExit("train refuses to start: " + "; ".join(errors))
         for w in self.warnings:

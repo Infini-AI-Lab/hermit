@@ -62,7 +62,7 @@
         docker_cleanup: images_keep          # images_keep | rmi_task_image | rmi_over_gb (docker.py)
         rmi_threshold_gb: 1.0
         disk_gate_gb: 20                     # no trial starts while Docker's data root has less than this free
-        disk_gate_wait_s: 7200               # ... for at most this long; then the rollout is infra (disk)
+        disk_gate_wait_s: 7200               # ... each gate at most this long, in turn; then infra (disk)
         tmp_gate_gb: 1.0                     # ... nor while the host's /tmp has less (runc writes each exec's
                                              # process file there: full, every agent setup fails)
         tools_host: null                     # the address the adapter's tools are served on (default: the Docker
@@ -407,6 +407,7 @@ class HarborAgent(Agent):
         self._given_up: dict[str, str] = {}                 # a stream whose next turn cannot come: why
         self._streams_lock = threading.Lock()
         self._digests: dict[str, str] = {}                  # each task directory's contents, for the trial cache
+        self._rollout = threading.local()                    # the halting verdict this thread's rollout met (halt)
         _LIVE.add(self)                                      # its streams closed at exit (_close_all)
         self.check_agent()
 
@@ -435,7 +436,12 @@ class HarborAgent(Agent):
 
     @property
     def tasks_dir(self) -> Path:
-        return self._path(self.params["tasks_dir"])
+        """The task set's directory, its links followed once (`utils/tasks`, the link `python -m
+        hermit.harbor.dataset prepare` writes): a prepare that points the link elsewhere mid-run changes no trial's
+        task set, nor the key its trial is kept under."""
+        if getattr(self, "_tasks_dir", None) is None:
+            self._tasks_dir = Path(os.path.realpath(self._path(self.params["tasks_dir"])))
+        return self._tasks_dir
 
     def multi_step(self) -> bool:
         """Whether the task set holds a multi-step task (its steps run as a stream, whose driver runs under
@@ -716,11 +722,14 @@ class HarborAgent(Agent):
         CLI's own login), web search set, a model this machine's containers can reach, the settings its Base Agent
         renders (a dry render of the launch plan), and for mini-swe-agent the package its adapter's deployment reads
         on this machine (unless the pipeline deploys no adapter: hermit eval --adapter none, whose pipeline
-        hermit.isolate.agent_pipeline tells so, `deploys_adapters: false`); for the answer agent its model's key, and
+        hermit.isolate.agent_pipeline tells so, `deploys_adapters: false`), and, for a pipeline that deploys
+        adapters, bubblewrap when the adapter sandbox that renders each (`sandbox_enforce`) is required; for the
+        answer agent its model's key, and
         no attachments on a model a CLI reaches (`model: {cli: ...}`, or the CLI `model_cli` names when
         hermit.isolate.agent_pipeline serves that model itself), whose sessions take text only. A task Harbor runs
         for none of Hermit's agents is not refused here, as the run may never take it: its rollout is infra
-        (unsupported)."""
+        (unsupported). For every agent, no secret in acting_agent.env (check_env)."""
+        self.check_env()
         if self.cli is None:
             self.builtin_kwargs()
             self.check_builtin_sign_in()
@@ -729,6 +738,14 @@ class HarborAgent(Agent):
         model = self.params.get("model")
         if not isinstance(self.acting_agent.get("settings") or {}, dict):
             raise ValueError("agent.params.acting_agent.settings is a mapping of the CLI Base Agent's settings")
+        if self.params.get("deploys_adapters", True) and not shutil.which("bwrap"):
+            from hermit.adapter.session import ENV_ENFORCE
+            if (self.params.get("sandbox_enforce") or os.environ.get(ENV_ENFORCE, "required")) == "required":
+                # staging renders every adapter (its exports, its per-task context) in it: each trial would fail
+                raise ValueError("a trial deploys its adapter by rendering it in the strict adapter sandbox, whose "
+                                 "enforce is required (agent.params.sandbox_enforce), and bubblewrap (bwrap) is not "
+                                 "installed: install it, or set agent.params.sandbox_enforce: best_effort (unconfined, "
+                                 "recorded); hermit eval --adapter none deploys no adapter")
         if cli == "answer":
             if login:
                 raise ValueError("the answer agent takes no login: its model is a <backend>/<model> reference, or "
@@ -755,7 +772,7 @@ class HarborAgent(Agent):
                                  "machine sends each request on with the key it reads from this process's environment")
             self._dry_render(None, tools=False)
             return
-        if self.cli_model is not None:
+        if self.cli_model is not None or self.params.get("model_cli"):    # model_cli: the pipeline serves that model
             raise ValueError(f"model: {{cli: ...}} is a model the answer agent reaches through a CLI; a {cli} trial's "
                              "model is its own: a <backend>/<model> reference, or the CLI's model name with its login")
         if login is not None and login not in subscription.LOGINS:
@@ -906,6 +923,22 @@ class HarborAgent(Agent):
         if env:
             agent["env"] = env
         return agent
+
+    def check_env(self) -> None:
+        """`acting_agent.env` holds no secret: its values are written into the trial's job (job.yaml, agent.json) and
+        handed to each `docker compose exec` on its command line, which every user of this machine can read. A
+        variable of a secret's name (launch.SECRET_VAR: OPENAI_API_KEY, GH_TOKEN) or a value naming one ($NAME,
+        ${NAME}, which Harbor fills in) is refused: a table CLI's secret is passed by name (the CLI's settings.env,
+        NAME: $NAME), and Harbor's own agents read theirs from this process's environment."""
+        for name, value in (self.acting_agent.get("env") or {}).items():
+            named = [a or b for a, b in launch.VAR_REF.findall(str(value))]
+            secret = str(name) if launch.SECRET_VAR.search(str(name)) else \
+                next((n for n in named if launch.SECRET_NAME.search(n)), None)
+            if secret:
+                raise ValueError(f"agent.params.acting_agent.env {name} holds a secret ({secret}): its values are "
+                                 "written into each trial's job and onto `docker compose exec`'s command line; pass "
+                                 "a table CLI's by name in its settings.env (NAME: $NAME), and export one of Harbor's "
+                                 "own agents in this process's environment")
 
     def builtin_kwargs(self) -> dict:
         """A Harbor built-in's kwargs from the run's settings: Codex's and Claude Code's effort and version, Claude
@@ -1096,7 +1129,9 @@ class HarborAgent(Agent):
             return None
 
     def halt(self, verdict: dict, job: Path) -> None:
-        """Record a halting verdict (a lost sign-in, an account's limit): every later rollout returns at once."""
+        """Record a halting verdict (a lost sign-in, an account's limit): every later rollout returns at once, and
+        the rollout's own output reports it whatever follows (run: an OSError of this machine after it)."""
+        self._rollout.halted = verdict
         # the record's cause first (login_failed, usage_limit, ...), then the exception Harbor kept for the trial
         cause = verdict["failure_cause"] or verdict["exception_type"]
         named = f"{cause} ({verdict['exception_type']})" if verdict["exception_type"] not in (None, cause) else cause
@@ -1145,7 +1180,12 @@ class HarborAgent(Agent):
     # --- the rollout ------------------------------------------------------------------------------------------
     def run(self, task: dict, adapter: Path | None) -> RunOutput:
         started = time.time()
-        self.jobs_dir.mkdir(parents=True, exist_ok=True)
+        self._rollout.halted = None
+        try:
+            self.jobs_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:                               # this machine's, before anything: no session ran
+            return self._output(task, no_trial("host_failed", f"{type(exc).__name__}: {exc}"[-2000:]), None, None,
+                                started)
         stop = self._halted_output(task, started)            # a lost sign-in: no container
         if stop is not None:
             return stop
@@ -1165,8 +1205,14 @@ class HarborAgent(Agent):
             return self._run_trial(task, adapter, started)
         except OSError as exc:
             # this machine's, past the guarded steps (no process left to start Harbor, a file it could not write or
-            # read): the host's failure, not the agent's result; a session may have run, so its cost is unknown
-            verdict = {**no_trial("host_failed", f"{type(exc).__name__}: {exc}"[-2000:]), "ran": None}
+            # read): the host's failure, not the agent's result; a session may have run, so its cost is unknown. A
+            # halt the rollout met before it (halt: a lost sign-in, an account's limit, whose HALT file a full disk
+            # may not have let it write) stays its verdict: nothing later in the run can succeed
+            failed = f"{type(exc).__name__}: {exc}"
+            halted = self._rollout.halted
+            verdict = {**no_trial("host_failed", failed[-2000:]), "ran": None} if halted is None else \
+                {**halted, "ran": None, "exception_message": f"{halted['exception_message'][:1500]} (then this "
+                                                             f"machine's {failed[-400:]})"}
             return self._output(task, verdict, None, None, started)
 
     def _halted_output(self, task: dict, started: float) -> RunOutput | None:
@@ -1592,8 +1638,9 @@ class HarborAgent(Agent):
         whether the verifier wrote 0, left no reward or ran out of its time (the verifier's own failure, which is
         otherwise the agent's result, as Harbor grades it). Either the verifier's tools never arrived, their download
         failed by a server (a 5xx, GitHub's release download) so its test runner is missing and it wrote no report
-        (hermit.harbor.errors.verifier_unreached), or the host's disk was full while it ran (verifier_disk_full). A
-        trial the verifier passed ran its tests; a trial whose verifier never ran (no output of it) stays as it was.
+        (hermit.harbor.errors.verifier_unreached), or the host's disk was full while it ran, before its tests wrote a
+        report (verifier_disk_full: with a report, the words are a test's output). A trial the verifier passed ran its
+        tests; a trial whose verifier never ran (no output of it) stays as it was.
         The verifier's output the verdict quotes has `redact`'s patterns removed (verifier_redact), as the curated
         output has."""
         if trial is None or verdict["status"] == "infra" or float(verdict.get("reward") or 0) >= 1:
@@ -1602,7 +1649,7 @@ class HarborAgent(Agent):
         stdout = _text(out / "test-stdout.txt")
         if verifier_unreached(stdout, (out / "ctrf.json").exists()):
             why = "the verifier's tools never arrived (their download failed), so its tests never ran"
-        elif verifier_disk_full(stdout):
+        elif verifier_disk_full(stdout, (out / "ctrf.json").exists()):
             why = "the host's disk was full while the verifier ran (ENOSPC)"
         else:
             return verdict
@@ -1849,7 +1896,7 @@ class HarborAgent(Agent):
                                 extra={"harbor_job": str(step_dir), "stream_dir": str(stream_dir)})
         reply, result, error, cause = None, None, None, "stream_lost"
         served = endpoint = plan = None
-        lost = asked = False
+        lost = asked = turn = False
         try:
             try:
                 if self.cli == "answer":
@@ -1894,6 +1941,7 @@ class HarborAgent(Agent):
                                                                  + float(settings["start_timeout_s"])))
                 client.wait_turn(index, timeout_s=turn_wait, missing=lambda nxt: self._step_missing(stream, nxt))
                 _set_aside_audit(step_dir)                   # this driver never ran the step: an earlier run's calls
+                turn = True
                 if served is not None and (served.adapter, served.audit_log) != \
                         (Path(adapter), step_dir / curate_mod.TOOL_AUDIT):
                     # this step's turn: its adapter behind the same URL, its calls in its own log (the server may have
@@ -1950,9 +1998,11 @@ class HarborAgent(Agent):
             # no step after it reaches this driver: its tools closed (not for one only slow to answer, which may still
             # be running the step before, on these tools)
             self._stream_done(stream)
+        # the step's tool calls once its turn came; a step whose turn never came made none (the log there is an
+        # earlier run's of the step)
         log = curate_mod.curate(outputs, step_dir, verdict, result=result,
                                 extra_files={DRIVER_LOG: stream_dir / DRIVER_LOG}, redact=self.redactions,
-                                audit=step_dir / curate_mod.TOOL_AUDIT)
+                                audit=step_dir / curate_mod.TOOL_AUDIT if turn else None)
         return self._output(task, verdict, result, log, started, trial=stream, step=name,
                             extra={"harbor_job": str(step_dir), "stream_dir": str(stream_dir), "deployed": deployed,
                                    "aborted": aborted},

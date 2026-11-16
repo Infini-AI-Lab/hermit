@@ -228,6 +228,9 @@ def digest(task_dir: Path) -> str:
     h = hashlib.sha256()
     for top, dirs, names in os.walk(task_dir):
         dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
+        for name in [d for d in dirs if (Path(top) / d).is_symlink()]:   # a link to a folder: by its text (os.walk
+            rel = (Path(top) / name).relative_to(task_dir).as_posix()      # never enters it)
+            h.update(f"{rel}\0link\0{os.readlink(Path(top) / name)}\0".encode())
         for name in sorted(names):
             path = Path(top) / name
             if name.endswith(".pyc") or path.is_symlink() and not path.exists():
@@ -287,13 +290,22 @@ def split(tasks_dir: Path, *, train: int, test, seed: int = 0, val: int = 0) -> 
     then `test` (a number, or "rest": every task train and val leave). Rows of one task (its rollouts, its steps) go
     together; `index` expands names to rows."""
     names = [t.name for t in task_dirs(tasks_dir)]
-    train, val = int(train), int(val or 0)
-    test = len(names) - train - val if str(test) == "rest" else int(test)
+    train, val = _count(train, "train"), _count(val or 0, "val")
+    test = len(names) - train - val if str(test) == "rest" else _count(test, "test")
     if test < 0 or train < 0 or val < 0 or train + val + test > len(names):
         raise ValueError(f"{train}+{val}+{test} tasks asked for, {len(names)} present")
     random.Random(seed).shuffle(names)
     return {"train": sorted(names[:train]), "val": sorted(names[train:train + val]),
             "test": sorted(names[train + val:train + val + test])}
+
+
+def _count(value, what: str) -> int:
+    """A split's number of tasks, a whole one: a fraction (0.8) would be cut to a whole number, unsaid."""
+    whole = isinstance(value, int) or isinstance(value, float) and value.is_integer() or \
+        isinstance(value, str) and value.strip().isdigit()
+    if isinstance(value, bool) or not whole:
+        raise ValueError(f"dataset.split's {what} is a whole number of tasks, not {value!r}")
+    return int(value)
 
 
 def ids_for(rows: list[dict], names: list[str]) -> list[str]:
@@ -340,6 +352,9 @@ def smoke_rows(tasks_dir: Path, names: list[str]) -> list[dict]:
     unknown = [n for n in names if n not in present]
     if unknown:
         raise ValueError(f"smoke names tasks not under {tasks_dir}: {unknown}")
+    twice = sorted({n for n in names if names.count(n) > 1})
+    if twice:
+        raise ValueError(f"smoke names each task once, and {twice} more than once (its rows would be written twice)")
     out = []
     for name in names:
         for row in rows_of(present[name]):
@@ -379,10 +394,10 @@ def docker_manifest(image: str) -> str:
     return run.stdout
 
 
-def image_sizes(tasks_dir: Path, *, inspect=docker_manifest, log=None) -> dict:
+def image_sizes(tasks_dir: Path, *, inspect=docker_manifest, log=None, known: dict | None = None) -> dict:
     """{image: compressed bytes} of every task's prebuilt image (task.toml's docker_image), from the registry's
-    manifest (`inspect`: image -> `docker manifest inspect -v`'s text); an image whose manifest cannot be read is
-    left out, and said."""
+    manifest (`inspect`: image -> `docker manifest inspect -v`'s text); an image whose manifest cannot be read keeps
+    its size in `known` (the file written before), else is left out, and said."""
     say = log or (lambda m: print(m, file=sys.stderr))
     out: dict = {"_comment": "compressed bytes of each task's prebuilt image (docker manifest inspect -v, "
                              "linux/amd64): the runner's disk gate keeps 2.5x this free for an image not pulled yet"}
@@ -391,12 +406,16 @@ def image_sizes(tasks_dir: Path, *, inspect=docker_manifest, log=None) -> dict:
     for image in images:
         try:
             size = manifest_size(inspect(image))
+            why = None if size is not None else "no linux/amd64 layers in its manifest"
         except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
-            say(f"image_sizes: {image}: {exc}")
-            continue
+            size, why = None, str(exc)
         if size is None:
-            say(f"image_sizes: {image}: no linux/amd64 layers in its manifest")
-            continue
+            earlier = (known or {}).get(image)
+            kept = isinstance(earlier, int) and not isinstance(earlier, bool)
+            say(f"image_sizes: {image}: {why}" + ("; its earlier size kept" if kept else ""))
+            if not kept:
+                continue
+            size = earlier
         out[image] = size
     return out
 
@@ -449,7 +468,11 @@ def data_dir(ref: str, data=None, base: Path | None = None, *, follow: bool = Tr
     this one, nor is a set another patch, or none, was run on); its links followed, or with `follow` false as it is
     spelled (made absolute)."""
     if data:
-        path = Path(os.path.expandvars(str(data))).expanduser()
+        filled = os.path.expandvars(str(data))
+        left = re.search(r"\$(?:\{\w+\}|\w+)", filled)          # expandvars leaves one unset as it is spelled
+        if left:
+            raise ValueError(f"the data directory {data} names {left.group(0)}, which is not set")
+        path = Path(filled).expanduser()
         path = Path(base) / path if base is not None else path
     else:
         name = re.sub(r"[^A-Za-z0-9_.@-]", "_", ref)
@@ -482,8 +505,11 @@ def _check_source(data: Path, tasks: Path, origin: dict) -> None:
     """A ValueError when the tasks in the data directory are not `origin`'s, the source they came from and the patch
     run on them (another source's, another patch's, or none where `origin` names one, or one where it names none): as
     a download recorded them in `<data>/.hermit-source.json` (tasks put there otherwise, with no such file, are taken
-    as they are)."""
-    marker = data / SOURCE_FILE
+    as they are). A data directory that is the set's own directory in another one's download (its tasks right in it)
+    is that download's: its marker is beside it."""
+    marker = next((m for m in (data / SOURCE_FILE, Path(tasks).parent / SOURCE_FILE) if os.path.lexists(m)), None)
+    if marker is None:
+        return
     try:
         came = json.loads(marker.read_text())
     except FileNotFoundError:
@@ -583,7 +609,8 @@ def _download_whole(get, ref: str, data: Path) -> Path:
         if data.is_dir():                                # there already, with no tasks of the set: moved into it
             entries = sorted(partial.iterdir())
             for entry in entries:
-                _refuse_in_the_way(data / entry.name, ref)
+                if entry.name != SOURCE_FILE or os.path.isdir(data / entry.name):    # a marker of none: replaced
+                    _refuse_in_the_way(data / entry.name, ref)
             for entry in entries:
                 os.replace(entry, data / entry.name)
             partial.rmdir()
@@ -644,15 +671,15 @@ def prepare(benchmark: Path, *, force: bool = False, harbor: str = HARBOR, data=
                                                       registry_path=block.get("registry_path")))
 
         def fetch(r, out):                               # patched in the download's own folder, before it is moved
-            nonlocal said                                # into place: a set in the data directory is whole and patched
-            where = get(r, out)
-            if patch:
+            nonlocal said                                # into place, and marked there (beside the set's directory,
+            where = get(r, out)                          # never in a task's): a set in the data directory is whole,
+            if patch:                                    # patched and marked
                 said = _patched(patch, origin["patch"]["hook"], where)
+            if not is_task(Path(out)):
+                (Path(out) / SOURCE_FILE).write_text(json.dumps(origin, sort_keys=True) + "\n")
             return where
         try:
             tasks = _download_whole(fetch, ref, data)
-            if not is_task(data):                        # beside the set's directory, never in a task's
-                (data / SOURCE_FILE).write_text(json.dumps(origin, sort_keys=True) + "\n")
         except OSError as exc:                           # a folder this user cannot write in, a lock another user owns
             raise ValueError(f"{ref} could not be downloaded into {data}: {exc}") from exc
     source: dict = lock_source(origin)                   # as the lock records it, with what the patch said
@@ -683,17 +710,12 @@ def prepare(benchmark: Path, *, force: bool = False, harbor: str = HARBOR, data=
         if problems and not force:
             raise ValueError(f"the tasks at {tasks} are not the ones {lock_path} locked (--force locks them anew): "
                              + "; ".join(problems[:10]))
-    if link.is_symlink():
-        link.unlink()
-    link.symlink_to(tasks, target_is_directory=True)
+    # the rows, the lock, the splits and the image sizes, all made before any is written: one refused (a split asking
+    # for more tasks than there are, a smoke task named twice, a task.toml that cannot be read) leaves the link and
+    # every file as they were
     rows = index(tasks, rollouts=rollouts)
     smoke = smoke_rows(tasks, [str(n) for n in block.get("smoke") or []])
-    write_jsonl(rows + smoke, here / "tasks.jsonl")
     lock = lock_of(tasks, source=source)
-    if _locked_as(previous) != _locked_as(lock):         # the same tasks from the same source: the lock left as it is
-        lock_path.write_text(json.dumps(lock, indent=1) + "\n")
-    splits = here / "splits"
-    splits.mkdir(exist_ok=True)
     ids = [r["id"] for r in rows]
     parts = {"all": ids, "smoke": [r["id"] for r in smoke]}
     split_spec = block.get("split", "in_sample")
@@ -703,12 +725,26 @@ def prepare(benchmark: Path, *, force: bool = False, harbor: str = HARBOR, data=
         names = split(tasks, train=split_spec["train"], val=split_spec.get("val", 0), test=split_spec["test"],
                       seed=int(split_spec.get("seed", 0)))
         parts.update({k: ids_for(rows, v) for k, v in names.items()})
+    sizes = None
+    if block.get("image_sizes"):
+        try:                                             # the sizes written before, for an image not read anew
+            known = json.loads((here / "image_sizes.json").read_text())
+        except (OSError, ValueError, RecursionError):
+            known = {}
+        sizes = image_sizes(tasks, inspect=inspect, log=say, known=known if isinstance(known, dict) else {})
+    if link.is_symlink():
+        link.unlink()
+    link.symlink_to(tasks, target_is_directory=True)
+    write_jsonl(rows + smoke, here / "tasks.jsonl")
+    if _locked_as(previous) != _locked_as(lock):         # the same tasks from the same source: the lock left as it is
+        lock_path.write_text(json.dumps(lock, indent=1) + "\n")
+    splits = here / "splits"
+    splits.mkdir(exist_ok=True)
     for name in SPLITS:
         _write_ids(splits / f"{name}.txt", parts[name])
     written = {"tasks": str(tasks), "rows": len(rows), "smoke": len(smoke), "reused": reused,
                "splits": {k: len(v) for k, v in parts.items()}}
-    if block.get("image_sizes"):
-        sizes = image_sizes(tasks, inspect=inspect, log=say)
+    if sizes is not None:
         (here / "image_sizes.json").write_text(json.dumps(sizes, indent=1) + "\n")
         written["image_sizes"] = len(sizes) - 1
     say(f"{len(rows)} rows of {len(lock['tasks'])} tasks from {ref} at {tasks}"
@@ -760,8 +796,8 @@ def main(argv=None) -> int:
     if args.command == "prepare":
         try:
             prepare(args.benchmark, force=args.force, harbor=args.harbor, data=args.data, rollouts=args.rollouts)
-        except ValueError as exc:
-            print(f"error: {exc}", file=sys.stderr)
+        except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as exc:   # Harbor's download, a file
+            print(f"error: {exc}", file=sys.stderr)                                    # this machine cannot write
             return 1
     elif args.command == "download":
         where = download(args.ref, args.output, harbor=str(Path(args.harbor).expanduser()), repo=args.repo,

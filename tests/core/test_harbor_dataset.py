@@ -834,3 +834,120 @@ def test_an_image_manifest_gives_its_compressed_size():
     single = json.dumps({"SchemaV2Manifest": {"layers": [{"size": 4}, {"size": 6}]}})
     assert dataset.manifest_size(single) == 10
     assert dataset.manifest_size("not json") is None and dataset.manifest_size("[]") is None
+
+
+def test_a_data_directory_that_is_the_set_in_another_ones_download_is_that_downloads(tmp_path):
+    """A data directory named at the set's own directory of another benchmark's download (its tasks right in it) is
+    that download's, whose marker is beside it: a benchmark of another patch (or none) is refused before it takes
+    them, never reusing (and patching) them in place."""
+    registry = Registry()
+    dataset.prepare(benchmark(tmp_path / "a", patch="patches.py:drop_seed"), download_fn=registry, log=lambda m: None)
+    inner = tmp_path / "a" / "data" / "demo"
+    with pytest.raises(ValueError, match="were downloaded from .*patches.py:drop_seed.*, the benchmark names"):
+        dataset.prepare(benchmark(tmp_path / "b", data=str(inner)), download_fn=registry, log=lambda m: None)
+    assert not (tmp_path / "b" / "utils" / "tasks").exists() and registry.calls == 1
+
+
+def test_a_download_is_marked_before_it_is_moved_into_place(tmp_path, monkeypatch):
+    """The download's record of its source and patch is written in the download's own folder, before the set is moved
+    into the data directory: a record that cannot be written (a full disk) leaves no set there that another patch's
+    benchmark would take as unmarked tasks, and the next prepare downloads it again."""
+    file = benchmark(tmp_path, patch="patches.py:drop_seed")
+    write_text = Path.write_text
+
+    def full(self, *args, **kwargs):
+        if self.name == dataset.SOURCE_FILE:
+            raise OSError(28, "No space left on device")
+        return write_text(self, *args, **kwargs)
+    with monkeypatch.context() as m:
+        m.setattr(Path, "write_text", full)
+        with pytest.raises(ValueError, match="could not be downloaded into"):
+            dataset.prepare(file, download_fn=Registry(), log=lambda m: None)
+    assert not (tmp_path / "data" / "demo").exists()
+    written = dataset.prepare(file, download_fn=Registry(), log=lambda m: None)
+    assert written["reused"] is False and (tmp_path / "data" / dataset.SOURCE_FILE).is_file()
+
+
+def test_an_image_size_that_cannot_be_read_anew_keeps_the_one_written_before(tmp_path):
+    """image_sizes: an image whose manifest cannot be read this time (a registry that failed) keeps its size from the
+    file written before, and says so, rather than leaving the disk gate to count it as 0."""
+    file = benchmark(tmp_path, image_sizes=True)
+    sizes = {"example/alpha:1": manifest(100, 23), "example/gamma:1": manifest(7, 0)}
+    dataset.prepare(file, download_fn=Registry(), inspect=lambda image: sizes[image], log=lambda m: None)
+
+    def flaky(image):
+        if image == "example/alpha:1":
+            raise RuntimeError("the registry answered 503")
+        return sizes[image]
+    said = []
+    dataset.prepare(file, download_fn=Registry(), inspect=flaky, log=said.append)
+    images = json.loads((file.parent / "image_sizes.json").read_text())
+    assert {k: v for k, v in images.items() if not k.startswith("_")} == {"example/alpha:1": 123, "example/gamma:1": 7}
+    assert any("example/alpha:1: the registry answered 503; its earlier size kept" in s for s in said), said
+
+
+def test_a_split_of_fractions_or_a_smoke_task_named_twice_is_refused(tmp_path):
+    """A split's counts are whole numbers of tasks (0.8 would be cut to 0, unsaid), and smoke names each task once
+    (its rows would be written twice)."""
+    make_task(tmp_path / "tasks", "alpha")
+    make_task(tmp_path / "tasks", "beta")
+    assert len(dataset.split(tmp_path / "tasks", train="1", test="rest")["test"]) == 1
+    for count in (0.8, True, "half"):
+        with pytest.raises(ValueError, match="is a whole number of tasks"):
+            dataset.split(tmp_path / "tasks", train=count, test="rest")
+    assert len(dataset.split(tmp_path / "tasks", train=1.0, test=1)["train"]) == 1
+    with pytest.raises(ValueError, match=r"smoke names each task once, and \['beta'\] more than once"):
+        dataset.smoke_rows(tmp_path / "tasks", ["beta", "alpha", "beta"])
+
+
+def test_a_refused_prepare_leaves_the_link_and_every_file_as_they_were(tmp_path):
+    """The rows, the lock, the splits and the image sizes are all made before any is written: a split that asks for
+    more tasks than there are, or a smoke task named twice, leaves the link, tasks.jsonl, the lock and the splits as
+    the prepare before wrote them."""
+    file = benchmark(tmp_path)
+    dataset.prepare(file, download_fn=Registry(), log=lambda m: None)
+    utils = file.parent
+    names = ["tasks.jsonl", "dataset.lock", *(f"splits/{n}.txt" for n in dataset.SPLITS)]
+    before = {n: (utils / n).read_text() for n in names}
+    target, original = os.readlink(utils / "tasks"), file.read_text()
+    for change in ({"rollouts": 3, "split": {"train": 9, "test": "rest"}}, {"rollouts": 3, "smoke": ["beta", "beta"]}):
+        spec = yaml.safe_load(original)
+        spec["dataset"].update(change)
+        file.write_text(yaml.safe_dump(spec))
+        with pytest.raises(ValueError):
+            dataset.prepare(file, download_fn=Registry(), log=lambda m: None)
+        assert {n: (utils / n).read_text() for n in names} == before and os.readlink(utils / "tasks") == target
+
+
+def test_a_data_directory_naming_a_variable_that_is_not_set_is_refused(tmp_path, monkeypatch):
+    """`data: $UNSET/x` would be a folder named `$UNSET` beside the benchmark file, in the checkout: refused."""
+    monkeypatch.delenv("HERMIT_TEST_NOT_SET", raising=False)
+    file = benchmark(tmp_path, data="$HERMIT_TEST_NOT_SET/tasks")
+    with pytest.raises(ValueError, match=r"names \$HERMIT_TEST_NOT_SET, which is not set"):
+        dataset.prepare(file, download_fn=Registry(), log=lambda m: None)
+    assert not any("$" in p.name for p in tmp_path.rglob("*"))
+
+
+def test_prepares_failure_on_this_machine_is_the_commands_error_not_a_traceback(tmp_path, monkeypatch, capsys):
+    """An OSError (a file this machine cannot write) or Harbor's failed download (a RuntimeError) is the command's
+    `error:` and exit 1."""
+    file = benchmark(tmp_path)
+    for failure in (OSError(28, "No space left on device"), RuntimeError("harbor datasets download failed (1)")):
+        def failing(*args, **kwargs):
+            raise failure
+        monkeypatch.setattr(dataset, "prepare", failing)
+        assert dataset.main(["prepare", str(file)]) == 1
+        assert capsys.readouterr().err.startswith("error: ")
+
+
+def test_a_link_to_a_folder_in_a_task_is_in_its_digest_by_its_text(tmp_path):
+    """A task's link to a folder (which os.walk never enters) is part of the task's digest by where it points: a link
+    pointed elsewhere is another task, for the lock and the trial cache alike."""
+    task = make_task(tmp_path / "tasks", "alpha")
+    for name in ("one", "two"):
+        write(tmp_path / name / "data.txt", name)
+    (task / "environment" / "data").symlink_to(tmp_path / "one", target_is_directory=True)
+    first = dataset.digest(task)
+    (task / "environment" / "data").unlink()
+    (task / "environment" / "data").symlink_to(tmp_path / "two", target_is_directory=True)
+    assert dataset.digest(task) != first

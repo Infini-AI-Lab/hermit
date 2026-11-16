@@ -19,9 +19,10 @@ from hermit.sandbox import hidden_paths, set_hidden
 from hermit.agent.evolver.loader import find, instantiate, load_class
 from hermit.spec import check_spec
 from hermit.agent.acting.agent import load_agent
-from hermit.isolate import agent_pipeline, config_paths, host_pipeline, judge_for, validate as validate_sandboxes
+from hermit.isolate import (agent_pipeline, config_paths, host_pipeline, judge_for, keeps_trials,
+                            validate as validate_sandboxes)
 from hermit.task import TaskData, load_callable
-from hermit.trainer.rollout import run_one
+from hermit.trainer.rollout import REPEAT, TRIAL_KEYS, own_row_keys, run_one
 from hermit.trainer.trainer import agent_errors, needs_errors, out_of_step, step_order_problems, warnings_for
 
 DISCLAIMER = ("check looks only at the basic items above. Passing it does not guarantee that the settings are free of "
@@ -121,6 +122,10 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
         # test split's, which hermit eval of the same config runs
         if not evaluating:
             problems += step_order_problems(config, data)
+            if keeps_trials(config):                  # hermit train's rows name their epoch and new run
+                problems += own_row_keys(list(data.tasks.values()), TRIAL_KEYS, "training")
+        elif str(d["agent"].get("name")) == "harbor" and int(d["eval"]["repeats"]) > 1:     # each repeat's rows name it
+            problems += own_row_keys([data.tasks[t] for t in data.splits["test"]], (REPEAT,), "the test split")
         problem = out_of_step(data.splits["test"], data.tasks, "the test split")
         problems += [problem] if problem else []
     except Exception as exc:

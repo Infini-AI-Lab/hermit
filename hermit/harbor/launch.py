@@ -67,6 +67,8 @@ COLLECT = {"codex": [(LAST_MESSAGE, LAST_MESSAGE)], "mini-swe-agent": [(LAST_MES
 # which hermit.agent.base.login.usage_of reads as it does in a Hermit session's own home)
 COLLECT_LOGIN = {"chatgpt": [("sessions", "sessions")]}
 SECRET_NAME = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", re.I)
+# a variable named as a secret is (OPENAI_API_KEY, GH_TOKEN, AWS_SECRET_ACCESS_KEY), never a count (MAX_OUTPUT_TOKENS)
+SECRET_VAR = re.compile(r"(?:^|_)(?:API_?KEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?)$", re.I)
 VAR_REF = re.compile(r"\$(?:\{(\w+)\}|(\w+))")
 TEXT_LIMIT = 4 << 20                                     # a home file larger than this is left as it is (no path in it)
 

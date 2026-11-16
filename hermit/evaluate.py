@@ -24,7 +24,7 @@ from hermit.redact import redact_path, redact_value
 from hermit.task import TaskData
 from hermit.trainer.budget import Budget
 from hermit.trainer.card import number
-from hermit.trainer.rollout import REPEAT, reports_halt, run_tasks
+from hermit.trainer.rollout import REPEAT, own_row_keys, reports_halt, run_tasks
 from hermit.tree import ROOT_TAG, Tree
 
 RESULT_KEYS = ("id", "status", "error", "output", "judge", "cost_usd", "wall_s", "api_speed", "tokens", "log")
@@ -119,6 +119,9 @@ def _run(config: Config, target: Path | None, tests: list[dict], out: Path, *, l
     (out / "summary.json").unlink(missing_ok=True)       # nor is its summary
     named = repeats > 1 and _harbor_rows(config)             # each repeat's rows name it (_repeat)
     added = (REPEAT,) if named else ()
+    problems = own_row_keys(tests, added, "the test split") if named else []
+    if problems:
+        raise SystemExit("eval refuses to start: " + "; ".join(problems))
     pipeline, close = agent_pipeline(config, "eval", records=out / "sandbox", deploys_adapters=target is not None)
     try:
         judge = judge_for(config, pipeline)

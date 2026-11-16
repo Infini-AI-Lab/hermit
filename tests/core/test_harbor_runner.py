@@ -957,6 +957,27 @@ def test_a_mini_swe_agent_eval_that_deploys_no_adapter_starts_without_the_packag
     assert given == [False, True]
 
 
+
+def test_a_pipeline_that_deploys_adapters_without_bubblewrap_is_refused_at_startup(tmp_path, fake_harbor, monkeypatch):
+    """Staging renders every adapter a trial deploys (its exports, its per-task context) in the strict adapter sandbox,
+    which, its enforce required (`sandbox_enforce`, the default), refuses to run without bubblewrap: each such trial
+    would end in that error, scored 0, so a pipeline that deploys adapters is refused before the first, with what to
+    do, the answer agent's as a CLI's. One that deploys none (hermit eval --adapter none), or whose adapter sandbox is
+    best_effort, starts."""
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    real = shutil.which
+    with monkeypatch.context() as no_bwrap:
+        no_bwrap.setattr(shutil, "which", lambda name, *a, **k: None if name == "bwrap" else real(name, *a, **k))
+        for params in ({}, {"acting_agent": {"cli": "answer"}}):
+            cli = (params.get("acting_agent") or {}).get("cli", "codex")
+            with pytest.raises(ValueError, match=r"bubblewrap \(bwrap\) is not installed: install it, or set "
+                                                 r"agent.params.sandbox_enforce: best_effort"):
+                make_agent(tmp_path, fake_harbor, tasks, **params)
+            assert make_agent(tmp_path, fake_harbor, tasks, deploys_adapters=False, **params).cli == cli
+            assert make_agent(tmp_path, fake_harbor, tasks, sandbox_enforce="best_effort", **params).cli == cli
+    assert make_agent(tmp_path, fake_harbor, tasks).cli == "codex"                        # bubblewrap here: as before
+
 def test_a_multi_step_task_set_whose_harbor_has_no_python_beside_it_is_refused_at_startup(tmp_path, fake_harbor):
     """A multi-step task's steps run in a stream whose driver runs under the python of Harbor's venv, beside `harbor`
     (or beside the file a link of that name points to): a `harbor` with none beside it (a wrapper script elsewhere)
@@ -4327,3 +4348,164 @@ def test_a_step_whose_stream_aborted_before_its_turn_is_never_asked_for(tmp_path
                         lambda self: {"next_index": 2, "running": False, "aborted": "step 1 missed min_reward"})
     with pytest.raises(stream.StreamError, match="aborted"):
         client.wait_turn(2, timeout_s=5)
+
+
+def test_a_halt_the_rollout_met_stays_its_verdict_when_this_machines_failure_follows_it(tmp_path, fake_harbor,
+                                                                                       monkeypatch, capsys):
+    """A rollout that met a halt (an API account's limit) and then this machine's OSError (its curated log not
+    written: a full disk) still reports the halt, with or without its HALT file: the Trainer ends the run and hermit
+    eval reruns nothing, rather than every later trial starting on the dead account. A jobs directory this machine
+    cannot make is infra (host_failed) before anything ran: it costs 0."""
+    from hermit.harbor import runner as runner_mod
+    from hermit.trainer.rollout import reports_halt, run_one
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    row = dataset.index(tasks)[0]
+    monkeypatch.setenv("FAKE_HARBOR_MODE", "usage_limit")
+
+    def full(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(runner_mod.curate_mod, "curate", full)
+    blocked = tmp_path / "a-file"
+    blocked.write_text("")
+    for writable in (True, False):
+        agent = make_agent(tmp_path, fake_harbor, tasks)
+        if not writable:
+            monkeypatch.setattr(agent, "halt_file", lambda: blocked / "HALT")
+        record = run_one(row, None, agent.run, judge.score)
+        assert reports_halt(record) and record["pipeline_extra"]["halt"] is True, writable
+        assert record["output"]["failure_cause"] == "model_provider_failed", writable
+        assert "then this machine's OSError: [Errno 28]" in record["pipeline_extra"]["exception_message"]
+        assert agent.halt_file().is_file() is writable
+        if writable:
+            agent.halt_file().unlink()
+    agent = make_agent(tmp_path, fake_harbor, tasks)
+    agent.params["jobs_dir"] = str(blocked / "jobs")
+    out = agent.run(row, None)
+    assert (out.output["status"], out.output["failure_cause"], out.cost_usd) == ("infra", "host_failed", 0.0)
+
+
+def test_a_step_whose_turn_never_came_curates_no_earlier_runs_tool_calls(tmp_path, fake_harbor, monkeypatch):
+    """A step of a stream run again whose turn never comes (its driver gone: stream_order) made no tool call: its
+    curated log holds none, never the calls an earlier run of the step left in its directory (set aside only at its
+    turn)."""
+    fake_driver(fake_harbor)
+    monkeypatch.setattr(stream, "POLL_S", 0.1)
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "flow", steps=("one", "two"))
+    rows = {r["id"]: r for r in dataset.index(tasks)}
+    settings = {"run_identity": "the-run", "keep_streams": True,
+                "stream": {"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 60}}
+    try:
+        first = make_agent(tmp_path, fake_harbor, tasks, **settings).run(rows["flow:one"], None)
+        client = stream.StreamClient(Path(first.extra["stream_dir"]), python="unused")
+        client.stop(timeout_s=10)
+        deadline = time.time() + 10
+        while client.running() is not None and time.time() < deadline:
+            time.sleep(0.1)
+        earlier = write(Path(first.extra["stream_dir"]) / "steps" / "002-two" / curate.TOOL_AUDIT,
+                        json.dumps({"an earlier run": True}) + "\n")
+        second = make_agent(tmp_path, fake_harbor, tasks, **settings).run(rows["flow:two"], None)
+    finally:
+        stop_streams(tmp_path)
+    assert (second.output["status"], second.output["failure_cause"]) == ("infra", "stream_order")
+    assert not (Path(second.log) / curate.TOOL_AUDIT).exists()
+    assert json.loads(earlier.read_text()) == {"an earlier run": True}             # its turn sets it aside
+
+
+def test_the_words_of_a_full_disk_in_tests_that_ran_are_their_output_not_the_hosts(tmp_path):
+    """A verifier's output that says the disk was full is the host's failure (infra) only before its tests wrote a
+    report: with ctrf.json there the tests ran, and the words are a test's (an agent's program that printed them, a
+    task about a full disk), so the trial stays the agent's result, timed out or failed alike."""
+    assert errors.verifier_disk_full("OSError: [Errno 28] No space left on device\n")
+    assert not errors.verifier_disk_full("OSError: [Errno 28] No space left on device\n", report_exists=True)
+    trial = tmp_path / "t__abc1234"
+    write(trial / "verifier" / "test-stdout.txt", "FAILED test_writes - OSError: [Errno 28] No space left on device\n")
+    write(trial / "verifier" / "reward.txt", "0\n")
+    for verdict in (errors.classify(trial_result(0.0)), errors.classify(trial_result(0.5, exc="AgentTimeoutError"))):
+        assert HarborAgent.verifier_verdict(verdict, trial)["status"] == "infra"
+        write(trial / "verifier" / "ctrf.json", '{"results": {"summary": {"tests": 1, "failed": 1}}}')
+        assert HarborAgent.verifier_verdict(verdict, trial) == verdict
+        (trial / "verifier" / "ctrf.json").unlink()
+
+
+def test_the_task_sets_link_is_followed_once_so_a_prepare_mid_run_changes_no_trials_set(tmp_path, fake_harbor):
+    """`tasks_dir` names the link prepare writes (utils/tasks): the runner follows it once, so a prepare that points it
+    at another set mid-run changes neither the tasks the later trials run nor the key a trial is kept under."""
+    first, second = tmp_path / "set-1", tmp_path / "set-2"
+    for root, image in ((first, "example/alpha:1"), (second, "example/alpha:2")):
+        make_task(root, "alpha", image=image)
+    link = tmp_path / "utils" / "tasks"
+    link.parent.mkdir()
+    link.symlink_to(first, target_is_directory=True)
+    row = dataset.index(link)[0]
+    agent = make_agent(tmp_path, fake_harbor, link, trial_cache=True)
+    key = agent.cache_key(row, None)
+    link.unlink()
+    link.symlink_to(second, target_is_directory=True)                     # another prepare, mid-run
+    assert agent.tasks_dir == first.resolve() and agent.task_dir(row) == first.resolve() / "alpha"
+    assert agent.cache_key(row, None) == key
+    assert make_agent(tmp_path, fake_harbor, link, trial_cache=True).cache_key(row, None) != key
+
+
+def test_a_secret_in_the_acting_agents_env_is_refused_at_startup(tmp_path, fake_harbor):
+    """acting_agent.env is written into each trial's job and onto `docker compose exec`'s command line: a variable of
+    a secret's name, or a value naming one, is refused at startup, for a table CLI and Harbor's own agents alike; a
+    count named like one (MAX_OUTPUT_TOKENS) is no secret."""
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    for spec in ({"cli": "codex", "env": {"OPENAI_API_KEY": "sk-stand-in"}},
+                 {"cli": "codex", "env": {"GITHUB": "${GH_TOKEN}"}},
+                 {"name": "claude-code", "env": {"ANTHROPIC_API_KEY": "stand-in"}}):
+        with pytest.raises(ValueError, match=r"acting_agent.env \w+ holds a secret"):
+            make_agent(tmp_path, fake_harbor, tasks, acting_agent=spec)
+    agent = make_agent(tmp_path, fake_harbor, tasks,
+                       acting_agent={"cli": "codex", "env": {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": "8000", "A": "1"}})
+    assert agent.agent_config(dataset.index(tasks)[0])["env"] == {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": "8000", "A": "1"}
+
+
+def test_a_table_clis_trial_of_a_model_a_cli_reaches_is_refused_for_what_it_is(tmp_path, fake_harbor):
+    """A model a CLI reaches is the answer agent's: a codex trial of one is refused saying so, also once
+    hermit.isolate.agent_pipeline has served it (`model_cli`, its model the endpoint's spec), never for the
+    endpoint's loopback address."""
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    with pytest.raises(ValueError, match="is a model the answer agent reaches through a CLI"):
+        make_agent(tmp_path, fake_harbor, tasks, model_cli="codex",
+                   binding={**BINDING, "base_url": "http://127.0.0.1:8123/v1"})
+
+
+def test_a_trial_cache_key_this_machine_cannot_make_runs_the_trial_uncached(tmp_path, fake_harbor, monkeypatch,
+                                                                           capsys):
+    """A key this machine cannot make (its launch's dry render cannot be written: an OSError) runs the trial, kept
+    nowhere, and says so."""
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    row = dataset.index(tasks)[0]
+    agent = make_agent(tmp_path, fake_harbor, tasks, trial_cache=True)
+
+    def unwritable(task, adapter):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(agent, "cache_key", unwritable)
+    assert agent.run(row, None).output["status"] == "ok"
+    assert f"no trial cache for {row['id']}" in capsys.readouterr().err
+    assert not list((tmp_path / "jobs").glob("trial-cache/*.json"))
+
+
+def test_a_sign_in_that_cannot_be_taken_back_leaves_the_trial_and_no_copy_in_the_job(tmp_path, monkeypatch, capsys):
+    """The ChatGPT sign-in a trial's Codex refreshed, when the shared copy's folder cannot take it (an OSError: a full
+    disk), is lost with a warning: the trial stands, and no copy of a sign-in is left in its job."""
+    from types import SimpleNamespace
+    from hermit.agent.base import login as subscription
+    from hermit.harbor import launch
+    job = tmp_path / "job"
+    for folder in (launch.RETURN_DIR, launch.HOME_DIR):
+        write(job / launch.LAUNCH_DIR / folder / subscription.FILE, '{"tokens": {"refresh_token": "rt-stand-in"}}')
+
+    def full(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(subscription, "keep_refreshed", full)
+    agent = SimpleNamespace(login="chatgpt", login_root=tmp_path / "login", params={})
+    HarborAgent.sign_in_back(agent, job)
+    assert "could not be taken back" in capsys.readouterr().err
+    assert not list(job.rglob(subscription.FILE))

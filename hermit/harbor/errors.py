@@ -121,15 +121,17 @@ def verifier_unreached(stdout: str, report_exists: bool = False) -> bool:
 
 
 # A verifier the host's full disk stopped: the shared Docker disk filled while it ran (ENOSPC, e.g. uv could not unpack
-# the Python it runs the tests with, 2026-11-08), so its tests did not all run. Infra, even where the agent filled it: a
+# the Python it runs the tests with, 2026-11-08), so its tests never ran. Infra, even where the agent filled it: a
 # container's disk is the host's shared Docker disk (its writable layer on Docker's data root), so an agent that fills
 # its container's disk fills the host's for every trial on it, and the verifier's output cannot tell the two apart.
 VERIFIER_DISK_FULL = re.compile(r"No space left on device|\(os error 28\)|\[Errno 28\]", re.IGNORECASE)
 
 
-def verifier_disk_full(stdout: str) -> bool:
-    """The host's disk was full while the verifier ran."""
-    return bool(VERIFIER_DISK_FULL.search(stdout))
+def verifier_disk_full(stdout: str, report_exists: bool = False) -> bool:
+    """The host's disk was full while the verifier ran, before its tests did. A test report (ctrf.json) means the
+    tests ran: the words in their output are then a test's (a program of the agent's that printed them, a task about
+    a full disk), and the trial is the agent's result."""
+    return not report_exists and bool(VERIFIER_DISK_FULL.search(stdout or ""))
 
 
 def _verdict(status: str, cause: str | None, exc_type: str | None, message: str, reward, *, halt: bool = False,

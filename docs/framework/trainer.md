@@ -65,7 +65,7 @@ tag(adapter, "final")
 
 | Handoff | Input | Output |
 |---|---|---|
-| Trainer → pipeline | One task and the current adapter path. A pipeline that keeps its trials by row (a Harbor task set's `trial_cache`) gets, with `trainer.epochs` above 1, a copy of the task that names its epoch (`epoch`), and a task the epoch's order names twice marked for a new run each time (`fresh`); any other pipeline gets the task as it is, and no record keeps either key. | `RunOutput`: answer and available execution evidence. |
+| Trainer → pipeline | One task and the current adapter path. A pipeline that keeps its trials by row (a Harbor task set's `trial_cache`) gets, with `trainer.epochs` above 1, a copy of the task that names its epoch (`epoch`), and a task the epoch's order names twice marked for a new run each time (`fresh`); any other pipeline gets the task as it is, and no record keeps either key. A row of its own field of either name (or of `repeat`, which `hermit eval` adds to a Harbor task set's rows with `eval.repeats` above 1) is refused there before anything runs. | `RunOutput`: answer and available execution evidence. |
 | Trainer → scoring function | Task and `RunOutput`. | Score, feedback, and additional fields. |
 | Trainer → learning-material writer | Per-task records and any prior repair feedback. | Material for this batch. |
 | Trainer → Evolver | `StepContext`, including an editable copy of the same adapter. | Files left in `adapter/`, updated state, `StepResult`, and reports. |

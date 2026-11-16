@@ -50,26 +50,27 @@ killed with its group (TERM, the plan's grace, KILL): Harbor's timeout cancels o
 (an exec with no log callback streaming the trial's output, as under `harbor run`, and every `docker compose cp`) a
 client whose wait was cancelled goes on running on this host, as Harbor ends one only when the call's own timeout_sec
 runs out (the session's exec has none), and a client Harbor ends (an exec's with a log callback, on the cancellation as
-well) leaves the CLI running in the container all the same. A session that ended by itself leaves what it started in
-the background running (a server the task asked for), as Harbor's own agents and Hermit's own sessions do. Then the
-copy-back, the collected files and the files returned to the host (a refreshed ChatGPT sign-in) are taken, each on its
-own and from / (Docker refuses an exec in a workdir the session removed), so that none of them hides the session's own
-error, and Harbor's timeout landing in one of them does not keep the others from running (the one it cut short is
-not run again, but for the return of the files, which runs once more: its copy may overlap the cancelled one's, a
-`docker compose cp` left running on this host that writes the same file), nor does it hide that error: the
-cancellation goes on after the last, unless the session raised an error of its own, which then goes on as it is
-(Harbor's wait_for turns only a cancellation into the agent's timeout, so a launch failure or a non-zero exit is not
-taken for one). Once the run is cancelled, each of them has AFTER_CANCEL_S at most (a hung container would hold
-them), and a second cancellation (the job's, after Harbor's timeout) goes on at once. A non-zero exit raises
-Harbor's NonZeroAgentExitCodeError (the verifier still runs; Hermit's side reads the session's verdict from its
-stream). What keeps the session from starting that is not the agent's doing (no plan, secrets by name outside a local
-Docker environment or missing from Harbor's environment, no agent user, a CLI that cannot be installed or run there, one
-of harborside's own steps before the session's exec failing: an upload, a chown, a probe of the container; a launch
-script that cannot enter the workdir; a non-zero exit that left no stream, which the launch script makes before the CLI
-starts (a stream's earlier step's is removed before the exec), as when the exec failed in Docker; the session's exec
-this machine could not run (an OSError: the compose client not spawned, EMFILE, EAGAIN), and, after a non-zero exit, a
-look for its stream it could not run: whether the CLI started cannot be told) raises HermitLaunchError, which Hermit's
-side counts as infra; a context file over the CLI's limit once merged with the image's own raises
+well) leaves the CLI running in the container all the same. A command the CLI ran in a session of its own (Claude Code
+runs its shell tool's commands so) is not in that group: unless the CLI ends it within the grace, it goes on. A session
+that ended by itself leaves what it started in the background running (a server the task asked for), as Harbor's own
+agents and Hermit's own sessions do. Then the copy-back, the collected files and the files returned to the host (a
+refreshed ChatGPT sign-in) are taken, each on its own and from / (Docker refuses an exec in a workdir the session
+removed), so that none of them hides the session's own error, and Harbor's timeout landing in one of them does not keep
+the others from running (the one it cut short is not run again, but for the return of the files, which runs once more:
+its copy may overlap the cancelled one's, a `docker compose cp` left running on this host that writes the same file),
+nor does it hide that error: the cancellation goes on after the last, unless the session raised an error of its own,
+which then goes on as it is (Harbor's wait_for turns only a cancellation into the agent's timeout, so a launch failure
+or a non-zero exit is not taken for one). Once the run is cancelled, each of them has AFTER_CANCEL_S at most (a hung
+container would hold them), and a second cancellation (the job's, after Harbor's timeout) goes on at once. A non-zero
+exit raises Harbor's NonZeroAgentExitCodeError (the verifier still runs; Hermit's side reads the session's verdict from
+its stream). What keeps the session from starting that is not the agent's doing (no plan, secrets by name outside a
+local Docker environment or missing from Harbor's environment, no agent user, a CLI that cannot be installed or run
+there, one of harborside's own steps before the session's exec failing: an upload, a chown, a probe of the container; a
+launch script that cannot enter the workdir; a non-zero exit that left no stream, which the launch script makes before
+the CLI starts (a stream's earlier step's is removed before the exec), as when the exec failed in Docker; the session's
+exec this machine could not run (an OSError: the compose client not spawned, EMFILE, EAGAIN), and, after a non-zero
+exit, a look for its stream it could not run: whether the CLI started cannot be told) raises HermitLaunchError, which
+Hermit's side counts as infra; a context file over the CLI's limit once merged with the image's own raises
 HermitContextLimitError, the adapter's result for the task (hermit.harbor.errors).
 
 Harbor's model connection is not used: the model, its endpoint and its key are the plan's. MODEL_CONNECTION is None,
@@ -257,6 +258,17 @@ if __name__ == "__main__":
 
 def _q(value: str) -> str:
     return shlex.quote(str(value))
+
+
+def _fresh_dir(path: str) -> str:
+    """A root's shell step that makes `path` (under /logs/agent, which Harbor leaves writable by every user) a new
+    directory no other user can write in, and enters it: whatever was there removed first (a link the agent's user
+    planted to a directory of root's, a folder of its own holding links), and the directory entered checked to be
+    `path` itself, never a link put there meanwhile; else the step exits 1. What follows works in it by relative
+    names, so that nothing the agent's user can rename or replace is followed."""
+    where = PurePosixPath(path)
+    return (f"rm -rf {_q(path)} && mkdir -m 755 {_q(path)} && cd -P {_q(path)} && "
+            f'[ "$(pwd -P)" = "$(cd -P {_q(str(where.parent))} && pwd -P)/{where.name}" ] || exit 1')
 
 
 def marked(output: str | None, mark: str) -> str | None:
@@ -1049,48 +1061,48 @@ class HermitInstalled(BaseInstalledAgent):
 
     async def _copy_back(self, environment: BaseEnvironment, plan: dict, workdir: str) -> None:
         """The plan's copy_back directories (relative to the workdir) to /logs/agent/hermit-copy/<basename>: what the
-        agent wrote that Hermit keeps (an adapter's memory). A link there is not followed. A copy that failed (a full
-        disk, a read error) is removed, never kept in part (Hermit's side would take it for the whole: a cut memory
-        merged into the adapter's), and fails the step (its exec exits 1), after the other copies and the chmod that
-        keeps what was copied readable."""
+        agent wrote that Hermit keeps (an adapter's memory), into a new directory of root's (_fresh_dir). A link there
+        is not followed. A copy that failed (a full disk, a read error) is removed, never kept in part (Hermit's side
+        would take it for the whole: a cut memory merged into the adapter's), and fails the step (its exec exits 1),
+        after the other copies and the chmod that keeps what was copied readable."""
         dirs = (plan.get("deploy") or {}).get("copy_back") or []
         if not dirs:
             return
         root = workdir.rstrip("/")
-        parts = [f"mkdir -p {_q(COPY_DIR)}", "f=$?"]          # f: 1 once a part failed; every part still runs
+        parts = [_fresh_dir(COPY_DIR), "f=0"]                 # f: 1 once a part failed; every part still runs
         for rel in dirs:
-            source, target = _q(f"{root}/{rel}"), _q(f"{COPY_DIR}/{PurePosixPath(rel).name}")
+            source, target = _q(f"{root}/{rel}"), _q(f"./{PurePosixPath(rel).name}")
             parts.append(f"rm -rf {target} || f=1; if [ -d {source} ] && [ ! -L {source} ]; then "
                          f"cp -a {source} {target} || {{ f=1; rm -rf {target}; }}; fi")
-        parts += [f"chmod -R a+rX {_q(COPY_DIR)} || f=1", 'exit "$f"']
+        parts += ["chmod -R a+rX . || f=1", 'exit "$f"']
         await self.exec_as_root(environment, command="; ".join(parts), cwd="/")
 
     async def _collect(self, environment: BaseEnvironment, plan: dict, workdir: str) -> None:
-        """The plan's collect files (a file or a directory) to /logs/agent/hermit-collect/<to>; never the home's
-        sign-in files, and never through a link. A copy that failed (a full disk, a read error) is removed, never kept
-        in part (Hermit's side would take it for the whole: a cut last message for the reply, where without the file it
-        reads the stream's), and fails the step (its exec exits 1), after the other copies and the chmod that keeps
-        what was copied readable."""
+        """The plan's collect files (a file or a directory) to /logs/agent/hermit-collect/<to>, a new directory of
+        root's (_fresh_dir); never the home's sign-in files, and never through a link. A copy that failed (a full disk,
+        a read error) is removed, never kept in part (Hermit's side would take it for the whole: a cut last message for
+        the reply, where without the file it reads the stream's), and fails the step (its exec exits 1), after the
+        other copies and the chmod that keeps what was copied readable."""
         entries = plan.get("collect") or []
         if not entries:
             return
         home = plan.get("home") or {}
         target_home = str(home.get("container_dir") or HOME).rstrip("/")
         secret = {f"{target_home}/{PurePosixPath(str(s)).as_posix()}" for s in home.get("secret_files") or []}
-        parts = [f"mkdir -p {_q(COLLECT_DIR)}", "f=$?"]       # f: 1 once a part failed; every part still runs
+        parts = [_fresh_dir(COLLECT_DIR), "f=0"]              # f: 1 once a part failed; every part still runs
         for entry in entries:
             source = self._fill(entry["from"], workdir)
             if str(PurePosixPath(source)) in secret:
                 self.logger.warning("hermit: %s is a sign-in file of the home: it is not collected into %s", source,
                                     LOGS)
                 continue
-            target = f"{COLLECT_DIR}/{PurePosixPath(entry['to']).as_posix()}"
+            target = f"./{PurePosixPath(entry['to']).as_posix()}"
             s, t = _q(source), _q(target)
             failed = f"{{ f=1; rm -rf {t}; }}"                # a copy that failed is removed, never kept in part
             parts.append(f"mkdir -p {_q(str(PurePosixPath(target).parent))} || f=1; rm -rf {t} || f=1; "
                          f"if [ -L {s} ]; then :; elif [ -d {s} ]; then cp -a {s} {t} || {failed}; "
                          f"elif [ -f {s} ]; then cp {s} {t} || {failed}; fi")
-        parts += [f"chmod -R a+rX {_q(COLLECT_DIR)} || f=1", 'exit "$f"']
+        parts += ["chmod -R a+rX . || f=1", 'exit "$f"']
         await self.exec_as_root(environment, command="; ".join(parts), cwd="/")
 
     async def _return_files(self, environment: BaseEnvironment, plan: dict, workdir: str) -> None:

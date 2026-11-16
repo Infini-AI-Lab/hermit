@@ -25,11 +25,26 @@ from hermit.trainer.budget import Budget, BudgetExceeded
 # trainer.epochs above 1), and a request for a new run (run_agent's rows, a task an epoch's order names twice); and
 # what hermit eval adds to a Harbor task set's rows with eval.repeats above 1, the repeat (a trial, a stream of its
 # own). They are that pipeline's alone: a record's `input` never keeps the ones its caller added (run_one's `added`),
-# so the learning material, the records and a learner's text of a task are the same in every epoch; a row's own field
-# of one of those names, which no other pipeline is handed in its place, stays.
+# so the learning material, the records and a learner's text of a task are the same in every epoch. A row that holds a
+# field of one of those names is refused where they are added (own_row_keys), since they would replace it and no
+# record would keep it; any other pipeline gets it as it is.
 EPOCH, FRESH, REPEAT = "epoch", "fresh", "repeat"
 TRIAL_KEYS = (EPOCH, FRESH)
 ROW_KEYS = (*TRIAL_KEYS, REPEAT)
+
+
+def own_row_keys(rows, keys: tuple, where: str) -> list[str]:
+    """The problem, if any, of rows handed a pipeline that adds `keys` to them (TRIAL_KEYS for the Trainer's, REPEAT
+    for hermit eval's: a Harbor task set's): a row of its own field of one of those names, which they would replace
+    and drop from its record."""
+    held = sorted({k for row in rows for k in keys if k in row})
+    if not held:
+        return []
+    ids = [str(row.get("id")) for row in rows if any(k in row for k in held)]
+    named = ", ".join(ids[:3]) + (", ..." if len(ids) > 3 else "")
+    return [f"{where}: rows of a field named {' or '.join(held)} ({named}), which the framework names a row of a "
+            "Harbor task set's run by, so that it would replace that field and no record would keep it: rename the "
+            "field"]
 
 
 def scored(records: list[dict]) -> list[dict]:

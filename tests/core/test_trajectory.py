@@ -189,3 +189,15 @@ def test_a_reply_that_holds_a_unicode_line_separator_is_one_event_read_whole_and
         said = agent.outcome(text, path, None)
         assert said["served"] and said["reply"] == held and agent.outcome(text, None, None) == said, repr(sep)
         assert agent.notices(text) == agent.notices(raw) and not said.get("login_failed"), repr(sep)
+
+
+def test_a_tool_call_id_that_is_no_string_is_read_as_none_never_a_crash():
+    """An ATIF trajectory's tool_call_id or source_call_id that is a list or an object (no key can be) is read as no
+    id: its result goes to the step's last call, and every learner reading the log goes on."""
+    from hermit.agent.base.trajectory import atif_steps
+    steps = atif_steps({"steps": [
+        {"source": "user", "message": "Do it."},
+        {"source": "agent", "tool_calls": [{"tool_call_id": ["a", "list"], "function_name": "bash",
+                                            "arguments": {"command": "ls"}}],
+         "observation": {"results": [{"source_call_id": {"an": "object"}, "content": "file.txt"}]}}]})
+    assert [(s.kind, s.command, s.output) for s in steps] == [("command", "ls", "file.txt")]

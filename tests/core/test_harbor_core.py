@@ -16,7 +16,8 @@ refused, and so (before any run, and by hermit check) a train split taken as giv
 eval runs that does, any split that leaves out an earlier step of a stream, and a validation split that does either
 (but for the train split's steps, which run_agent never runs), hermit.harbor.dataset's splits never; a Harbor agent's
 streams stopped with the pipeline of a train that finished, kept by one closed before it finished; the run's secrets
-(a Harbor task set's directories, an eval config's tree).
+(a Harbor task set's directories, an eval config's tree); the suite's own collection (no file of a task set or a run's
+folder).
 """
 import json
 from pathlib import Path
@@ -526,6 +527,34 @@ def test_a_records_input_is_its_row_without_the_keys_its_caller_added_for_a_pipe
     assert run_one(own, None, pipeline("judged"), lambda task, out: 1.0)["input"] == own
 
 
+def test_a_row_of_its_own_epoch_fresh_or_repeat_is_refused_where_the_framework_names_rows_by_them(tmp_path,
+                                                                                                    monkeypatch):
+    """Where the framework names a row by `epoch` and `fresh` (the Trainer's rows to a pipeline keeping its trials by
+    row) or by `repeat` (hermit eval's rows to a Harbor task set's pipeline, eval.repeats above 1), a row of its own
+    field of one of those names is refused before anything runs, by hermit train, hermit eval and hermit check alike:
+    the framework's would replace it, and no record would keep it. Elsewhere the row is handed as it is."""
+    import hermit.settings_check
+    import hermit.trainer.trainer
+    from hermit import evaluate as evaluate_module
+    path = _task(tmp_path)
+    _rows(tmp_path, t3={"epoch": "its own"}, t8={"repeat": "its own"})
+    with monkeypatch.context() as m:
+        m.setattr(hermit.trainer.trainer, "keeps_trials", lambda config: True)
+        with pytest.raises(SystemExit, match=r"train refuses to start: .*training: rows of a field named epoch \(t3\)"):
+            Trainer(load(path, "evolver.name=learn", "trainer.run_name=refused"), **QUIET).train()
+        m.setattr(hermit.settings_check, "keeps_trials", lambda config: True)
+        lines: list[str] = []
+        assert not run_check(load(path, "evolver.name=learn", command="check"), probe=False, log=lines.append)
+        assert "rows of a field named epoch (t3)" in "\n".join(lines), lines
+    with monkeypatch.context() as m:
+        m.setattr(evaluate_module, "_harbor_rows", lambda config: True)
+        with pytest.raises(SystemExit, match=r"eval refuses to start: the test split: rows of a field named repeat "
+                                             r"\(t8\)"):
+            evaluate(load(path, "eval.repeats=2"), "none", **QUIET)
+        assert evaluate(load(path), "none", **QUIET)["unscored"] == 0          # one repeat names none
+    assert evaluate(load(path, "eval.repeats=2"), "none", **QUIET)["unscored"] == 0     # nor does another pipeline
+
+
 def test_an_eval_of_a_split_that_names_a_task_twice_keeps_a_row_for_each_as_on_main(tmp_path):
     """A test split may name a task twice: results.jsonl keeps a row for each of its rows and the summary counts both,
     as on main (which wrote a line per row). The rows of one id are one record (run_tasks keeps a task's last run by
@@ -970,3 +999,27 @@ def test_an_eval_that_failed_leaves_no_summary_of_an_earlier_eval_beside_its_emp
     with pytest.raises(SystemExit):
         evaluate(load(path), "none", **QUIET)
     assert not (out / "summary.json").exists() and (out / "results.jsonl").read_text() == ""
+
+
+def test_the_suite_imports_no_file_of_a_task_set_or_of_a_runs_folder(tmp_path):
+    """The root conftest keeps out of the suite a Harbor example's task set (`utils/tasks`: the benchmark's own tests)
+    and a run's folder beside an example's configs (`runs/`, their output_dir, at any depth: what the run's trials and
+    learners wrote, a task container's files among them): neither a test file nor a conftest there is imported, while
+    an example's own tests are collected."""
+    import subprocess
+    import sys
+    root = Path(__file__).resolve().parents[2]
+    shutil.copy(root / "conftest.py", tmp_path / "conftest.py")
+    (tmp_path / "pytest.ini").write_text("[pytest]\n")
+    planted = "from pathlib import Path\nPath(__file__).with_name('imported').write_text('yes')\n"
+    for where in ("examples/bench/method/runs/run/learning_material/step_0001/trajectories/t_1/agent/hook-state",
+                  "examples/bench/runs/run/checkout", "examples/bench/utils/tasks/task-1/tests"):
+        (tmp_path / where).mkdir(parents=True)
+        (tmp_path / where / "test_planted.py").write_text(planted + "def test_planted():\n    pass\n")
+        (tmp_path / where / "conftest.py").write_text(planted)
+    (tmp_path / "examples/bench/utils/tests").mkdir(parents=True)
+    (tmp_path / "examples/bench/utils/tests/test_own.py").write_text("def test_own():\n    pass\n")
+    out = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", "examples"],
+                         cwd=tmp_path, capture_output=True, text=True, timeout=300)
+    assert "examples/bench/utils/tests/test_own.py::test_own" in out.stdout, out.stdout + out.stderr
+    assert "test_planted" not in out.stdout and not list(tmp_path.rglob("imported")), out.stdout

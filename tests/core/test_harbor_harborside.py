@@ -989,6 +989,38 @@ def harbor_side(check: str, scratch: Path) -> dict:
         report["source_modes"] = {rel: oct((env.root / src).stat().st_mode & 0o777) for rel, src in sources.items()}
         report["metadata"] = metadata(agent)["metadata"]
 
+    elif check == "links_planted":
+        # For real with bash: the agent's user (/logs/agent is writable by every user) planted links where the
+        # copy-back and the collect write, to folders of root's only (700, a file of 600 in each)
+        env = ShellEnv(scratch / "c")
+        fakebin = env.root / "installed-agent" / "fakebin"
+        fakebin.mkdir(parents=True)
+        (fakebin / "codex").write_text(STUB_CLI)
+        (fakebin / "codex").chmod(0o755)
+        logs = env.root / "logs" / "agent"
+        private = {}
+        for name in ("hermit-copy", "hermit-collect"):
+            folder = env.root / f"root-only-{name}"
+            folder.mkdir()
+            (folder / "secret.txt").write_text("root's\n")
+            (folder / "secret.txt").chmod(0o600)
+            folder.chmod(0o700)
+            (logs / name).symlink_to(folder, target_is_directory=True)
+            private[name] = folder
+        plan = write_plan(scratch, "codex", path_prepend=["/installed-agent/fakebin"],
+                          collect=[{"from": "/installed-agent/hermit-home/last_message.txt", "to": "last_message.txt"}])
+        agent = make("codex", plan)
+        report["raised"] = run(agent, env, timeout=120)
+        report["links"] = {name: (logs / name).is_symlink() for name in private}
+        report["copied_notes"] = (logs / "hermit-copy" / "memory" / "NOTES.md").read_text() \
+            if (logs / "hermit-copy" / "memory" / "NOTES.md").is_file() else None
+        report["collected"] = sorted(p.name for p in (logs / "hermit-collect").iterdir()) \
+            if (logs / "hermit-collect").is_dir() else None
+        report["private"] = {name: [oct(folder.stat().st_mode & 0o777), oct((folder / "secret.txt").stat().st_mode
+                                                                             & 0o777), sorted(os.listdir(folder))]
+                             for name, folder in private.items()}
+        report["metadata"] = metadata(agent)["metadata"]
+
     elif check in ("shell_session", "shell_cancel", "shell_token"):
         env = ShellEnv(scratch / "c")
         report["root"] = str(env.root)
@@ -1859,7 +1891,8 @@ def harbor_side(check: str, scratch: Path) -> dict:
 CHECKS = ("codex_plan", "context_limit", "every_cli", "workdir_pwd", "shell_noise", "slash_prompt", "stream_steps",
           "deploy_failed_step", "cancel_fake", "nonzero_exit", "launch_failures", "capture_fails",
           "launch_exec_failed", "after_cancelled", "after_own_error", "after_bounded", "return_check", "return_limits",
-          "workdir_removed", "copy_fails", "shell_session", "shell_cancel", "shell_token", "secrets_refused",
+          "workdir_removed", "copy_fails", "links_planted", "shell_session", "shell_cancel", "shell_token",
+          "secrets_refused",
           "installs", "install_failures", "mount_rejected", "codex_nvm", "mini_swe_agent", "tool_script", "answer",
           "options", "scripted", "driver_protocol", "driver_plan", "driver_loop", "driver_config", "driver_full_disk")
 
@@ -1929,8 +1962,8 @@ def test_a_codex_plan_is_carried_out_in_order_with_its_files_where_the_cli_reads
         < order.index("compose:exec bash /installed-agent/hermit/run/launch.sh")
     after = order[order.index("compose:exec bash /installed-agent/hermit/run/launch.sh") + 1:]
     assert after[0].startswith("exec:p=$(cat /installed-agent/hermit/run/session.pid")
-    assert after[1].startswith("exec:mkdir -p /logs/agent/hermit-copy")
-    assert after[2].startswith("exec:mkdir -p /logs/agent/hermit-collect")
+    assert after[1].startswith("exec:rm -rf /logs/agent/hermit-copy && mkdir -m 755")
+    assert after[2].startswith("exec:rm -rf /logs/agent/hermit-collect && mkdir -m 755")
     assert after[-1] == "download_file:/installed-agent/hermit-home/auth.json"
     files = r["uploaded"]
     assert files["/app/hermit/demo/ADAPTER.md"] == "The adapter.\n"
@@ -1957,11 +1990,13 @@ def test_a_codex_plan_is_carried_out_in_order_with_its_files_where_the_cli_reads
             "chmod -R u+rwX /app/hermit/demo /app/.codex /app/AGENTS.md /app/.hermit-deploy.json") in roots
     assert (f"chown -R 1000:1000 {home} && chmod -R u+rwX,go-rwx {home} && chmod 600 {home}/auth.json") in roots
     copy = next(c for c in roots if "hermit-copy" in c)
-    assert ("then cp -a /app/hermit/demo/memory /logs/agent/hermit-copy/memory || { f=1; rm -rf "
-            "/logs/agent/hermit-copy/memory; }; fi") in copy
+    assert copy.startswith('rm -rf /logs/agent/hermit-copy && mkdir -m 755 /logs/agent/hermit-copy && cd -P '
+                           '/logs/agent/hermit-copy && [ "$(pwd -P)" = "$(cd -P /logs/agent && pwd -P)/hermit-copy" ] '
+                           '|| exit 1; f=0; ')                                 # a folder of root's, entered, checked
+    assert "then cp -a /app/hermit/demo/memory ./memory || { f=1; rm -rf ./memory; }; fi" in copy
     collect = next(c for c in roots if "hermit-collect" in c)
-    assert (f"then cp {home}/last_message.txt /logs/agent/hermit-collect/last_message.txt || {{ f=1; rm -rf "
-            "/logs/agent/hermit-collect/last_message.txt; }; fi") in collect
+    assert (f"then cp {home}/last_message.txt ./last_message.txt || {{ f=1; rm -rf ./last_message.txt; }}; "
+            "fi") in collect
     assert "auth.json" not in collect                                                  # a sign-in never goes to logs
     assert r["returned"] == f"downloaded {home}/auth.json"
     assert r["context"]["metadata"] == {
@@ -2015,8 +2050,8 @@ def test_a_context_over_the_clis_limit_fails_the_trial_before_the_session_and_on
     assert not any("launch.sh" in step and step.startswith("exec:exec") for step in over["order"])
     kill, copy, collect = over["order"][-3:]                                            # the after-steps still ran
     assert kill.startswith("exec:p=$(cat /installed-agent/hermit/run/session.pid")
-    assert copy.startswith("exec:mkdir -p /logs/agent/hermit-copy;")
-    assert collect.startswith("exec:mkdir -p /logs/agent/hermit-collect;")
+    assert copy.startswith("exec:rm -rf /logs/agent/hermit-copy && mkdir -m 755")
+    assert collect.startswith("exec:rm -rf /logs/agent/hermit-collect && mkdir -m 755")
     assert within["raised"] is None and within["uploaded"]["/app/AGENTS.md"] == "Hermit context.\n\n" + IMAGE_CONTEXT
     # 123 bytes merged, within the limit of 124, but 126 as dsh counts them (the image's three tags escaped)
     escaped, unescaped = report(checks, "context_limit")["escaped"], report(checks, "context_limit")["unescaped"]
@@ -2142,8 +2177,8 @@ def test_a_cli_that_exits_non_zero_raises_harbors_agent_error_and_a_failed_copy_
     after = r["order"][r["order"].index("exec:exec bash /installed-agent/hermit/run/launch.sh") + 1:]
     assert after[0] == "exec:test -e /logs/agent/agent-pi.jsonl"                         # the stream is there
     assert after[1].startswith("exec:p=$(cat /installed-agent/hermit/run/session.pid")
-    assert after[2].startswith("exec:mkdir -p /logs/agent/hermit-copy;")                 # it failed
-    assert after[3].startswith("exec:mkdir -p /logs/agent/hermit-collect;")              # and the next one ran
+    assert after[2].startswith("exec:rm -rf /logs/agent/hermit-copy && mkdir -m 755")                 # it failed
+    assert after[3].startswith("exec:rm -rf /logs/agent/hermit-collect && mkdir -m 755")    # and the next one ran
     assert r["metadata"]["exit_code"] == 3 and r["metadata"]["killed"] is False
     assert [e.split(":")[0] for e in r["metadata"]["after_session_errors"]] == ["copy_back"]
 
@@ -2176,8 +2211,8 @@ def test_harborsides_own_failures_before_the_session_are_launch_failures_not_the
         assert not any(step.startswith("exec:exec bash") for step in got["order"])
         kill, copy, collect = got["order"][-3:]
         assert kill.startswith("exec:p=$(cat /installed-agent/hermit/run/session.pid")
-        assert copy.startswith("exec:mkdir -p /logs/agent/hermit-copy;")
-        assert collect.startswith("exec:mkdir -p /logs/agent/hermit-collect;")
+        assert copy.startswith("exec:rm -rf /logs/agent/hermit-copy && mkdir -m 755")
+        assert collect.startswith("exec:rm -rf /logs/agent/hermit-collect && mkdir -m 755")
     assert own["raised"] == ["NonZeroAgentExitCodeError", "hermit: codex exited with 97 (its stream: "
                              "/logs/agent/agent-codex.jsonl)"]
     assert verdict(own["raised"]) == ("agent_error", "unclassified")
@@ -2279,7 +2314,7 @@ def test_a_session_exec_or_a_look_for_its_stream_this_machine_could_not_spawn_is
         assert verdict(got["raised"]) == ("infra", "launch_failed"), name
         kill, collect = got["order"][-2:]
         assert kill.startswith("exec:p=$(cat /installed-agent/hermit/run/session.pid"), name
-        assert collect.startswith("exec:mkdir -p /logs/agent/hermit-collect;"), name
+        assert collect.startswith("exec:rm -rf /logs/agent/hermit-collect && mkdir -m 755"), name
 
 
 def test_harbors_timeout_landing_in_an_after_step_still_runs_the_rest_and_then_cancels(checks):
@@ -2291,8 +2326,8 @@ def test_harbors_timeout_landing_in_an_after_step_still_runs_the_rest_and_then_c
     assert r["raised"][0] == "TimeoutError"
     after = r["order"][r["order"].index("exec:exec bash /installed-agent/hermit/run/launch.sh") + 1:]
     assert after[0].startswith("exec:p=$(cat /installed-agent/hermit/run/session.pid")
-    assert after[1].startswith("exec:mkdir -p /logs/agent/hermit-copy;")                 # cancelled, not run again
-    assert after[2].startswith("exec:mkdir -p /logs/agent/hermit-collect;")              # and the rest still ran
+    assert after[1].startswith("exec:rm -rf /logs/agent/hermit-copy && mkdir -m 755")       # cancelled, not run again
+    assert after[2].startswith("exec:rm -rf /logs/agent/hermit-collect && mkdir -m 755")    # and the rest still ran
     assert after[-1] == "download_file:/installed-agent/hermit-home/auth.json"
     assert r["returned"] == "downloaded /installed-agent/hermit-home/auth.json"
     assert r["metadata"]["after_session_errors"] == ["copy_back: cancelled"]
@@ -2307,7 +2342,7 @@ def test_harbors_timeout_landing_in_the_return_of_the_files_still_brings_the_ref
     assert r["raised"][0] == "TimeoutError"
     after = r["order"][r["order"].index("exec:exec bash /installed-agent/hermit/run/launch.sh") + 1:]
     check = "exec:test -f /installed-agent/hermit-home/auth.json && test ! -L "
-    assert after[2].startswith("exec:mkdir -p /logs/agent/hermit-collect;")
+    assert after[2].startswith("exec:rm -rf /logs/agent/hermit-collect && mkdir -m 755")
     assert [step.startswith(check) for step in after[3:5]] == [True, True], after        # cancelled, then once more
     assert after[5:] == ["download_file:/installed-agent/hermit-home/auth.json"]
     assert r["returned"] == "downloaded /installed-agent/hermit-home/auth.json"
@@ -2330,7 +2365,7 @@ def test_a_launch_failure_or_a_non_zero_exit_keeps_its_own_error_when_harbors_ti
     assert verdict(non_zero["raised"]) == ("agent_error", "unclassified")
     for name, got in r.items():
         after = got["order"][got["order"].index("exec:exec bash /installed-agent/hermit/run/launch.sh") + 1:]
-        assert after[2].startswith("exec:mkdir -p /logs/agent/hermit-collect;"), name          # it hung
+        assert after[2].startswith("exec:rm -rf /logs/agent/hermit-collect && mkdir -m 755"), name          # it hung
         assert after[-1] == "download_file:/installed-agent/hermit-home/auth.json", name    # and the rest still ran
         assert got["returned"] == "downloaded /installed-agent/hermit-home/auth.json", name
         assert got["metadata"]["after_session_errors"] == ["collect: cancelled"], name
@@ -2357,7 +2392,7 @@ def test_a_second_cancellation_ends_the_run_at_once_without_the_after_steps_left
     after = r["order"][r["order"].index("exec:exec bash /installed-agent/hermit/run/launch.sh") + 1:]
     assert len(after) == 2, after
     assert after[0].startswith("exec:p=$(cat /installed-agent/hermit/run/session.pid")
-    assert after[1].startswith("exec:mkdir -p /logs/agent/hermit-copy;")
+    assert after[1].startswith("exec:rm -rf /logs/agent/hermit-copy && mkdir -m 755")
 
 
 def test_after_a_session_removed_its_workdir_the_after_steps_still_kill_it_collect_and_return_the_sign_in(checks):
@@ -2434,6 +2469,18 @@ def test_a_copy_back_or_collect_that_failed_part_way_is_recorded_and_removed_and
                                  "hermit-collect/agents/reviewer.toml": "0o600"}
     assert r["kept"] == {"hermit-copy/journal/JOURNAL.md": ["# Journal\n", "0o644"],
                          "hermit-collect/agents/reviewer.toml": ['name = "reviewer"\n', "0o644"]}
+
+
+def test_the_after_steps_follow_no_link_the_agents_user_planted_where_they_write(checks):
+    """/logs/agent is writable by every user, so the agent's user can put a link where the copy-back and the collect
+    write (hermit-copy, hermit-collect), to a folder of root's only: each step makes its folder anew, root's, and
+    works in it, so nothing is copied there and its modes stay (before, root copied into it and made it readable to
+    all)."""
+    r = report(checks, "links_planted")
+    assert r["raised"] is None and not r["metadata"].get("after_session_errors"), r["metadata"]
+    assert r["links"] == {"hermit-copy": False, "hermit-collect": False}
+    assert r["copied_notes"] == "# Notes\nlearned something\n" and r["collected"] == ["last_message.txt"]
+    assert r["private"] == {name: ["0o700", "0o600", ["secret.txt"]] for name in ("hermit-copy", "hermit-collect")}
 
 
 def test_the_launch_script_runs_the_cli_with_its_prompt_variables_and_secrets_and_brings_its_files_back(checks):

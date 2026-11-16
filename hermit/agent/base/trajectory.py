@@ -536,13 +536,13 @@ def atif_steps(trajectory: dict) -> list[Step]:
             else:
                 step = Step("tool_call", json.dumps({"tool": name, "input": args}, ensure_ascii=False, default=str))
             steps.append(step)
-            calls[call.get("tool_call_id")] = step
+            calls[_call_id(call.get("tool_call_id"))] = step
         observation = entry.get("observation") if isinstance(entry.get("observation"), dict) else {}
         for result in observation.get("results") or []:
             if not isinstance(result, dict):
                 continue
             said = _content_text(result.get("content"))
-            step = calls.get(result.get("source_call_id")) or (list(calls.values())[-1] if calls else None)
+            step = calls.get(_call_id(result.get("source_call_id"))) or (list(calls.values())[-1] if calls else None)
             if step is None:
                 if said.strip():
                     steps.append(Step("message", said, role="user"))
@@ -552,6 +552,12 @@ def atif_steps(trajectory: dict) -> list[Step]:
             if step.kind == "command" and isinstance(extra.get("tool_result_is_error"), bool):
                 step.exit_code = 1 if extra["tool_result_is_error"] else 0
     return steps
+
+
+def _call_id(value):
+    """A tool call's id as the key its result names it by: a string or a number as it is, anything else (a list, an
+    object, which no key can be) as none."""
+    return value if isinstance(value, (str, int)) and not isinstance(value, bool) else None
 
 
 def read_atif(path: Path) -> list[Step] | None:

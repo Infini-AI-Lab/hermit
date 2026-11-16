@@ -298,10 +298,13 @@ launch plan, `<job>/launch/plan.json`), against the adapter deployed by the CLI'
 it out (`hermit.harbor.staging`: the context file, skills, roles and hooks, the whole adapter in `hermit/<adapter id>/`
 of the task's workdir). harborside uploads the deployment and the home and runs the command as the task's agent user,
 the prompt (Harbor's instruction) on its stdin and the session's stream in `/logs/agent/agent-<backend>.jsonl`; a
-session still running when Harbor's timeout stops the agent is killed with its process group, so that it edits
-nothing under the verifier. That kill and the steps after the session (the adapter's notes copied out, the collected
-files, the files returned to this machine) run from `/`, so a session that removed its workdir is still stopped and
-what it left still comes back; a step that fails is recorded in the trial's `result.json` (`after_session_errors` in
+session still running when Harbor's timeout stops the agent is killed with its process group, so that the CLI edits
+nothing under the verifier (a command it ran in a session of its own, as Claude Code runs its shell tool's, is outside
+that group and goes on unless the CLI ended it within the plan's `kill_grace_s`). That kill and the steps after the
+session (the adapter's notes copied out, the collected files, the files returned to this machine) run from `/`, so a
+session that removed its workdir is still stopped and what it left still comes back; the notes and the collected files
+go each into a new folder of root's in `/logs/agent` (which every user can write in), whatever was there removed first,
+so that no link the agent's user put there is followed; a step that fails is recorded in the trial's `result.json` (`after_session_errors` in
 the agent's metadata), never over the session's own outcome; a copy of the notes or of a collected file that failed (a
 full disk, a read error) is removed, never kept in part, which Hermit's side would take for the whole (without it the
 reply is the stream's, and the adapter's notes stay as they were); and a file to return whose check failed is such a
@@ -374,7 +377,7 @@ training config.
 | `tasks_dir`, `jobs_dir`, `tmpdir`, `harbor` | the task directories; one Harbor job per rollout (outside the checkout); TMPDIR for harbor; Harbor's command, a name on PATH or a path (a relative one is the working directory's; default: `~/.cache/hermit/harbor-venv/bin/harbor`), beside which, or beside the file a link to it names, is the interpreter a stream's driver runs under |
 | `model`, `login`, `effort`, `web_search`, `price` | the acting model: a `<backend>/<model>` reference (its endpoint and key), or with `login` (`chatgpt`, `claude`) the CLI's model name on the user's subscription; the answer agent's may be a model a CLI reaches (`{cli, model, login}`, as `llm`'s: each request one session of that CLI, which takes text only, served by an endpoint whose timeout outlasts the session and a wait for the login's plan, and each trial's relay to it keeps that timeout, never cutting a request at its client's 600 s to send it again; on a login each trial first waits for that plan, the mapping's `plan_dir` and `usage_credits`), and its relay takes the client `timeout` and `max_retries` a model mapping gives beside a reference; the reasoning effort; the CLI's web search, required (not for the answer agent); a reference's price (USD per million tokens: `input`, `cached_input`, `output`; in the config, or in the benchmark file (its price taken only with the file's own model); default: the backend's), which prices the HermitXXX trials' usage (on Anthropic's API Claude Code's own cost is kept, as everywhere in Hermit) and the answer agent's endpoint (one of Harbor's own agents keeps Harbor's cost) |
 | `plan_dir`, `usage_credits`, `busy_retries`, `busy_wait_s`, `login_root` | on a login, as a CLI session's: the plan's directory (default: the login's own under `~/.cache/hermit/`); whether a session may draw the account's usage credits (default: no, and one that drew them holds the plan's sessions until its window resets); how many times a session the provider could not serve runs again (3, also when null), the n-th after n × `busy_wait_s` (120 s, also when null); the shared copy of the ChatGPT sign-in (`~/.cache/hermit/codex-login/`) |
-| `acting_agent` | `{cli: codex}` (the default) or another CLI of the table, with `settings` (the CLI Base Agent's own, over the table's), `kwargs` (the HermitXXX class's), `env` (no secrets), `pythonpath`; or `{name}` / `{import_path}`: a Harbor built-in or another class, run as Harbor runs it, which takes no adapter (Harbor's own `claude-code`: its WebSearch and WebFetch off on every task with `web_search: false`, else Harbor's rule, off where the task's agent network is not public; its sign-in the key this process has, never the subscription, so `CLAUDE_FORCE_OAUTH`, or the subscription's token as its only sign-in of a model at Anthropic's API, is refused at startup: the subscription runs with `cli: claude` and `login: claude`) |
+| `acting_agent` | `{cli: codex}` (the default) or another CLI of the table, with `settings` (the CLI Base Agent's own, over the table's), `kwargs` (the HermitXXX class's), `env` (no secrets: its values are written into each trial's job and onto `docker compose exec`'s command line, so a variable of a secret's name, or a value naming one, is refused at startup), `pythonpath`; or `{name}` / `{import_path}`: a Harbor built-in or another class, run as Harbor runs it, which takes no adapter (Harbor's own `claude-code`: its WebSearch and WebFetch off on every task with `web_search: false`, else Harbor's rule, off where the task's agent network is not public; its sign-in the key this process has, never the subscription, so `CLAUDE_FORCE_OAUTH`, or the subscription's token as its only sign-in of a model at Anthropic's API, is refused at startup: the subscription runs with `cli: claude` and `login: claude`) |
 | `<cli>_bin`, `<cli>_version`, `setup_timeout_sec` | a CLI binary of this machine (`codex_bin`, `claude_bin`, `pi_bin`, `opencode_bin`, `dsh_bin`; mini-swe-agent takes none), its folder mounted read-only at `/opt/hermit-<cli>`, first on PATH (for Codex's standalone release, a `codex-package.json` in the binary's grandparent, the release's folder, with its `bin/` first on PATH), used only when it answers `--version` (asked as root) as the asked-for version (any, when none is) and the task's agent user may execute it (`test -x`: a binary or folder of mode 700 of another uid is not, unless that user is root), else the container installs the CLI; the version the container installs, the asked-for one (`codex_version`, ..., `mini_swe_agent_version`; default: the `hermit.harbor.clis` table's; its `codex` and `claude` rows give none, so Harbor's own install's); Harbor's agent setup limit |
 | `answer` | the answer agent's `instruction_file`, `attachments` (globs of the images sent with the question: one over 20 MiB is left out, as a file that is no image is, and a figure a wildcard would match in a directory the agent user may not list is not found, as by a glob that matches nothing (no error: the model is asked without it; one named outright is found wherever the agent user may enter its directory); attachments whose listing exec failed, and an image that cannot be measured or read, are `launch_failed`: the model is never asked without them), `answer_file`, `answer_pattern`, `answer_format`, `wait_s`, `max_tokens` |
 | `pass_reward`, `verifier_redact`, `reward_key` | the reward that is a pass (default 1.0; null: a score scale, where none is); regexes removed from the curated verifier output (a test's expected answer); the verifier's reward key |
@@ -382,14 +385,15 @@ training config.
 | `verifier_timeout_multiplier`, `environment_build_timeout_multiplier` | Harbor's: each task's verifier limit, and its environment start (pull, build) limit, times this (default 1, never below 1: a slow host); the agent's budget is never scaled |
 | `docker_cleanup`, `rmi_threshold_gb`, `disk_gate_gb`, `disk_gate_wait_s`, `tmp_gate_gb`, `image_sizes` | `images_keep`, `rmi_task_image` or `rmi_over_gb` (the task's prebuilt image removed after the trial, only when larger than the threshold); no trial starts while Docker's data root (or the host's /tmp) has less than the gate free, room kept for the images still to be pulled |
 | `trial_cache` | a finished trial of the same row (the whole row), task directory (its contents), model (its price included; the answer agent's with its relay's client `timeout` and `max_retries`; a model a CLI reaches, `{cli, model, login, ...}`, by that CLI, its login and its settings and binary, its effort, its `bin` or another version of the CLI each another trial, never by the URL or token of the endpoint the pipeline serves it on, which another run's pipeline has another of), adapter (each of its files, git's and Python's caches and its card aside: its path, the bytes a deployment copies and whether it is executable, not the group's and others' bits a umask sets; a link's those of the file it leads to inside the adapter, a link the deployment refuses by its own text; the card, `.hermit/CARD.md`, which `hermit eval --adapter final` writes its results into and no deployment copies, so that adapter tested again meets its trials), `context_query`, Harbor's `retry`, the adapter sandbox's `sandbox_enforce` and `tools_host` and launch is not run again: a resumed run or eval takes it and spends nothing (its first cost is kept as provenance); each of `hermit eval`'s repeats is a trial of its own (its rows name it, `repeat`), and so is each epoch of a training run (its rows name the epoch, `epoch`, when `trainer.epochs` is above 1: an epoch on an adapter the one before left unchanged runs anew); a training run's trials are its own, which only that run, resumed, takes, never another run of the same config or one started over (`hermit eval`'s are any eval's: a resumed eval, the same adapter on the same rows); a run an Evolver asks for (`run_agent`) and each run of a task a split names twice are new runs, neither taken from the cache nor kept (their rows name it, `fresh`); the Trainer hands `epoch` and `fresh` to a pipeline with the trial cache on alone, `hermit eval` `repeat` to a Harbor task set's alone, and no record, learning material included, keeps them; and `hermit check`'s probe neither takes a trial from the cache nor keeps one (it is there to run the agent) |
-| `tools_host`, `sandbox_enforce`, `context_query`, `python` | where the adapter's tools are served (default: the Docker bridge's gateway); the adapter sandbox's enforce; the row's field a per-task context retrieves for; the interpreter the hosts' deployment and the per-task context run with (default: Hermit's own) |
+| `tools_host`, `sandbox_enforce`, `context_query`, `python` | where the adapter's tools are served (default: the Docker bridge's gateway); the adapter sandbox's enforce (`required`, the default, needs bubblewrap: a pipeline that deploys adapters is refused at startup without it); the row's field a per-task context retrieves for; the interpreter the hosts' deployment and the per-task context run with (default: Hermit's own) |
 | `benchmark` | a YAML file holding these same keys, shared by every method's config of the example (the config's params override it, and a relative path that is the config's folder's (below) is then the benchmark file's folder's, the config's own too; the sign-in it gives (`login`, `login_root`, `claude_bin`, each where the config does not give it) is checked at startup as the config's is, its `login_root` and `claude_bin` resolving against the working directory, as the config's do; its `dataset:` block is `dataset prepare`'s) |
 | `stream` | a multi-step task's driver: `idle_s` (the environment stops after that long without a step; 4 h, also when null), `start_timeout_s` (1 h, also when null), `turn_wait_s` |
 
 A relative `tasks_dir`, `image_sizes`, `acting_agent.pythonpath` or `environment.extra_docker_compose` is the config's
 folder's, or, with `benchmark` set, the benchmark file's folder's (the config's own values too); `<cli>_bin`,
 `jobs_dir`, `tmpdir`, `login_root`, `plan_dir` and a `harbor` that is a path resolve against the working directory,
-with `~` expanded.
+with `~` expanded. The runner follows `tasks_dir`'s links once (the `tasks` link prepare writes), so a prepare that
+points it at another set mid-run changes no trial's task set.
 
 The rollout's output is `{harbor_task, rollout, step, reward, rewards, status, failure_cause, exception_type, trial,
 hooks_active}` and the CLI's last message (`reply`; the answer agent's `answer`), with `status` one of `ok` (a
@@ -405,8 +409,9 @@ result (a sandbox, model-provider or Harbor failure, a killed `harbor run`, the 
 on this machine while it stages the adapter (its deployment, its per-task context) or writes the trial's job and launch,
 `staging_failed`, though the adapter's own deployment or per-task context failing in its child process is the agent's
 result, scored 0; an OSError on this machine past those steps (a process it could not start, a file it could not
-write or read), `host_failed`, its cost unknown; a verifier whose tools never arrived or that the host's full disk
-stopped, whatever it then wrote or raised and whether the agent had finished, run out of its time or exited with an
+write or read), `host_failed`, its cost unknown (0 for a jobs directory it could not make: nothing ran), though a halt
+the rollout met before it stays its verdict; a verifier whose tools never arrived or that the host's full disk
+stopped before its tests wrote a report (with one, the words are a test's output), whatever it then wrote or raised and whether the agent had finished, run out of its time or exited with an
 error (Harbor verifies all three), `verifier_failed`; a trial whose environment or agent setup failed before its
 agent started, which costs 0; a session that never started or whose tools never came up; for a CLI of the table
 and the answer agent, a task Harbor runs for none of them, one that declares MCP servers or a skills folder or targets a
@@ -457,8 +462,8 @@ the configuration, is not the agent's result. An infra rollout is `unscored`: th
 `hermit eval`'s leave it out and count it (an Evolver that averages the records itself sees a 0 with status `infra`),
 and `hermit eval` runs it again with `eval.infra_retries` (an `unsupported_task` aside). The judge scores the reward
 whenever the verifier gave one, a `timeout` or an `agent_error` included (Harbor's own job mean does), and says the
-trial passed at `pass_reward`; a `timeout` or an `agent_error` whose verifier then failed scores 0, Harbor keeping the
-agent's exception as the trial's. The log is a curated copy of the trial (`result.json`, the CLI's stream and the files
+trial passed at `pass_reward`; a `timeout` or an `agent_error` whose verifier then left no reward scores 0, Harbor
+keeping the agent's exception as the trial's. The log is a curated copy of the trial (`result.json`, the CLI's stream and the files
 it brought out, the hook audit, the tools' calls, the adapter's notes, the verifier's output and reward; never the CLI's
 home, a sign-in or the agent's session transcripts). A lost sign-in, or an API account's usage limit, writes
 `<jobs_dir>/HALT` (its first line the cause, as the trial's record names it): every rollout on that jobs directory, of
@@ -511,14 +516,17 @@ relative one in the benchmark file's folder, but never the `tasks` link below no
 is downloaded or reused) and, beside the file, `tasks`, a link to them (it names a path of this machine:
 the repository's `.gitignore` ignores it in an example's `utils/`; anything but a link there, as a directory of its own,
 is refused before anything is downloaded or reused), `tasks.jsonl`, the splits (task counts, or `in_sample`), smoke
-rows, a patch of the download and, with `image_sizes: true`, the images' sizes, checked against the
+rows, a patch of the download and, with `image_sizes: true`, the images' sizes (an image whose size cannot be read
+anew keeps the one written before), all made before any is written (a split asking for more tasks than there are, or
+of a fraction, a smoke task named twice, leave every file as it was), checked against the
 lock beside the file (which holds no absolute path, a `registry_path` of this machine named by its file name, and is
 rewritten only when its tasks or their source change, the source, its ref and registry options, another one's a
 mismatch; one that cannot be read, JSON that is no lock included, is a mismatch, refused unless `--force`;
 hermit/harbor/dataset.py has the block's keys). A benchmark of your own is written as task directories by your
 `utils/prepare.py` (the judge goes into `tests/`, uploaded after the agent ran, so the answer is never where the agent
 can read it; see `examples/officeqa/utils/harbor/build_tasks.py`). `dataset lock` records the sha256 of every task
-directory (its files' paths, bytes and executable bits, not their modes) and `dataset check` compares; `dataset splits`
+directory (its files' paths, bytes and executable bits, not their modes, and a link to a folder by where it points)
+and `dataset check` compares; `dataset splits`
 writes deterministic train/val/test lists by task. The task set is checked without a model by running it with the
 scripted agent
 (`acting_agent: {import_path: harborside.scripted:ScriptedAgent, kwargs: {script: "echo 42 > /app/answer.txt"}}`): a
@@ -530,7 +538,7 @@ resumed `hermit train` meets the streams it left while their drivers wait for a 
 a driver already ran is not run again while it waits for the next (`infra`, `stream_order`), while one run again after
 the stream's last step starts a new environment in the same stream directory, over the first run's step logs (its trial
 directory and replies set aside in `earlier/<n>/`: a step that leaves no output of its own reads none of the first
-run's): so a train split with such steps trains one epoch (`hermit train` refuses more), and a validation step
+run's, nor the tool calls it left, its own read only once its turn came): so a train split with such steps trains one epoch (`hermit train` refuses more), and a validation step
 `run_agent` runs a second time in a run ends `infra` unless its stream had finished; a step whose turn cannot come ends
 `infra` (`stream_order`) at once, not after `stream.turn_wait_s`, and starts no driver: its driver waits for a step no
 rollout is running (one that ended before it reached the driver, as its staging, its tools or its launch plan failed on

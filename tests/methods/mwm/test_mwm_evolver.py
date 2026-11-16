@@ -303,3 +303,22 @@ def test_deployment_parameter_and_a_shell_only_channel(tmp_path, monkeypatch):
     assert (run / "checkout" / "ADAPTER.md").read_text().strip()        # rendered with the venue's host.json
     seen = json.loads((run / "checkout" / "meta" / "seen.json").read_text())
     assert seen["gate_tools"] == ["echo"] and seen["echo"] == {"result": {"text": "hi"}}
+
+
+def test_a_blocks_records_are_found_under_the_names_the_learning_material_gives_them():
+    """The learning material names a task's record by hermit.isolate._safe (a run of other characters as one `_`, at
+    most 60 of them): an id with such a run, or a longer one, is still found (it read as {"id": ...} alone before)."""
+    import tempfile
+    from types import SimpleNamespace
+    from hermit.agent.evolver.methods.mwm.evolver import MwmEvolver
+    from hermit.isolate import _safe
+    ids = ["tb2/a  b#1", "x" * 70 + "#2"]
+    with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR")) as tmp:
+        step = Path(tmp) / "step_0001"
+        (step / "tasks").mkdir(parents=True)
+        (step / "summary.json").write_text(json.dumps({"step": 1, "tasks": ids}))
+        for i in ids:
+            (step / "tasks" / f"{_safe(i)}.json").write_text(json.dumps({"id": i, "score": 1.0}))
+        ctx = SimpleNamespace(workspace=SimpleNamespace(learning_material=Path(tmp)), progress=SimpleNamespace(step=1))
+        records, tick = MwmEvolver._block_records(MwmEvolver.__new__(MwmEvolver), ctx)
+    assert [r.get("score") for r in records] == [1.0, 1.0] and tick == 2
