@@ -44,7 +44,7 @@ import uuid
 
 from hermit.agent.base import login as codex_login
 from hermit.agent.base.cli import CLIS
-from hermit.agent.base.endpoint import cli_endpoint, endpoint_spec
+from hermit.agent.base.endpoint import cli_endpoint, cli_identity, endpoint_spec
 from hermit.redact import redact_name, redact_tree
 from hermit.sandbox import (LIMITS, NETWORK_MODES, PACKAGE, AllowlistProxy, Bind, Sandbox, framework_env,
                             gpu_list, hidden_paths, model_access, network_mode, owner_readable, package_closure,
@@ -348,6 +348,7 @@ def check_declared(config) -> None:
     d = config.data
     hard, runs = _secrets(config)
     tests = [config.path(t) for t in d["judge"].get("tests") or []]
+    harbor = _harbor_dirs(config)
     declared = [(f"environment.{key}", v) for key in ("read", "write") for v in d["environment"].get(key) or []]
     # What the learner reads is declared the same way (its sandbox shows these under /w/environment/<name>), and so
     # is the task description it is shown at /w/task-info.
@@ -359,7 +360,8 @@ def check_declared(config) -> None:
             continue                                 # an unset variable: refused when the sandbox is built
         for secret in hard:
             if _overlaps(path, secret):
-                what = "a judge test" if secret in tests else "the data, the judge, this run or the tree"
+                what = "a judge test" if secret in tests else "a Harbor task set's tasks or jobs directory" \
+                    if secret in harbor else "the data, the judge, this run or the tree"
                 raise ValueError(f"{key} {value!r} overlaps {secret} ({what}): it would be seen; move the "
                                  "secret out of that path or declare a narrower one")
         # The runs directory holds every run's records: a declared path may lie inside it (a launcher's task
@@ -830,6 +832,7 @@ def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path |
                 if harbor:                                   # the CLI each request is a session of (its startup check),
                     model = params["model"]                  # and the login whose plan those sessions wait for
                     params["model_cli"] = str(model["cli"])
+                    params["model_cli_identity"] = cli_identity(endpoint)    # its settings and binary: a trial's key
                     params.update({f"model_{k}": model[k] for k in ("login", "plan_dir", "usage_credits")
                                    if model.get(k) is not None})
                 params["model"] = endpoint_spec(endpoint, params["model"])

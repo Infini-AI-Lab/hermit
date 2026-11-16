@@ -140,7 +140,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   as Harbor grades it: a verifier that left no reward Harbor could read or ran out of its time (`verifier_timeout:
   agent`, the default; `infra` where the host's load makes verifiers time out), and a request of one of Harbor's own
   agents that the provider refused for what it held (`BadRequestError`, `UnprocessableEntityError`), score 0 without a
-  reward, unless the verifier's output shows its tools never arrived or the host's disk full; a provider that could not
+  reward, unless the verifier's output shows its tools never arrived or the host's disk full (infra, whether the agent
+  had finished, run out of its time or exited with an error); a provider that could not
   serve, or refused the run's configuration, stays infra, which Harbor grades. A trial that is not the agent's result
   (infra: the host, the provider, a session that never started, one whose Claude Code, Pi or OpenCode session or answer
   request the provider refused before serving it for the run's configuration, its key, its permission, its model, its
@@ -162,8 +163,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   trial that timed out is the agent's result, even after a provider notice its session recovered from, the answer
   agent's with its model request still in flight too, and so is one whose first request the provider refused for what
   its input made it (a prompt too long, an invalid request, a content filter). Codex's authentication failure (a 401, an
-  invalid key, not logged in, no Codex credentials found, the ChatGPT workspace routing's 401, a refused proxy token, or
-  a 403 its turn failed with; never one in a notice of an error Codex recovers from and goes on, that it is reconnecting
+  invalid key, not logged in, no Codex credentials found, the ChatGPT workspace routing's 401, a refused proxy token, a
+  refresh of the ChatGPT sign-in the provider refused, or a 403 its turn failed with; only since the session last
+  worked; never one in a notice of an error Codex recovers from and goes on, that it is reconnecting
   or falling back from WebSockets to HTTPS, nor in what Codex's log quotes of the session's work, the model's own text:
   its records of the session's tool calls, as of a rejected command or a patch whose expected lines it did not find, and
   every record's further lines; its wordings matched as Codex writes them, case and all) is a lost sign-in, which halts
@@ -182,46 +184,48 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   tools (off where the task's agent network is not public) unless `web_search: false` turns them off on every task. The
   benchmark file's sign-in (`login`, `login_root`, `claude_bin`, each the config does not give) is checked at startup as
   the config's is. With `trial_cache` a trial's key holds the whole row, the task directory's contents, the model with
-  its price (the answer agent's with its relay's timeout and retries; a model a CLI reaches by its CLI and login, never
-  by the URL of the endpoint a run serves it on), the adapter's files as a deployment copies them (bytes and whether
-  each is executable, not the bits a umask sets; a link as the file it leads to, one a deployment refuses by its own
-  text; not its card, which `hermit eval --adapter final` writes into and no deployment copies: that adapter tested
-  again meets its trials) and `context_query`, a cache hit spends nothing (its first cost is kept as provenance), each
-  of `hermit eval`'s repeats is a trial of its own, and so is each epoch of a training run, whose trials are its own
-  (only the run, resumed, takes them; never another run of the same config, nor one started over), a run an Evolver's
-  `run_agent` asks for and each run of a task a split names twice are new runs, neither taken from the cache nor kept,
-  and `hermit check`'s probe neither takes a trial from the cache nor keeps one. A multi-step task (one environment
-  through many steps, each with its instruction and verifier) is a stream: a driver keeps the environment between the
-  Trainer's steps so a learner acts between them (`data.shuffle` moves the task's rows as one, in step order, a split
-  whose order is kept (the train split with `data.shuffle: false`, the test split `hermit eval` runs, the validation
-  split) that lists a step ahead of an earlier one of its stream, and any split that lists a step but not every earlier
-  one, is refused before any run that takes it, and `hermit check` reports one the config's own runs take (its training
-  splits and its test split), a train split with such steps trains one epoch (`hermit train` refuses more: a task's
-  stream is the run's, so a second epoch would run a stream listed whole again over the first epoch's step logs, and
-  find the turns of one listed in part taken), an Evolver's `next_tasks` naming a step whose earlier one of its stream
-  has neither run in the epoch nor come earlier in the request (one the training split leaves out never runs) is
-  refused, and `run_agent` runs none of its training rows, so Harness² fails such a step before any editor session runs;
-  a step's verifier read as a trial's, with the timeout multipliers; each of `hermit eval`'s repeats a stream of its
-  own, and each run's streams its own: a resume of a training run's directory meets them again while their drivers wait
-  for a next step (`stream.idle_s`), a run started over gets new ones, a training run stops those it left unfinished
-  once it has finished (a finished run is not resumed), and every other run stops them when it ends, fails or is stopped
-  with Ctrl-C; a process killed by a signal leaves them up for `stream.idle_s`), and `harbor run` evaluates the whole
-  stream with a frozen adapter. `python -m hermit.harbor.dataset prepare` makes an example's data from its benchmark
-  file's `dataset:` block (the registry's tasks of the block's source, its ref with `repo`, `registry_url` and
-  `registry_path`, which the lock (a `registry_path` of this machine by its file name) and the download record, with the
-  patch (its hook and its file's digest), a download of another source or patch never reused (refused before the patch
-  runs on it) and the default data directory the source's and the patch's own (an unpatched set's name as before; a
-  changed patch's set downloaded anew), downloaded into `.<name>.partial` in the data directory when it exists, else
-  `<data>.partial` beside it (a second prepare downloading there meanwhile refused on a filesystem that keeps file
-  locks), patched there and moved into place when complete, never over a file where the data directory goes nor a
-  `<name>` in it that holds none of the set's tasks, nor into the `tasks` link it writes or a path in it, nor with
-  anything but a link in that link's place (a directory of its own), each refused before the download (the last two
-  before a reuse too), a relative `data:` being the benchmark file's folder's; rows, splits, smoke rows, a patch, a lock
-  with no absolute path, rewritten only when its tasks or their source change, and one that cannot be read, JSON that is
-  no lock included, refused unless `--force`; the root `.gitignore` ignores the link, `examples/*/utils/tasks`); the
-  module also downloads a dataset, indexes task directories into `tasks.jsonl` rows (per task, per rollout, per step),
-  writes splits and a content lock (hashing a file's executable bit, not its mode). The half that runs in Harbor's
-  process (`hermit/harbor/harborside/`: the HermitXXX agents, a scripted agent for smoke tests, the stream driver) runs
+  its price (the answer agent's with its relay's timeout and retries; a model a CLI reaches by its CLI, its login and
+  its settings and binary, never by the URL of the endpoint a run serves it on), the adapter's files as a deployment
+  copies them (bytes and whether each is executable, not the bits a umask sets; a link as the file it leads to, one a
+  deployment refuses by its own text; not its card, which `hermit eval --adapter final` writes into and no deployment
+  copies: that adapter tested again meets its trials), `context_query`, Harbor's `retry` and the adapter sandbox's
+  `sandbox_enforce` and `tools_host`, a cache hit spends nothing (its first cost is kept as provenance), each of
+  `hermit eval`'s repeats is a trial of its own (its rows name it, `repeat`, which no record's `input` keeps), and so is
+  each epoch of a training run, whose trials are its own (only the run, resumed, takes them; never another run of the
+  same config, nor one started over), a run an Evolver's `run_agent` asks for and each run of a task a split names twice
+  are new runs, neither taken from the cache nor kept, and `hermit check`'s probe neither takes a trial from the cache
+  nor keeps one. A multi-step task (one environment through many steps, each with its instruction and verifier) is a
+  stream: a driver keeps the environment between the Trainer's steps so a learner acts between them (`data.shuffle`
+  moves the task's rows as one, in step order, a split whose order is kept (the train split with `data.shuffle: false`,
+  the test split `hermit eval` runs, the validation split) that lists a step ahead of an earlier one of its stream, and
+  any split that lists a step but not every earlier one, is refused before any run that takes it, and `hermit check`
+  reports one the config's own runs take (its training splits and its test split), a train split with such steps trains
+  one epoch (`hermit train` refuses more: a task's stream is the run's, so a second epoch would run a stream listed
+  whole again over the first epoch's step logs, and find the turns of one listed in part taken), an Evolver's
+  `next_tasks` naming a step whose earlier one of its stream has neither run in the epoch nor come earlier in the
+  request (one the training split leaves out never runs) is refused, and `run_agent` runs none of its training rows, so
+  Harness² fails such a step before any editor session runs; a step's verifier read as a trial's, with the timeout
+  multipliers; each of `hermit eval`'s repeats a stream of its own, and each run's streams its own: a resume of a
+  training run's directory meets them again while their drivers wait for a next step (`stream.idle_s`), a run started
+  over gets new ones, a training run stops those it left unfinished once it has finished (a finished run is not
+  resumed), and every other run stops them when it ends, fails or is stopped with Ctrl-C; a process killed by a signal
+  leaves them up for `stream.idle_s`), and `harbor run` evaluates the whole stream with a frozen adapter.
+  `python -m hermit.harbor.dataset prepare` makes an example's data from its benchmark file's `dataset:` block (the
+  registry's tasks of the block's source, its ref with `repo`, `registry_url` and `registry_path`, which the lock (a
+  `registry_path` of this machine by its file name) and the download record, with the patch (its hook and its file's
+  digest), a download of another source or patch never reused (refused before the patch runs on it) and the default data
+  directory the source's and the patch's own (an unpatched set's name as before; a changed patch's set downloaded anew),
+  downloaded into `.<name>.partial` in the data directory when it exists, else `<data>.partial` beside it (a second
+  prepare downloading there meanwhile refused on a filesystem that keeps file locks), patched there and moved into place
+  when complete, never over a file where the data directory goes nor a `<name>` in it that holds none of the set's
+  tasks, nor into the `tasks` link it writes or a path in it, nor with anything but a link in that link's place (a
+  directory of its own), each refused before the download (the last two before a reuse too), a relative `data:` being
+  the benchmark file's folder's; rows, splits, smoke rows, a patch, a lock with no absolute path, rewritten only when
+  its tasks or their source change, and one that cannot be read, JSON that is no lock included, refused unless
+  `--force`; the root `.gitignore` ignores the link, `examples/*/utils/tasks`); the module also downloads a dataset,
+  indexes task directories into `tasks.jsonl` rows (per task, per rollout, per step), writes splits and a content lock
+  (hashing a file's executable bit, not its mode). The half that runs in Harbor's process (`hermit/harbor/harborside/`:
+  the HermitXXX agents, a scripted agent for smoke tests, the stream driver) runs
   under Harbor's own venv (the driver under the interpreter beside `harbor`, or beside the file a link to it names). A
   Harbor task set's pipeline runs on the host, the task's container being its sandbox: `agent.params.harbor` is a
   command on PATH or a path (a relative one the working directory's), and a `harbor run` past its wait budget is killed
@@ -361,7 +365,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   readers set it, and so does a Harbor answer agent's model endpoint for a call it gave up before its reply): a usage
   that has any keeps an unknown cost, not the price of the tokens reported.
 - A Codex session whose sign-in or key the provider refused (a 401, an invalid key, not logged in, no Codex credentials
-  found, the ChatGPT workspace routing's 401, a refused proxy token, or a 403 its turn failed with; never one in a
+  found, the ChatGPT workspace routing's 401, a refused proxy token, a refresh of the ChatGPT sign-in the provider
+  refused, or a 403 its turn failed with; only since the session last worked; never one in a
   notice of an error Codex recovers from and goes on: that it is reconnecting, `Reconnecting...`, or falling back from
   WebSockets to HTTPS; nor in what Codex's log quotes of the session's work, the model's own text: its records of the
   session's tool calls, as of a rejected command or a patch whose expected lines it did not find, and every record's
@@ -388,10 +393,6 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - The `run_agent` tool runs training or validation rows only, and never a training row that is a step of a multi-step
   Harbor task (it runs only in the Trainer's own stream of its task); an id it does not run comes back as a result with
   status `error`, the reason in `error` and a judge score of 0: before, the whole call raised.
-- With `eval.repeats` above 1, `hermit eval` hands every pipeline, and so its judge, copies of the test rows that name
-  their repeat (`repeat`), where it handed the rows themselves: a Harbor task set's trial cache runs each repeat anew,
-  and a pipeline that records the whole row records another row in each repeat (AgentDyn's `case_sha256` provenance
-  differs by repeat).
 - With `trainer.epochs` above 1, a pipeline that keeps its trials by row (a Harbor task set with `trial_cache` on, in
   the config or its benchmark file) is handed copies of each epoch's rows that name the epoch (`epoch`), and the rows
   `run_agent` runs, and those of a task the epoch's order names more than once, ask for a new run (`fresh`): its trial
@@ -548,6 +549,21 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   and billed, as the earlier run's. A driver that answers no stop within 15 minutes (hung in a step) is killed with its
   process group and its trial's compose projects taken down, and an OSError on this machine while a step's launch plan
   is written is infra (`staging_failed`), not the agent's 0.
+- A Harbor trial whose agent ran out of its time or exited with an error, and whose verifier's tools then never arrived
+  (a 5xx of GitHub's release download) or met the host's full disk, is infra and run again, as one whose agent finished
+  is: before, it was the agent's 0 and stayed in the trial cache. A ChatGPT sign-in whose refresh the provider refused
+  (Codex's `Your access token could not be refreshed ...`, most often a refresh token already used by another session's
+  refresh of the same copy) is a lost sign-in, which halts the run; before, the trial was the agent's 0. A model a CLI
+  reaches names its trials by the CLI's settings and binary too (another effort, `bin` or version met the first one's
+  trials), and Harbor's `retry`, `sandbox_enforce` and `tools_host` name a trial too. An OSError on this machine past
+  the guarded steps (no process left to start `harbor`, a file it cannot write) is infra (`host_failed`), not the
+  agent's error scored 0; a trial cache or HALT file this machine cannot write leaves the trial as it ended. A trial
+  whose environment never started costs 0, not an unknown cost; `run_agent`'s rows of a multi-step task run in step
+  order whatever order the call lists them in; a step whose stream aborted before its turn is never asked for (it costs
+  0); a stream step run again sets an earlier run's tool-call log aside; a killed driver leaves no socket; and a failed
+  `hermit eval` leaves no earlier summary beside its emptied results. Only a Harbor task set's rows name their repeat
+  (`repeat`), and a record keeps a row's own `epoch` or `fresh` field: every other pipeline gets its rows and records as
+  on `main`.
 
 ## 0.2.0 - 2026-11-04
 

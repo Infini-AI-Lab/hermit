@@ -53,7 +53,7 @@ from hermit.tools import FunctionTool, ToolServer, assemble, evolver_agent
 from hermit.trainer import card
 from hermit.trainer.budget import Budget, BudgetExceeded
 from hermit.trainer.material import Material
-from hermit.trainer.rollout import EPOCH, FRESH, mean_score, reports_halt, run_tasks, scored
+from hermit.trainer.rollout import EPOCH, FRESH, TRIAL_KEYS, mean_score, reports_halt, run_tasks, scored
 from hermit.tree import INVALID_MARK, ROOT_TAG, Tree
 
 
@@ -712,7 +712,7 @@ class Trainer:
                 try:
                     results = run_tasks(tasks, snapshot, self.pipeline, self.judge,
                                         concurrency=int(self.config["agent"]["concurrency"]), budget=self.budget,
-                                        part="evolver")
+                                        part="evolver", added=tuple(mark))
                 finally:
                     shutil.rmtree(snapshot, ignore_errors=True)
                 self._raise_halt(results, "run_agent")
@@ -846,7 +846,8 @@ class Trainer:
         # 1–2. rollouts with the current adapter (exported fresh from the commit).
         rollout_adapter = self.tree.export(parent, self.run_dir / "rollout_adapter")
         results = run_tasks(self._rollout_rows(progress.epoch, chunk), rollout_adapter, self.pipeline, self.judge,
-                            concurrency=int(d["agent"]["concurrency"]), budget=self.budget)
+                            concurrency=int(d["agent"]["concurrency"]), budget=self.budget,
+                            added=TRIAL_KEYS if keeps_trials(self.config) else ())
         self._raise_halt(results, f"step {n}")             # before the material and the learner: nothing kept
         rollout_s = time.time() - t0
         changed_since_last = self._last_rollout_commit is not None and parent != self._last_rollout_commit

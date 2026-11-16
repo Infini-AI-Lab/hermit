@@ -72,6 +72,8 @@ INFRA_CAUSES = {"sandbox_failed", "model_provider_failed", "verifier_failed", "h
                 "harbor_timeout", "halted", "disk", "stream_lost", "stream_order", "launch_failed",
                 # read from the session's stream by the runner (runner.session_verdict), or met before the trial
                 "session_failed", "tools_failed", "login_failed", "usage_limit", "model_rejected", "staging_failed",
+                # this machine's own failure past the guarded steps (runner.HarborAgent.run): a file, a process
+                "host_failed",
                 # a task Harbor runs for none of Hermit's agents (runner.unsupported): never started
                 "unsupported_task"}
 # What Harbor grades as the agent's result although its cause is one of INFRA_CAUSES (its policy's retry=False,

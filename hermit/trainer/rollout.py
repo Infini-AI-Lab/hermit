@@ -22,11 +22,14 @@ from hermit.trainer.budget import Budget, BudgetExceeded
 
 # What the Trainer adds to the rows it hands a pipeline that keeps its trials by row (hermit.isolate.keeps_trials: a
 # Harbor task set's trial cache), so that each run is a trial of its own: the epoch a rollout is of (with
-# trainer.epochs above 1), and a request for a new run (run_agent's rows, a task an epoch's order names twice). They
-# are that pipeline's alone: a record's `input` never keeps them (run_one), so the learning material, the records and a
-# learner's text of a task are the same in every epoch.
-EPOCH, FRESH = "epoch", "fresh"
+# trainer.epochs above 1), and a request for a new run (run_agent's rows, a task an epoch's order names twice); and
+# what hermit eval adds to a Harbor task set's rows with eval.repeats above 1, the repeat (a trial, a stream of its
+# own). They are that pipeline's alone: a record's `input` never keeps the ones its caller added (run_one's `added`),
+# so the learning material, the records and a learner's text of a task are the same in every epoch; a row's own field
+# of one of those names, which no other pipeline is handed in its place, stays.
+EPOCH, FRESH, REPEAT = "epoch", "fresh", "repeat"
 TRIAL_KEYS = (EPOCH, FRESH)
+ROW_KEYS = (*TRIAL_KEYS, REPEAT)
 
 
 def scored(records: list[dict]) -> list[dict]:
@@ -48,11 +51,11 @@ def reports_halt(record: dict) -> bool:
     return bool(extra.get("halt")) or "halted" in (extra.get("failure_cause"), record.get("error"))
 
 
-def run_one(task: dict, adapter: Path | None, pipeline, judge) -> dict:
-    """One task's run and verdict: its record, whose `input` is the row without the keys the Trainer adds for a
-    pipeline that keeps its trials by row (TRIAL_KEYS)."""
+def run_one(task: dict, adapter: Path | None, pipeline, judge, added: tuple = ()) -> dict:
+    """One task's run and verdict: its record, whose `input` is the row without the keys its caller added to it for
+    the pipeline (`added`, of ROW_KEYS)."""
     started = time.time()
-    given = {k: v for k, v in task.items() if k not in TRIAL_KEYS}
+    given = {k: v for k, v in task.items() if k not in added}
     try:
         out = pipeline(dict(task), adapter)
         if not isinstance(out, RunOutput):
@@ -94,9 +97,27 @@ def run_one(task: dict, adapter: Path | None, pipeline, judge) -> dict:
             "messages": out.messages, "pipeline_extra": out.extra}
 
 
+def in_step_order(tasks: list[dict]) -> list[dict]:
+    """The tasks, each multi-step task's steps (a Harbor task set's step rows, `step_index`) in step order in the
+    places its steps had, every other task where it was: a step waits for the steps of its stream before it
+    (hermit.harbor.runner), so one submitted before an earlier step of its stream, with fewer workers than the
+    steps between them, would wait for a step queued behind it, whose turn then never came."""
+    places: dict[tuple, list[int]] = {}
+    for i, task in enumerate(tasks):
+        if task.get("harbor_task") and task.get("step_index") is not None:
+            places.setdefault((task["harbor_task"], task.get("rollout", 1), task.get(REPEAT)), []).append(i)
+    out = list(tasks)
+    for where in places.values():
+        for i, task in zip(where, sorted((tasks[i] for i in where), key=lambda t: int(t["step_index"]))):
+            out[i] = task
+    return out
+
+
 def run_tasks(tasks: list[dict], adapter: Path | None, pipeline, judge, *, concurrency: int,
-              budget: Budget | None = None, part: str = "rollout") -> list[dict]:
-    """All tasks, in the given order. Raises BudgetExceeded (after in-flight tasks end) when a hard budget is hit."""
+              budget: Budget | None = None, part: str = "rollout", added: tuple = ()) -> list[dict]:
+    """All tasks, in the given order (submitted in it, each multi-step task's steps in step order: in_step_order),
+    each record's `input` without the keys `added` names (run_one). Raises BudgetExceeded (after in-flight tasks end)
+    when a hard budget is hit."""
     results: dict[str, dict] = {}
     stop = threading.Event()
 
@@ -104,7 +125,7 @@ def run_tasks(tasks: list[dict], adapter: Path | None, pipeline, judge, *, concu
         if stop.is_set():
             return None
         try:
-            record = run_one(task, adapter, pipeline, judge)
+            record = run_one(task, adapter, pipeline, judge, added)
         except LoginFailed:
             stop.set()                                   # the tasks waiting would fail the same way
             raise
@@ -118,7 +139,7 @@ def run_tasks(tasks: list[dict], adapter: Path | None, pipeline, judge, *, concu
         return record
 
     with ThreadPoolExecutor(max_workers=max(1, int(concurrency))) as pool:
-        futures = [pool.submit(work, t) for t in tasks]
+        futures = [pool.submit(work, t) for t in in_step_order(tasks)]
         for future in as_completed(futures):
             record = future.result()
             if record is not None:

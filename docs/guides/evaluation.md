@@ -41,9 +41,10 @@ Results are written under `<output_dir>/<run_name>/eval/<selector>/`. Re-evaluat
 `results.jsonl` and `summary.json`; archive records or use separate output directories when preserving comparisons.
 A config for `hermit eval` alone (no `data.train`) needs none of the training keys, but an adapter of a run's tree
 (`final`, `root`, a tag or a commit) needs `template` or `trainer.tree_dir`, and the tree a `hermit train` made: without
-one, `eval` refuses it before anything runs. With `eval.repeats` above 1, each repeat hands the pipeline, and so the
-judge, copies of the test rows that name it (`repeat`): with a Harbor task set's `trial_cache` each repeat is a trial of
-its own, and each repeat of a multi-step task, in each run of `hermit eval` (one into the same output included), a
+one, `eval` refuses it before anything runs. With `eval.repeats` above 1, each repeat hands a Harbor task set's
+pipeline, and so the judge, copies of the test rows that name it (`repeat`, which no record's `input` keeps; any other
+pipeline gets the rows as they are): with its `trial_cache` each repeat is a trial of its own, and each repeat of a
+multi-step task, in each run of `hermit eval` (one into the same output included), a
 stream of its own, stopped when the eval ends, fails or is stopped with Ctrl-C (a process killed by a signal leaves it
 up for `stream.idle_s`) ([Streams](../framework/task.md#benchmarks)).
 
@@ -51,7 +52,7 @@ up for `stream.idle_s`) ([Streams](../framework/task.md#benchmarks)).
 |---|---|
 | `tasks`, `repeats` | Test rows and attempts per row (`eval.repeats`): a Harbor task set indexed with k rollouts (`dataset index --rollouts k`, or `rollouts: k` in a benchmark file's `dataset:` block) has k rows per task, `<task>#1..k`, each counted |
 | `mean_score` | Arithmetic mean across the scored attempts (null when none was scored) |
-| `solved_once` | Fraction of the test rows with a scored attempt that have at least one attempt scoring **at least 1.0** |
+| `solved_once` | Fraction of the test tasks with a scored attempt (each id once: a row a split names twice counts once) that have at least one attempt scoring **at least 1.0** |
 | `scored`, `unscored` | Attempts with a verdict, and those that were not the agent's result (status `infra`: the host, the provider), left out of the summary's means and shares |
 | `errors` | Pipeline or judge failures, recorded with score zero |
 | `infra_rerun` | With `eval.infra_retries`: the attempts run again because they ended `infra` |

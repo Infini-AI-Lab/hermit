@@ -496,6 +496,27 @@ def test_codex_0164s_own_words_for_no_sign_in_and_for_a_refused_one_are_a_lost_s
     assert (said["login_failed"], said["unavailable"]) == (True, False)
 
 
+def test_codexs_refused_refresh_of_a_sign_in_is_a_lost_sign_in_and_a_refusal_the_session_worked_after_is_none():
+    """Codex 0.164 says in its own words that the provider refused its refresh of a ChatGPT sign-in: the refresh token
+    already used (most often by another session that refreshed the same copy first), expired, revoked, or for no reason
+    it names. A session that ended on one has lost its sign-in (the run stops), not the agent's failure. A refusal
+    Codex met on a side request and worked after is none: a session then cut off ran out of its own time."""
+    from hermit.agent.base.cli import Codex
+    codex = Codex({})
+    start = '{"type":"thread.started","thread_id":"t"}\n{"type":"turn.started"}\n'
+    for why in (" because your refresh token was already used", " because your refresh token has expired",
+                " because your refresh token was revoked", ""):
+        said = f"Your access token could not be refreshed{why}. Please log out and sign in again."
+        failed = json.dumps({"type": "error", "message": said}) + "\n" + \
+            json.dumps({"type": "turn.failed", "error": {"message": said}}) + "\n"
+        out = codex.outcome(start + failed, None, None)
+        assert (out["login_failed"], out["unavailable"], out["served"]) == (True, False, False), why
+    side = json.dumps({"type": "error", "message": "unexpected status 401 Unauthorized: a plugin listing"}) + "\n"
+    working = '{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"working"}}\n'
+    assert codex.outcome(start + side + working, None, None)["login_failed"] is False     # cut off once it worked
+    assert codex.outcome(start + side, None, None)["login_failed"] is True                # nothing after the refusal
+
+
 def test_what_codexs_log_quotes_of_the_sessions_tool_calls_is_the_sessions_work_never_a_lost_sign_in_limit_or_outage():
     """Codex logs a tool call that failed on its stderr, which the stream holds: a command it refused, with the
     command's text, and a patch whose lines it did not find, with those lines after the record, one per line. That is

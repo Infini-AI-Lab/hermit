@@ -1086,14 +1086,19 @@ class CliAgent(BaseAgent):
 
 
 # Codex's report of a sign-in or a key the provider refused, which no wait restores (the wording of Harbor's
-# AgentAuthenticationError, harbor/agents/installed/base.py ERROR_PATTERNS, and Codex 0.164's own for no sign-in at all
-# and for the ChatGPT workspace routing a login's requests go through refusing it), matched as Codex writes it: another
-# program's lowercase "not logged in" on Codex's stderr is not the session's sign-in; never in a recovery notice
-# (CODEX_RECOVERY), which Codex goes on from (one that lasts ends in the turn's failure or a last error, which count)
+# AgentAuthenticationError, harbor/agents/installed/base.py ERROR_PATTERNS, and Codex 0.164's own for no sign-in at all,
+# for the ChatGPT workspace routing a login's requests go through refusing it, and for a refresh of the ChatGPT sign-in
+# the provider refused: "Your access token could not be refreshed[ because your refresh token was already used / has
+# expired / was revoked]. Please log out and sign in again."; already used, most often, because another session
+# refreshed the same copy first), matched as Codex writes it: another program's lowercase "not logged in" on Codex's
+# stderr is not the session's sign-in; never in a recovery notice (CODEX_RECOVERY), which Codex goes on from (one that
+# lasts ends in the turn's failure or a last error, which count); and only since the session last worked (Codex.outcome:
+# a side request's 401 the session worked after is no lost sign-in)
 CODEX_AUTH = re.compile(r"Not logged in|\binvalid_api_key\b|Invalid API key\b|API key is invalid\b|"
                         r"Incorrect API key provided\b|unexpected status 401 Unauthorized\b|"
                         r"Invalid proxy server token passed|\btoken_not_found_in_db\b|"
-                        r"\bno Codex credentials were found\b|workspace routing discovery unauthorized \(401\)")
+                        r"\bno Codex credentials were found\b|workspace routing discovery unauthorized \(401\)|"
+                        r"Your access token could not be refreshed\b")
 # ... and a 403, only in the error a turn failed with (`turn.failed`, as Harbor's pattern takes it): Codex's reconnect
 # notices of a 403 ("Reconnecting... unexpected status 403") are common, and recovered from
 CODEX_FORBIDDEN = re.compile(r"unexpected status 403\b")
@@ -1250,27 +1255,29 @@ class Codex(CliAgent):
         notes, done = self.notices(raw), self.served(raw)
         # the CLI's notices in the stream's order, none it recovered from; the errors its turn failed with; whether any
         # event came (a session began); and since the session last worked, its errors and lines that are no warning,
-        # and whether Codex retried
-        lasting, failed, began, since, retried = [], [], False, [], False
+        # its notices warnings included (`recent`), and whether Codex retried
+        lasting, failed, began, since, recent, retried = [], [], False, [], [], False
         for event, line in self.lines(raw):
             if event is None:                           # a line of its own (its stderr)
                 lasting.append(line)
                 since.append(line)
+                recent.append(line)
                 continue
             began = True
             item = event.get("item") if isinstance(event.get("item"), dict) else None
             warning = item is not None and item.get("type") == "error"
             if event.get("type") == "turn.completed" or (item is not None and not warning):
-                since, retried = [], False              # the session worked: it went on from what came before
+                since, recent, retried = [], [], False   # the session worked: it went on from what came before
             said = [m for m in self.errors(event) if m.strip()]
             if event.get("type") == "turn.failed":
                 failed += said
             retried = retried or any(CODEX_RETRY.match(m) for m in said)
             kept = [m for m in said if not CODEX_RECOVERY.match(m)]
             lasting += kept
+            recent += kept
             since += [] if warning else kept
         last = failed[-1] if failed else "\n".join(since[-1:] if began else lasting)
-        lost = bool(CODEX_AUTH.search("\n".join(lasting)) or CODEX_FORBIDDEN.search("\n".join(failed)))
+        lost = bool(CODEX_AUTH.search("\n".join(recent + failed)) or CODEX_FORBIDDEN.search("\n".join(failed)))
         return {"reply": self.last_message(stream, last_file, raw=raw), "served": done,
                 "unavailable": bool(UNAVAILABLE.search(last)) or (retried and not lost),
                 "refused": codex_login.refused(notes) and not done, "login_failed": lost and not done,

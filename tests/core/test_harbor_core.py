@@ -21,6 +21,7 @@ streams stopped with the pipeline of a train that finished, kept by one closed b
 import json
 from pathlib import Path
 import re
+import shutil
 
 import pytest
 import yaml
@@ -407,21 +408,32 @@ def test_eval_runs_again_the_infra_run_of_a_row_whose_own_steps_field_makes_no_s
     assert attempts == {"t7": 2, "t8": 1} and result["unscored"] == 1 and result["infra_rerun"] == 1
 
 
-def test_each_repeat_hands_the_pipeline_rows_that_name_it_and_so_do_its_runs_again(tmp_path):
-    """A pipeline that keeps its trials by row (Harbor's trial cache) would hand every repeat repeat 1's trials: with
-    eval.repeats > 1 each repeat's rows, and its infra rows run again, name the repeat; one repeat's rows are as they
-    are."""
+def test_each_repeat_hands_a_harbor_task_sets_pipeline_rows_that_name_it_and_any_other_pipeline_its_rows(
+        tmp_path, monkeypatch):
+    """A Harbor task set's pipeline keeps its trials by row (its trial cache) and runs each row's multi-step task in a
+    stream of its own: it would hand every repeat repeat 1's trials and driver. With eval.repeats > 1 each repeat's
+    rows, and its infra rows run again, name the repeat for it (no record's `input` keeps it). Any other pipeline is
+    handed the rows as they are, as on main; and one repeat's rows are as they are."""
+    from hermit import evaluate as evaluate_module
     path = _task(tmp_path)
     (tmp_path / "pipeline.py").write_text(FLAKY.replace(
         "    seen = ", "    with open(Path(__file__).parent / 'seen.txt', 'a') as f:\n"
                       "        f.write(f\"{task['id']} {task.get('repeat')}\\n\")\n    seen = ", 1))
     _rows(tmp_path, t7={"flaky": 1})                  # repeat 1's run of t7 is infra, and runs again
-    result = evaluate(load(path, "eval.repeats=2", "eval.infra_retries=1", "eval.infra_wait_s=0"), "none", **QUIET)
-    seen = sorted((tmp_path / "seen.txt").read_text().splitlines())
-    assert seen == ["t7 1", "t7 1", "t7 2", "t8 1", "t8 2", "t9 1", "t9 2"] and result["unscored"] == 0
-    (tmp_path / "seen.txt").unlink()
+    args = ("eval.repeats=2", "eval.infra_retries=1", "eval.infra_wait_s=0")
+
+    def seen():
+        lines = sorted((tmp_path / "seen.txt").read_text().splitlines())
+        (tmp_path / "seen.txt").unlink()
+        shutil.rmtree(tmp_path / ".attempts")       # t7's first run of the next eval is infra again
+        return lines
+    result = evaluate(load(path, *args), "none", **QUIET)
+    assert seen() == ["t7 None"] * 3 + ["t8 None"] * 2 + ["t9 None"] * 2 and result["unscored"] == 0
+    monkeypatch.setattr(evaluate_module, "_harbor_rows", lambda config: True)
+    result = evaluate(load(path, *args), "none", **QUIET)
+    assert seen() == ["t7 1", "t7 1", "t7 2", "t8 1", "t8 2", "t9 1", "t9 2"] and result["unscored"] == 0
     evaluate(load(path), "none", **QUIET)
-    assert sorted((tmp_path / "seen.txt").read_text().splitlines()) == ["t7 None", "t8 None", "t9 None"]
+    assert seen() == ["t7 None", "t8 None", "t9 None"]
 
 
 @pytest.mark.parametrize("kept", [True, False], ids=["trial-cache", "no-trial-cache"])
@@ -488,12 +500,13 @@ def test_only_a_harbor_task_sets_pipeline_with_its_trial_cache_on_keeps_its_tria
         assert keeps_trials(config) is kept, (in_file, in_config)
 
 
-def test_a_records_input_is_its_row_without_the_keys_only_a_pipeline_keeping_its_trials_reads():
+def test_a_records_input_is_its_row_without_the_keys_its_caller_added_for_a_pipeline_keeping_its_trials():
     """However a run ends (judged, the pipeline raised, the session failed, not the agent's result), its record's
-    `input`, which the learning material shows the learner, is the row without `epoch` and `fresh`; the pipeline and
-    the judge are handed them."""
+    `input`, which the learning material shows the learner, is the row without the keys its caller added to it (the
+    Trainer's `epoch` and `fresh`, for a pipeline that keeps its trials by row); the pipeline and the judge are handed
+    them. A row's own field of one of those names, which no caller added, stays: as on main."""
     from hermit.task import RunOutput
-    from hermit.trainer.rollout import run_one
+    from hermit.trainer.rollout import TRIAL_KEYS, run_one
     row, handed = {"id": "t0", "question": "What is 0 plus 0?"}, []
 
     def pipeline(kind):
@@ -506,9 +519,11 @@ def test_a_records_input_is_its_row_without_the_keys_only_a_pipeline_keeping_its
         return run
     for kind, status in (("judged", "ok"), ("raised", "error"), ("infra", "infra"), ("session", "error")):
         record = run_one({**row, "epoch": 2, "fresh": True}, None, pipeline(kind),
-                         lambda task, out: handed.append(task) or 1.0)
+                         lambda task, out: handed.append(task) or 1.0, TRIAL_KEYS)
         assert record["status"] == status and record["input"] == row, kind
     assert len(handed) == 5 and all(t["epoch"] == 2 and t["fresh"] is True for t in handed)
+    own = {**row, "epoch": "the row's own", "fresh": "its own too"}
+    assert run_one(own, None, pipeline("judged"), lambda task, out: 1.0)["input"] == own
 
 
 def test_an_eval_of_a_split_that_names_a_task_twice_keeps_a_row_for_each_as_on_main(tmp_path):
@@ -916,3 +931,42 @@ def test_an_eval_configs_tree_is_a_run_secret_with_no_template_to_find_it_by(tmp
     assert tree.resolve() in set(run_secrets(load(path, *eval_only, command="eval")))
     with pytest.raises(ValueError, match="overlaps .*prompt-only"):
         load(path, *eval_only, f"environment.read=[{tree / '.hermit'}]", command="eval")
+
+
+def test_run_tasks_submits_each_multi_step_tasks_steps_in_step_order_in_the_places_they_had():
+    """A step waits for the steps of its stream before it: run_agent hands the rows in the order its caller listed
+    them, so a later step listed first, with fewer workers than the steps between, would wait for a step queued
+    behind it, whose turn then never came. Each stream's steps (a task's rollout and repeat) are submitted in step
+    order, in the places its steps had; every other row stays where it was, and the results keep the given order."""
+    from hermit.task import RunOutput
+    from hermit.trainer.rollout import in_step_order, run_tasks
+
+    def step(task, index, **more):
+        return {"id": f"{task}:s{index}", "harbor_task": task, "step": f"s{index}", "step_index": index, **more}
+    rows = [{"id": "a"}, step("f", 3), {"id": "b"}, step("f", 2), step("g", 2), step("f", 2, rollout=2),
+            step("g", 1), step("f", 1, rollout=2)]
+    expected = ["a", "f:s2", "b", "f:s3", "g:s1", "f:s1", "g:s2", "f:s2"]
+    assert [r["id"] for r in in_step_order(rows)] == expected
+    assert [r.get("rollout") for r in in_step_order(rows)] == [None, None, None, None, None, 2, None, 2]
+    submitted = []
+
+    def pipeline(task, adapter):
+        submitted.append(task["id"])
+        return RunOutput(output="0")
+    plain = [{"id": "a"}, step("f", 3), {"id": "b"}, step("f", 2)]
+    results = run_tasks(plain, None, pipeline, lambda task, out: 1.0, concurrency=1)
+    assert submitted == ["a", "f:s2", "b", "f:s3"] and [r["id"] for r in results] == ["a", "f:s3", "b", "f:s2"]
+
+
+def test_an_eval_that_failed_leaves_no_summary_of_an_earlier_eval_beside_its_emptied_results(tmp_path):
+    """hermit eval empties results.jsonl when it starts (an earlier eval's results are not its own), and removes the
+    earlier summary.json: an eval that failed (here a lost sign-in ends it) leaves no summary that reads as its."""
+    path = _task(tmp_path)
+    evaluate(load(path), "none", **QUIET)
+    out = load(path).run_dir() / "eval" / "none"
+    assert (out / "summary.json").is_file()
+    (tmp_path / "pipeline.py").write_text(PIPELINE.replace(
+        "    text = ", "    raise RuntimeError('the sign-in cannot serve [hermit_login_failed]')\n    text = ", 1))
+    with pytest.raises(SystemExit):
+        evaluate(load(path), "none", **QUIET)
+    assert not (out / "summary.json").exists() and (out / "results.jsonl").read_text() == ""

@@ -30,10 +30,12 @@ cannot do is refused rather than dropped: docs/guides/claude-subscription.md has
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import secrets
 import select
+import shutil
 import socket
 import threading
 import time
@@ -529,6 +531,30 @@ def cli_endpoint(spec: dict, log_dir=None, *, sandbox=None) -> ChatEndpoint:
     if log_dir is not None:
         settings.setdefault("log_dir", str(log_dir))           # each call's event stream, with the run's records
     return ChatEndpoint(make(spec["cli"], settings)).start()
+
+
+# A CLI's settings that change none of its answers: where its sessions run and keep their logs, which plan they wait
+# for, whether they may draw the account's credits and how long they wait for the plan
+CLI_LOCAL = ("sandbox", "log_dir", "plan_dir", "usage_credits", "plan_max_wait_s")
+
+
+def cli_identity(endpoint: ChatEndpoint) -> str:
+    """What a model a CLI reaches answers with beyond its endpoint's spec (endpoint_spec keeps its model, its price
+    and its timeout), as one digest: the CLI's settings as its sessions get them (its effort, its sandbox mode, its
+    arguments, its container), less CLI_LOCAL, and its binary (the path it runs, with its size and time of change:
+    another version is another identity). A trial cache names its model by it (hermit.harbor.runner.cache_key);
+    no setting's value leaves as itself."""
+    agent = endpoint.agent
+    settings = {k: v for k, v in agent.settings.items() if k not in CLI_LOCAL}
+    program = str(settings.get("bin") or getattr(agent, "program", "") or "")
+    found = shutil.which(program) if program else None
+    try:
+        st = os.stat(found) if found else None
+    except OSError:
+        st = None
+    binary = [found, st.st_size, int(st.st_mtime)] if st is not None else [program]
+    return hashlib.sha256(json.dumps({"settings": settings, "binary": binary}, sort_keys=True,
+                                     default=str).encode()).hexdigest()
 
 
 def endpoint_spec(endpoint: ChatEndpoint, spec: dict) -> dict:

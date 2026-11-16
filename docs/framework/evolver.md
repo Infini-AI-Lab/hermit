@@ -186,12 +186,12 @@ after which every rollout returns at once, unrun) fails the call, and the run en
 unfinished, as at a lost sign-in.
 
 The validation steps of a multi-step Harbor task run in one stream (each rollout's own) for the whole run, whatever
-adapter each call names: give them all, in step order, in one call. A step runs only after the steps before it, in that
-call or an earlier one: one called without them comes back `infra` (`stream_order`) at once, as does every later step
-of its stream in the call, and the stream is stopped (a call that names its first step starts it again); one called
-again while its driver is up (until the last step, an abort, a step whose turn could not come, `stream.idle_s` without
-a request, or the run's end) is `infra` at once; and one called with another adapter than the step before it continues
-the environment that step left.
+adapter each call names: give them all in one call (they run in step order, whatever order the call lists them in).
+A step runs only after the steps before it, in that call or an earlier one: one called without them comes back `infra`
+(`stream_order`) at once, as does every later step of its stream in the call, and the stream is stopped (a call that
+names its first step starts it again); one called again while its driver is up (until the last step, an abort, a step
+whose turn could not come, `stream.idle_s` without a request, or the run's end) is `infra` at once; and one called with
+another adapter than the step before it continues the environment that step left.
 
 The Evolver may also call `check_spec` before returning. The Trainer still makes the acceptance decision from the
 returned files. Passing specification checks does not establish better performance.

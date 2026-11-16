@@ -174,7 +174,7 @@ from hermit.harbor.errors import classify, no_trial, verifier_disk_full, verifie
 from hermit.harbor.staging import stage
 from hermit.harbor.stream import DRIVER_LOG, StreamClient, StreamError, StreamOrderError, TurnLostError
 from hermit.task import RunOutput
-from hermit.trainer.rollout import FRESH, TRIAL_KEYS
+from hermit.trainer.rollout import FRESH, ROW_KEYS
 
 HARBOR = "~/.cache/hermit/harbor-venv/bin/harbor"
 JOBS_DIR = "~/.cache/hermit/harbor/jobs"
@@ -338,6 +338,19 @@ def adapter_digest(adapter: Path | None) -> str:
         else:                                               # a link a deployment refuses: by its own text
             h.update(rel.as_posix().encode() + b"\0link\0" + hashlib.sha256(os.fsencode(os.readlink(path))).digest())
     return h.hexdigest()
+
+
+def _set_aside_audit(step_dir: Path) -> None:
+    """The tool-call log an earlier run of a stream's step left in its directory (its stream started over: a new
+    driver, an infra rerun, a resumed run), moved to earlier-<n>-tool-calls.jsonl at the step's turn, before its tools
+    serve it: the log the server appends to holds this run's calls only, and so does its curated log."""
+    audit = step_dir / curate_mod.TOOL_AUDIT
+    if not os.path.lexists(audit):
+        return
+    n = 1
+    while os.path.lexists(step_dir / f"earlier-{n}-{curate_mod.TOOL_AUDIT}"):
+        n += 1
+    audit.rename(step_dir / f"earlier-{n}-{curate_mod.TOOL_AUDIT}")
 
 
 def _file_identity(path: Path | None):
@@ -1084,14 +1097,18 @@ class HarborAgent(Agent):
 
     def halt(self, verdict: dict, job: Path) -> None:
         """Record a halting verdict (a lost sign-in, an account's limit): every later rollout returns at once."""
-        self.jobs_dir.mkdir(parents=True, exist_ok=True)
         # the record's cause first (login_failed, usage_limit, ...), then the exception Harbor kept for the trial
         cause = verdict["failure_cause"] or verdict["exception_type"]
         named = f"{cause} ({verdict['exception_type']})" if verdict["exception_type"] not in (None, cause) else cause
-        self.halt_file().write_text(f"{named}: {verdict['exception_message'][:2000]}\n"
-                                    f"job: {job}\nwritten: {datetime.now().isoformat(timespec='seconds')}\n"
-                                    f"Every run on this jobs directory is halted while this file exists. Remove it once "
-                                    f"the login or the usage window is restored.\n", encoding="utf-8")
+        try:
+            self.jobs_dir.mkdir(parents=True, exist_ok=True)
+            self.halt_file().write_text(f"{named}: {verdict['exception_message'][:2000]}\n"
+                                        f"job: {job}\nwritten: {datetime.now().isoformat(timespec='seconds')}\n"
+                                        f"Every run on this jobs directory is halted while this file exists. Remove it "
+                                        f"once the login or the usage window is restored.\n", encoding="utf-8")
+        except OSError as exc:              # a full disk: the rollout's own output still reports the halt
+            print(f"WARNING: {self.halt_file()} could not be written ({exc}): this run ends on the halt its rollout "
+                  "reports, but a later run on this jobs directory is not halted", file=sys.stderr, flush=True)
         print(f"WARNING: {named} in {job.name}: nothing later in the run can succeed; every rollout on {self.jobs_dir} "
               f"is halted while {self.halt_file()} exists", file=sys.stderr, flush=True)
 
@@ -1142,9 +1159,15 @@ class HarborAgent(Agent):
                 "it with one of Harbor's own agents (acting_agent.name)"), None, None, started)
         if adapter is not None and self.cli is None:
             self.agent_config(task, deployed={})             # refuses, before anything is staged
-        if task.get("step") is not None:
-            return self._run_step(task, adapter, started)
-        return self._run_trial(task, adapter, started)
+        try:
+            if task.get("step") is not None:
+                return self._run_step(task, adapter, started)
+            return self._run_trial(task, adapter, started)
+        except OSError as exc:
+            # this machine's, past the guarded steps (no process left to start Harbor, a file it could not write or
+            # read): the host's failure, not the agent's result; a session may have run, so its cost is unknown
+            verdict = {**no_trial("host_failed", f"{type(exc).__name__}: {exc}"[-2000:]), "ran": None}
+            return self._output(task, verdict, None, None, started)
 
     def _halted_output(self, task: dict, started: float) -> RunOutput | None:
         """The rollout's output while <jobs_dir>/HALT exists (a lost sign-in, an account's limit: no container), else
@@ -1157,8 +1180,13 @@ class HarborAgent(Agent):
                             None, None, started)
 
     def _run_trial(self, task: dict, adapter: Path | None, started: float) -> RunOutput:
-        # a row asking for a new run (`fresh`: an Evolver's run_agent) is neither taken from the cache nor kept there
-        key = self.cache_key(task, adapter) if self.params.get("trial_cache") and not task.get(FRESH) else None
+        # a row asking for a new run (`fresh`: an Evolver's run_agent) is neither taken from the cache nor kept there;
+        # nor is a trial whose key this machine could not make (its launch's dry render could not be written)
+        try:
+            key = self.cache_key(task, adapter) if self.params.get("trial_cache") and not task.get(FRESH) else None
+        except OSError as exc:
+            print(f"WARNING: no trial cache for {task['id']} ({exc}): it runs", file=sys.stderr, flush=True)
+            key = None
         cached = self.cached(key)
         if cached is not None:
             return cached
@@ -1265,7 +1293,7 @@ class HarborAgent(Agent):
 
     def _stage(self, task: dict, adapter: Path | None, where: Path) -> dict | None:
         """The adapter staged for the acting CLI under `where`, with the task's context when it is per task (computed
-        from the task's own row: the keys the Trainer names a trial by, TRIAL_KEYS, are no field of the task). It runs
+        from the task's own row: the keys the framework names a trial by, ROW_KEYS, are no field of the task). It runs
         on this machine before any container: an OSError there (a full disk, a folder it cannot write) is the host's,
         and the trial or the step that met it is infra (staging_failed). A RuntimeError is the adapter's: its
         deployment or its per-task context failed in their child process, the agent's result (scored 0), as on main;
@@ -1274,7 +1302,7 @@ class HarborAgent(Agent):
             return None
         from hermit.harbor.launch import context_limit
         return stage(adapter, where, self.python, self.params.get("sandbox_enforce"), self.cli,
-                     task={k: v for k, v in task.items() if k not in TRIAL_KEYS},
+                     task={k: v for k, v in task.items() if k not in ROW_KEYS},
                      context_query=self.params.get("context_query"),
                      context_limit=context_limit(self.cli, self.settings(task)) if self.cli == "codex" else None)
 
@@ -1380,10 +1408,14 @@ class HarborAgent(Agent):
         (the home's, the one that came back)."""
         where = Path(job) / launch.LAUNCH_DIR
         returned = where / launch.RETURN_DIR
-        if self.login == "chatgpt" and (returned / subscription.FILE).is_file():
-            local = (self.params.get("environment") or {}).get("type") in (None, "docker")
-            subscription.keep_refreshed(self.login_root, returned,
-                                        skew=subscription.SKEW if local else subscription.OTHER_CLOCK)
+        try:
+            if self.login == "chatgpt" and (returned / subscription.FILE).is_file():
+                local = (self.params.get("environment") or {}).get("type") in (None, "docker")
+                subscription.keep_refreshed(self.login_root, returned,
+                                            skew=subscription.SKEW if local else subscription.OTHER_CLOCK)
+        except OSError as exc:      # this machine's (the shared copy's folder full): the trial stands, its refresh lost
+            print(f"WARNING: the sign-in Codex refreshed in {Path(job).name} could not be taken back ({exc}); a "
+                  "later session refreshes again", file=sys.stderr, flush=True)
         for folder in (returned, where / launch.HOME_DIR):
             if folder.is_dir() and not folder.is_symlink():
                 subscription.remove(folder / subscription.FILE, folder)
@@ -1555,15 +1587,16 @@ class HarborAgent(Agent):
 
     @staticmethod
     def verifier_verdict(verdict: dict, trial: Path | None, redact=()) -> dict:
-        """A trial the agent finished whose verifier ran no test is infra: run again, not kept as the agent's 0, whether
-        the verifier wrote 0, left no reward or ran out of its time (the verifier's own failure, which is otherwise the
-        agent's result, as Harbor grades it). Either the verifier's tools never arrived, their download failed by a
-        server (a 5xx, GitHub's release download) so its test runner is missing and it wrote no report
+        """A trial whose verifier ran no test is infra: run again, not kept as the agent's result, whether the agent
+        finished, ran out of its time or exited with an error (Harbor verifies all three and grades the reward), and
+        whether the verifier wrote 0, left no reward or ran out of its time (the verifier's own failure, which is
+        otherwise the agent's result, as Harbor grades it). Either the verifier's tools never arrived, their download
+        failed by a server (a 5xx, GitHub's release download) so its test runner is missing and it wrote no report
         (hermit.harbor.errors.verifier_unreached), or the host's disk was full while it ran (verifier_disk_full). A
-        trial the verifier passed ran its tests; an agent's timeout or error stays as it was. The verifier's output the
-        verdict quotes has `redact`'s patterns removed (verifier_redact), as the curated output has."""
-        own = verdict["status"] != "infra" and verdict["failure_cause"] in ("verifier_failed", "solution_timed_out")
-        if trial is None or (verdict["status"] != "ok" and not own) or float(verdict.get("reward") or 0) >= 1:
+        trial the verifier passed ran its tests; a trial whose verifier never ran (no output of it) stays as it was.
+        The verifier's output the verdict quotes has `redact`'s patterns removed (verifier_redact), as the curated
+        output has."""
+        if trial is None or verdict["status"] == "infra" or float(verdict.get("reward") or 0) >= 1:
             return verdict
         out = trial / "verifier"
         stdout = _text(out / "test-stdout.txt")
@@ -1592,8 +1625,11 @@ class HarborAgent(Agent):
         edited in place is another trial), the acting agent and its model (the answer agent's with its client's timeout
         and retries), the launch its CLI would get (the plan's digest: its home files and command, its settings), the
         adapter's files (their digest) and the row's field its per-task context retrieves for (context_query), the
-        environment (its overlays' contents), the verifier's config, the multipliers, a mounted binary, web search, and
-        what the judge reads (pass_reward, verifier_redact, reward_key)."""
+        environment (its overlays' contents), the verifier's config, the multipliers, a mounted binary, web search,
+        Harbor's retries of a trial (`retry`), the adapter sandbox's enforce and its tools' address, and what the judge
+        reads (pass_reward, verifier_redact, reward_key). A model a CLI reaches through the pipeline's own endpoint is
+        named by that CLI, its login and its identity (`model_cli_identity`: its settings and its binary), never by
+        the endpoint's URL."""
         tools = False
         if adapter is not None and self.cli not in (None, "answer"):
             from hermit.adapter.loader import agent_tools, load_manifest
@@ -1607,11 +1643,13 @@ class HarborAgent(Agent):
         if isinstance(model, dict) and self.params.get("model_cli"):
             # a model a CLI reaches through this pipeline's own endpoint (hermit.isolate.agent_pipeline): its URL, a
             # port and a token of this pipeline's, names no trial (a resumed run or another eval has another), nor does
-            # a field the spec derives from it (the binding's messages_url); the CLI and its login do
+            # a field the spec derives from it (the binding's messages_url); the CLI, its login and what else its
+            # sessions answer with do (its settings, its binary: hermit.agent.base.endpoint.cli_identity)
             url = str((self.params.get("model") or {}).get("base_url") or "") or None
             model = {**{k: v for k, v in model.items()
                         if k != "base_url" and not (url and isinstance(v, str) and url in v)},
-                     "cli": self.params["model_cli"], "cli_login": self.params.get("model_login")}
+                     "cli": self.params["model_cli"], "cli_login": self.params.get("model_login"),
+                     "cli_identity": self.params.get("model_cli_identity")}
         same = {"row": task, "task": self.task_digest(task), "agent": self.acting_agent, "model": model,
                 "effort": self.params.get("effort"), "login": self.login,
                 "versions": {k: v for k, v in self.params.items() if k.endswith("_version")},
@@ -1623,7 +1661,8 @@ class HarborAgent(Agent):
                 "bins": {name: _file_identity(self.bin(name)) for name in BINS if self.bin(name) is not None},
                 "web_search": self.params.get("web_search"), "pass_reward": self.pass_reward,
                 "verifier_redact": self.redactions, "reward_key": self.reward_key,
-                "verifier_timeout": self.params.get("verifier_timeout")}
+                "verifier_timeout": self.params.get("verifier_timeout"), "retry": self.params.get("retry"),
+                "sandbox_enforce": self.params.get("sandbox_enforce"), "tools_host": self.params.get("tools_host")}
         if self.params.get("trial_scope"):                   # a training run's: its trials its own
             same["scope"] = str(self.params["trial_scope"])
         return hashlib.sha256(json.dumps(same, sort_keys=True, default=str).encode()).hexdigest()[:40]
@@ -1634,7 +1673,9 @@ class HarborAgent(Agent):
             return None
         try:
             kept = json.loads(path.read_text(encoding="utf-8"))
-        except ValueError:
+        except (ValueError, OSError):                        # unreadable: no trial kept (it runs again)
+            return None
+        if not isinstance(kept, dict) or not isinstance(kept.get("output"), dict):
             return None
         log = Path(kept["log"]) if kept.get("log") else None
         if log is not None and not log.exists():
@@ -1653,13 +1694,19 @@ class HarborAgent(Agent):
                 out.extra.get("unscored"):
             return
         root = self.jobs_dir / CACHE_DIR
-        root.mkdir(parents=True, exist_ok=True)
         kept = {"row": task["id"], "output": out.output, "log": str(out.log) if out.log else None,
                 "cost_usd": out.cost_usd, "wall_s": out.wall_s, "tokens": out.tokens, "api_speed": out.api_speed,
                 "extra": out.extra, "kept": datetime.now().isoformat(timespec="seconds")}
         tmp = root / f".{key}.{uuid.uuid4().hex[:6]}"
-        tmp.write_text(json.dumps(kept, default=str) + "\n", encoding="utf-8")
-        os.replace(tmp, root / f"{key}.json")
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(json.dumps(kept, default=str) + "\n", encoding="utf-8")
+            os.replace(tmp, root / f"{key}.json")
+        except OSError as exc:               # this machine's (a full disk): the trial stands, only uncached
+            if os.path.lexists(tmp):
+                os.unlink(tmp)
+            print(f"WARNING: the trial cache could not keep {task['id']}'s trial ({exc}): it stands, and a resumed "
+                  "run runs it again", file=sys.stderr, flush=True)
 
     # --- streams --------------------------------------------------------------------------------------------------
     def _stream_tools(self, stream: str, deployed: dict | None, step_dir: Path, adapter: Path | None):
@@ -1846,6 +1893,7 @@ class HarborAgent(Agent):
                 turn_wait = float(settings.get("turn_wait_s") or (max(1, index - 1) * budget
                                                                  + float(settings["start_timeout_s"])))
                 client.wait_turn(index, timeout_s=turn_wait, missing=lambda nxt: self._step_missing(stream, nxt))
+                _set_aside_audit(step_dir)                   # this driver never ran the step: an earlier run's calls
                 if served is not None and (served.adapter, served.audit_log) != \
                         (Path(adapter), step_dir / curate_mod.TOOL_AUDIT):
                     # this step's turn: its adapter behind the same URL, its calls in its own log (the server may have
@@ -1938,7 +1986,10 @@ class HarborAgent(Agent):
                 or curate_mod.seconds({"started_at": (result or {}).get("started_at"),
                                        "finished_at": (result or {}).get("finished_at")})
                 or round(time.time() - started, 1))
-        if verdict.get("ran") is False and usage is None:     # no container, no session: nothing spent (no_trial)
+        never = result is not None and not ((result.get("agent_execution") or {}).get("started_at"))
+        if (verdict.get("ran") is False or never) and usage is None:
+            # no container, no session (no_trial), or no agent started in it (Harbor records none: its environment
+            # or the agent's setup failed first): nothing spent
             tokens, cost, calls = 0, 0.0, 0
         rewards = ((result or {}).get("verifier_result") or {}).get("rewards") if result else None
         output = {"harbor_task": task.get("harbor_task") or task.get("task") or task["id"],

@@ -251,7 +251,8 @@ class StreamClient:
 
     def wait_turn(self, index: int, *, timeout_s: float, missing=None) -> dict:
         """Block until the driver's next step is `index` (earlier steps of the stream, running in other rollouts,
-        come first); the status then. Raises when the stream finished, aborted or died first, and when `missing`
+        come first); the status then. Raises when the stream finished, aborted or died first (an aborted stream's
+        driver refuses every step, the step at its turn too, so that step is never asked for), and when `missing`
         (called with the step the driver waits for, while it is idle at an earlier one) says why no rollout will ask
         for that step, on TURN_GRACE_POLLS polls more in a row (by then a rollout submitted just before this one has
         come): a turn that cannot come ends at once (TurnLostError), not at the deadline."""
@@ -262,13 +263,13 @@ class StreamClient:
             if status.get("error"):
                 raise StreamError(f"the stream's environment failed: {status['error']}")
             nxt = int(status.get("next_index") or 0)
-            if nxt == index and not status.get("running"):
-                return status
             if nxt > index:
                 raise StreamOrderError(f"step {index} was already run (the driver is at step {nxt})")
-            if status.get("finished") or status.get("aborted"):
+            if status.get("finished") or status.get("aborted"):    # before its turn: the driver would refuse the step
                 raise StreamError(f"the stream {'aborted: ' + str(status.get('aborted')) if status.get('aborted') else 'finished'} "
                                   f"before step {index}")
+            if nxt == index and not status.get("running"):
+                return status
             why = missing(nxt) if missing is not None and not status.get("running") else None
             missed = missed + 1 if why else 0
             if missed > TURN_GRACE_POLLS:
@@ -320,6 +321,8 @@ class StreamClient:
             deadline = time.time() + grace
             while time.time() < deadline and not self.gone():
                 time.sleep(0.2)
+        if self.gone():                     # its socket, which a killed driver leaves (its own exit removes it)
+            socket_path(self.dir).unlink(missing_ok=True)
         name = (self.info() or {}).get("name")
         if name:
             from hermit.harbor import docker

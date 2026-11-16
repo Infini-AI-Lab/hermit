@@ -24,7 +24,7 @@ from hermit.redact import redact_path, redact_value
 from hermit.task import TaskData
 from hermit.trainer.budget import Budget
 from hermit.trainer.card import number
-from hermit.trainer.rollout import reports_halt, run_tasks
+from hermit.trainer.rollout import REPEAT, reports_halt, run_tasks
 from hermit.tree import ROOT_TAG, Tree
 
 RESULT_KEYS = ("id", "status", "error", "output", "judge", "cost_usd", "wall_s", "api_speed", "tokens", "log")
@@ -115,7 +115,10 @@ def _run(config: Config, target: Path | None, tests: list[dict], out: Path, *, l
     repeats = int(d["eval"]["repeats"])
     retries, wait = int(d["eval"].get("infra_retries") or 0), float(d["eval"].get("infra_wait_s") or 0)
     out.mkdir(parents=True, exist_ok=True)
-    (out / "results.jsonl").write_text("")        # an earlier eval's results are not this one's, should this one fail
+    (out / "results.jsonl").write_text("")        # an earlier eval's results are not this one's, should this one fail,
+    (out / "summary.json").unlink(missing_ok=True)       # nor is its summary
+    named = repeats > 1 and _harbor_rows(config)             # each repeat's rows name it (_repeat)
+    added = (REPEAT,) if named else ()
     pipeline, close = agent_pipeline(config, "eval", records=out / "sandbox", deploys_adapters=target is not None)
     try:
         judge = judge_for(config, pipeline)
@@ -134,8 +137,8 @@ def _run(config: Config, target: Path | None, tests: list[dict], out: Path, *, l
         for r in range(1, repeats + 1):
             log(f"eval {label}: repeat {r}/{repeats} on {len(tests)} test tasks")
             seen: dict[str, int] = {}
-            for rec in run_tasks(_repeat(tests, r, repeats), target, pipeline, judge, concurrency=concurrency,
-                                 budget=budget, part="rollout"):
+            for rec in run_tasks(_repeat(tests, r, named), target, pipeline, judge, concurrency=concurrency,
+                                 budget=budget, part="rollout", added=added):
                 records[(r, rec["id"], seen.setdefault(rec["id"], 0))] = rec
                 seen[rec["id"]] += 1
             _write(out, records)
@@ -167,8 +170,9 @@ def _run(config: Config, target: Path | None, tests: list[dict], out: Path, *, l
                 slots: dict[str, list] = {}                 # each rerun of an id replaces one of its infra runs
                 for key in (k for k in again if k[0] == r):
                     slots.setdefault(key[1], []).append(key)
-                for rec in run_tasks(_repeat([by_id[key[1]] for key in again if key[0] == r], r, repeats), target,
-                                     pipeline, judge, concurrency=concurrency, budget=budget, part="rollout"):
+                for rec in run_tasks(_repeat([by_id[key[1]] for key in again if key[0] == r], r, named), target,
+                                     pipeline, judge, concurrency=concurrency, budget=budget, part="rollout",
+                                     added=added):
                     records[slots[rec["id"]].pop(0)] = rec
             rerun += len(again)
             _write(out, records)
@@ -195,10 +199,17 @@ def _write(out: Path, records: dict) -> None:
             f.write(json.dumps(row, default=str) + "\n")
 
 
-def _repeat(rows: list[dict], r: int, repeats: int) -> list[dict]:
-    """The rows repeat `r` hands the pipeline: with eval.repeats > 1, copies that name it (`repeat`), so that a
-    pipeline keeping its trials by row (Harbor's trial cache) runs each repeat anew; else the rows themselves."""
-    return [{**row, "repeat": r} for row in rows] if repeats > 1 else rows
+def _harbor_rows(config: Config) -> bool:
+    """Whether the eval's pipeline is a Harbor task set's (`agent.name: harbor`), whose rows name their repeat: its
+    trial cache keeps its trials by row, and each multi-step task's row of a repeat is a stream of its own."""
+    return str(config.data["agent"].get("name")) == "harbor"
+
+
+def _repeat(rows: list[dict], r: int, named: bool) -> list[dict]:
+    """The rows repeat `r` hands the pipeline: where they name it (`named`: a Harbor task set's, with eval.repeats > 1),
+    copies that do (`repeat`), so that its trial cache runs each repeat anew and each repeat of a multi-step task is a
+    stream of its own; else the rows themselves, as on main. No record's `input` keeps it (run_tasks' `added`)."""
+    return [{**row, REPEAT: r} for row in rows] if named else rows
 
 
 def _one_step_of_many(row: dict) -> bool:
