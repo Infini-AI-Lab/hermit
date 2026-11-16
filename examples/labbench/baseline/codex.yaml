@@ -1,0 +1,35 @@
+# LAB-Bench FigQA, the baseline: Codex with GPT-5.6-Luna and no adapter, on the 127 test questions of SkillOpt's split
+# (the questions the method's adapter is tested on), once each, each question's own 300 s, no web search; its 181
+# questions with `data.test=../utils/splits/all.txt` (below). Codex runs GPT-5.6-Luna at medium effort on the ChatGPT
+# login (`codex login`, no API key), in each task's container.
+#
+#   hermit eval --config examples/labbench/baseline/codex.yaml --adapter none
+#   hermit eval --config examples/labbench/baseline/codex.yaml --adapter none \
+#       data.test=../utils/splits/all.txt trainer.run_name=codex-baseline-all
+#
+# The accuracy is the pass_at_1 of `python -m hermit.harbor.report` on the eval's folder (runs/codex-baseline/eval/none/
+# beside this file), over the trials that are the agent's result; the summary's mean_score counts an infra trial as 0.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke.txt     # placeholder, as template and evolver are: hermit eval reads it, trains nothing
+  test: ../utils/splits/test.txt       # 127 questions (SkillOpt's split: 2:1:7, seed 42)
+agent:
+  name: harbor
+  concurrency: 8
+  params:
+    benchmark: ../utils/benchmark.yaml
+    acting_agent: {cli: codex}         # Codex in the task's container, installed there by Harbor
+    model: gpt-5.6-luna                # a Codex model name, on the ChatGPT login
+    login: chatgpt                     # the ChatGPT plan, shared with Hermit's other sessions on it
+    effort: medium
+    jobs_dir: ~/.cache/hermit/harbor/jobs/labbench-codex  # the Codex configs' trials
+judge:
+  path: hermit.harbor.judge            # the verifier's reward
+template: prompt-only@1.0              # placeholder (see data.train)
+task_info: ../utils/task-info          # what hermit check asks of a training config
+evolver: {name: eval-only}             # placeholder: no Evolver of this name, so hermit train refuses this config
+trainer:
+  run_name: codex-baseline
+  output_dir: runs
+eval:
+  repeats: 1

@@ -1,2 +1,5 @@
 runs/
 .logs/
+# the link `python -m hermit.harbor.dataset prepare` writes beside a benchmark file to its tasks (a path of
+# this machine); a link, which a pattern ending in / would not match
+*/utils/tasks

@@ -179,6 +179,25 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   `prepare(serve_tools=False)` deploying for a caller that serves the adapter's tools, as the other hosts' already did.
   `hermit/harbor/FRAMEWORK_SUPPORT.md` says how the runner fits the framework's interfaces, what that costs, and what
   could become framework support.
+- Five Harbor benchmarks as examples, to be handed to anyone with a Docker host
+  ([Harbor benchmarks](examples/README.md#harbor-benchmarks)): Terminal-Bench 2.0, SWE-bench Verified, AlgoTune,
+  Terminal-Bench-Science and LAB-Bench FigQA, each the registry's task set in a `utils/benchmark.yaml` (locked in
+  `utils/dataset.lock`), a baseline config per profile (Codex with GPT-5.6-Luna on a ChatGPT login, Claude Code with
+  Claude Haiku 5.5 on a Claude subscription) and the method whose paper's protocol fits it: the AHE Adapter on
+  Terminal-Bench 2.0 in the AHE paper's in-sample protocol, trained on each task's rollouts #1 and #2 and tested on #3
+  and #4, which no step ran, and on Terminal-Bench-Science in the same protocol; Terminal-Bench 2.0's final adapter,
+  frozen, on SWE-bench Verified and Terminal-Bench-Science, against AHE's seed, as the AHE and RRSI papers test a
+  harness on another benchmark; SkillOpt in its paper's protocol on AlgoTune, a trial scored 1 - 1/speedup so that the
+  mean gives AlgoTune's harmonic mean (`utils/judge.py`), and on LAB-Bench FigQA, whose download is patched
+  (`utils/patches.py`: the published tasks save the shuffle's seed where the agent reads it, which gives the answer
+  away, and their verifier runs a script the agent can rewrite) and whose questions on a figure no training question has
+  are listed for a second score (`utils/rows/`). A baseline config is `hermit eval`'s alone: the keys every config names
+  for training are placeholders, its Evolver one that `hermit train` does not find; an eval's numbers are
+  `python -m hermit.harbor.report`'s pass@1 over the trials that are the agent's result (AlgoTune's harmonic mean from
+  `utils/judge.py`). `examples/conftest.py` keeps `python -m pytest` out of a prepared task set and a run's `runs/`, and
+  `examples/.gitignore` keeps the task set's link out of git. Not run yet: the results tables are empty, and the configs
+  were checked only on each benchmark's two smoke rows, with an earlier version of the Harbor runner (LAB-Bench
+  FigQA's with the reworked one too, before its last review fixes).
 - A test workflow (`.github/workflows/tests.yml`): a pull request runs the test groups it touches
   (`pytest --changed`); main, a daily schedule and a manual run run the whole suite.
 - Claude Code on the user's subscription, acting and learning, with no API key

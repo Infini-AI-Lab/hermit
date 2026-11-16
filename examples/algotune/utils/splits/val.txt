@@ -1,0 +1,15 @@
+algotune-articulation-points
+algotune-convex-hull
+algotune-edge-expansion
+algotune-gzip-compression
+algotune-lasso
+algotune-max-independent-set-cpsat
+algotune-ode-hires
+algotune-ode-lorenz96-nonchaotic
+algotune-ode-lotkavolterra
+algotune-pca
+algotune-set-cover
+algotune-shift-2d
+algotune-spectral-clustering
+algotune-stable-matching
+algotune-toeplitz-solver

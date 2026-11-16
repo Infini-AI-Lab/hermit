@@ -1,0 +1,35 @@
+# Terminal-Bench-Science, the baseline: Codex with GPT-5.6-Luna and no adapter, under the protocol of this example's
+# method (../README.md): every task twice, the two test rollouts (#3 and #4 of each task) that the method's adapters
+# are tested on, each task's own 8 hours, no web search. Codex runs GPT-5.6-Luna at medium effort on the ChatGPT login
+# (`codex login`, no API key), in each task's container.
+#
+#   hermit eval --config examples/terminal_bench_science/baseline/codex.yaml --adapter none
+#   hermit eval --config examples/terminal_bench_science/baseline/codex.yaml --adapter <an adapter directory>   # transfer
+#
+# pass@1 over the 140 trials is the pass_at_1 of `python -m hermit.harbor.report` on the eval's folder
+# (runs/codex-baseline/eval/none/ beside this file), over the trials that are the agent's result; the summary's
+# mean_score counts an infra trial as 0.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke.txt     # placeholder, as template and evolver are: hermit eval reads it, trains nothing
+  test: ../utils/rows/test.txt         # 70 tasks x rollouts #3 and #4
+agent:
+  name: harbor
+  concurrency: 6
+  params:
+    benchmark: ../utils/benchmark.yaml
+    acting_agent: {cli: codex}         # Codex in the task's container, installed there by Harbor
+    model: gpt-5.6-luna                # a Codex model name, on the ChatGPT login
+    login: chatgpt                     # the ChatGPT plan, shared with Hermit's other sessions on it
+    effort: medium
+    jobs_dir: ~/.cache/hermit/harbor/jobs/tbsci-codex  # the Codex configs' trials
+judge:
+  path: hermit.harbor.judge            # the verifier's reward
+template: prompt-only@1.0              # placeholder (see data.train)
+task_info: ../utils/task-info          # what hermit check asks of a training config
+evolver: {name: eval-only}             # placeholder: no Evolver of this name, so hermit train refuses this config
+trainer:
+  run_name: codex-baseline
+  output_dir: runs
+eval:
+  repeats: 1
