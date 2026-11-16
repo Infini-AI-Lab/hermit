@@ -4,7 +4,7 @@ dimensions) as hermit tasks: one row per task with the layouts it is developed a
     python prepare.py                      # development: layout set 2, its first 10 layouts; held-out: sets 0 and 1,
                                            # as many of each as RoboDojo evaluates (50, or the task's own 25)
     python prepare.py --preset smoke       # development: 2 layouts; held-out: set 0, 2 layouts
-    # tasks.jsonl, splits/{all,<dimension>,smoke}.txt
+    # tasks.jsonl, splits/{all,<dimension>,smoke,sample}.txt
 
 RoboDojo's saved layouts come in sets (`--seed`: `Assets/Eval_Layout/RoboDojo/<config>/<seed>/<task>_<n>.json`;
 its protocol evaluates sets 0, 1 and 2) and an evaluation runs a set's first N. A row keeps the two apart by set:
@@ -40,6 +40,9 @@ EVAL_NUMS = 50
 EVAL_25 = {"hang_mugs", "fold_clothes", "arrange_largest_number", "sort_nesting_dolls_by_size", "stack_blocks",
            "make_toast", "pack_objects_into_box", "pour_liquid_into_cup", "push_T", "stack_bowls",
            "store_laptop_and_headphones", "sweep_blocks"}
+# A sample that a run finishes in a day or two: one task of three dimensions, stack_bowls (generalization: 25 held-out
+# layouts a set), press_by_number (memory), general_pickup (open)
+SAMPLE = ["stack_bowls", "press_by_number", "general_pickup"]
 PRESETS = {"full": {"dev_set": 2, "dev": 10, "eval_sets": "0,1", "eval": None},   # None: RoboDojo's own number
            "smoke": {"dev_set": 2, "dev": 2, "eval_sets": "0", "eval": 2}}
 
@@ -68,7 +71,8 @@ def main(argv=None) -> None:
     splits.mkdir(exist_ok=True)
     of = lambda dimension: [r["id"] for r in rows if r["dimension"] == dimension]
     ids = [r["id"] for r in rows]
-    for name, members in {"all": ids, **{d: of(d) for d in DIMENSIONS}, "smoke": ids[:2]}.items():
+    for name, members in {"all": ids, **{d: of(d) for d in DIMENSIONS}, "smoke": ids[:2],
+                          "sample": [f"robodojo-{t}" for t in SAMPLE]}.items():
         (splits / f"{name}.txt").write_text("".join(f"{i}\n" for i in members))
     print(f"{len(rows)} tasks -> {HERE / 'tasks.jsonl'}")
 

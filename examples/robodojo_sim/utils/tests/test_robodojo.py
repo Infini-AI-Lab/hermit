@@ -460,6 +460,10 @@ def test_the_rows_keep_development_and_held_out_layouts_in_different_sets(tmp_pa
                        "dimension": "generalization", "layout_set": 2, "debug_seeds": "0-9",
                        "eval_layout_sets": [0, 1], "eval_layouts": 25}
     assert len((tmp_path / "splits" / "all.txt").read_text().split()) == 42
+    assert (tmp_path / "splits" / "sample.txt").read_text().split() == [
+        "robodojo-stack_bowls", "robodojo-press_by_number", "robodojo-general_pickup"]
+    assert {r["dimension"] for r in rows if r["id"] in (tmp_path / "splits" / "sample.txt").read_text().split()} == {
+        "generalization", "memory", "open"}
     held = {r["suite"]: r["eval_layouts"] for r in rows}                # as many as RoboDojo evaluates a set
     assert P.EVAL_25 <= set(held) and held["push_T"] == 25 and held["press_by_number"] == 50
     assert sorted(held.values()).count(25) == 12 and set(held.values()) == {25, 50}
