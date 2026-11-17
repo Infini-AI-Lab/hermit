@@ -1111,7 +1111,9 @@ class HermitInstalled(BaseInstalledAgent):
         one larger than the entry's max_bytes when checked is not downloaded and raises (the session wrote something
         else there: a sign-in is a few KB), though a process still writing it can grow it between the check and the
         download (the take-back then refuses it by its size); one whose check could not tell (its exec failed:
-        compose's service stopped; no wc in the image) raises, never taken for none."""
+        compose's service stopped; no wc in the image) raises, never taken for none. Each one returned is then removed
+        from the container (a sign-in: the verifier's commands, or a process the session left, would read it), as far
+        as the container lets it: its removal failing changes nothing else."""
         for entry in plan.get("return_files") or []:
             source = self._fill(entry["from"], workdir)
             s = _q(source)
@@ -1130,6 +1132,10 @@ class HermitInstalled(BaseInstalledAgent):
             target = Path(entry["to"])
             target.parent.mkdir(parents=True, exist_ok=True)
             await environment.download_file(source, target)
+            try:
+                await environment.exec(command=f"rm -f {s}", cwd="/", user="root")
+            except Exception:                                 # noqa: BLE001 - its copy is home already
+                pass
 
     # ----- what Harbor records ----------------------------------------------------------------------------------------
 

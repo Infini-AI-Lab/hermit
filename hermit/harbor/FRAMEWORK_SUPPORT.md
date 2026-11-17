@@ -20,7 +20,7 @@ what could later become framework support. Nothing here is required to run a Har
 | Checks before the first trial | `HarborAgent.check_agent`, run as the runner is built, checks the sign-in a trial is handed, web search, a model the containers can reach, bubblewrap, mini-swe-agent's package, and no secret in `acting_agent.env` (Harbor's own rule for secret names). `hermit check` builds the runner too (`agent.name: harbor` runs on the host) and reports the first of these refusals. A run config's own `{cli}` model for the answer agent is refused both as `hermit check` hands it (as written) and as `hermit eval` and `hermit train` do (the endpoint the pipeline serves it from, `PIPELINE_CLI_SPEC`, which must stay the keys of `main`'s `endpoint_spec`). |
 | The acting model in a trial | `launch.binding_of` and the model layer's `bind_agent_params` bind it for the CLI. A benchmark file names a model by name, or `{cli: ...}`; a `<backend>/<model>` reference belongs in the run config (`check_shared_model`). |
 | The adapter in the task's container | `staging.deploy_here` calls the host's own `prepare(..., context=..., serve_tools=False)` in a child process under the strict adapter sandbox. The runner serves the adapter's tools over HTTP (`tools.AdapterTools`), and the Base Agent's `prepare_home` names them for the session. A deployment or per-task context that fails in that child is the agent's result (`adapter_failed`: `agent_error`, scored 0, its message the feedback); an OSError on this machine is infra (`staging_failed`). |
-| Evolver methods reading Harbor trials | `curate.py` lays out each trial's log as a local session's: the CLI's stream (`agent-<cli>.jsonl`), the hooks' `hook-calls.jsonl` and `hook-state/`, `task.md`, `prompt.txt` and `last_message.txt` at its top. The trajectory readers (`read_steps`, `log_steps`), the AHE Debugger, RRSI and SkillOpt read it unchanged. |
+| Evolver methods reading Harbor trials | `curate.py` lays out each trial's log as a local session's: the CLI's stream (`agent-<cli>.jsonl`), the hooks' `hook-calls.jsonl` and `hook-state/`, `task.md`, `prompt.txt` and `last_message.txt` at its top. The trajectory readers (`hermit.agent.base.trajectory`'s `log_steps`), the AHE Debugger, RRSI and SkillOpt read it unchanged. |
 | Continual Harness telling the agent's timeout from the verifier's | `HarborAgent.verifier_timeout_verdict` never marks a verifier that ran out of time as the agent's `timed_out`. |
 | Infrastructure failures (Docker, the network, the provider, Harbor itself) | `HarborAgent._run_trial` runs such a trial again, `agent.params.infra_retries` times (2) after `infra_wait_s` (300 s), unless its cause runs no better again (`NO_RETRY`: a disk gate that waited its time out, a provider's refusal of the run's configuration, `model_rejected`). One that still fails is refused by the judge (`judge.Unscored`), so the rollout records a failed run (`status: judge_error`), metered and with its log, as EvoSafe's judge does. `hermit eval` counts it as 0 in `mean_score` and among its `errors`. `python -m hermit.harbor.report <eval dir>` gives pass@1 over the trials that are the agent's result, with the infrastructure failures apart. |
 | Multi-step tasks (streams) | Each runner process names its own streams (`<jobs_dir>/streams/<task>__s<rollout>__<runner id>`) and stops the unfinished ones when the runner is freed or at exit. A stream's steps run in the split's order (`data.shuffle: false`); a step whose turn cannot come is `stream_order`, a failed run. A step that ends in any way before its driver is asked for it gives its stream up, so that the driver is stopped and the stream's next pass starts anew. A resumed `hermit train` (a new runner) loses a stream's remaining steps in that epoch (`stream_order`). |
@@ -42,7 +42,9 @@ The Trainer and `hermit eval`:
 1. **A run that is not a verdict.** A `RunOutput` could say it is not the agent's result (an infrastructure
    failure), so that the Trainer and `hermit eval` leave it out of the mean and can run it again, instead of a task
    routing it through its judge and a separate report.
-2. **Evaluation-only configs**, which need no `data.train`, `template` or `evolver.name`.
+2. **Evaluation-only configs**, which need no `data.train`, `template` or `evolver.name`, and an eval folder of their
+   own: two such configs of one evolver and template share `<run>/eval/<adapter>/`, the second's results replacing
+   the first's.
 3. **Rows that name their epoch, their repeat and who runs them.** If the Trainer handed the pipeline the epoch and
    repeat of each row, a pipeline could keep its trials, and a resumed eval or training step could reuse the finished
    ones; if a row said whether the Trainer's rollout or an Evolver's `run_agent` runs it, a candidate's run of a
@@ -52,9 +54,12 @@ The Trainer and `hermit eval`:
    stream's remaining steps in the epoch it resumes.
 5. **A multi-step task's step order**, checked by the Trainer rather than kept by `data.shuffle: false`.
 6. **Paths a config declares**, kept off Harbor's task and job directories (the overlap check in `hermit/isolate.py`).
-7. **`hermit check` for Harbor task sets**: a trial's sign-in, the acting model's binding for its CLI, and an adapter
-   refused for Harbor's own agents; and `hermit check`'s and `hermit train`'s refusal of a `login: claude` run with no
-   `claude` on PATH and no `claude_bin`, though a trial runs the container's CLI.
+7. **`hermit check` and `hermit train` for Harbor task sets**: a trial's sign-in, the acting model's binding for its
+   CLI (`agent.name: harbor` names no CLI to `_cli_kind`, so `agent.params.model` is checked as a chat client's:
+   Claude Code on a backend that serves only the Messages API, Anthropic's, is refused, which `hermit eval` runs, and
+   Codex's need of the Responses API is not checked), and an adapter refused for Harbor's own agents; and their
+   refusal of a `login: claude` run with no `claude` on PATH and no `claude_bin`, though a trial runs the container's
+   CLI.
 8. A refused `hermit eval` that keeps the earlier eval's files; `hermit check`'s check of a test row's own `repeat`;
    one-line config errors.
 
@@ -66,10 +71,14 @@ The agent layers:
     Codex sessions end the run on a lost sign-in and take a recovered reconnect for no outage.
 11. **Stricter checks on a sign-in copied back** from Hermit's own sandboxed sessions.
 12. **The pipeline's CLI endpoint saying that a request waited for its login's plan**, so that a run config's own
-    `{cli}` model could serve the answer agent.
+    `{cli}` model could serve the answer agent; and its failed reply naming the plan's refusal before an outage
+    (`_no_reply` gives 503 first, so a relayed Codex session the plan refused after a reconnect notice reads
+    `model_provider_failed`, run again after `infra_wait_s`, not `usage_limit`, run again once the plan allows).
 13. **Hosts**: Pi's tool server in the strict adapter sandbox, as the others' are; `hermit/agent/acting/workspace.py`
     passing `serve_tools` to Pi and dsh for its container sessions.
-14. **`Binding.spec` keeping `developer_role`.**
+14. **`Binding.spec` keeping `developer_role`**, which a spec the config's loading kept drops: the runner takes the
+    backends registry's for a backend it names at the same URL (`launch._with_role`), so that Pi's and dsh's trials
+    get the provider settings Hermit's own sessions do; a backend only the run config declares keeps `keep`.
 15. **Clocks of AHE and its Debugger** that leave out a wait for the login's plan.
 16. **Harness²** for more CLIs; MWM's file names and its round count; RRSI Adapter's `halt_file`, which still names
     Harbor's `<jobs_dir>/HALT`, a file the runner no longer writes.

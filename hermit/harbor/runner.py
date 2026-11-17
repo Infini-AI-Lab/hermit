@@ -108,8 +108,9 @@ of the task in this runner: `<jobs_dir>/streams/<task>__s<rollout>__<the runner'
 runs on one jobs directory, at once or one after the other, a resumed run among them, never share a driver, its
 environment or its step logs). Its steps run in their order: a training split that runs one keeps `data.shuffle:
 false`, so that the Trainer hands its rows in the split's order. When the runner is freed, or at exit for one still
-held then (`_close_runner_streams`), the drivers of the streams that did not finish are stopped, which would otherwise
-hold their tasks' environments for `stream.idle_s`, and every stream's tool server is closed: no stream is resumed.
+held then (`_close_runner_streams`), the drivers of the streams that did not finish are stopped, one after another,
+each killed if it has not stopped within CLOSE_STOP_S, which would otherwise hold their tasks' environments for
+`stream.idle_s`, and every stream's tool server is closed: no stream is resumed.
 
 What the rollout returns: `output` {harbor_task, rollout, step, reward, rewards, status, failure_cause,
 exception_type, trial, hooks_active, reply (the CLI's last message), answer (the answer agent's)}, the usage, the
@@ -118,13 +119,15 @@ per-task context (`context_tool`), `judge` (pass_reward) and, for a trial that i
 the host, the provider, a disk gate, a session that never started), `unscored` (its cause). Such a trial runs again,
 up to `infra_retries` times, each after `infra_wait_s` (not a stream's step, whose environment went on without it,
 nor a task Harbor runs for none of Hermit's agents, a step whose turn cannot come, a disk gate that already waited
-its time, a provider's refusal of the run's configuration, model_rejected, or a host failure past the trial's staging,
-host_failed, whose session may have run); what every run used is the rollout's (`extra.attempts`). One that ends
+its time, a provider's refusal of the run's configuration, model_rejected, or a host failure, host_failed: the jobs
+directory that cannot be made, or a failure past the trial's staging, whose session may have run); what every run
+used is the rollout's (`extra.attempts`). One that ends
 infra all the same is no verdict:
 the judge (hermit.harbor.judge) raises on it, so the run records a failed run (status judge_error), metered and with
 its log, which `hermit eval` scores 0 in its mean and counts among its errors; `python -m hermit.harbor.report` gives
 an eval's pass@1 over the trials that are the agent's result beside it. A lost sign-in, or the usage limit of an API
-account (no login waits it out), ends the run: the rollout raises hermit.agent.base.interface.LoginFailed, which
+account (no login waits it out), or a provider that does not bill the account (its quota or credit spent, a 402),
+ends the run: the rollout raises hermit.agent.base.interface.LoginFailed, which
 hermit.trainer.rollout passes up (no further rollout starts; `hermit train` resumes after its last finished step,
 `hermit eval` stops), and so does every rollout of this runner that starts, or was waiting for the plan or a slot,
 after it.
@@ -134,13 +137,14 @@ while the plan holds sessions back (its PAUSE, MAX_USED, a refusal's hold) and r
 session says of the plan (Claude Code's stream; Codex's session logs, which the launch plan collects) is kept before
 the slot is given back, and so is whether the plan refused the session: then every session is held until the window
 resets and the trial runs again, so that a usage limit costs time, never a trial. A session the provider could not
-serve runs again `busy_retries` times, unless it ran out of the agent's time (its result, as Hermit's own sessions keep
-it). The answer agent's model reached through a CLI on a login that the runner serves itself (`model: {cli, login}` in
-the benchmark file: each request one session on the login, in a sandbox of its own) waits for that plan before each
+serve runs again `busy_retries` times, a count over all of the trial's runs that infra_retries adds none to, unless it
+ran out of the agent's time (its result, as Hermit's own sessions keep it). The answer agent's model reached
+through a CLI on a login that the runner serves itself (`model: {cli, login}` in the benchmark file: each request one session on the login, in a sandbox of its own) waits for that plan before each
 trial, and its relay waits for it before each request (`tools.ModelEndpoint`): a trial whose one request was still
 unanswered when the agent's time ran out, held back by that plan, is infra (usage_limit), not the agent's timeout;
 its sessions run with `plan_rerun: false`, so that one the plan refused comes back at once (the relay's 429: infra,
-usage_limit, run again once the plan allows), never waiting for the window inside the request. That wait does not
+usage_limit, run again once the plan allows, not counted in infra_retries), never waiting for the window inside the
+request. That wait does not
 cover a slot, which the request's session takes itself (CliAgent.run): a request waiting for one
 (the plan's SLOTS all taken) waits inside the agent's time, and its trial is the agent's timeout (its result) if that
 time runs out; so keep agent.concurrency at most SLOTS less the login's other sessions. Such a model given in the run
@@ -212,7 +216,7 @@ NO_RETRY = ("disk", "model_rejected")
 ENV_REF = re.compile(r"\$(?:\{(\w+)(?::-[^}]*)?\}|(\w+))")
 # a variable named as a secret, as Harbor names one (harbor.utils.env._SENSITIVE_KEY_RE): OPENAI_API_KEY, GH_TOKEN,
 # HF_TOKEN_READ, AWS_SECRET_ACCESS_KEY, ...; never a count (MAX_OUTPUT_TOKENS)
-HARBOR_SECRET = re.compile(r"KEY|SECRET|TOKEN(?!S)|PASSWORD|CREDENTIAL|AUTH", re.I)
+HARBOR_SECRET = launch.HARBOR_SECRET
 NESTED = ("acting_agent", "environment", "verifier", "retry", "stream", "answer")   # params merged one level deep
 BINS = ("codex", "claude", "pi", "opencode", "dsh")              # the CLIs a binary of this machine may be mounted for
 # What has Harbor's own codex agent sign in with the user's ChatGPT file (~/.codex/auth.json, or the file named)
@@ -258,6 +262,15 @@ CONFIG_REFUSED = re.compile(r"(?:^|\((?:exit -?\d+|timed out)\): |\bAPI error(?:
                             r"(?<!/)\bbilling(?! details)|unsupported[ _](?:parameter|value)|"
                             r"unrecognized request argument|unsupported[ _-]operation", re.I | re.M)
 CONFIG_STATUSES = (401, 402, 403, 404)                           # ... the answer agent's: its model endpoint's status
+# ... of them, an account the provider does not bill (its quota or its credit spent, a payment it needs): nothing later
+# can be served, as after an API account's usage limit, so it ends the run (usage_limit, a halt)
+BILLING_REFUSED = re.compile(r"(?:^|\((?:exit -?\d+|timed out)\): |\bAPI error(?:: | \()|\bError code: |"
+                             r"(?:\bstatus(?:[ _]code)?|\"code\")\"?:? ?\"?)402\b|\(HTTP 402\)|payment required|"
+                             r"credit balance is too low|insufficient[_ ]?(?:quota|balance|credits?|funds)\b|"
+                             r"^\s*Quota exceeded\. Check your plan and billing details\b|(?<!/)\bbilling(?! details)",
+                             re.I | re.M)
+CLOSE_STOP_S = 120.0                     # a driver's stop when its runner is closed or freed: then it is killed
+STAGING_FREE_MB = 64                     # a staging child failed beside less free: the host's, not the adapter's
 
 
 _read = curate_mod.regular_text        # what the container wrote: a regular file's text, never read through a link
@@ -306,7 +319,7 @@ def _close_runner_streams(drivers: dict, streams: dict, lock) -> None:
             _, client = drivers.popitem()
         try:
             if client.running() is not None:
-                client.stop()
+                client.stop(timeout_s=CLOSE_STOP_S)    # one after another, at exit too: a hung one is killed sooner
         except Exception:                                    # noqa: BLE001 - best effort, as at exit
             pass
     while True:
@@ -336,6 +349,40 @@ def _events(raw: str):
 
 def _safe(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "_", str(text))
+
+
+def billing_refused(facts: dict) -> bool:
+    """Whether a refusal of the run's configuration (config_refused) is the provider's refusal to bill the account
+    (BILLING_REFUSED): the answer agent's model endpoint's last status 402, or the message."""
+    statuses = facts.get("statuses") or []
+    return (bool(statuses) and statuses[-1] == 402) or bool(BILLING_REFUSED.search(str(facts.get("failure") or "")))
+
+
+_SANDBOX_STARTED: list[bool] = []        # a strict adapter sandbox started in this process (a runner's startup)
+
+
+def sandbox_fault(enforce: str | None, *, fresh: bool = True) -> str | None:
+    """Why the strict adapter sandbox that renders each adapter does not start on this machine (bubblewrap that cannot
+    make its namespaces, say), seen from this process: a child of it running this interpreter (the deployment's own
+    starts it as its child does, for its own interpreter); None when it starts, or when it is not required (enforce
+    best_effort, or HA_ADAPTER_SANDBOX_ENFORCE). `fresh` false (a runner's startup): once it started in this process,
+    it is not tried again."""
+    from hermit.adapter.session import ENV_ENFORCE
+    from hermit.sandbox import run_in_strict_sandbox
+    if (enforce or os.environ.get(ENV_ENFORCE, "required")) != "required" or not shutil.which("bwrap"):
+        return None
+    if not fresh and _SANDBOX_STARTED:
+        return None
+    try:
+        run = run_in_strict_sandbox([sys.executable, "-c", "pass"], role="render", readable=[], enforce="required",
+                                    timeout=120)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"the strict adapter sandbox did not start: {type(exc).__name__}: {exc}"
+    if run.returncode != 0:
+        return (f"the strict adapter sandbox did not start (exit {run.returncode}): "
+                f"{(run.stderr or run.stdout or '').strip()[-300:]}")
+    _SANDBOX_STARTED.append(True)
+    return None
 
 
 def config_refused(facts: dict) -> bool:
@@ -816,6 +863,10 @@ class HarborAgent(Agent):
                                  "installed: install it, or set agent.params.sandbox_enforce: best_effort (unconfined, "
                                  "recorded), which a run that deploys no adapter (hermit eval --adapter none) needs "
                                  "too: the runner cannot tell it from one that does")
+        elif (fault := sandbox_fault(self.params.get("sandbox_enforce"), fresh=False)) is not None:
+            raise ValueError(f"a trial deploys its adapter by rendering it in the strict adapter sandbox, and {fault}: "
+                             "every trial's staging would fail; let bubblewrap make its namespaces (user namespaces "
+                             "on), or set agent.params.sandbox_enforce: best_effort (unconfined, recorded)")
         if cli == "answer":
             if login:
                 raise ValueError("the answer agent takes no login: its model is a <backend>/<model> reference, or "
@@ -1306,23 +1357,39 @@ class HarborAgent(Agent):
 
     def _run_trial(self, task: dict, adapter: Path | None, started: float) -> RunOutput:
         """A trial, run again while it ends infra (not the agent's result: `unscored`), up to infra_retries times,
-        each after infra_wait_s, unless its cause runs no better again (NO_RETRY); what every run used is the trial's
-        (_attempts). One that ends infra all the same is returned as such: the judge then refuses to score it
-        (hermit.harbor.judge), so that the run records it as a failed run (judge_error), never as the agent's 0."""
+        each after infra_wait_s, unless its cause runs no better again (NO_RETRY) or has a rule of its own: on a login,
+        a provider that could not serve the session runs again within busy_retries, one count over all of the trial's
+        runs (_login_trial), and not again here once that is spent; the plan of the answer agent's model that refused
+        its request (usage_limit) has the trial run again once that plan allows, as a login's own refusal does, not
+        counted. What every run used is the trial's (_attempts). One that ends infra all the same is returned as such:
+        the judge then refuses to score it (hermit.harbor.judge), so that the run records it as a failed run
+        (judge_error), never as the agent's 0."""
         say = lambda m: print(f"hermit harbor {task['id']}: {m}", file=sys.stderr, flush=True)
-        retries, pause, runs = self.infra_retries, self.infra_wait_s, []
+        retries, pause, runs, again = self.infra_retries, self.infra_wait_s, [], 0
+        busy: dict = {"n": 0}                                # the login's busy_retries, spent over all of the runs
+        on_login = bool(self.login and self.cli is not None)
         while True:
-            if self.login and self.cli is not None:
-                out = self._login_trial(task, adapter, started)
+            if on_login:
+                out = self._login_trial(task, adapter, started, busy)
             else:
                 self._model_plan_wait(task)
                 out = self._trial_once(task, adapter, started)
             runs.append(out)
             cause = out.extra.get("unscored")
-            if cause is None or cause in NO_RETRY or len(runs) > retries:
+            if cause is None or cause in NO_RETRY or busy.pop("spent", False):
+                return self._attempts(runs)
+            plan = None if on_login else self.model_plan()
+            if cause == "usage_limit" and plan is not None:
+                # the session's refusal held that plan (CliAgent.run, or a wait of its own when the hold cannot be
+                # written), which _model_plan_wait waits for
+                say("the plan of the answer agent's model refused its request (its usage limit): the trial runs again "
+                    "once that plan allows")
+                continue
+            again += 1
+            if again > retries:
                 return self._attempts(runs)
             say(f"not the agent's result ({cause}: {str(out.extra.get('exception_message') or '')[:300]}); again in "
-                f"{pause:.0f} s ({len(runs)}/{retries})")
+                f"{pause:.0f} s ({again}/{retries})")
             self._pause(pause)
 
     def _pause(self, seconds: float) -> None:
@@ -1349,9 +1416,10 @@ class HarborAgent(Agent):
         """A trial's output when it ran more than once (_run_trial, _login_trial): its last run's, carrying what every
         run used (one the plan refused, the provider could not serve or that ended infra may have spent tokens before it
         ended): the tokens the runs reported (unknown only when none did), their model calls (a run that reported none
-        adds 0) and their cost (unknown when any run's is), and each run's own in `extra.attempts` (its usage alone; a
-        run that itself ran more than once gives each of its own: a run's verdict and job are the trial's own, shown to
-        the learner as the trial is). One run alone is returned as it is, with no `extra.attempts`."""
+        adds 0) and their cost (unknown when any run's is), and each run's own in `extra.attempts` (its usage alone, and
+        its infra cause, `unscored`, None for a run that is the agent's result; a run that itself ran more than once
+        gives each of its own: a run's verdict and job are the trial's own, shown to the learner as the trial is). One
+        run alone is returned as it is, with no `extra.attempts`."""
         last = runs[-1]
         if len(runs) == 1:
             return last
@@ -1360,24 +1428,27 @@ class HarborAgent(Agent):
         calls = sum(int((r.api_speed or {}).get("model_calls") or 0) for r in runs)
         each = [a for r in runs for a in (r.extra.get("attempts") or
                                           [{"tokens": r.tokens, "cost_usd": r.cost_usd,
-                                            "model_calls": (r.api_speed or {}).get("model_calls")}])]
+                                            "model_calls": (r.api_speed or {}).get("model_calls"),
+                                            "unscored": r.extra.get("unscored")}])]
         return dataclasses.replace(last, tokens=sum(tokens) if tokens else None,
                                    cost_usd=None if None in costs else sum(costs),
                                    api_speed={**(last.api_speed or {}), "model_calls": calls},
                                    extra={**last.extra, "attempts": each})
 
-    def _login_trial(self, task: dict, adapter: Path | None, started: float) -> RunOutput:
+    def _login_trial(self, task: dict, adapter: Path | None, started: float, busy: dict | None = None) -> RunOutput:
         """A trial on a login (ChatGPT's, Claude's): after the plan's holds, in one of its slots; again after the window
-        when the plan refused the session, again after a pause when the provider could not serve it (not when it ran
-        out of the agent's time: that is its result; never a lost sign-in, which a provider's notice beside it does not
-        make busy); never once another rollout ended the run while it waited (LoginFailed). What every run used is the
-        trial's (_attempts)."""
+        when the plan refused the session, again after a pause when the provider could not serve it, busy_retries
+        times at most over the trial (`busy`: the count, shared by _run_trial's runs; "spent" set when the last run is
+        one that count left as it was), not when it ran out of the agent's time (that is its result), never a lost
+        sign-in, which a provider's notice beside it does not make busy; never once another rollout ended the run while
+        it waited (LoginFailed). What every run used is the trial's (_attempts)."""
         plan = subscription.plan_dir(self.params.get("plan_dir"), self.login)
         credits = subscription.opted_in(self.params.get("usage_credits"))
         retries, pause = self.params.get("busy_retries"), self.params.get("busy_wait_s")
         retries, pause = int(3 if retries is None else retries), float(120 if pause is None else pause)
         say = lambda m: print(f"hermit harbor {task['id']}: {m}", file=sys.stderr, flush=True)
-        busy, runs = 0, []
+        busy = {"n": 0} if busy is None else busy
+        runs = []
         while True:
             subscription.wait(plan, self._stop, say, None, credits)    # as long as the plan holds sessions back
             self.stopped()                                 # another rollout ended the run while this one waited
@@ -1409,12 +1480,14 @@ class HarborAgent(Agent):
                 say("the plan refused the session (its usage limit): the trial runs again once the plan allows")
                 continue
             ran_out = out.extra.get("exception_type") == "AgentTimeoutError"    # the agent's own time: its result
-            if facts.get("unavailable") and not facts.get("served") and not ran_out and not facts.get("login_failed") \
-                    and busy < retries:
-                busy += 1
-                say(f"the provider could not serve the session; again in {pause * busy:.0f} s ({busy}/{retries})")
-                self._pause(pause * busy)
-                continue
+            if facts.get("unavailable") and not facts.get("served") and not ran_out and not facts.get("login_failed"):
+                if busy["n"] < retries:
+                    busy["n"] += 1
+                    say(f"the provider could not serve the session; again in {pause * busy['n']:.0f} s "
+                        f"({busy['n']}/{retries})")
+                    self._pause(pause * busy["n"])
+                    continue
+                busy["spent"] = True                       # busy_retries is its budget: infra_retries adds none
             return self._attempts(runs)
 
     def _trial_once(self, task: dict, adapter: Path | None, started: float) -> RunOutput:
@@ -1440,6 +1513,37 @@ class HarborAgent(Agent):
                      task=dict(task),
                      context_query=self.params.get("context_query"),
                      context_limit=context_limit(self.cli, self.settings(task)) if self.cli == "codex" else None)
+
+    def _staging_verdict(self, exc: Exception, where: Path) -> dict:
+        """The verdict of a staging whose child failed (_stage's RuntimeError) under `where`: the adapter's
+        (adapter_failed: scored 0, its message the feedback), unless this process sees this machine fail any adapter's
+        staging there (_host_fault): then the host's (staging_failed, infra). What the child printed is not taken for
+        either: the adapter could print one."""
+        fault = self._host_fault(where)
+        if fault is not None:
+            return no_trial("staging_failed", f"{fault} (the staging's child: {str(exc)[-1500:]})"[-2000:])
+        return adapter_failed(str(exc)[-2000:])
+
+    def _host_fault(self, where: Path) -> str | None:
+        """What this process sees on this machine that fails a staging child whatever the adapter: a folder it cannot
+        write, less than STAGING_FREE_MB free under it, the strict adapter sandbox not starting (sandbox_fault); None
+        when none of them is so. A child killed or run out of its time is the adapter's all the same."""
+        try:
+            if not os.access(where, os.W_OK | os.X_OK):
+                return f"{where} cannot be written by this process"
+            free = shutil.disk_usage(where).free
+        except OSError as exc:
+            return f"{where}: {type(exc).__name__}: {exc}"
+        if free < STAGING_FREE_MB << 20:
+            return f"{where} has {free >> 20} MB free"
+        return sandbox_fault(self.params.get("sandbox_enforce"))
+
+    @staticmethod
+    def _plan_refused(exc: Exception) -> dict:
+        """A trial's launch plan refused for what this trial's adapter is (dsh's MCP server name from its id, ...): the
+        adapter's result, as a deployment of it that failed (adapter_failed), since the plan rendered at startup for the
+        same config with a placeholder adapter (check_agent)."""
+        return adapter_failed(f"the trial's launch plan refused the adapter: {exc}"[-2000:])
 
     def _tools_host(self) -> str:
         from hermit.harbor.tools import docker_gateway
@@ -1492,8 +1596,8 @@ class HarborAgent(Agent):
         except OSError as exc:                                # this machine's, before any container: no trial
             return self._output(task, no_trial("staging_failed", str(exc)[-2000:]), None, None, started,
                                 extra={"harbor_job": str(job)})
-        except RuntimeError as exc:                           # the adapter's (_stage): the agent's result, scored 0
-            return self._output(task, adapter_failed(str(exc)[-2000:]), None, None, started,
+        except RuntimeError as exc:                           # the adapter's (_stage), unless the host's
+            return self._output(task, self._staging_verdict(exc, job), None, None, started,
                                 extra={"harbor_job": str(job)})
         served = plan = None
         try:
@@ -1503,7 +1607,13 @@ class HarborAgent(Agent):
                 return self._output(task, no_trial("tools_failed", str(exc)[-2000:]), None, None, started,
                                     extra={"harbor_job": str(job), "deployed": deployed})
             try:
-                plan = self._launch(task, job, deployed, served)
+                try:
+                    plan = self._launch(task, job, deployed, served)
+                except ValueError as exc:
+                    if adapter is None:                      # the config's: rendered at startup (check_agent)
+                        raise
+                    return self._output(task, self._plan_refused(exc), None, None, started,
+                                        extra={"harbor_job": str(job), "deployed": deployed})
                 agent = self.agent_config(task, plan, deployed, tools_host=getattr(served, "host", None))
                 (job / "job.yaml").write_text(yaml.safe_dump(self.job_config(task, job_name, agent),
                                                              sort_keys=False))
@@ -1637,7 +1747,8 @@ class HarborAgent(Agent):
             # usage limit; the provider unavailable only by the session's last failure (the Base Agent's reading takes
             # a reconnect it recovered from for one too); a refusal of the run's configuration or bill (a 400, 402 or
             # 404, an API account's quota), which no retry changes, as the other CLIs' Base Agents read theirs
-            # (`rejected`: model_rejected when it names the configuration, CONFIG_REFUSED)
+            # (`rejected`: model_rejected when it names the configuration, CONFIG_REFUSED; a halt when it is the bill,
+            # BILLING_REFUSED)
             served = bool(said.get("served"))
             said["login_failed"] = not served and signin.codex_signin_lost(raw)
             said["unavailable"] = not served and signin.codex_unavailable(raw)
@@ -1711,8 +1822,9 @@ class HarborAgent(Agent):
         the agent's time (its result, kept: a timed-out session has no completed turn, and an earlier notice it
         recovered from is no failure, as Hermit's own sessions keep it); nor is a provider that refused the run's
         configuration before it served any request (a key it does not take, a permission it does not give, a model it
-        does not have, an account it does not bill, a request setting it does not take: model_rejected, config_refused;
-        no halt), nor a session that never started or whose tools never came up (session_failed). A first request
+        does not have, a request setting it does not take: model_rejected, config_refused; no halt), or the account's
+        bill (its quota or credit spent, a payment it needs: billing_refused; usage_limit, a halt, as nothing later can
+        be served), nor a session that never started or whose tools never came up (session_failed). A first request
         refused for what the adapter's or the task's input made it (a prompt too long, an invalid request, a content
         filter) is the agent's result, as Harbor scores it, and so is the model's own refusal (agent_refused_task,
         kept). A usage limit on a `login` (the acting CLI's, or that of the answer agent's model the runner serves:
@@ -1739,6 +1851,10 @@ class HarborAgent(Agent):
                     "halt": bool(facts.get("refused")) and not login, "exception_message": message()}
         if facts.get("rejected") and not facts.get("served") and not facts.get("model_refusal") and \
                 not facts.get("tokens") and config_refused(facts):
+            if billing_refused(facts):        # nothing later can be served, as after an API account's usage limit
+                return {**verdict, "status": "infra", "failure_cause": "usage_limit", "halt": True,
+                        "exception_message": f"the provider does not bill the account (its quota or credit spent, "
+                                             f"or a payment it needs): {message()}"}
             return {**verdict, "status": "infra", "failure_cause": "model_rejected", "halt": False,
                     "exception_message": message()}
         if verdict["status"] != "infra" and (not facts.get("started") or facts.get("tools_down")):
@@ -1929,9 +2045,10 @@ class HarborAgent(Agent):
                 self._give_up(stream, index, "staging_failed")
                 return self._output(task, no_trial("staging_failed", str(exc)[-2000:]), None, None, started,
                                     extra={"harbor_job": str(step_dir), "stream_dir": str(stream_dir)})
-            except RuntimeError as exc:                           # the adapter's (_stage): the agent's result, scored 0
-                self._give_up(stream, index, "adapter_failed")
-                return self._output(task, adapter_failed(str(exc)[-2000:]), None, None, started,
+            except RuntimeError as exc:                           # the adapter's (_stage), unless the host's
+                verdict = self._staging_verdict(exc, step_dir)
+                self._give_up(stream, index, verdict["failure_cause"])
+                return self._output(task, verdict, None, None, started,
                                     extra={"harbor_job": str(step_dir), "stream_dir": str(stream_dir)})
             served = endpoint = plan = None
             lost = turn = False
@@ -1951,7 +2068,15 @@ class HarborAgent(Agent):
                 try:
                     # the sign-in is copied at the step's turn (below), never now: an earlier step of the stream may
                     # still be running, and refresh the shared copy before this one starts
-                    plan = self._launch(task, step_dir, deployed, endpoint or served, sign_in="later")
+                    try:
+                        plan = self._launch(task, step_dir, deployed, endpoint or served, sign_in="later")
+                    except ValueError as exc:
+                        if adapter is None:                      # the config's: rendered at startup (check_agent)
+                            raise
+                        self._give_up(stream, index, "adapter_failed")
+                        return self._output(task, self._plan_refused(exc), None, None, started,
+                                            extra={"harbor_job": str(step_dir), "stream_dir": str(stream_dir),
+                                                   "deployed": deployed})
                     agent = self.agent_config(task, plan, deployed, tools_host=getattr(served, "host", None))
                     (step_dir / "agent.json").write_text(json.dumps(agent, indent=1) + "\n")
                     keep = set(json.loads(plan.read_text()).get("env_from_host", {}).values()) if plan else set()

@@ -23,7 +23,10 @@ stopped in (hermit.trainer.rollout.run_tasks hands back a repeat's records once 
 results.jsonl holds the rows of the repeats it finished, none with one repeat; and `hermit eval` writes its
 summary.json when it ends, so there is none beside them, or the summary of the eval before it; an eval stopped as it
 wrote its rows leaves the last one cut off, which is left out. The report says so (`unfinished`, the reason; the
-JSON's `finished` false), reading the summary's content, never the files' times, which a copy changes. Nothing is run
+JSON's `finished` false), reading the summary's content, never the files' times, which a copy changes. Content alone
+cannot tell an eval stopped in a later repeat whose finished ones match the summary of the eval before (as many rows,
+failed runs and the same mean: a smoke run again with more repeats, say): where results.jsonl was written more than
+SKEW_S after summary.json, which a finished eval in place never does, the report notes it (`note`). Nothing is run
 again here; a rerun of the infra trials, or of an unfinished eval, is an eval run again.
 """
 from __future__ import annotations
@@ -35,6 +38,7 @@ import sys
 
 RESULTS = "results.jsonl"
 SUMMARY = "summary.json"
+SKEW_S = 60.0                      # results.jsonl written this long after summary.json: no finished eval in place
 
 
 def read_rows(path: Path) -> tuple[list[dict], bool]:
@@ -93,6 +97,22 @@ def unfinished(path: Path, rows: list[dict]) -> str | None:
     return None
 
 
+def later(path: Path) -> str | None:
+    """A note when the eval's results.jsonl was written more than SKEW_S after its summary.json, which `hermit eval`
+    never does in place (the summary is written last): a copy of the folder, or an eval stopped beside the summary of
+    the eval before; None otherwise, or without both files."""
+    path = Path(path)
+    results = path / RESULTS if path.is_dir() else path
+    try:
+        gap = results.stat().st_mtime - (results.parent / SUMMARY).stat().st_mtime
+    except OSError:
+        return None
+    if gap <= SKEW_S:
+        return None
+    return (f"its {RESULTS} was written {gap:.0f} s after its {SUMMARY}: unless the folder was copied, the eval did "
+            "not finish, beside the summary of the eval before")
+
+
 def kind(row: dict) -> str:
     """scored, infra or failed (the module's docstring)."""
     output = row.get("output") if isinstance(row.get("output"), dict) else {}
@@ -132,6 +152,8 @@ def report(path: Path) -> dict:
     out = {"results": str(path), **summary(rows), "finished": why is None}
     if why is not None:
         out["unfinished"] = why
+    elif (note := later(path)) is not None:
+        out["note"] = note
     repeats = sorted({r.get("repeat") for r in rows if r.get("repeat") is not None})
     if len(repeats) > 1:
         out["by_repeat"] = {str(n): summary([r for r in rows if r.get("repeat") == n]) for n in repeats}
@@ -168,6 +190,8 @@ def main(argv=None) -> int:
         print(f"{path}: {line(figures)}")
         if figures.get("unfinished"):
             print(f"  unfinished: {figures['unfinished']}; the figures are of the repeats it finished, if any")
+        if figures.get("note"):
+            print(f"  note: {figures['note']}")
         for n, each in (figures.get("by_repeat") or {}).items():
             print(f"  repeat {n}: {line(each)}")
     return 0

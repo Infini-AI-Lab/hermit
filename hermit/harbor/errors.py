@@ -27,10 +27,11 @@ not serve the run, or refused its configuration, is not the agent's result.
                  the host kept from its tests (verifier_failed: its tools never arrived, or the host's disk was full,
                  runner.verifier_verdict; one that ran out of its time with verifier_timeout: infra); and what the
                  runner reads from the session or meets before the trial: the adapter's staging failing on this
-                 machine (staging_failed), the plan's usage limit (usage_limit), a lost sign-in (login_failed), a
-                 provider that refused the run's configuration before it served any request (model_rejected: a key it
-                 does not take, a permission it does not give, a model it does not have, an account it does not bill;
-                 no halt, and never run again), a session that never started or whose tools never came up
+                 machine (staging_failed), the plan's usage limit, or an account the provider does not bill (its quota
+                 or credit spent, a 402: usage_limit, a halt, as an API account's usage limit), a lost sign-in
+                 (login_failed), a provider that refused the run's configuration before it served any request
+                 (model_rejected: a key it does not take, a permission it does not give, a model it does not have; no
+                 halt, and never run again), a session that never started or whose tools never came up
                  (session_failed), the adapter's tools not served (tools_failed)
 
 The judge (judge.py) scores the verifier's reward whenever there is one (ok, timeout, agent_error), else 0. An infra

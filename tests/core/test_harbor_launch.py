@@ -339,3 +339,88 @@ def test_a_plan_is_refused_for_what_the_base_agents_run_would_refuse_before_a_se
         launch.check_settings(make("mini-swe-agent", {}))
     with pytest.raises(Unsupported, match="Hermit reads litellm"):
         launch.check_settings(make("mini-swe-agent", {"model": "openai/gpt-x", "model_class": "openrouter"}))
+
+
+# ---- what main's own sessions get (the round-10 review) -------------------------------------------------------------
+
+@pytest.mark.parametrize("cli", ["pi", "dsh"])
+def test_a_trials_provider_settings_are_what_mains_own_session_on_the_same_model_gets(cli, monkeypatch):
+    """Pi's and dsh's provider settings in a trial's plan are those `main` binds for its own session of the same model
+    (bind_agent_params over the backends registry): the spec the config's loading keeps drops the backend's
+    developer_role (Binding.spec), and a backend whose deployments refuse the role (Fireworks: developer_role system)
+    keeps its `compat` in the trial, as in Hermit's own sessions."""
+    from hermit.agent.model.backends import as_binding, bind_agent_params, registry
+    monkeypatch.setenv("FIREWORKS_API_KEY", "fw-key-0123456789abcdef")
+    model = "fireworks/accounts/fireworks/models/glm-5p3"
+    own = bind_agent_params({"model": model}, cli, registry())
+    spec = as_binding(model, registry()).spec()                       # what agent.params.binding holds once loaded
+    assert "developer_role" not in spec
+    trial = launch.settings_for(cli, binding=launch.binding_of({"binding": spec}), web_search=False)
+    assert trial["provider"] == own["provider"]
+    assert json.dumps(own["provider"]).count("supportsDeveloperRole") == 1   # the role the deployment refuses
+
+
+def test_effort_off_as_yaml_reads_it_is_no_effort_flag_as_in_mains_own_sessions(tmp_path, monkeypatch):
+    """`effort: off` (YAML's false) is no effort at all, as main's Base Agents take it: Codex gets no
+    model_reasoning_effort, Claude Code no --effort (and no refusal), the answer agent none."""
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", TOKEN)
+    codex = launch.settings_for("codex", model="gpt-5.6-luna", effort=False, web_search=False, login="chatgpt")
+    assert codex["effort"] is False
+    plan = plan_of(launch.render("codex", settings("codex", effort=False), deploy=None, tools_url=None,
+                                 job=tmp_path / "codex"))
+    assert "model_reasoning_effort" not in json.dumps(plan["command"])
+    claude = launch.settings_for("claude", model="claude-haiku-5-5", effort=False, web_search=False, login="claude")
+    plan = plan_of(launch.render("claude", claude, deploy=None, tools_url=None, job=tmp_path / "claude"))
+    assert "--effort" not in plan["command"]
+    answer = launch.render_answer(launch.settings_for("answer", binding=None, model="m", effort=False),
+                                  endpoint="http://127.0.0.1:1/v1", job=tmp_path / "answer")
+    assert plan_of(answer)["answer"]["effort"] is None
+
+
+def test_a_settings_env_secret_is_passed_by_name_only_whatever_its_names_rule(tmp_path, monkeypatch):
+    """acting_agent.settings.env: a variable inside other text that names a secret by any of the rules (Harbor's AUTH
+    among them, PASSWD) is refused, as is a value given as it is to a variable named as a secret; a count named like
+    one (MAX_OUTPUT_TOKENS) is no secret, and another variable inside other text is this machine's value."""
+    monkeypatch.setenv("EXTRA_DIR", "/opt/extra")
+    for env in ({"NPMRC": "//registry/:_auth=$NPM_AUTH"}, {"DSN": "postgres://u:$DB_PASSWD@db/x"},
+                {"OPENAI_API_KEY": "sk-local-0123456789"}, {"DB_PASSWD": "hunter2"}, {"NPM_AUTH": "abc"}):
+        with pytest.raises(ValueError, match="only whole|named as a secret"):
+            launch.render("codex", settings("codex", extra={"env": env}), deploy=None, tools_url=None,
+                          job=tmp_path / "bad")
+    plan = plan_of(launch.render("codex", settings("codex", extra={"env": {
+        "MAX_OUTPUT_TOKENS": "4096", "LIBS": "$EXTRA_DIR/lib", "GH_TOKEN": "$GH_TOKEN"}}), deploy=None, tools_url=None,
+        job=tmp_path / "ok"))
+    assert (plan["env"]["MAX_OUTPUT_TOKENS"], plan["env"]["LIBS"], plan["env_from_host"]["GH_TOKEN"]) == \
+        ("4096", "/opt/extra/lib", "GH_TOKEN")
+
+
+def test_a_trials_env_on_a_login_is_what_mains_session_on_it_gets(tmp_path, monkeypatch):
+    """A trial's container gets none of this process's variables but those its settings name, so main's dropped_env
+    (this process's variables a session must not get) has nothing to drop there; and as main's Claude Code session on
+    login: claude (ClaudeCode.session_env), a trial's is refused an `env` that names what would pay instead
+    (ANTHROPIC_API_KEY: it would bill before the subscription), never handed to the CLI."""
+    from hermit.agent.base.interface import Unsupported
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", TOKEN)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-0123456789abcdef")
+    claude = launch.settings_for("claude", model="claude-haiku-5-5", web_search=False, login="claude")
+    plan = plan_of(launch.render("claude", claude, deploy=None, tools_url=None, job=tmp_path / "plain"))
+    assert "ANTHROPIC_API_KEY" not in {**plan["env"], **plan["env_from_host"]}   # (main's lock blanks it in settings)
+    assert "sk-ant-0123456789abcdef" not in json.dumps(plan)
+    paying = launch.settings_for("claude", model="claude-haiku-5-5", web_search=False, login="claude",
+                                 extra={"env": {"ANTHROPIC_API_KEY": "$ANTHROPIC_API_KEY"}})
+    with pytest.raises(Unsupported, match="what would pay instead"):
+        launch.render("claude", paying, deploy=None, tools_url=None, job=tmp_path / "claude")
+
+
+def test_text_only_with_the_adapters_tools_and_a_dsh_server_name_too_long_are_refused_as_mains_run_refuses_them(
+        tmp_path):
+    """What main's sessions refuse is refused for a trial's plan: text_only with the adapter's tools
+    (CliAgent._session), and for dsh a tools server name that is not one of its MCP server names (32 characters at most: an adapter's id
+    too long, prepare_home)."""
+    from hermit.agent.base.interface import Unsupported
+    with pytest.raises(Unsupported, match="text_only has no tools"):
+        launch.render("codex", settings("codex", extra={"text_only": True}), deploy=None, tools_url=URL,
+                      tools_name="calc", job=tmp_path / "text")
+    with pytest.raises(ValueError, match="32 characters at most"):
+        launch.render("dsh", settings("dsh"), deploy=None, tools_url=URL, tools_name="a" * 33, job=tmp_path / "dsh")
+    launch.render("dsh", settings("dsh"), deploy=None, tools_url=URL, tools_name="a" * 32, job=tmp_path / "dsh-ok")

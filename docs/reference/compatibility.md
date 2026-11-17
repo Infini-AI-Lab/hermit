@@ -59,7 +59,8 @@ framework's stdio server. Neither command guarantees that arbitrary tool depende
   `run_agent` on such a set: GEPA's children, ACE's retry rounds, OPRO's new instructions, SkillOpt's slow update and
   meta skill (two skills compared on training tasks), Harness²'s probes and compositions, and RRSI Adapter's smoke
   when its domain names such a row get these failures in place of runs. Such a set trains with a method that learns
-  from the Trainer's own rollouts, as the CLI Evolvers and Meta-Harness Adapter do.
+  from the Trainer's own rollouts: a CLI Evolver whose `evolver.params.tools` leaves `run_agent` out (its default,
+  null, offers every Trainer tool, `run_agent` among them), or Meta-Harness Adapter.
 
 ## Earlier command interfaces
 

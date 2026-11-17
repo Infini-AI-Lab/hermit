@@ -38,9 +38,11 @@ import asyncio
 import base64
 import json
 import mimetypes
+import os
 from pathlib import Path, PurePosixPath
 import re
 import shlex
+import tempfile
 import threading
 import time
 from typing import Any
@@ -241,12 +243,21 @@ class HermitAnswer(BaseAgent):
         written = str(spec.get("answer_format") or "{answer}").replace("{answer}", answer)
         usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
         answer_json = self.logs_dir / "answer.json"
+        part = None
         try:
             self.logs_dir.mkdir(parents=True, exist_ok=True)
-            answer_json.write_text(json.dumps(
-                {"reply": reply, "answer": answer, "usage": usage, "model": response.get("model") or spec["model"],
-                 "attachments": [path for path, _ in images]}, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+            # a file of its own, then renamed: the task's container writes this folder too, and a link it left at
+            # answer.json is replaced, never followed onto this machine
+            fd, part = tempfile.mkstemp(dir=self.logs_dir, prefix=".answer-", suffix=".json")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(json.dumps(
+                    {"reply": reply, "answer": answer, "usage": usage, "model": response.get("model") or spec["model"],
+                     "attachments": [path for path, _ in images]}, indent=1, ensure_ascii=False) + "\n")
+            os.replace(part, answer_json)
+            part = None
         except OSError as exc:                            # this machine's (a full disk, its quota): not the agent's 0
+            if part is not None:
+                Path(part).unlink(missing_ok=True)
             raise HermitLaunchError(f"hermit: the answer could not be kept in {answer_json}: {type(exc).__name__}: "
                                     f"{exc}") from exc
         if spec.get("answer_file"):

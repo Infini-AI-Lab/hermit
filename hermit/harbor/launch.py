@@ -69,7 +69,9 @@ COLLECT = {"codex": [(LAST_MESSAGE, LAST_MESSAGE)], "mini-swe-agent": [(LAST_MES
 COLLECT_LOGIN = {"chatgpt": [("sessions", "sessions")]}
 SECRET_NAME = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", re.I)
 # a variable named as a secret is (OPENAI_API_KEY, GH_TOKEN, AWS_SECRET_ACCESS_KEY), never a count (MAX_OUTPUT_TOKENS)
-SECRET_VAR = re.compile(r"(?:^|_)(?:API_?KEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?)$", re.I)
+SECRET_VAR = re.compile(r"(?:^|_)(?:API_?KEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH)$", re.I)
+# a name Harbor treats as a secret's (harbor.utils.env's rule: OPENAI_API_KEY, GH_TOKEN, NPM_AUTH, GIT_AUTHOR_NAME too)
+HARBOR_SECRET = re.compile(r"KEY|SECRET|TOKEN(?!S)|PASSWORD|CREDENTIAL|AUTH", re.I)
 VAR_REF = re.compile(r"\$(?:\{(\w+)\}|(\w+))")
 TEXT_LIMIT = 4 << 20                                     # a home file larger than this is left as it is (no path in it)
 
@@ -82,13 +84,30 @@ def binding_of(params: dict):
     from hermit.agent.model.backends import Binding, as_binding, registry
     spec = params.get("binding")
     if isinstance(spec, dict) and spec.get("base_url") and spec.get("model"):
-        return Binding.from_spec(spec)
+        return _with_role(Binding.from_spec(spec))
     model = params.get("model")
     if isinstance(model, dict) and model.get("base_url") and model.get("model"):
-        return Binding.from_spec(model)
+        return _with_role(Binding.from_spec(model))
     if isinstance(model, (str, dict)) and model:
         return as_binding(model, registry())
     return None
+
+
+def _with_role(binding):
+    """`binding` with its backend's developer_role, which a spec the config's loading kept drops (Binding.spec:
+    FRAMEWORK_SUPPORT.md, candidate 14) and Pi's and dsh's provider settings read (`compat`): the backends registry's,
+    for a backend it names at the same URL; a backend only the run config declares keeps the spec's (keep)."""
+    import dataclasses
+    from hermit.agent.model.backends import registry
+    try:
+        known = registry().get(binding.backend.name)
+    except (OSError, ValueError):                          # a registry that cannot be read: the spec as it is
+        return binding
+    if known is None or known.developer_role == binding.backend.developer_role or \
+            known.base_url.rstrip("/") != binding.backend.base_url.rstrip("/"):
+        return binding
+    return dataclasses.replace(binding, backend=dataclasses.replace(binding.backend,
+                                                                    developer_role=known.developer_role))
 
 
 def bind(settings: dict, kind: str, binding) -> dict:
@@ -116,24 +135,26 @@ def settings_for(cli: str, *, model=None, binding=None, effort=None, web_search:
         settings["model"] = str(model.get("model") or "")
     elif model:
         settings["model"] = str(model)
-    if effort is not None and effort != "":
-        settings["effort"] = "off" if effort is False else str(effort)
+    if effort is not None and effort != "":              # YAML's bare off (false) as the Base Agents take it: no flag
+        settings["effort"] = effort if isinstance(effort, bool) else str(effort)
     if login:
         settings["login"] = str(login)
     return settings
 
 
 # ---- rendering ----------------------------------------------------------------------------------------------------
-def check_settings(agent) -> None:
+def check_settings(agent, tools: bool = False) -> None:
     """What the CLI Base Agent's `run` refuses before any session (hermit.agent.base.cli), refused for a plan, which
-    harborside carries out without `run`: a login that is not the CLI's own (CliAgent.run), and mini-swe-agent's
-    settings (MiniSweAgent.run: no login, no web search, a model, a model class whose messages Hermit reads), the
-    same checks with the same messages."""
+    harborside carries out without `run`: a login that is not the CLI's own (CliAgent.run), `text_only` with the
+    adapter's tools (`tools`: CliAgent._session), and mini-swe-agent's settings (MiniSweAgent.run: no login, no web
+    search, a model, a model class whose messages Hermit reads), the same checks with the same messages."""
     from hermit.agent.base.interface import Unsupported
     from hermit.agent.base.login import LOGINS
     s = agent.settings
     if s.get("login") and LOGINS.get(s["login"]) != agent.backend:
         raise Unsupported(f"{agent.name} does not sign in with login: {s['login']}")
+    if s.get("text_only") and tools:
+        raise Unsupported(f"{agent.name}: a session with text_only has no tools or roles")
     if agent.backend != "mini-swe-agent":
         return
     if s.get("login"):
@@ -193,7 +214,7 @@ def render(cli: str, settings: dict, *, deploy: dict | None, tools_url: str | No
         if backend == "opencode":             # the only skills OpenCode may load: the deployment's
             settings["skills"] = list(deploy.get("skills") or [])
     agent = make(backend, settings)
-    check_settings(agent)                     # what its run() refuses: a trial's plan is carried out without it
+    check_settings(agent, tools=bool(tools_url))   # what its run() refuses: a trial's plan is carried out without it
     if login == "claude" and not os.environ.get(TOKEN_ENV):
         raise ValueError(NO_TOKEN)
     agent.prepare_home(home, [], tools_url, settings.get("tools_name") or "hermit_tools")
@@ -331,7 +352,7 @@ def render_answer(settings: dict, *, endpoint: str, job: Path, system: str = "",
                                       options.get("answer_file") or "/app/answer.txt",
                        "answer_pattern": options.get("answer_pattern"), "answer_format": answer_format,
                        "max_tokens": int(options["max_tokens"]) if options.get("max_tokens") else None,
-                       "effort": None if effort in (None, "") else str(effort)}}
+                       "effort": None if effort in (None, "", False) else str(effort)}}
     check(plan, job=Path(job), secret_files=[])
     path = launch / PLAN_FILE
     path.write_text(json.dumps(plan, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -361,17 +382,21 @@ def _key_env(binding: dict) -> str | None:
 
 def _env_entry(name: str, value: str, env: dict, from_host: dict) -> None:
     """A setting's variable into the plan: `$NAME` alone passes that variable by name (its value never written);
-    other `$NAME`s are expanded as a session's are, unless one names a secret, which is refused (it would be
-    written out)."""
+    other `$NAME`s are expanded with this machine's values, as a session's are (`$PATH` is this machine's PATH),
+    unless one names a secret (SECRET_NAME's, SECRET_VAR's or Harbor's rule), which is refused, as is a value given
+    as it is to a variable named as a secret (SECRET_VAR's): either would be written into the plan."""
     whole = re.fullmatch(r"\$(?:\{(\w+)\}|(\w+))", value)
     if whole:
         from_host[name] = whole.group(1) or whole.group(2)
         return
     named = [a or b for a, b in VAR_REF.findall(value)]
-    secret = [n for n in named if SECRET_NAME.search(n)]
+    secret = [n for n in named if SECRET_NAME.search(n) or SECRET_VAR.search(n) or HARBOR_SECRET.search(n)]
     if secret:
         raise ValueError(f"the acting agent's env {name} holds ${secret[0]} inside other text: a secret reaches the "
                          f"container only whole, by its variable's name ({name}: ${secret[0]})")
+    if value and SECRET_VAR.search(name):
+        raise ValueError(f"the acting agent's env {name} is named as a secret and given a value: it would be written "
+                         f"into each trial's plan; export it here and pass it by name ({name}: ${name})")
     env[name] = os.path.expandvars(value) if named else value
 
 

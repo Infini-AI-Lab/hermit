@@ -23,6 +23,7 @@ import yaml
 
 from hermit.agent.base.interface import LoginFailed
 from hermit.harbor import curate, dataset, docker, errors, judge, stream
+from hermit.harbor import runner as runner_module
 from hermit.harbor.runner import HarborAgent
 from hermit.task import RunOutput
 
@@ -210,6 +211,17 @@ FAKE_HARBOR = textwrap.dedent('''\
                                     "exception_traceback": "tb"}
     (trial / "result.json").write_text(json.dumps(result))
     ''')
+
+
+REAL_SANDBOX_FAULT = runner_module.sandbox_fault
+
+
+@pytest.fixture(autouse=True)
+def sandbox_starts(monkeypatch):
+    """This machine's strict adapter sandbox taken as starting (sandbox_fault), so that a runner's startup and the
+    verdict of a staging that failed need no working bubblewrap, as main's tests skip what needs one; the tests of that
+    check run the real one (REAL_SANDBOX_FAULT)."""
+    monkeypatch.setattr(runner_module, "sandbox_fault", lambda enforce, *, fresh=True: None)
 
 
 @pytest.fixture
@@ -1823,13 +1835,15 @@ def test_a_codex_session_whose_sign_in_the_provider_refused_ends_the_run(tmp_pat
         run_tasks([row], None, make_agent(tmp_path, fake_harbor, tasks).run, judge.score, concurrency=1)
 
 
-def test_a_codex_session_an_api_account_refused_for_its_bill_or_model_is_model_rejected_and_a_quoted_limit_no_halt(
+def test_a_codex_session_an_api_account_refused_for_its_bill_ends_the_run_and_for_its_model_is_model_rejected(
         tmp_path, fake_harbor, monkeypatch):
-    """Codex on an API account (a key, no login): a session the provider refused for the run's configuration or bill
-    (the account's quota, a 402, a model not there) is infra (model_rejected) and never run again, as the other CLIs'
-    are, never the agent's 0; the run goes on. The plan's usage-limit words that Codex's log quotes of a tool call (a
-    file the session patched) are no refusal: the trial is the agent's result, and the run goes on (the Base Agent's
-    reading of the whole stream takes them for the account's limit, which on an API account ends the run)."""
+    """Codex on an API account (a key, no login): a session the provider refused for the account's bill (its quota
+    spent, a 402) ends the run, as an API account's usage limit does (usage_limit, a halt: LoginFailed), since nothing
+    later can be served; one it refused for the run's configuration (a model not there) is infra (model_rejected) and
+    never run again, as the other CLIs' are, never the agent's 0; the run goes on. The plan's usage-limit words that
+    Codex's log quotes of a tool call (a file the session patched) are no refusal: the trial is the agent's result, and
+    the run goes on (the Base Agent's reading of the whole stream takes them for the account's limit, which on an API
+    account ends the run)."""
     monkeypatch.setenv("FAKE_HARBOR_MODE", "agent_exit")                     # the CLI exited 1; the verifier ran
     tasks = tmp_path / "tasks"
     make_task(tasks, "alpha", image="example/alpha:1")
@@ -1837,16 +1851,22 @@ def test_a_codex_session_an_api_account_refused_for_its_bill_or_model_is_model_r
     start = '{"type":"thread.started","thread_id":"th-1"}\n{"type":"turn.started"}\n'
     failed = '{"type":"turn.failed","error":{"message":"%s"}}\n'
     for n, why in enumerate(("Quota exceeded. Check your plan and billing details.",
-                             "unexpected status 402 Payment Required: {\\\"detail\\\":\\\"payment required\\\"}",
-                             "unexpected status 404 Not Found: The model `gpt-x` does not exist")):
+                             "unexpected status 402 Payment Required: {\\\"detail\\\":\\\"payment required\\\"}")):
         monkeypatch.setenv("FAKE_DEFAULT_STREAM", start + '{"type":"error","message":"%s"}\n' % why + failed % why)
-        jobs = tmp_path / f"jobs-{n}"
+        jobs = tmp_path / f"jobs-bill-{n}"
         agent = make_agent(tmp_path, fake_harbor, tasks, infra_retries=2, infra_wait_s=0, jobs_dir=str(jobs))
-        out = agent.run(row, None)
-        assert (out.output["status"], out.output["failure_cause"], out.extra["halt"]) == \
-            ("infra", "model_rejected", False), why
-        assert out.extra["unscored"] == "model_rejected" and not agent._stop.is_set(), why
+        with pytest.raises(LoginFailed, match="the provider does not bill the account"):
+            agent.run(row, None)
+        assert agent._stop.is_set(), why
         assert len(list(jobs.glob("alpha-*"))) == 1, why                       # never run again
+    why = "unexpected status 404 Not Found: The model `gpt-x` does not exist"
+    monkeypatch.setenv("FAKE_DEFAULT_STREAM", start + '{"type":"error","message":"%s"}\n' % why + failed % why)
+    jobs = tmp_path / "jobs-model"
+    agent = make_agent(tmp_path, fake_harbor, tasks, infra_retries=2, infra_wait_s=0, jobs_dir=str(jobs))
+    out = agent.run(row, None)
+    assert (out.output["status"], out.output["failure_cause"], out.extra["halt"]) == ("infra", "model_rejected", False)
+    assert out.extra["unscored"] == "model_rejected" and not agent._stop.is_set()
+    assert len(list(jobs.glob("alpha-*"))) == 1                                # never run again
     quoted = (start + "2026-11-12T01:02:03.456789Z ERROR codex_core::tools::router: error=apply_patch verification "
               "failed: Failed to find expected lines in /app/limits.py:\n"
               '{"note": "a JSON line of the patch"}\n'
@@ -1948,8 +1968,9 @@ def test_a_login_trial_whose_codex_could_not_reach_its_provider_is_run_again_and
         tmp_path, fake_harbor, monkeypatch):
     """Codex 0.164 on a ChatGPT login whose requests to chatgpt.com fail retries them, fails its turn with "workspace
     routing discovery failed" and exits 1 (UNREACHABLE): the provider could not serve the trial, which runs again
-    after a pause; when every run met the same it is infra (`model_provider_failed`, unscored, no halt), never the
-    agent's result scored as Harbor scored it."""
+    after a pause, busy_retries times over the whole trial (infra_retries, here 2, adds none: one count, never their
+    product); when every run met the same it is infra (`model_provider_failed`, unscored, no halt), never the agent's
+    result scored as Harbor scored it."""
     monkeypatch.setenv("FAKE_STREAMS", str(write(tmp_path / "unreachable.jsonl", UNREACHABLE)))
     monkeypatch.setenv("FAKE_HARBOR_MODE", "agent_exit")                     # the CLI exited 1; the verifier ran
     tasks = tmp_path / "tasks"
@@ -1957,11 +1978,12 @@ def test_a_login_trial_whose_codex_could_not_reach_its_provider_is_run_again_and
     row = dataset.index(tasks)[0]
     chatgpt_login(tmp_path)
     out = make_agent(tmp_path, fake_harbor, tasks, binding=None, model="gpt-5.6-luna", login="chatgpt",
-                     busy_retries=1, busy_wait_s=0).run(row, None)
+                     busy_retries=1, busy_wait_s=0, infra_retries=2, infra_wait_s=0).run(row, None)
     assert (out.output["status"], out.output["failure_cause"], out.extra["unscored"], out.extra["halt"]) == \
         ("infra", "model_provider_failed", "model_provider_failed", False)
     assert out.extra["session"]["unavailable"] is True and out.extra["session"]["login_failed"] is False
-    assert (tmp_path / "jobs" / ".fake-calls").read_text() == "2"             # run again once (busy_retries)
+    assert (tmp_path / "jobs" / ".fake-calls").read_text() == "2"             # run again once (busy_retries) ...
+    assert [a["unscored"] for a in out.extra["attempts"]] == ["model_provider_failed"] * 2   # infra_retries: no more
 
 
 def test_the_answer_agent_asks_the_model_through_an_endpoint_of_this_machine(tmp_path, fake_harbor):
@@ -2259,21 +2281,20 @@ def test_the_relays_cli_sessions_return_a_refusal_never_wait_for_the_window_insi
     assert all(spec["model"] == "gpt-5.6-luna" and spec["login"] == "chatgpt" for spec in specs)
 
 
-def test_an_answer_trial_on_a_login_waits_for_its_plan_and_one_whose_request_the_plan_held_is_not_the_agents_timeout(
+def test_an_answer_trial_on_a_login_waits_for_its_plan_and_one_whose_request_the_plan_held_runs_again_once_it_allows(
         tmp_path, fake_harbor, monkeypatch):
     """The answer agent's model reached through a CLI on a login, which the runner serves (model: {cli, login}, the
     benchmark file's): each request is one session on the login, and each trial waits for the plan before it starts,
     so that its request does not wait the plan out in the agent's time. A trial whose request waited for the plan all
     the same (a hold that came once the trial had started) until the agent's time ran out is infra (usage_limit, no
-    halt), not the agent's timeout, as the relay recorded its wait. (A model the pipeline serves, a run config's own
+    halt), not the agent's timeout, as the relay recorded its wait; it runs again once the plan allows, as a login's
+    own refusal does, not counted among infra_retries (0 here). (A model the pipeline serves, a run config's own
     `{cli}`, reaches the runner as its endpoint's spec alone: neither wait is the runner's.)"""
     out, agent, waits = answer_trial_on_a_login(tmp_path / "own", fake_harbor, monkeypatch, held=True)
-    facts = out.extra["session"]
-    assert (facts["calls"], facts["statuses"], facts["plan_held"].startswith("paused")) == (1, [None], True)
-    assert facts["plan_waiting"] is True                       # still waiting when the endpoint gave it up
-    assert (out.output["status"], out.output["failure_cause"], out.extra["halt"]) == ("infra", "usage_limit", False)
-    assert out.extra["unscored"] == "usage_limit" and not agent._stop.is_set()
-    assert waits == [(agent.model_plan()[0], False)]          # the trial waited for the plan before it started
+    assert [a["unscored"] for a in out.extra["attempts"]] == ["usage_limit", None]      # held, then run again
+    assert waits == [(agent.model_plan()[0], False)] * 2      # each run waited for the plan before it started
+    assert (out.output["status"], out.output["failure_cause"]) == ("timeout", "agent_exhausted_budget")
+    assert "unscored" not in out.extra and not agent._stop.is_set()    # the run again's own result: its session ran
 
 
 def test_an_answer_request_that_ran_while_another_sessions_report_set_a_hold_is_the_agents_timeout(
@@ -2302,19 +2323,17 @@ def test_an_answer_request_that_waited_for_a_hold_that_ended_before_its_trial_wa
         tmp_path, fake_harbor, monkeypatch):
     """A request whose session waited for its login's plan, and was unanswered when the agent's time ran out, is infra
     (usage_limit), however the plan stands when the trial is read: here its hold ended as the session waited (which
-    then started, and was working when the time ran out), or only once Harbor's run had ended (it still waited)."""
+    then started, and was working when the time ran out), or only once Harbor's run had ended (it still waited). The
+    trial then runs again once the plan allows (its first run's cause in `attempts`)."""
     from hermit.agent.base import login
     for released in (True, False):
         plan, started = tmp_path / f"released-{released}" / "plan", []
         out, _, _ = answer_trial_on_a_login(plan.parent, fake_harbor, monkeypatch, held=True, released=released,
                                             on_start=lambda: started.append(True),
                                             after_harbor=lambda: (plan / "PAUSE").unlink(missing_ok=True))
-        facts = out.extra["session"]
-        assert facts["plan_held"].startswith("paused"), released
-        assert (facts["plan_waiting"], started) == ((False, [True]) if released else (True, [])), released
-        assert (out.output["status"], out.output["failure_cause"], out.extra["halt"]) == \
-            ("infra", "usage_limit", False), released
-        assert out.extra["unscored"] == "usage_limit" and login.held(plan) == ""    # no hold as the trial is read
+        assert [a["unscored"] for a in out.extra["attempts"]] == ["usage_limit", None], released   # then again
+        assert started == ([True, True] if released else [True]), released    # the run again's session started
+        assert login.held(plan) == "", released                               # no hold as the trials are read
 
 
 def planned_sessions(plan: Path, on_start=lambda: None):
@@ -2343,7 +2362,7 @@ def answer_trial_on_a_login(root: Path, fake_harbor, monkeypatch, *, held: bool,
     runner, and the trial's waits for the plan before it started). The plan allows the trial to start, then holds
     sessions back when `held`; with `released` the hold ends as the request waits on it (its session then starts).
     The request is one session of planned_sessions; `after_harbor` runs once Harbor's run ended, before the session is
-    read."""
+    read. A trial run again (usage_limit) waited for the plan's window: the hold is gone when it starts."""
     from hermit import isolate
     from hermit.agent.base import endpoint as endpoint_mod
     from hermit.agent.base import login
@@ -2364,17 +2383,23 @@ def answer_trial_on_a_login(root: Path, fake_harbor, monkeypatch, *, held: bool,
         if cancel is not runner["agent"]._stop:          # the request's (the relay's, its session's): the plan's own
             return real_wait(where, Ended(cancel) if released else cancel, log, max_s, credits, **kwargs)
         waits.append((Path(where), credits))             # the trial's, before it starts: the plan allows it
-        if held:
+        if held and len(waits) == 1:
             write(Path(where) / "PAUSE", "held\n")
+        else:                                            # a run again: it waited for the window, which came
+            (Path(where) / "PAUSE").unlink(missing_ok=True)
         return ""
     wait.__wrapped__ = real_wait
     monkeypatch.setattr(login, "wait", wait)
     monkeypatch.setenv("FAKE_HARBOR_MODE", "timeout")
     monkeypatch.setenv("FAKE_ANSWER_WAIT_S", "1")       # the agent's time, as the fake's request waits it out
-    sessions = planned_sessions(plan, on_start)
+    made = []                                            # each trial's relay its own endpoint, as cli_endpoint makes
+
+    def endpoint(spec, log_dir=None, *, sandbox=None):
+        made.append(planned_sessions(plan, on_start))
+        return made[-1]
     chatgpt_login(root)                                  # the sign-in its startup check looks for
     try:
-        monkeypatch.setattr(endpoint_mod, "cli_endpoint", lambda spec, log_dir=None, *, sandbox=None: sessions)
+        monkeypatch.setattr(endpoint_mod, "cli_endpoint", endpoint)
         monkeypatch.setattr(isolate, "cli_sandbox", lambda spec, **kwargs: (None, None))
         agent = cli_answer_agent(root, fake_harbor, tasks,
                                  {"cli": "codex", "model": "gpt-5.6-luna", "login": "chatgpt", "plan_dir": str(plan)})
@@ -2383,7 +2408,8 @@ def answer_trial_on_a_login(root: Path, fake_harbor, monkeypatch, *, held: bool,
         agent.harbor_run = lambda *a, **k: (ran(*a, **k), after_harbor())[0]
         return agent.run(dataset.index(tasks)[0], None), agent, waits
     finally:
-        sessions.close()
+        for sessions in made:
+            sessions.close()
 
 
 def test_the_adapters_tools_are_served_from_this_machine(tmp_path):
@@ -2904,23 +2930,28 @@ def test_a_streams_last_step_that_never_reached_its_driver_stops_it_and_its_next
     assert started == [stream_name(agent)] * 2               # the next pass in a new driver
 
 
-@pytest.mark.parametrize("end", ["deadline", "swap", "config"])
+@pytest.mark.parametrize("end", ["deadline", "swap", "config", "sign_in", "plan"])
 def test_a_streams_last_step_that_ends_in_any_way_before_its_driver_is_asked_gives_the_stream_up(
         tmp_path, fake_harbor, monkeypatch, fake_tools, end):
     """Every way a stream's step can end before its driver is asked for it gives the stream up, not only a staging
     that failed: its turn's wait running out (a plain StreamOrderError), the adapter's tools failing to swap in at its
-    turn, an exception of its launch's (a ValueError of agent_config). The driver, waiting for that step, is stopped as
-    the last rollout ends, and the stream's next pass runs from its first step in a new driver. Before, each of these
-    left the driver up for stream.idle_s, and the next pass's steps met it (already run, or scored on the old
+    turn, an exception of its launch's (a ValueError of agent_config), its turn's copy of the ChatGPT sign-in failing
+    (staging_failed), its launch plan refused for its adapter (adapter_failed). The driver, waiting for that step, is
+    stopped as the last rollout ends, and the stream's next pass runs from its first step in a new driver. Before, each
+    of these left the driver up for stream.idle_s, and the next pass's steps met it (already run, or scored on the old
     environment)."""
+    from hermit.harbor import launch as launch_mod
     fake_driver(fake_harbor)
     monkeypatch.setattr(stream, "POLL_S", 0.1)
     started = driver_starts(monkeypatch)
     tasks = tmp_path / "tasks"
     make_task(tasks, "flow", steps=("one", "two"))
     rows = {r["id"]: r for r in dataset.index(tasks)}
+    login = {"binding": None, "model": "gpt-5.6-luna", "login": "chatgpt"} if end == "sign_in" else {}
+    if login:
+        chatgpt_login(tmp_path)
     agent = make_agent(tmp_path, fake_harbor, tasks, tools_host="127.0.0.1",
-                       stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 60})
+                       stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 60}, **login)
     adapter = tool_adapter(tmp_path / "adapter")
     client = stream.StreamClient(tmp_path / "jobs" / "streams" / stream_name(agent), python="unused")
     real_wait, real_config = stream.StreamClient.wait_turn, HarborAgent.agent_config
@@ -2935,10 +2966,26 @@ def test_a_streams_last_step_that_ends_in_any_way_before_its_driver_is_asked_giv
         if task["step"] in failing:
             raise ValueError("an agent config the launch cannot take")
         return real_config(self, task, *args, **kwargs)
+    real_sign_in, real_launch, signed = launch_mod.sign_in, HarborAgent._launch, []
+
+    def sign_in(plan, root):
+        signed.append(plan)
+        if failing and len(signed) == 2:
+            raise OSError(28, "No space left on device")
+        return real_sign_in(plan, root)
+
+    def plan_of(self, task, *args, **kwargs):
+        if task["step"] in failing:
+            raise ValueError("dsh takes an MCP server name of 32 characters at most ([A-Za-z0-9_-]), not 'a.b'")
+        return real_launch(self, task, *args, **kwargs)
     if end == "deadline":
         monkeypatch.setattr(stream.StreamClient, "wait_turn", wait_turn)
     elif end == "config":
         monkeypatch.setattr(HarborAgent, "agent_config", agent_config)
+    elif end == "sign_in":
+        monkeypatch.setattr(launch_mod, "sign_in", sign_in)
+    elif end == "plan":
+        monkeypatch.setattr(HarborAgent, "_launch", plan_of)
     try:
         first = [agent.run(rows["flow:one"], adapter)]
         if end == "swap":
@@ -2958,7 +3005,8 @@ def test_a_streams_last_step_that_ends_in_any_way_before_its_driver_is_asked_giv
         again = [agent.run(rows[f"flow:{step}"], adapter) for step in ("one", "two")]
     finally:
         stop_streams(tmp_path)
-    causes = {"deadline": ("infra", "stream_order"), "swap": ("infra", "tools_failed")}
+    causes = {"deadline": ("infra", "stream_order"), "swap": ("infra", "tools_failed"),
+              "sign_in": ("infra", "staging_failed"), "plan": ("agent_error", "adapter_failed")}
     assert [(out.output["status"], out.output["failure_cause"]) for out in first] == \
         [("ok", None), *([causes[end]] if end in causes else [])]
     assert stopped                                           # as its last step's rollout ended
@@ -3654,15 +3702,16 @@ def outcome(agent, raw: str, where: Path) -> dict:
     return agent.outcome(raw, stream, None)
 
 
-def test_a_refusal_of_the_key_model_or_bill_in_a_providers_own_wording_is_model_rejected_but_a_rate_limit_is_not(
+def test_a_refusal_of_the_key_or_model_in_a_providers_own_wording_is_model_rejected_one_of_the_bill_ends_the_run(
         tmp_path, fake_harbor):
     """A provider's refusal of the run's configuration in its own wording (DeepSeek's model that does not exist,
     Zhipu GLM's unknown model, Mistral's invalid model, OpenRouter's model that is not a valid model ID, Gemini's key
-    not valid, the account's bill: a 402, a credit balance too low, an insufficient quota, billing; the answer agent's
-    relay's 402) is model_rejected. A rate limit is the provider's, `unavailable` before any rejection is read, and its
-    advice (billing details, a link to the billing page) is no such wording; nor is a prompt too long, a content filter
-    or an overload. (An OpenCode error whose words name none of it is the agent's result: OpenCode's Base Agent gives
-    its failure without its status.)"""
+    not valid) is model_rejected. Its refusal of the account's bill (a 402, a balance or credit too low, an
+    insufficient quota, billing; the answer agent's relay's 402) ends the run (usage_limit, a halt), as an API
+    account's usage limit does: nothing later can be served. A rate limit is the provider's, `unavailable` before any
+    rejection is read, and its advice (billing details, a link to the billing page) is no such wording; nor is a prompt
+    too long, a content filter or an overload. (An OpenCode error whose words name none of it is the agent's result:
+    OpenCode's Base Agent gives its failure without its status.)"""
     from hermit.agent.base.cli import Claude, OpenCode, Pi
     from hermit.harbor.runner import CONFIG_REFUSED
     exited = errors.classify(trial_result(0.5, exc="NonZeroAgentExitCodeError"))
@@ -3679,20 +3728,30 @@ def test_a_refusal_of_the_key_model_or_bill_in_a_providers_own_wording_is_model_
                 '"code":"1500"}',
                 '400 {"error":{"message":"openai/gpt-nope is not a valid model ID","code":400}}',
                 '400 {"error":{"code":400,"message":"API key not valid. Please pass a valid API key.",'
-                '"status":"INVALID_ARGUMENT"}}',
-                '402 {"error":{"message":"Insufficient Balance","type":"unknown_error"}}',
-                '400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low '
-                'to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."}}',
-                '400 {"error":{"message":"You exceeded your current quota.","type":"insufficient_quota"}}',
-                '400 {"error":{"code":400,"message":"Gemini API free tier is not available in your country. Please '
-                'enable billing on your project in Google AI Studio.","status":"FAILED_PRECONDITION"}}']
+                '"status":"INVALID_ARGUMENT"}}']
     for text in refusals:
-        assert verdict(pi_failed(text))["failure_cause"] == "model_rejected", text
-    assert verdict((STREAMS / "credit_balance.jsonl").read_text(), Claude)["failure_cause"] == "model_rejected"
+        assert (verdict(pi_failed(text))["failure_cause"], verdict(pi_failed(text))["halt"]) == \
+            ("model_rejected", False), text
+    bills = ['402 {"error":{"message":"Insufficient Balance","type":"unknown_error"}}',
+             '400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low '
+             'to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."}}',
+             '400 {"error":{"message":"You exceeded your current quota.","type":"insufficient_quota"}}',
+             '400 {"error":{"code":400,"message":"Gemini API free tier is not available in your country. Please '
+             'enable billing on your project in Google AI Studio.","status":"FAILED_PRECONDITION"}}']
+    for text in bills:
+        assert (verdict(pi_failed(text))["failure_cause"], verdict(pi_failed(text))["halt"]) == \
+            ("usage_limit", True), text
+    credit = verdict((STREAMS / "credit_balance.jsonl").read_text(), Claude)
+    assert (credit["failure_cause"], credit["halt"]) == ("usage_limit", True)
     from hermit.harbor.tools import ModelEndpoint
     relay = ModelEndpoint(BINDING)                                     # the answer agent's relay: the bill's own status
     relay._note((402, b'{"error": {"message": "Insufficient Balance"}}', {}))
-    assert HarborAgent.session_verdict(exited, relay.facts())["failure_cause"] == "model_rejected"
+    relayed = HarborAgent.session_verdict(exited, relay.facts())
+    assert (relayed["failure_cause"], relayed["halt"]) == ("usage_limit", True)
+    relay = ModelEndpoint(BINDING)                                     # ... and its refusal of the model
+    relay._note((404, b'{"error": {"message": "The model does not exist"}}', {}))
+    relayed = HarborAgent.session_verdict(exited, relay.facts())
+    assert (relayed["failure_cause"], relayed["halt"]) == ("model_rejected", False)
     rate_limits = ['429 {"error":{"message":"Rate limit reached for gpt-5 in organization org-x on requests per min '
                    '(RPM): Limit 3, Used 3, Requested 1. Please try again in 20s. Visit '
                    'https://platform.openai.com/account/billing to add a payment method.",'
@@ -4668,15 +4727,22 @@ def test_the_report_says_when_an_eval_did_not_finish(tmp_path, monkeypatch, caps
     rows, summary = report.rows_of(folder), (folder / "summary.json").read_text()
     finished = report.report(folder)
     assert (finished["finished"], finished["trials"]) == (True, 3) and "unfinished" not in finished
+    assert "note" not in finished                                 # in place: the summary written after the rows
     copy = shutil.copytree(folder, tmp_path / "handed-back")
     os.utime(copy / "summary.json", (time.time() - 3600, time.time() - 3600))   # an hour older than the rows
-    assert report.report(copy)["finished"] is True
+    handed = report.report(copy)
+    assert handed["finished"] is True and "unless the folder was copied" in handed["note"]   # noted, never unfinished
+    assert report.main([str(copy)]) == 0 and "\n  note: its results.jsonl was written" in capsys.readouterr().out
     (copy / "summary.json").unlink()
     assert "no summary.json beside its rows" in report.report(copy)["unfinished"]
     other = write(tmp_path / "other" / "results.jsonl", "".join(
         json.dumps({**r, "judge": {**r["judge"], "score": 1.0 - r["judge"]["score"]}}) + "\n" for r in rows))
     write(other.parent / "summary.json", summary)                 # three trials, but another mean score
     assert "is not of its rows" in report.report(other)["unfinished"]
+    failed = write(tmp_path / "failed" / "results.jsonl", "".join(  # the same scores, but a failed run among them
+        json.dumps({**r, "status": "error" if n == 0 else r["status"]}) + "\n" for n, r in enumerate(rows)))
+    write(failed.parent / "summary.json", summary)
+    assert "another count of failed runs" in report.report(failed)["unfinished"]
     text = (folder / "results.jsonl").read_text()                 # an eval stopped as it wrote its last row
     cut = write(tmp_path / "cut" / "results.jsonl", text[:len(text) - 40])
     write(cut.parent / "summary.json", summary)
@@ -4717,3 +4783,147 @@ def test_staging_deploys_pi_and_dsh_without_the_tools_the_runner_serves(tmp_path
         assert json.loads((workspace / ".pi" / "mcp.json").read_text()) == {"mcpServers": {}}
     else:
         assert not [r for r in json.loads((workspace / ".dsh" / "hermit.patch.yml").read_text()) if "insert" in r]
+
+
+# ---- the round-10 review: what tells the host's failure from the adapter's, and Codex's readings ---------------------
+
+def test_a_staging_child_that_failed_beside_this_machines_own_failure_is_infra_never_the_adapters_0(
+        tmp_path, fake_harbor, monkeypatch):
+    """A staging child's failure (its RuntimeError) is the adapter's unless this process sees this machine fail any
+    adapter's staging there: less than STAGING_FREE_MB free beside the trial's job, or the strict adapter sandbox not
+    starting (bubblewrap without its namespaces: sandbox_fault). Then the trial, and a stream's step, are infra
+    (staging_failed: run again), the child's own words kept in the message; the same failure beside room and a sandbox
+    that starts is the adapter's (adapter_failed, scored 0)."""
+    from collections import namedtuple
+    import shutil as shutil_mod
+    from hermit.harbor import runner as runner_mod
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    make_task(tasks, "flow", steps=("s1", "s2"))
+    rows = {r["id"]: r for r in dataset.index(tasks)}
+    agent = make_agent(tmp_path, fake_harbor, tasks)
+
+    def stage(*args, **kwargs):
+        raise RuntimeError("deploying the adapter failed: OSError: [Errno 28] No space left on device")
+    monkeypatch.setattr("hermit.harbor.runner.stage", stage)
+    usage, real_usage = namedtuple("usage", "total used free"), shutil_mod.disk_usage
+    bwrap = "the strict adapter sandbox did not start (exit 1): bwrap: setting up uid map: Permission denied"
+    for case, low, fault in (("full", True, None), ("sandbox", False, bwrap), ("adapter", False, None)):
+        monkeypatch.setattr(runner_mod.shutil, "disk_usage",
+                            (lambda path: usage(1 << 40, 1 << 40, 10 << 20)) if low else real_usage)
+        monkeypatch.setattr(runner_mod, "sandbox_fault", lambda enforce, fresh=True, fault=fault: fault)
+        for row in (rows["alpha"], rows["flow:s1"]):
+            out = agent.run(row, simple_template())
+            want = ("agent_error", "adapter_failed") if case == "adapter" else ("infra", "staging_failed")
+            assert (out.output["status"], out.output["failure_cause"]) == want, (case, row["id"])
+            if case != "adapter":
+                message = out.extra["exception_message"]
+                assert ("10 MB free" if low else "bwrap: setting up uid map") in message, (case, message)
+                assert "No space left on device" in message, (case, message)       # the child's own words, kept
+    assert not agent._in_flight
+
+
+def test_a_runner_on_a_machine_whose_bubblewrap_cannot_start_its_sandbox_is_refused_at_startup(
+        tmp_path, fake_harbor, monkeypatch):
+    """bubblewrap installed but unable to start the strict adapter sandbox (no user namespaces, an AppArmor rule)
+    would fail every trial's staging: the runner is refused at startup, saying why and the way out (sandbox_enforce:
+    best_effort, with which it starts); once a sandbox started in this process, a later runner does not try again."""
+    import shutil as shutil_mod
+    import subprocess as subprocess_mod
+    from hermit import sandbox as sandbox_mod
+    from hermit.harbor import runner as runner_mod
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    real_which, tries = shutil_mod.which, []
+    monkeypatch.setattr(runner_mod.shutil, "which",
+                        lambda name, *a, **k: "/usr/bin/bwrap" if name == "bwrap" else real_which(name, *a, **k))
+    monkeypatch.setattr(runner_mod, "_SANDBOX_STARTED", [])
+    monkeypatch.setattr(runner_mod, "sandbox_fault", REAL_SANDBOX_FAULT)
+
+    def refused(command, **kwargs):
+        tries.append(command)
+        return subprocess_mod.CompletedProcess(command, 1, "", "bwrap: setting up uid map: Permission denied\n")
+    monkeypatch.setattr(sandbox_mod, "run_in_strict_sandbox", refused)
+    with pytest.raises(ValueError, match=r"the strict adapter sandbox did not start \(exit 1\): bwrap: setting up uid "
+                                         r"map: Permission denied: every trial's staging would fail"):
+        make_agent(tmp_path, fake_harbor, tasks)
+    assert make_agent(tmp_path, fake_harbor, tasks, sandbox_enforce="best_effort").cli == "codex"
+    monkeypatch.setattr(sandbox_mod, "run_in_strict_sandbox",
+                        lambda command, **kwargs: (tries.append(command), subprocess_mod.CompletedProcess(
+                            command, 0, "", ""))[1])
+    make_agent(tmp_path, fake_harbor, tasks)
+    make_agent(tmp_path, fake_harbor, tasks)
+    assert len(tries) == 2                                   # the refused try, then one that started: no more
+
+
+def test_a_trials_launch_plan_refused_for_its_adapter_is_the_adapters_0_and_with_no_adapter_the_configs_error(
+        tmp_path, fake_harbor, monkeypatch):
+    """A launch plan refused at a trial for what its adapter is (dsh's MCP server name made of the adapter's id, over 32
+    characters or with a '.') is the adapter's result, as a deployment of it that failed: adapter_failed, scored 0 with
+    the message as its feedback, for a trial and for a stream's step alike. With no adapter, the same plan rendered at
+    startup (check_agent), so its refusal then is the config's: a pipeline error, as before."""
+    from hermit.trainer.rollout import run_one
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    make_task(tasks, "flow", steps=("s1", "s2"))
+    rows = {r["id"]: r for r in dataset.index(tasks)}
+    agent = make_agent(tmp_path, fake_harbor, tasks)
+
+    def refuse(self, *args, **kwargs):
+        raise ValueError("dsh takes an MCP server name of 32 characters at most ([A-Za-z0-9_-]), not 'a.b'")
+    monkeypatch.setattr(HarborAgent, "_launch", refuse)
+    for row in (rows["alpha"], rows["flow:s1"]):
+        record = run_one(row, simple_template(), agent.run, judge.score)
+        assert (record["status"], record["output"]["status"], record["output"]["failure_cause"]) == \
+            ("ok", "agent_error", "adapter_failed"), row["id"]
+        assert record["judge"]["score"] == 0.0 and "32 characters at most" in record["judge"]["feedback"]
+    assert not agent._in_flight and not list((tmp_path / "jobs").glob("alpha-*/alpha__*"))      # no trial ran
+    with pytest.raises(ValueError, match="32 characters at most"):
+        agent.run(rows["alpha"], None)
+
+
+def test_a_codex_session_that_failed_on_its_own_after_a_reconnect_it_went_on_from_is_the_agents_result(
+        tmp_path, fake_harbor, monkeypatch):
+    """A Codex session that met a provider's notice, reconnected (Codex went on: an item after it) and then failed on
+    its own (its turn failed, not on the provider) is the agent's result, scored and never run again: the runner reads
+    Codex's last failure (signin.codex_unavailable), where the Base Agent's reading of the whole stream (main's Codex
+    outcome) takes the reconnect's notice for an outage."""
+    from hermit.agent.base.cli import Codex
+    raw = TIMED_OUT + '{"type":"turn.failed","error":{"message":"exit"}}\n'
+    assert outcome(Codex({}), raw, tmp_path / "read")["unavailable"] is True           # main's reading: an outage
+    monkeypatch.setenv("FAKE_DEFAULT_STREAM", raw)
+    monkeypatch.setenv("FAKE_HARBOR_MODE", "agent_exit")                     # the CLI exited 1; the verifier ran
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha", image="example/alpha:1")
+    row = dataset.index(tasks)[0]
+    out = make_agent(tmp_path, fake_harbor, tasks, infra_retries=1, infra_wait_s=0).run(row, None)
+    assert (out.output["status"], "unscored" in out.extra, out.extra["session"]["unavailable"]) == \
+        ("agent_error", False, False)
+    assert len(list((tmp_path / "jobs").glob("alpha-*"))) == 1                  # not run again
+
+
+def test_a_stream_given_up_twice_keeps_the_first_reason(tmp_path, fake_harbor):
+    """A stream two of its steps gave up (one ending before its driver, another as it waited) keeps the first reason,
+    which the steps after it report."""
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "flow", steps=("s1", "s2", "s3"))
+    agent = make_agent(tmp_path, fake_harbor, tasks)
+    agent._give_up("flow__s1__x", 2, "staging_failed")
+    agent._give_up("flow__s1__x", 3, "tools_failed")
+    assert agent._given_up["flow__s1__x"] == \
+        "its step 2 ended before it reached the stream's driver (staging_failed)"
+
+
+def test_curate_puts_at_the_top_the_stream_the_plan_names_never_another_clis_the_agent_wrote(tmp_path):
+    """The log's top stream is the one the trial's launch plan names (a Pi trial's agent-pi.jsonl): a file of another
+    CLI's name the session wrote in its agent folder (an agent-codex.jsonl) is never taken for it; a plan of the answer
+    agent, whose answer.json is no CLI's stream, puts none at the top."""
+    trial = tmp_path / "trial"
+    write(trial / "agent" / "agent-pi.jsonl", '{"type":"session"}\n')
+    write(trial / "agent" / "agent-codex.jsonl", '{"type":"thread.started"}\n')       # the session's own file
+    plan = write(tmp_path / "job" / "launch" / "plan.json", json.dumps({"stream": "agent-pi.jsonl"}))
+    log = curate.curate(trial, tmp_path / "job", errors.classify(trial_result()), plan=plan)
+    assert (log / "agent-pi.jsonl").read_text() == '{"type":"session"}\n' and not (log / "agent-codex.jsonl").exists()
+    answer = write(tmp_path / "answer" / "launch" / "plan.json", json.dumps({"stream": "answer.json"}))
+    log = curate.curate(trial, tmp_path / "answer", errors.classify(trial_result()), plan=answer)
+    assert not (log / "agent-pi.jsonl").exists() and not (log / "agent-codex.jsonl").exists()

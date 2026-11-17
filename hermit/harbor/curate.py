@@ -154,7 +154,7 @@ def curate(outputs: Path | None, job: Path, verdict: dict, *, result: dict | Non
             with open(log / "exception.txt", "a", encoding="utf-8") as f:
                 f.write("\n" + str(trace))
     if outputs is not None:
-        _outputs(Path(outputs), log, result, redact)
+        _outputs(Path(outputs), log, result, redact, _plan_stream(plan))
     if instruction:
         (log / "task.md").write_text(instruction if instruction.endswith("\n") else instruction + "\n",
                                      encoding="utf-8")
@@ -178,12 +178,31 @@ def _prompt(instruction: str, plan: Path | None) -> str:
     return prompt
 
 
-def _outputs(outputs: Path, log: Path, result: dict | None, redact) -> None:
+def _plan_stream(plan: Path | None) -> str | None:
+    """The stream the launch `plan` names, "" for one that is no CLI's stream (the answer agent's answer.json) or a
+    plan that cannot be read; None without a plan, or one that names none (Harbor's own agents: their stream found by
+    TOP_STREAMS)."""
+    if plan is None:
+        return None
+    try:
+        data = json.loads(Path(plan).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    name = data.get("stream") if isinstance(data, dict) else None
+    if name is None:
+        return None
+    return name if name in TOP_STREAMS else ""
+
+
+def _outputs(outputs: Path, log: Path, result: dict | None, redact, named: str | None = None) -> None:
+    """The trial's outputs into the log; at its top, the CLI's stream: the one its plan `named` (a trial's agent may
+    write another CLI's), else the first TOP_STREAMS finds."""
     if result is None and (outputs / "result.json").is_file():
         shutil.copy2(outputs / "result.json", log / "result.json")
     agent = outputs / "agent"
     if agent.is_dir():
-        stream = next((n for n in TOP_STREAMS if (agent / n).is_file() and not (agent / n).is_symlink()), None)
+        names = TOP_STREAMS if named is None else [named] if named else []
+        stream = next((n for n in names if (agent / n).is_file() and not (agent / n).is_symlink()), None)
         for child in sorted(agent.iterdir()):
             if child.is_symlink():
                 continue

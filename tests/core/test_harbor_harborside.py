@@ -82,6 +82,7 @@ if [ -n "$CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR" ]; then
   echo "parent-environ-token: $(tr '\0' '\n' < /proc/$PPID/environ | grep -c '^CLAUDE_CODE_OAUTH_TOKEN=')"
 fi
 echo "pgid-is-own: $([ "$(ps -o pgid= -p $$ | tr -d ' ')" = "$$" ] && echo yes || echo no)"
+[ -n "$CODEX_HOME" ] && echo "auth-mode: $(stat -c %a "$CODEX_HOME/auth.json" 2>/dev/null)"
 mkdir -p hermit/demo/memory && echo "learned something" >> hermit/demo/memory/NOTES.md
 echo "the answer" > "$CODEX_HOME/last_message.txt"
 echo '{"refreshed": true}' > "$CODEX_HOME/auth.json"
@@ -1547,17 +1548,34 @@ def harbor_side(check: str, scratch: Path) -> dict:
             raised, _ = answer_run(answer_agent(name, answer_file="/app/answer.txt"), env)
             report[name] = {"raised": raised, "kept": (scratch / name / "logs" / "answer.json").is_file()}
 
-        class QuotaReached(Path):
-            """A logs directory on a host whose disk quota is reached: writing a file there fails."""
+        class QuotaReached:
+            """A host whose disk quota is reached: the answer's own file in the logs directory cannot be made."""
 
-            def write_text(self, *args, **kwargs):
+            @staticmethod
+            def mkstemp(*args, **kwargs):
                 raise OSError(errno.EDQUOT, os.strerror(errno.EDQUOT))
         unkept, env = answer_agent("unkept", answer_file="/app/answer.txt"), FakeEnv()
-        unkept.logs_dir = QuotaReached(unkept.logs_dir)
+        kept_tempfile, answer_module.tempfile = answer_module.tempfile, QuotaReached
         replies.append((200, {"choices": [{"message": {"content": "[ANSWER]B[/ANSWER]"}}]}))
-        raised, _ = answer_run(unkept, env)
+        try:
+            raised, _ = answer_run(unkept, env)
+        finally:
+            answer_module.tempfile = kept_tempfile
         report["unkept"] = {"raised": raised, "logs": str(unkept.logs_dir),
                             "writes": [c[2] for c in calls(env, "exec") if "base64 -d" in c[2]]}
+        # a link the task's container left at answer.json (its logs folder is the container's /logs/agent)
+        planted, env = answer_agent("planted"), FakeEnv()
+        outside = scratch / "planted-outside.txt"
+        outside.write_text("a file of this machine\n")
+        planted.logs_dir.mkdir(parents=True, exist_ok=True)
+        (planted.logs_dir / "answer.json").symlink_to(outside)
+        replies.clear()                          # (an earlier case's spare reply, queued in case it asked)
+        replies.append((200, {"choices": [{"message": {"content": "B"}}]}))
+        raised, _ = answer_run(planted, env)
+        kept = planted.logs_dir / "answer.json"
+        report["planted"] = {"raised": raised, "outside": outside.read_text(), "link": kept.is_symlink(),
+                             "answer": json.loads(kept.read_text()).get("answer") if kept.is_file() else None,
+                             "left": sorted(p.name for p in planted.logs_dir.iterdir())}
         replies.clear()
         server.shutdown()
         server.server_close()
@@ -1960,6 +1978,10 @@ def verdict(raised: list) -> tuple:
     return got["status"], got["failure_cause"]
 
 
+# the sign-in a trial returns: downloaded, then removed from the container
+RETURNED = ["download_file:/installed-agent/hermit-home/auth.json", "exec:rm -f /installed-agent/hermit-home/auth.json"]
+
+
 def test_a_codex_plan_is_carried_out_in_order_with_its_files_where_the_cli_reads_them(checks):
     """The deployment (copy, host files, context, record), the home, the prompt and the launch script, the launch;
     afterwards the kill, the copy-back, the collected files and the returned sign-in. Placeholders are filled with
@@ -1977,7 +1999,8 @@ def test_a_codex_plan_is_carried_out_in_order_with_its_files_where_the_cli_reads
     assert after[0].startswith("exec:p=$(cat /installed-agent/hermit/run/session.pid")
     assert after[1].startswith("exec:rm -rf /logs/agent/hermit-copy && mkdir -m 755")
     assert after[2].startswith("exec:rm -rf /logs/agent/hermit-collect && mkdir -m 755")
-    assert after[-1] == "download_file:/installed-agent/hermit-home/auth.json"
+    assert after[-2:] == ["download_file:/installed-agent/hermit-home/auth.json",
+                          "exec:rm -f /installed-agent/hermit-home/auth.json"]     # the sign-in leaves with its copy
     files = r["uploaded"]
     assert files["/app/hermit/demo/ADAPTER.md"] == "The adapter.\n"
     assert files["/app/.codex/hooks.json"] == '{"hooks": {}}' and files["/app/.codex/config.toml"] == "# roles\n"
@@ -2341,7 +2364,7 @@ def test_harbors_timeout_landing_in_an_after_step_still_runs_the_rest_and_then_c
     assert after[0].startswith("exec:p=$(cat /installed-agent/hermit/run/session.pid")
     assert after[1].startswith("exec:rm -rf /logs/agent/hermit-copy && mkdir -m 755")       # cancelled, not run again
     assert after[2].startswith("exec:rm -rf /logs/agent/hermit-collect && mkdir -m 755")    # and the rest still ran
-    assert after[-1] == "download_file:/installed-agent/hermit-home/auth.json"
+    assert after[-2:] == RETURNED
     assert r["returned"] == "downloaded /installed-agent/hermit-home/auth.json"
     assert r["metadata"]["after_session_errors"] == ["copy_back: cancelled"]
 
@@ -2357,7 +2380,7 @@ def test_harbors_timeout_landing_in_the_return_of_the_files_still_brings_the_ref
     check = "exec:test -f /installed-agent/hermit-home/auth.json && test ! -L "
     assert after[2].startswith("exec:rm -rf /logs/agent/hermit-collect && mkdir -m 755")
     assert [step.startswith(check) for step in after[3:5]] == [True, True], after        # cancelled, then once more
-    assert after[5:] == ["download_file:/installed-agent/hermit-home/auth.json"]
+    assert after[5:] == RETURNED
     assert r["returned"] == "downloaded /installed-agent/hermit-home/auth.json"
     assert r["metadata"]["after_session_errors"] == ["return_files: cancelled"]
 
@@ -2379,7 +2402,7 @@ def test_a_launch_failure_or_a_non_zero_exit_keeps_its_own_error_when_harbors_ti
     for name, got in r.items():
         after = got["order"][got["order"].index("exec:exec bash /installed-agent/hermit/run/launch.sh") + 1:]
         assert after[2].startswith("exec:rm -rf /logs/agent/hermit-collect && mkdir -m 755"), name          # it hung
-        assert after[-1] == "download_file:/installed-agent/hermit-home/auth.json", name    # and the rest still ran
+        assert after[-2:] == RETURNED, name    # the rest ran
         assert got["returned"] == "downloaded /installed-agent/hermit-home/auth.json", name
         assert got["metadata"]["after_session_errors"] == ["collect: cancelled"], name
 
@@ -2393,7 +2416,7 @@ def test_once_the_run_is_cancelled_each_after_step_has_a_bounded_time_and_the_fi
     assert r["metadata"]["after_session_errors"] == ["copy_back: not done within 0.3 s of the run's cancellation",
                                                      "collect: not done within 0.3 s of the run's cancellation"]
     assert r["metadata"]["killed"] is True
-    assert r["order"][-1] == "download_file:/installed-agent/hermit-home/auth.json"
+    assert r["order"][-2:] == RETURNED
     assert r["returned"] == "downloaded /installed-agent/hermit-home/auth.json"
 
 
@@ -2512,7 +2535,8 @@ def test_the_launch_script_runs_the_cli_with_its_prompt_variables_and_secrets_an
     assert r["copied_notes"] == "# Notes\nlearned something\n"
     assert r["collected"] == ["last_message.txt"]
     assert r["returned"] == '{"refreshed": true}\n'
-    assert r["home_modes"]["auth.json"] == "0o600" and r["home_modes"]["config.toml"] == "0o600"
+    assert "auth-mode: 600" in lines                                       # the session's sign-in, its owner's alone
+    assert "auth.json" not in r["home_modes"] and r["home_modes"]["config.toml"] == "0o600"   # gone once returned
     assert r["home_config"].startswith('[projects."/app"]')
     assert r["pidfile_left"] is False and r["leaks"] == []
     assert r["metadata"]["exit_code"] == 0 and r["metadata"]["killed"] is False
@@ -2938,7 +2962,8 @@ def test_the_answer_agents_answer_this_machine_could_not_write_or_keep_is_a_laun
     client not spawned: an OSError from the exec itself, EMFILE, EAGAIN on a loaded host), or answer.json could not be
     kept on this machine (its disk quota reached, the answer then not written): HermitLaunchError saying what failed,
     which Hermit's side counts as infra (launch_failed), as it does a write the container refused, not an unclassified
-    agent error scored 0."""
+    agent error scored 0. A link the task's container left at answer.json (the folder is its /logs/agent) is
+    replaced, never followed onto this machine."""
     r = report(checks, "answer")
     for name, number in (("write_unspawned", errno.EMFILE), ("write_unspawned_eagain", errno.EAGAIN)):
         got, raised = r[name], OSError(number, os.strerror(number))      # as Python raises it: EAGAIN's BlockingIOError
@@ -2953,6 +2978,9 @@ def test_the_answer_agents_answer_this_machine_could_not_write_or_keep_is_a_laun
     assert unkept["raised"] == ["HermitLaunchError", f"hermit: the answer could not be kept in {unkept['logs']}/"
                                 f"answer.json: OSError: {raised}"], unkept
     assert verdict(unkept["raised"]) == ("infra", "launch_failed") and unkept["writes"] == []
+    planted = r["planted"]                       # the link replaced, never followed: this machine's file untouched
+    assert (planted["raised"], planted["outside"], planted["link"], planted["answer"], planted["left"]) == \
+        (None, "a file of this machine\n", False, "B", ["answer.json"])
 
 
 def test_every_class_refuses_unknown_kwargs_a_bad_plan_and_harbors_model_overrides(checks):
