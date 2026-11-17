@@ -20,7 +20,7 @@ last target (in joint mode, its joints when the press began); both arms rise bef
 first pose (turning above a button sweeps the fingers into it).
 
 It is not robust: a finger that slides off a cap's centre during the hold can still let the cap rebound on the
-lift and count twice (it did on set 0, layout 14, with COUNTS = (2, 1))."""
+lift and count twice (it did on a held-out layout)."""
 import json
 import sys
 

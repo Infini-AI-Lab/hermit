@@ -467,6 +467,10 @@ def test_the_rows_keep_development_and_held_out_layouts_in_different_sets(tmp_pa
     held = {r["suite"]: r["eval_layouts"] for r in rows}                # as many as RoboDojo evaluates a set
     assert P.EVAL_25 <= set(held) and held["push_T"] == 25 and held["press_by_number"] == 50
     assert sorted(held.values()).count(25) == 12 and set(held.values()) == {25, 50}
+    P.main(["--eval", "40"])                                            # at most RoboDojo's own, as its main.py
+    capped = {json.loads(line)["suite"]: json.loads(line)["eval_layouts"]
+              for line in (tmp_path / "tasks.jsonl").read_text().splitlines()}
+    assert capped["press_by_number"] == 40 and capped["push_T"] == 25
     with pytest.raises(SystemExit):
         P.main(["--dev-set", "0"])                           # the development set is a held-out set
 
@@ -580,6 +584,56 @@ def test_the_judge_scores_the_program_on_the_held_out_sets_only(tmp_path, monkey
     monkeypatch.setenv("ROBODOJO_JUDGE_GPU", "1")            # a GPU of the judge's own
     J.score(row, out({"program": GOOD}))
     assert [options["gpu"] for options in made[-2:]] == ["4", "1"]
+    assert made[-1]["timeout_s"] == J.JUDGE_TIMEOUT_S >= 24 * 3600     # RoboDojo puts no limit on a set
+    monkeypatch.setenv("ROBODOJO_JUDGE_TIMEOUT", "600")
+    J.score(row, out({"program": GOOD}))
+    assert made[-1]["timeout_s"] == 600.0
+
+    class Failed(Engine):                                    # the host's failure, its log under a host path
+        def run(self, program, *, task, layout_seed, layouts, out):
+            raise J.dojo.NoResult(f"the evaluation ended (exit 1) with no result: see {tmp_path}/x.private/robodojo.log")
+    monkeypatch.setattr(J.dojo, "Engine", Failed)
+    with pytest.raises(RuntimeError) as raised:              # raised, not scored as failed layouts
+        J.score(row, out({"program": GOOD}))
+    assert "NoResult" in str(raised.value) and str(tmp_path) not in str(raised.value)   # no host path to the Evolver
+
+
+def test_the_engine_gives_robodojo_no_secrets_and_the_program_s_worker_its_limits(tmp_path, monkeypatch):
+    """RoboDojo's processes get the host's environment without its secrets; the program's worker runs with a
+    memory and file-size limit and answers within RoboDojo's client's 120 s."""
+    dojo = _load("dojo", UTILS / "agent" / "dojo.py")
+    model = _load("hermit_program_model", UTILS / "policy" / "hermit_program" / "model.py")
+    root = fake_robodojo(tmp_path)
+    dojo.install(root)
+    (tmp_path / "work").mkdir()
+    program = tmp_path / "work" / "policy.py"
+    program.write_text(GOOD)
+    seen, boxes = [], []
+
+    class Ended:
+        pid, returncode = 0, 1
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    monkeypatch.setattr(dojo.subprocess, "Popen", lambda cmd, **kwargs: seen.append(kwargs) or Ended())
+    import hermit.sandbox as sandbox
+    real = sandbox.Sandbox
+
+    def recording(*args, **kwargs):
+        boxes.append(kwargs)
+        return real(*args, **{**kwargs, "enabled": False})
+    monkeypatch.setattr(sandbox, "Sandbox", recording)
+    monkeypatch.setenv("FIREWORKS_API_KEY", "k-secret")
+    monkeypatch.setenv("GH_TOKEN", "t-secret")
+    engine = dojo.Engine(root)
+    with pytest.raises(dojo.NoResult):
+        engine.run(program, task="stack_bowls", layout_seed=2, layouts=1, out=tmp_path / "out")
+    env = seen[0]["env"]
+    assert "FIREWORKS_API_KEY" not in env and "GH_TOKEN" not in env and env["PATH"] == os.environ["PATH"]
+    assert boxes[0]["limits"] == {"memory_mb": 8192, "file_mb": 512}
+    assert engine.step_timeout_s < 120 and env["HERMIT_PROGRAM_STEP_TIMEOUT"] == str(engine.step_timeout_s)
+    assert model.STEP_TIMEOUT_S < 120                         # the policy server's own default
 
 
 def test_the_configs_load_and_show_the_task_sandbox_nothing_of_robodojo():

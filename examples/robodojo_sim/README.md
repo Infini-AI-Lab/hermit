@@ -41,8 +41,13 @@ scores on sets 0 and 1, each as RoboDojo evaluates a set: its first 50 layouts, 
 fraction of those layouts that succeeded; a layout with no result counts as failed (RoboDojo drops a layout whose
 episode raised or whose scene went unstable and scores a later one instead, which a program must not gain by, so
 the later one is not counted). An evaluation that leaves no result at all (a simulator that crashed, an environment
-that is missing) is the host's failure: it is reported, not scored. **This is not RoboDojo's leaderboard
-protocol**, which scores all three sets: a number from here is on two of them, with the third developed on.
+that is missing), or does not start, is the host's failure, not failed layouts of the program: `bin/sim` says so to
+the session, and the judge raises it, which the trainer records as a judge error (`judge_error`, scored 0 in the
+step's mean). RoboDojo puts no time limit on a set; the judge stops one after two days (`ROBODOJO_JUDGE_TIMEOUT`;
+the longest task's 50 layouts take about six hours) and the layouts it did not reach count as failed. A program has
+110 s to answer a call (RoboDojo's client waits 120 s). **This is not RoboDojo's leaderboard protocol**, which
+scores all three sets: a number from here is on two of them, with the third developed on. The tasks are RoboDojo's
+forty-two (`scripts/internal/task_inventory.py`); its `*_random` variants of the generalization tasks are left out.
 
 The observation is RoboDojo's default for `arx_x5`: three RGB cameras, the arms' joints and end-effector poses,
 the grippers, the instruction. It has no depth and no camera calibration, so a program localizes from images alone;
@@ -56,7 +61,9 @@ the success conditions and the results, beside which XPolicyLab's policy server 
 - The program is never imported by the policy server. It runs as a worker in a bubblewrap sandbox with no network
   that reads the worker and a directory holding the program alone: not the checkout, and not the run's output,
   where the held-out results are written while it runs (`dojo.Engine._worker`; the sandbox's own check finds both
-  missing inside). It receives RoboDojo's observation and returns an action chunk.
+  missing inside), with 8 GB of memory and 512 MB a file (its stderr log among them), so that it exhausts its
+  own sandbox, not the host the simulator shares. It receives RoboDojo's observation and returns an action chunk.
+  RoboDojo's processes get the host's environment without its secrets (a model's API key).
 - Every action that reaches the simulator is whole and bounded (`model.py`: `checked`): both arms in one mode and
   both grippers, what the program left out filled from the observation, numbers within 1000 after the cast to
   float32. RoboDojo raises on a partial action and drops the layout unscored; with whole actions and the fixed
@@ -74,7 +81,9 @@ What this does not cover: the layouts of a set run in order, so a program can co
 from that without the layout files. The program's process lasts across the episodes of one evaluation (it is loaded
 again only after an episode in which it failed), so a program can carry what it saw in one held-out layout into the
 next, as a policy with memory could under RoboDojo's own evaluation. The held-out sets are RoboDojo's public evaluation layouts: a model that has
-seen them elsewhere is outside what a sandbox can hold.
+seen them elsewhere is outside what a sandbox can hold. A session's evaluations through `bin/sim` are not limited in
+number and are not stopped when the session ends: one left running holds its GPU (and the judge's, when the judge
+has none of its own: `ROBODOJO_JUDGE_GPU`) until it ends, up to its six hours.
 
 In RoboDojo's Assets every task has, in each of the three sets, at least five layouts more than it evaluates (the
 spares replace abandoned ones), and the sets differ, except for
@@ -82,6 +91,11 @@ spares replace abandoned ones), and the sets differ, except for
 score is not a held-out score.
 
 ## Setup
+
+RoboDojo is not in Harbor's task format, as `examples/README.md` asks of a benchmark: a task is developed and scored
+on one Isaac Sim simulator per GPU, shared through a host service that keeps the development and held-out layout
+sets apart, which Harbor's one container per trial does not express. Where Isaac Sim does not install natively, the
+simulator runs in RoboDojo's own container image (below), the only Docker this example drives.
 
 1. RoboDojo, as its documentation installs it (Python 3.11, Isaac Sim 5.1, Isaac Lab 2.3; an NVIDIA GPU with 16 GB
    or more; `bash scripts/init_assets.sh` for the Assets), at the commit above, with its `XPolicyLab` submodule.

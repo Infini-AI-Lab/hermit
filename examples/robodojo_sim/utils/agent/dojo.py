@@ -25,6 +25,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -40,6 +41,11 @@ WORKER = HERE.parent / "policy" / "worker.py"
 SPLIT = HERE / "split_eval.sh"                           # the simulator in RoboDojo's container
 NOT_STARTED = (70, 125, 126, 127)                        # split_eval.sh: no policy server; docker run's own failures
 NAME = POLICY.name
+# What RoboDojo's processes are not given of the host's environment: its secrets (a model's API key, say)
+SECRET = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH", re.I)
+# The program's worker, per process: memory and the size of a file it writes (its stderr log among them), so that
+# a program exhausts its own sandbox, not the host the simulator and the policy server share
+PROGRAM_LIMITS = {"memory_mb": 8192, "file_mb": 512}
 BENCH = "RoboDojo"
 # One simulator at a time for a GPU, across the service's sessions and the judge (two processes): Isaac Sim takes
 # the GPU's memory, and a second one would fail the first one's layouts
@@ -104,7 +110,7 @@ class Engine:
 
     def __init__(self, root: Path | str, *, policy_env: str = "RoboDojo", eval_env: str = "RoboDojo",
                  env_cfg: str = "arx_x5", action_type: str = "joint", gpu: str | int = 0,
-                 timeout_s: float = 6 * 3600, step_timeout_s: float = 60.0, image: str | None = None,
+                 timeout_s: float = 6 * 3600, step_timeout_s: float = 110.0, image: str | None = None,
                  cache: Path | str | None = None):
         self.root = Path(root).expanduser().resolve()
         if not (self.root / "scripts" / "robodojo.sh").is_file():
@@ -162,7 +168,7 @@ class Engine:
         keep = ["PYTHONPATH", "PYTHONDONTWRITEBYTECODE"]
         box = Sandbox(enabled=True, role="robodojo-program", network="isolated", env_allow=keep, framework=False,
                       readable=[WORKER.parent, staged], probe_absent=[self.root, out, private],
-                      record_dir=private / "sandbox")
+                      record_dir=private / "sandbox", limits=dict(PROGRAM_LIMITS))
         try:
             argv, env = box.wrap([sys.executable, str(WORKER), str(staged / "policy.py")],
                                  env=framework_env(no_bytecode=True), keep=keep)
@@ -204,7 +210,7 @@ class Engine:
         staged = Path(tempfile.mkdtemp(prefix=f".{out.name}.program-", dir=out.parent))
         (staged / "policy.py").write_bytes(code)
         box, worker = self._worker(staged, out, private)
-        env = {**os.environ, "ROBODOJO_RUN_ID": run_id, "HERMIT_PROGRAM_WORKER": worker,
+        env = {**{k: v for k, v in os.environ.items() if not SECRET.search(k)}, "ROBODOJO_RUN_ID": run_id, "HERMIT_PROGRAM_WORKER": worker,
                "HERMIT_PROGRAM_LOG": str(out / "program.jsonl"), "HERMIT_PROGRAM_STEP_TIMEOUT": str(self.step_timeout_s)}
         cmd = ["bash", "scripts/robodojo.sh", "eval", "--policy-dir", f"XPolicyLab/policy/{NAME}", "--task", task,
                "--ckpt", label, "--policy-env", self.policy_env, "--eval-env", self.eval_env,

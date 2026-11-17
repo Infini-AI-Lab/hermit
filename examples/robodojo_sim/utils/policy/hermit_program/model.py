@@ -35,7 +35,7 @@ ARM = {"joint": {"left_arm_joint_state": 6, "right_arm_joint_state": 6},
        "ee": {"left_ee_pose": 7, "right_ee_pose": 7}}
 GRIPPER = {"left_ee_joint_state": 1, "right_ee_joint_state": 1}
 MAX_CHUNK = 100                           # four seconds at RoboDojo's 25 Hz
-STEP_TIMEOUT_S = float(os.environ.get("HERMIT_PROGRAM_STEP_TIMEOUT", 60))   # RoboDojo's client waits 120 s
+STEP_TIMEOUT_S = float(os.environ.get("HERMIT_PROGRAM_STEP_TIMEOUT", 110))  # under RoboDojo's client's 120 s
 
 
 class ProgramError(Exception):

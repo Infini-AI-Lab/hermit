@@ -9,7 +9,12 @@ not counted either.
 The engine's settings come from the launcher's environment: ROBODOJO_ROOT (the checkout), ROBODOJO_OUT (where the
 runs go), ROBODOJO_GPU (or ROBODOJO_JUDGE_GPU, a GPU of the judge's own, so that it does not wait for the sessions'
 simulator), ROBODOJO_POLICY_ENV and ROBODOJO_EVAL_ENV (the environments), ROBODOJO_ENV_CFG, ROBODOJO_ACTION_TYPE,
-and ROBODOJO_IMAGE and ROBODOJO_CACHE (the simulator in RoboDojo's container: dojo.Engine)."""
+and ROBODOJO_IMAGE and ROBODOJO_CACHE (the simulator in RoboDojo's container: dojo.Engine).
+
+RoboDojo puts no time limit on a set; the judge stops one after ROBODOJO_JUDGE_TIMEOUT seconds (JUDGE_TIMEOUT_S, two
+days: a set of the longest task's 50 layouts takes about six hours), and the layouts it did not reach count as
+failed. An evaluation that leaves no result at all, or does not start, is the host's failure: the judge raises it,
+without the host's paths (the trainer records a judge error, and the Evolver reads its message)."""
 from __future__ import annotations
 
 import hashlib
@@ -20,6 +25,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "agent"))
 import dojo  # noqa: E402
+
+JUDGE_TIMEOUT_S = 48 * 3600
 
 
 def score(task: dict, output) -> dict:
@@ -40,12 +47,19 @@ def score(task: dict, output) -> dict:
     env = os.environ
     engine = dojo.Engine(env["ROBODOJO_ROOT"], policy_env=env.get("ROBODOJO_POLICY_ENV", "RoboDojo"),
                          eval_env=env.get("ROBODOJO_EVAL_ENV", "RoboDojo"), env_cfg=env.get("ROBODOJO_ENV_CFG", "arx_x5"),
-                         action_type=env.get("ROBODOJO_ACTION_TYPE", "joint"), gpu=env.get("ROBODOJO_JUDGE_GPU") or env.get("ROBODOJO_GPU", "0"))
+                         action_type=env.get("ROBODOJO_ACTION_TYPE", "joint"), gpu=env.get("ROBODOJO_JUDGE_GPU") or env.get("ROBODOJO_GPU", "0"),
+                         timeout_s=float(env.get("ROBODOJO_JUDGE_TIMEOUT") or JUDGE_TIMEOUT_S))
     passed = missing = 0
     per_set = {}
     for layout_set in sets:
-        records = engine.run(out / "policy.py", task=task["suite"], layout_seed=layout_set, layouts=count,
-                             out=out / f"set-{layout_set}")
+        try:
+            records = engine.run(out / "policy.py", task=task["suite"], layout_seed=layout_set, layouts=count,
+                                 out=out / f"set-{layout_set}")
+        except (dojo.NoResult, dojo.NotStarted) as exc:     # the host's: its log is in the run's private directory
+            print(f"judge: {task['id']}, set {layout_set}: {exc}", file=sys.stderr)
+            raise RuntimeError(f"held-out set {layout_set}: {type(exc).__name__}: the host's simulator "
+                               f"{'did not start' if isinstance(exc, dojo.NotStarted) else 'left no result'}; "
+                               "not the program's doing") from None
         mine = {r["layout_id"]: r for r in records if 0 <= r["layout_id"] < count}    # the set's first `count`
         good = sum(bool(r["task_success"]) for r in mine.values())
         per_set[layout_set] = {"passed": good, "no_result": count - len(mine)}

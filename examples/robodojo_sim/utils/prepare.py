@@ -53,7 +53,8 @@ def main(argv=None) -> None:
     ap.add_argument("--dev-set", type=int, help="the layout set a session develops on")
     ap.add_argument("--dev", type=int, help="how many of its layouts, from the first")
     ap.add_argument("--eval-sets", help="the held-out layout sets, run only by the judge (e.g. 0,1)")
-    ap.add_argument("--eval", type=int, help="how many layouts of each, from the first (default: RoboDojo's own)")
+    ap.add_argument("--eval", type=int, help="how many layouts of each, from the first (default and at most: "
+                                             "RoboDojo's own, as its main.py caps EVAL_NUM)")
     a = ap.parse_args(argv)
     chosen = {k: getattr(a, k) if getattr(a, k) is not None else v for k, v in PRESETS[a.preset].items()}
     eval_sets = [int(s) for s in str(chosen["eval_sets"]).split(",") if s.strip()]
@@ -64,7 +65,7 @@ def main(argv=None) -> None:
     rows = [{"id": f"robodojo-{task}", "benchmark": BENCHMARK, "suite": task, "task_id": 0, "dimension": dimension,
              "layout_set": chosen["dev_set"], "debug_seeds": f"0-{chosen['dev'] - 1}",
              "eval_layout_sets": eval_sets,
-             "eval_layouts": chosen["eval"] or (25 if task in EVAL_25 else EVAL_NUMS)}
+             "eval_layouts": min(chosen["eval"] or EVAL_NUMS, 25 if task in EVAL_25 else EVAL_NUMS)}
             for dimension, tasks in DIMENSIONS.items() for task in tasks]
     (HERE / "tasks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
     splits = HERE / "splits"
