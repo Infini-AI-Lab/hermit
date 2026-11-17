@@ -50,6 +50,7 @@ EARLIER = "earlier"                                      # earlier drivers' tria
 POLL_S = 5.0
 TURN_GRACE_POLLS = 2                                     # a missing earlier step is waited for this many polls more
 START_TIMEOUT_S = 3600.0                                 # the environment's build and the agent's install
+ENDING_WAIT_S = 30.0                                     # an ending driver's exit, waited for before the next starts
 STOP_TIMEOUT_S = 900.0                                   # a stop's answer: the environment down, the result written
 HARBORSIDE = Path(__file__).resolve().parent / "harborside"
 
@@ -122,9 +123,12 @@ class StreamClient:
             return None
 
     def running(self) -> dict | None:
-        """The live driver's record, or None when there is none (or it died)."""
+        """The live driver's record, or None when there is none: no record, its process gone (a zombie too: gone), its
+        socket gone, or a driver that is ending (its record's `ending`: its step loop over, its socket about to close),
+        which no request may use any more and whose stream's next pass starts a new driver (ensure waits it out)."""
         info = self.info()
-        if info and alive(int(info.get("pid", 0))) and Path(info.get("socket", "")).exists():
+        if info and not info.get("ending") and alive(int(info.get("pid", 0))) and \
+                Path(info.get("socket", "")).exists() and not self.gone():
             return info
         return None
 
@@ -162,12 +166,28 @@ class StreamClient:
             try:
                 info = self.running()
                 if info is None:
+                    self._wait_out()
                     info = self._start(task_dir=task_dir, name=name, agent=agent, environment=environment,
                                        verifier=verifier or {}, idle_s=idle_s, env=env, trial=trial or {})
             finally:
                 fcntl.flock(lock, fcntl.LOCK_UN)
         self._wait_ready(info, start_timeout_s)
         return info
+
+    def _wait_out(self, timeout_s: float | None = None) -> None:
+        """An earlier driver of this directory that `running` no longer takes but whose process is still there (one
+        ending: its step loop over, its socket still open; one whose socket is gone) waited for until its process has
+        ended (ENDING_WAIT_S at most), then killed if it has not: a new driver never binds the socket's path while the
+        old one is still to remove it at its exit, nor shares its trial's name with a process still using it."""
+        if self.gone():
+            return
+        deadline = time.time() + (ENDING_WAIT_S if timeout_s is None else timeout_s)
+        while time.time() < deadline and not self.gone():
+            time.sleep(0.1)
+        if not self.gone():
+            self.log(f"the stream's earlier driver had not ended {ENDING_WAIT_S:.0f} s after it stopped answering: "
+                     "killing it")
+            self.kill()
 
     def _start(self, *, task_dir: Path, name: str, agent: dict, environment: dict, verifier: dict, idle_s: float,
                env: dict | None, trial: dict) -> dict:

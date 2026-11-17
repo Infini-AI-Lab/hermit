@@ -10,8 +10,8 @@
         tasks_dir: ../utils/tasks            # the Harbor task directories (dataset.py exports or indexes them)
         model: openai/gpt-5.6-luna           # a `<backend>/<model>` reference (the backend's endpoint and key), or
                                              # with `login` the CLI's model name; the answer agent's model a CLI
-                                             # reaches ({cli: codex | claude | pi, model, login}, as `llm`'s) goes in
-                                             # the benchmark file: here it is refused (CONFIG_CLI_MODEL)
+                                             # reaches ({cli: codex | claude, model, login}, on the CLI's login) goes
+                                             # in the benchmark file: here it is refused (CONFIG_CLI_MODEL)
         login: chatgpt                       # Codex on the user's ChatGPT sign-in; claude: Claude Code on the user's
                                              # subscription (CLAUDE_CODE_OAUTH_TOKEN; plan_dir, usage_credits,
                                              # busy_retries, busy_wait_s, login_root as a CLI session's,
@@ -259,16 +259,22 @@ CONFIG_REFUSED = re.compile(r"(?:^|\((?:exit -?\d+|timed out)\): |\bAPI error(?:
                             r"not have access|not[ _]found|(?:may|does|model) not exist|(?:invalid|unknown)[ _]model|"
                             r"not a valid model|credit balance is too low|insufficient[_ ]?quota|"
                             r"^\s*Quota exceeded\. Check your plan and billing details\b|"
-                            r"(?<!/)\bbilling(?! details)|unsupported[ _](?:parameter|value)|"
-                            r"unrecognized request argument|unsupported[ _-]operation", re.I | re.M)
+                            r"(?<!/)\bbilling(?! details)|unsupported[ _](?:parameter|value)|model is not supported\b|"
+                            r"unrecognized request argument|unsupported[ _-]operation|" + signin.CODEX_PLAN_REFUSED,
+                            re.I | re.M)
 CONFIG_STATUSES = (401, 402, 403, 404)                           # ... the answer agent's: its model endpoint's status
 # ... of them, an account the provider does not bill (its quota or its credit spent, a payment it needs): nothing later
 # can be served, as after an API account's usage limit, so it ends the run (usage_limit, a halt)
 BILLING_REFUSED = re.compile(r"(?:^|\((?:exit -?\d+|timed out)\): |\bAPI error(?:: | \()|\bError code: |"
                              r"(?:\bstatus(?:[ _]code)?|\"code\")\"?:? ?\"?)402\b|\(HTTP 402\)|payment required|"
                              r"credit balance is too low|insufficient[_ ]?(?:quota|balance|credits?|funds)\b|"
-                             r"^\s*Quota exceeded\. Check your plan and billing details\b|(?<!/)\bbilling(?! details)",
-                             re.I | re.M)
+                             r"^\s*Quota exceeded\. Check your plan and billing details\b|(?<!/)\bbilling(?! details)|"
+                             + signin.CODEX_PLAN_REFUSED, re.I | re.M)
+# ... and OpenAI's code for an API account whose quota or credit is spent, which comes with a 429 (the status of a rate
+# limit, which a pause ends: `unavailable`), in the error's code or type (the answer agent's relay records it) or in
+# the words a CLI's failure quotes of the reply: nothing later can be served, so it ends the run too
+QUOTA_SPENT = "insufficient_quota"
+QUOTA_SAID = re.compile(r"\binsufficient_quota\b")
 CLOSE_STOP_S = 120.0                     # a driver's stop when its runner is closed or freed: then it is killed
 STAGING_FREE_MB = 64                     # a staging child failed beside less free: the host's, not the adapter's
 
@@ -335,7 +341,8 @@ def _close_runner_streams(drivers: dict, streams: dict, lock) -> None:
 
 def _events(raw: str):
     """The JSON objects of a CLI's stream, one per line (a line that is none, or one nested past the JSON parser's
-    depth, is skipped; U+0085, U+2028 and U+2029 end no line, hermit.agent.base.cli._objects)."""
+    depth, is skipped; U+0085, U+2028 and U+2029 end no line, though main's reader, hermit.agent.base.cli._objects,
+    ends one there: `hermit/harbor/FRAMEWORK_SUPPORT.md`, candidate 9)."""
     for line in raw.split("\n"):
         if not line.lstrip().startswith("{"):
             continue
@@ -355,7 +362,14 @@ def billing_refused(facts: dict) -> bool:
     """Whether a refusal of the run's configuration (config_refused) is the provider's refusal to bill the account
     (BILLING_REFUSED): the answer agent's model endpoint's last status 402, or the message."""
     statuses = facts.get("statuses") or []
-    return (bool(statuses) and statuses[-1] == 402) or bool(BILLING_REFUSED.search(str(facts.get("failure") or "")))
+    return (bool(statuses) and statuses[-1] == 402) or facts.get("code") == QUOTA_SPENT or \
+        bool(BILLING_REFUSED.search(str(facts.get("failure") or "")))
+
+
+def quota_spent(facts: dict) -> bool:
+    """Whether a session the provider could not serve (`unavailable`: a 429 among them) was refused because the API
+    account's quota or credit is spent (QUOTA_SPENT: the relay's code, a CLI's words), which no pause ends."""
+    return facts.get("code") == QUOTA_SPENT or bool(QUOTA_SAID.search(str(facts.get("failure") or "")))
 
 
 _SANDBOX_STARTED: list[bool] = []        # a strict adapter sandbox started in this process (a runner's startup)
@@ -394,7 +408,8 @@ def config_refused(facts: dict) -> bool:
     statuses = facts.get("statuses") or []
     said = bool(CONFIG_REFUSED.search(str(facts.get("failure") or "")))
     if statuses:
-        return statuses[-1] in CONFIG_STATUSES or (statuses[-1] == 400 and (said or facts.get("code") == UNSUPPORTED))
+        return statuses[-1] in CONFIG_STATUSES or (statuses[-1] == 400 and (said or facts.get("code") == UNSUPPORTED)) \
+            or facts.get("code") == QUOTA_SPENT
     return said
 
 
@@ -483,11 +498,23 @@ class HarborAgent(Agent):
     @staticmethod
     def check_shared_model(model, where) -> None:
         """A model the benchmark file gives (the run config giving none) is a name (the CLI's own, with a login; one of
-        Harbor's own agents') or a model a CLI reaches (`{cli: ...}`, which the runner serves itself). A
-        `<backend>/<model>` reference or another model mapping is refused: it belongs in the run config's own
-        agent.params.model, which the config's loading resolves and hermit check and hermit train check (its backend,
-        its key), and which they never read in the benchmark file."""
-        if model is None or (isinstance(model, dict) and model.get("cli")):
+        Harbor's own agents') or a model a CLI reaches on its login (`{cli: ..., login: ...}`, which the runner serves
+        itself, as written). A `<backend>/<model>` reference or another model mapping is refused: it belongs in the run
+        config's own agent.params.model, which the config's loading resolves and hermit check and hermit train check
+        (its backend, its key), and which they never read in the benchmark file; and so is a `{cli: ...}` model
+        without a login, which only a config's loading would bind, as it binds `llm`'s (its reference's key, endpoint
+        and hosts)."""
+        if isinstance(model, dict) and model.get("cli"):
+            if not model.get("login"):
+                # served as it is written (tools.ModelEndpoint): no config's loading binds a reference here, as it
+                # binds `llm`'s, so a session would run with no key, no endpoint and no host it may reach
+                raise ValueError(f"agent.params.benchmark {where} gives model {{cli: {model['cli']}}} with no login: "
+                                 "the runner serves the benchmark file's model as written, on the CLI's own sign-in "
+                                 "(login: chatgpt for codex, claude for claude), and binds no <backend>/<model> "
+                                 "reference there (Pi, which has no login, cannot be such a model); give its login, "
+                                 "or a <backend>/<model> reference in the run config's own agent.params.model")
+            return
+        if model is None:
             return
         if isinstance(model, str) and launch.binding_of({"model": model}) is None:
             return
@@ -634,7 +661,7 @@ class HarborAgent(Agent):
 
     @property
     def cli_model(self) -> dict | None:
-        """`model: {cli: codex | claude | pi, model, login, ...}`: a model only a CLI reaches (the answer agent's, each
+        """`model: {cli: codex | claude, model, login, ...}`: a model only a CLI reaches (the answer agent's, each
         request one session of that CLI on this machine: hermit.agent.base.endpoint.cli_endpoint), or None."""
         model = self.params.get("model")
         return dict(model) if isinstance(model, dict) and model.get("cli") else None
@@ -647,7 +674,8 @@ class HarborAgent(Agent):
             return self.cli_model
         if self.binding is None:
             raise ValueError("the answer agent needs agent.params.model: a <backend>/<model> reference, or a model a "
-                             "CLI reaches (model: {cli: codex | claude | pi, model: ..., login: ...})")
+                             "CLI reaches on its login, in the benchmark file (model: {cli: codex | claude, model: "
+                             "..., login: ...})")
         spec, bound, model = self.binding.spec(), self.params.get("binding"), self.params.get("model")
         # the spec the binding was made from (launch.binding_of): the bound one, else the model's own mapping
         given = bound if isinstance(bound, dict) and bound.get("base_url") and bound.get("model") else model
@@ -809,6 +837,22 @@ class HarborAgent(Agent):
         setup = max(int(self.params.get("setup_budget_s") or SETUP_BUDGET_S), int(self.setup_timeout_sec or 0))
         return agent + setup + verifier + built + int(self.params.get("teardown_budget_s") or TEARDOWN_BUDGET_S)
 
+    def _turn_wait(self, task: dict, index: int, settings: dict) -> float:
+        """How long a stream's step waits for its turn: `stream.turn_wait_s`, else the budgets of the steps before it,
+        each its own (a step may set its own agent and verifier timeouts: dataset.rows_of), or the first step's own,
+        and the driver's start (`stream.start_timeout_s`)."""
+        if settings.get("turn_wait_s"):
+            return float(settings["turn_wait_s"])
+        start = float(settings["start_timeout_s"])
+        try:
+            earlier = [r for r in dataset.rows_of(self.task_dir(task)) if 0 < int(r.get("step_index") or 0) < index]
+        except (OSError, ValueError, KeyError, TypeError, StopIteration):  # read at startup: the step's own then
+            earlier = []
+        if len(earlier) != index - 1:               # its steps not as at startup: this step's budget for each
+            return max(1, index - 1) * self.wait_budget(task, build=False) + start
+        own = sum(self.wait_budget(r, build=False) for r in earlier) if earlier else self.wait_budget(task, build=False)
+        return own + start
+
     def timeout_multiplier(self, key: str) -> float:
         """Harbor's job-level multiplier `key` (TIMEOUT_MULTIPLIERS), 1 when unset; never below 1."""
         value = float(self.params.get(key) or 1.0)
@@ -824,6 +868,8 @@ class HarborAgent(Agent):
         if task is not None and self.restricted(task):
             web = False
         extra = dict(self.acting_agent.get("settings") or {})
+        if extra.get("config"):                  # mini-swe-agent's config file: a relative one as the params' paths
+            extra["config"] = str(self._path(extra["config"]))
         return launch.settings_for(self.cli, model=self.params.get("model"), binding=self.binding,
                                    effort=self.params.get("effort"), web_search=web, login=self.login, extra=extra)
 
@@ -854,6 +900,11 @@ class HarborAgent(Agent):
         model = self.params.get("model")
         if not isinstance(self.acting_agent.get("settings") or {}, dict):
             raise ValueError("agent.params.acting_agent.settings is a mapping of the CLI Base Agent's settings")
+        if "login" in (self.acting_agent.get("settings") or {}):
+            # the session would sign in with it (launch.render_plan) where the runner, which reads agent.params.login
+            # alone, neither checks it nor hands the trial its sign-in, its plan and its refusals
+            raise ValueError("agent.params.acting_agent.settings.login: a trial's login is agent.params.login (its "
+                             "sign-in, its plan, the refusals of a login its CLI cannot take); give it there")
         if not shutil.which("bwrap"):
             from hermit.adapter.session import ENV_ENFORCE
             if (self.params.get("sandbox_enforce") or os.environ.get(ENV_ENFORCE, "required")) == "required":
@@ -1310,16 +1361,27 @@ class HarborAgent(Agent):
         self.stopped()                                       # another rollout ended the run while this one waited
         return free
 
-    def _disk_held(self) -> str:
+    def _disk_held(self, task: dict | None = None) -> str:
         """Which disk gate held a trial back once wait_for_disk gave up, for its verdict: the host's /tmp when it is
-        short of its own gate now (that gate is waited for first), else Docker's data root."""
+        short of its own gate now (that gate is waited for first), else Docker's data root, with the room the task's
+        image takes when it is not here yet (`image_sizes`) and the room other trials hold for their pulls, which
+        wait_for_disk counts as taken."""
         tmp_gate = self.params.get("tmp_gate_gb")
         tmp_gate = float(TMP_GATE_GB if tmp_gate is None else tmp_gate)
         if tmp_gate > 0 and docker.free_gb(HOST_TMP) < tmp_gate:
             return f"the host's {HOST_TMP} stayed under {tmp_gate:g} GB free"
         gate = self.params.get("disk_gate_gb")
         gate = float(DISK_GATE_GB if gate is None else gate)
-        return f"the Docker data root {self._docker_root()} stayed under {gate:g} GB free"
+        held = f"the Docker data root {self._docker_root()} stayed under {gate:g} GB free"
+        image = docker.task_image(self.task_dir(task)) if task is not None else None
+        image_gb = self.image_gb(image) if image else 0.0
+        if image_gb and docker.image_size(image) is None:
+            held += f" with {image_gb:.1f} GB more for the task's image {image}, not here yet"
+        with self.pulls.lock:
+            taken = self.pulls.taken_gb()
+        if taken:
+            held += f", beside {taken:.1f} GB held for the images other trials are still to pull"
+        return held
 
     def image_gb(self, image: str) -> float:
         """An image's estimated size on disk (GB), from `image_sizes`; 0 when unknown."""
@@ -1596,7 +1658,7 @@ class HarborAgent(Agent):
 
     def _trial_admitted(self, task: dict, adapter: Path | None, started: float, admitted: list) -> RunOutput:
         if not self.wait_for_disk(task, admitted):
-            return self._output(task, no_trial("disk", f"{self._disk_held()}: no container started"), None, None,
+            return self._output(task, no_trial("disk", f"{self._disk_held(task)}: no container started"), None, None,
                                 started)
         job_name = f"{_safe(task['id'])}-{uuid.uuid4().hex[:8]}"
         job = self.jobs_dir / job_name
@@ -1855,6 +1917,10 @@ class HarborAgent(Agent):
                     "exception_message": f"the model's one request waited for its login's plan, which held its "
                                          f"session back ({facts['plan_held']}), and had no answer when the agent's "
                                          "time ran out"}
+        if facts.get("unavailable") and not facts.get("refused") and not facts.get("served") and not ran_out and \
+                quota_spent(facts):         # a 429 for a quota spent: nothing later can be served, as after a 402
+            return {**verdict, "status": "infra", "failure_cause": "usage_limit", "halt": True,
+                    "exception_message": f"the provider does not bill the account (its quota spent): {message()}"}
         if (facts.get("refused") or facts.get("unavailable")) and not facts.get("served") and not ran_out:
             cause = "usage_limit" if facts.get("refused") else "model_provider_failed"
             return {**verdict, "status": "infra", "failure_cause": cause,
@@ -2029,7 +2095,11 @@ class HarborAgent(Agent):
         client = StreamClient(stream_dir, python=self.harbor_python)
         # this rollout's own: a rollout of the step after another (an eval's repeat, a later epoch) keeps its records
         step_dir = stream_dir / "steps" / f"{index:03d}-{_safe(name)}-{uuid.uuid4().hex[:8]}"
-        step_dir.mkdir(parents=True)
+        try:
+            step_dir.mkdir(parents=True)
+        except OSError:                     # this machine's (host_failed): the step never reaches the driver either
+            self._give_up(stream, index, "host_failed")
+            raise
         if index > 1 and client.running() is None and (why := self._first_step_missing(stream, client)):
             # its turn cannot come (no driver, nor a rollout of the first step to start one): it ends before anything
             # is staged or served for it, as the check before the driver's start below would end it
@@ -2098,23 +2168,30 @@ class HarborAgent(Agent):
                 try:
                     if client.running() is None and index > 1 and (why := self._first_step_missing(stream, client)):
                         raise TurnLostError(index, why)          # no driver (an environment) started for it
-                    if client.running() is None and not self.wait_for_disk():
-                        self._give_up(stream, index, "disk")
-                        return self._output(task, no_trial("disk", f"{self._disk_held()}: the stream's environment "
-                                                                   "was not started"), None, None, started)
-                    with self._streams_lock:                     # this runner's to stop until it finishes (close)
-                        self._drivers.setdefault(stream, client)
-                    client.ensure(task_dir=self.task_dir(task), name=stream, agent=agent,
-                                  environment=self.environment_config(), verifier=self.verifier_config(),
-                                  idle_s=float(settings["idle_s"]), env=self.harbor_env(keep),
-                                  start_timeout_s=float(settings["start_timeout_s"]),
-                                  trial={k: self.timeout_multiplier(k) for k in TIMEOUT_MULTIPLIERS})
-                    budget = self.wait_budget(task, build=False)
+                    # the environment's start: the disk gate, with room for the task's image as a single trial's
+                    # (held until the driver is up, its image then pulled)
+                    room: list = []
+                    try:
+                        if client.running() is None and not self.wait_for_disk(task, room):
+                            self._give_up(stream, index, "disk")
+                            return self._output(task, no_trial("disk", f"{self._disk_held(task)}: the stream's "
+                                                                       "environment was not started"), None, None,
+                                                started)
+                        with self._streams_lock:                 # this runner's to stop until it finishes (close)
+                            self._drivers.setdefault(stream, client)
+                        client.ensure(task_dir=self.task_dir(task), name=stream, agent=agent,
+                                      environment=self.environment_config(), verifier=self.verifier_config(),
+                                      idle_s=float(settings["idle_s"]), env=self.harbor_env(keep),
+                                      start_timeout_s=float(settings["start_timeout_s"]),
+                                      trial={k: self.timeout_multiplier(k) for k in TIMEOUT_MULTIPLIERS})
+                    finally:
+                        for key in room:
+                            self.pulls.done(key)
                     # Earlier steps of the stream may be running in other rollouts of the same batch: wait for them,
                     # each for its own budget at most (or `stream.turn_wait_s`); not for one no rollout is running (rows
                     # are submitted in order: an earlier step of the batch has begun by then), whose turn never comes.
-                    turn_wait = float(settings.get("turn_wait_s") or (max(1, index - 1) * budget
-                                                                     + float(settings["start_timeout_s"])))
+                    budget = self.wait_budget(task, build=False)
+                    turn_wait = self._turn_wait(task, index, settings)
                     client.wait_turn(index, timeout_s=turn_wait, missing=lambda nxt: self._step_missing(stream, nxt))
                     self.stopped()                               # another rollout ended the run while this one waited
                     turn = True

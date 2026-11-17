@@ -108,21 +108,82 @@ def redact_verifier(text: str, patterns) -> str:
     return text
 
 
+DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+
+
 def _files(src: Path, dst: Path, *, text_only: bool = False, skip=()) -> None:
     """The regular files below `src` (`text_only`: AGENT_SUFFIXES' only), each at most AGENT_FILE_LIMIT, copied under
     `dst`, none in a directory named in `skip`. A link is never followed nor copied: the container wrote `src`, and a
-    link there could name a file of this machine."""
-    for directory, dirs, files in os.walk(src):
-        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(directory, d)) and d not in skip]
-        for name in files:
-            path = Path(directory) / name
-            if path.is_symlink() or not path.is_file() or path.stat().st_size > AGENT_FILE_LIMIT:
+    link there could name a file of this machine. The walk holds each directory open and opens what is in it through
+    it, never following a link at any name (O_NOFOLLOW), so a link that a process the agent left running (a stream's
+    environment stays up between steps) swaps in for a file or a folder while the walk runs is met as a link, never
+    followed; an entry that vanishes or cannot be read meanwhile is left out. A failure to write under `dst` (this
+    machine's disk) raises."""
+    try:
+        top = os.open(src, DIR_FLAGS)
+    except OSError:
+        return
+    _walk(top, dst, text_only, frozenset(skip))
+
+
+def _walk(dir_fd: int, dst: Path, text_only: bool, skip: frozenset) -> None:
+    """_files' walk of the directory open at `dir_fd` (closed after it) into `dst`."""
+    try:
+        try:
+            names = sorted(os.listdir(dir_fd))
+        except OSError:
+            return
+        for name in names:
+            try:
+                st = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+            except OSError:
                 continue
-            if text_only and path.suffix not in AGENT_SUFFIXES:
-                continue
-            target = dst / path.relative_to(src)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, target)
+            if stat.S_ISDIR(st.st_mode):
+                if name in skip:
+                    continue
+                try:
+                    child = os.open(name, DIR_FLAGS, dir_fd=dir_fd)
+                except OSError:
+                    continue
+                _walk(child, dst / name, text_only, skip)
+            elif stat.S_ISREG(st.st_mode) and not (text_only and Path(name).suffix not in AGENT_SUFFIXES):
+                try:
+                    fd = os.open(name, FILE_FLAGS, dir_fd=dir_fd)
+                except OSError:
+                    continue
+                _copy_open(fd, dst / name)
+    finally:
+        os.close(dir_fd)
+
+
+def _copy_open(fd: int, target: Path) -> None:
+    """The file open at `fd` (closed after it) copied to `target` with its times, when it is a regular file of at most
+    AGENT_FILE_LIMIT; at most that much of it all the same when it grows meanwhile. A read that fails (the
+    container's file) ends the copy with what was read; a write that fails (this machine's disk) raises."""
+    with os.fdopen(fd, "rb") as f:
+        try:
+            st = os.fstat(f.fileno())
+        except OSError:
+            return
+        if not stat.S_ISREG(st.st_mode) or st.st_size > AGENT_FILE_LIMIT:
+            return
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(target, "wb") as out:
+            left = AGENT_FILE_LIMIT
+            while left > 0:
+                try:
+                    chunk = f.read(min(1 << 20, left))
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                out.write(chunk)
+                left -= len(chunk)
+    try:
+        os.utime(target, ns=(st.st_atime_ns, st.st_mtime_ns))
+    except OSError:
+        pass
 
 
 def curate(outputs: Path | None, job: Path, verdict: dict, *, result: dict | None = None,
@@ -218,11 +279,12 @@ def _outputs(outputs: Path, log: Path, result: dict | None, redact, named: str |
                 elif child.name == COPY_DIR and (child / MEMORY).is_dir() and not (child / MEMORY).is_symlink():
                     _files(child / MEMORY, log / MEMORY)
                 continue
-            # a regular file only: a FIFO or a device the session left under a text name is never opened
-            if child.suffix in AGENT_SUFFIXES and child.is_file() and child.stat().st_size <= AGENT_FILE_LIMIT:
+            # a regular file only, opened at its own name (open_regular): a FIFO or a device the session left under a
+            # text name is never read, nor a link swapped in for the file since the checks above
+            if child.suffix in AGENT_SUFFIXES and (fd := open_regular(child)) is not None:
                 top = TOP_STREAMS[child.name] if child.name == stream else HOOK_AUDIT if child.name == HOOK_AUDIT \
                     else None
-                shutil.copy2(child, log / top if top else log / "agent" / child.name)
+                _copy_open(fd, log / top if top else log / "agent" / child.name)
     verifier = outputs / "verifier"
     text = regular_text(verifier / "test-stdout.txt")
     if text is not None:

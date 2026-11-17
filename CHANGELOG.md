@@ -152,7 +152,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   what its adapter is (its tools beside `text_only`, dsh's MCP server name made of its id) is the agent's 0 too. A
   session the provider refused for the run's configuration (Codex's: such a 400 or 404, not retried) is infra
   (`model_rejected`), as the other CLIs' are; one it refused for the account's bill (a 402, an API account's quota or
-  credit spent) ends the run, as an API account's usage limit does; Codex's usage limit and lost sign-in are read from
+  credit spent, a 429 for a spent quota, a Codex plan that refuses every session until someone acts) ends the run, as
+  an API account's usage limit does; Codex's usage limit and lost sign-in are read from
   Codex's own notices, never from what its log quotes of the session's work. The judge scores the verifier's reward
   whenever the verifier gave one, a timeout or an agent error included, as Harbor's own job mean does. A lost sign-in
   (a Codex trial's, read from its stream, or a Claude Code trial's), an API account's usage limit, or its bill
@@ -162,7 +163,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   remaining steps in that epoch); its steps run in order, each with its own launch plan and allowed hosts, so a split
   keeps their file order (`data.shuffle: false`), and a step out of its turn ends `stream_order`, as do the later
   steps of one that ended in any way before its driver was asked for it, which is then stopped, as the drivers of the
-  streams a runner leaves unfinished are when it is freed or the process exits. Startup refuses what every trial
+  streams a runner leaves unfinished are when it is freed or the process exits; a stream's next pass starts its
+  driver once the earlier one has exited, and a step's log, curated while the environment stays up, never copies
+  through a link the container swapped in. Startup refuses what every trial
   would: a login for another CLI, a sign-in or a key that is not there, no `web_search`, a loopback model, bubblewrap
   missing or unable to start the strict adapter sandbox, Harbor's retry on `login: chatgpt`, a secret in
   `acting_agent.env` (a name Harbor takes for one), a benchmark file whose `model` is a `<backend>/<model>` reference

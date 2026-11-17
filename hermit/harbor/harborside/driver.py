@@ -292,6 +292,7 @@ async def serve(args) -> int:
     watcher = asyncio.create_task(idle_watch())
     result = await trial.run()                               # _prepare, then _run (the request loop), then _finalize
     watcher.cancel()
+    _mark_ending(stream_dir)
     # A request queued after the loop ended (a step after an environment failure) is answered now.
     while not trial.commands.empty():
         _, future = trial.commands.get_nowait()
@@ -304,6 +305,22 @@ async def serve(args) -> int:
     sock.unlink(missing_ok=True)
     log(f"done: {'error ' + trial.error if trial.error else 'reward ' + str((result.verifier_result or {}) and result.verifier_result.rewards)}")
     return 0 if trial.error is None else 1
+
+
+def _mark_ending(stream_dir: Path) -> None:
+    """The driver's record says it is ending (`ending`), before any request is answered from here on (a `stop` waits
+    on `done`): a client never takes a driver that is closing for a live one (StreamClient.running), and starts the
+    stream's next driver only once this process has ended (StreamClient.ensure), whose exit removes the socket's path
+    that the next driver binds. Written whole (os.replace); a disk that refuses it leaves the record as it was."""
+    path = stream_dir / "driver.json"
+    try:
+        record = json.loads(path.read_text())
+        record["ending"] = True
+        part = path.with_name(path.name + ".part")
+        part.write_text(json.dumps(record) + "\n")
+        os.replace(part, path)
+    except (OSError, ValueError, AttributeError, TypeError):
+        pass
 
 
 def main(argv=None) -> int:

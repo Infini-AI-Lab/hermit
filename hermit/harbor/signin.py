@@ -65,13 +65,23 @@ CODEX_RECOVERY = re.compile(r"\s*(?:Reconnecting\.\.\.|Falling back from WebSock
 # Of those, its retry of a request that failed, with what failed (in its parentheses, when it names it); its fall back
 # to HTTPS retries none (the request goes on over HTTPS)
 CODEX_RETRY = re.compile(r"\s*Reconnecting\.\.\.(?:\s*\d+\s*/\s*\d+)?\s*(?:\((?P<reason>.*)\))?", re.S)
+# Codex's own words for a plan that refuses every session until someone acts, which no window's reset ends: a
+# workspace's credits spent or its spend cap reached, a member's limit the owner set, a ChatGPT plan without Codex
+# (the runner's BILLING_REFUSED: they end the run, as an API account's spent quota does). Its plan's usage limit, which
+# the window's reset ends, is the Base Agent's (hermit.agent.base.login.LIMIT: "You've hit your usage limit").
+CODEX_PLAN_REFUSED = (r"\bYour workspace is out of credits\b|\bYou(?:'re| are) out of credits\b|"
+                      r"\bYou hit your spend cap\b|\breached your usage limit\. Increase your limits\b|"
+                      r"\bTo use Codex with your ChatGPT plan, upgrade to Plus\b")
 # Codex's failure of a request that no retry changes, in the error its turn failed with: a status it does not retry
 # ("unexpected status 402 Payment Required: ..."; a 400, a request setting the model does not take or a prompt too
 # long, which the runner's CONFIG_REFUSED tells apart; a 402, the account's bill; a 404, a model or an endpoint not
-# there), and its own words for an API account's quota (OpenAI's insufficient_quota). A 401 or a 403 is a lost sign-in
-# (CODEX_AUTH, CODEX_FORBIDDEN); a 429 or a 5xx the provider's (the Base Agent's UNAVAILABLE).
+# there), a provider's error body it gives as it is (a 400 it reads as an invalid request: '{"error": {"message":
+# "Unsupported value: ..."}}', '{"detail": "The ... model is not supported when using Codex with a ChatGPT
+# account."}'), its own words for an API account's quota (OpenAI's insufficient_quota), and CODEX_PLAN_REFUSED. A 401
+# or a 403 is a lost sign-in (CODEX_AUTH, CODEX_FORBIDDEN); a 429 or a 5xx the provider's (the Base Agent's
+# UNAVAILABLE).
 CODEX_REJECTED = re.compile(r"unexpected status (?:400|402|404)\b|^\s*Quota exceeded\. Check your plan and billing "
-                            r"details\b", re.M)
+                            r"details\b|^\s*\{\s*\"(?:error|detail)\"\s*:|" + CODEX_PLAN_REFUSED, re.M)
 # The provider's content filter ending a response ("stream disconnected before completion: Incomplete response
 # returned, reason: content_filter"): what the task's or the adapter's input made the request, the agent's result
 CODEX_FILTERED = re.compile(r"\bcontent_filter\b")
@@ -175,6 +185,8 @@ def _failure(raw: str) -> tuple[str, bool]:
         for message in said:
             retry = CODEX_RETRY.match(message)
             if retry:
+                # a retry that names no failure ("Reconnecting... 2/5") leaves `retried` empty: any error after it may
+                # be the one it retried, so none is taken for the session's own
                 retried, own = (retry.group("reason") or "").strip(), False
             elif retried and not warning and not CODEX_RECOVERY.match(message) and \
                     message.strip() not in retried and retried not in message:

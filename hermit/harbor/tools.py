@@ -153,10 +153,10 @@ def _add(total, used: list[dict]) -> None:
 class ModelEndpoint:
     """The answer-only agent's model on 127.0.0.1 (the module's docstring). `spec` is a model spec (a Binding's: the
     `direct` Base Agent relays each request to the backend, with the spec's client `timeout` and `max_retries`), or a
-    model only a CLI reaches (`{cli: codex | claude | pi, model, login, ...}`: each request one session of that CLI, in
-    a sandbox of its own, hermit.isolate.cli_sandbox, as a run's `llm: {cli: ...}`; its event streams kept under
-    `records`). `plan`: (the plan, whether its sessions may draw usage credits) of the login that CLI's sessions run
-    on (hermit.harbor.runner.HarborAgent.model_plan), which the relay waits for before each session (`facts`)."""
+    model only a CLI reaches on its login (`{cli: codex | claude, model, login, ...}`: each request one session of
+    that CLI, in a sandbox of its own, hermit.isolate.cli_sandbox, as a run's `llm: {cli: ...}`; its event streams kept
+    under `records`). `plan`: (the plan, whether its sessions may draw usage credits) of the login that CLI's sessions
+    run on (hermit.harbor.runner.HarborAgent.model_plan), which the relay waits for before each session (`facts`)."""
 
     def __init__(self, spec: dict, *, host: str = "127.0.0.1", records: Path | None = None,
                  enforce: str | None = None, plan: tuple | None = None):
@@ -239,7 +239,12 @@ class ModelEndpoint:
         any other failure of the session's start is a 502, as the endpoint's. A Codex session that gave no reply and
         whose stream says its sign-in or key was refused (signin.codex_signin_lost, which the Base Agent's Codex
         reading does not report) is a 401 with LOGIN_FAILED, as the endpoint says a Claude session's: the runner then
-        ends the run (no later call on that sign-in can be served)."""
+        ends the run (no later call on that sign-in can be served). One whose stream says the provider refused the
+        request for good (signin.codex_rejected: a 400, 402 or 404 Codex does not retry, a provider's error body,
+        Codex's words for a spent quota or a plan that refuses every session), which that reading leaves a 502 (the
+        provider's, which the runner runs again), is a 400 whose message ends with Codex's words, as a trial's Codex
+        session is read: a refusal of the run's configuration or bill, or else the agent's result (a prompt too
+        long)."""
         from hermit.agent.base.endpoint import _DROP, cli_answer, contract_problems
         from hermit.agent.base.interface import LOGIN_FAILED, Unsupported
         from hermit.harbor import signin
@@ -251,8 +256,10 @@ class ModelEndpoint:
         def streams() -> set:
             return set(os.listdir(folder)) if folder and os.path.isdir(folder) else set()
 
-        def lost(before: set) -> bool:
-            # the streams this call's sessions left in the agent's log_dir (endpoint.cli_answer keeps each there)
+        def said(before: set) -> tuple[bool, str | None]:
+            # (a lost sign-in, a refusal for good) in the streams this call's sessions left in the agent's log_dir
+            # (endpoint.cli_answer keeps each there)
+            refusal = None
             for name in sorted(streams() - before):
                 path = Path(folder) / name
                 if not name.endswith(".jsonl") or path.is_symlink() or not path.is_file():
@@ -261,12 +268,17 @@ class ModelEndpoint:
                     raw = path.read_text(encoding="utf-8", errors="replace")
                 except OSError:
                     continue
-                if signin.codex_signin_lost(raw.replace("\r\n", "\n").replace("\r", "\n")):
-                    return True
-            return False
+                raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+                if signin.codex_signin_lost(raw):
+                    return True, None
+                refusal = signin.codex_rejected(raw) or refusal
+            return False, refusal
 
         def checked(reply, before: set):
-            if not isinstance(reply, tuple) or reply[0] == 200 or folder is None or not lost(before):
+            if not isinstance(reply, tuple) or reply[0] == 200 or folder is None:
+                return reply
+            lost, refusal = said(before)
+            if not lost and not (refusal and reply[0] == 502):
                 return reply
             try:
                 body = json.loads(reply[1])
@@ -274,9 +286,15 @@ class ModelEndpoint:
                 body = {}
             body = body if isinstance(body, dict) else {}
             error = body.get("error") if isinstance(body.get("error"), dict) else {}
-            # the code first, as the endpoint writes it: a client's error text keeps only the start of the body
-            body["error"] = {"code": LOGIN_FAILED, **{k: v for k, v in error.items() if k != "code"}}
-            return 401, json.dumps(body).encode(), reply[2]
+            if lost:
+                # the code first, as the endpoint writes it: a client's error text keeps only the start of the body
+                body["error"] = {"code": LOGIN_FAILED, **{k: v for k, v in error.items() if k != "code"}}
+                return 401, json.dumps(body).encode(), reply[2]
+            # no retry changes it: the message ends with Codex's words, which the runner reads (_note keeps the end)
+            why = str(error.get("message") or "the codex session gave no reply")
+            body["error"] = {**{k: v for k, v in error.items() if k not in ("code", "message")},
+                             "message": f"{why}: {refusal}"}
+            return 400, json.dumps(body).encode(), reply[2]
 
         def answer(request, authorization, abort, note):
             problems, _ = contract_problems(agent, request)
@@ -318,6 +336,8 @@ class ModelEndpoint:
             body = body if isinstance(body, dict) else {}
             error = body.get("error")
             code = error.get("code") if status != 200 and isinstance(error, dict) else None
+            if code is None and status != 200 and isinstance(error, dict) and error.get("type") == "insufficient_quota":
+                code = "insufficient_quota"           # a spent quota some providers name by its type alone
             if status != 200:       # why it failed: a CLI session's 400 says it only here (endpoint._no_reply); its
                 # last 1000 characters: the whole of what that reply carries ("the <cli> session gave no reply (exit
                 # 1): " and the last 600 characters of the CLI's failure, whose leading status stays readable), the

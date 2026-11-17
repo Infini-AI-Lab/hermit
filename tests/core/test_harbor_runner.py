@@ -2509,6 +2509,10 @@ FAKE_DRIVER = textwrap.dedent('''\
             reply = status()
         elif req["op"] == "stop":
             state["finished"] = True; reply = {"ok": True, "stopped": True}
+            # as harborside.driver ends (_mark_ending): its record says so before the answer, its socket open a moment
+            record = json.loads((stream_dir / "driver.json").read_text()); record["ending"] = True
+            (stream_dir / "driver.json.part").write_text(json.dumps(record))
+            os.replace(stream_dir / "driver.json.part", stream_dir / "driver.json")
         elif req["op"] == "step":
             if req["index"] != state["next"]:
                 reply = {"ok": False, "out_of_order": True, "next_index": state["next"]}
@@ -2546,6 +2550,7 @@ FAKE_DRIVER = textwrap.dedent('''\
         else:
             reply = {"ok": False, "error": "unknown op"}
         conn.sendall((json.dumps(reply) + "\\n").encode()); conn.close()
+    time.sleep(0.5)                               # as harborside.driver's last answers: its socket there until it exits
     os.unlink(sock_path)
     ''')
 
@@ -3767,6 +3772,21 @@ def test_a_refusal_of_the_key_or_model_in_a_providers_own_wording_is_model_rejec
     relay._note((402, b'{"error": {"message": "This account is not active"}}', {}))
     relayed = HarborAgent.session_verdict(exited, relay.facts())
     assert (relayed["failure_cause"], relayed["halt"]) == ("usage_limit", True)
+    # a 429 for a spent quota (OpenAI's insufficient_quota, its code or its type alone), which no pause ends, ends the
+    # run too: the relay's, and a CLI's that quotes the reply; any other 429 is the provider's, a pause away
+    spent = b'{"error": {"message": "You exceeded your current quota, please check your plan and billing details.", '
+    for body in (spent + b'"type": "insufficient_quota", "code": "insufficient_quota"}}', spent + b'"type": '
+                 b'"insufficient_quota"}}'):
+        relay = ModelEndpoint(BINDING)
+        relay._note((429, body, {}))
+        relayed = HarborAgent.session_verdict(exited, relay.facts())
+        assert (relayed["failure_cause"], relayed["halt"]) == ("usage_limit", True), body
+    relay = ModelEndpoint(BINDING)
+    relay._note((429, b'{"error": {"message": "Rate limit reached", "code": "rate_limit_exceeded"}}', {}))
+    assert HarborAgent.session_verdict(exited, relay.facts())["failure_cause"] == "model_provider_failed"
+    quoted = verdict(pi_failed('429 {"error":{"message":"You exceeded your current quota, please check your plan and '
+                               'billing details.","type":"insufficient_quota","code":"insufficient_quota"}}'))
+    assert (quoted["failure_cause"], quoted["halt"]) == ("usage_limit", True)
     relay = ModelEndpoint(BINDING)                                     # ... and its refusal of the model
     relay._note((404, b'{"error": {"message": "The model does not exist"}}', {}))
     relayed = HarborAgent.session_verdict(exited, relay.facts())
@@ -4131,7 +4151,9 @@ def test_a_relayed_codex_session_that_lost_its_sign_in_is_a_401_whose_login_fail
     """The answer agent's model reached through Codex (`{cli: codex}`): a session that gave no reply and whose stream,
     kept in the agent's log_dir, says its sign-in was refused (signin.codex_signin_lost, which the Base Agent's Codex
     reading does not report) is a 401 with LOGIN_FAILED, as the endpoint says a Claude session's, so the trial's facts
-    say login_failed (the runner ends the run); one that failed otherwise keeps its reply (a 502: unavailable)."""
+    say login_failed (the runner ends the run); one the provider refused for good (signin.codex_rejected) is a 400
+    ending with Codex's words, read as a trial's Codex session is; one that failed otherwise keeps its reply (a 502:
+    unavailable)."""
     import threading
     from types import SimpleNamespace
     from hermit.agent.base import endpoint
@@ -4161,6 +4183,28 @@ def test_a_relayed_codex_session_that_lost_its_sign_in_is_a_401_whose_login_fail
     relay._note(reply)
     facts = relay.facts()
     assert (facts["login_failed"], facts["unavailable"]) == (False, True)
+    # a session the provider refused for good (signin.codex_rejected), which the Base Agent's Codex reading leaves a
+    # 502, is a 400 ending with Codex's words: the run's configuration (model_rejected), its bill (a halt), or the
+    # agent's result (a prompt too long), never the provider's outage run again
+    exited = errors.classify(trial_result(0.0, exc="NonZeroAgentExitCodeError"))
+    start = '{"type":"thread.started","thread_id":"th-1"}\n{"type":"turn.started"}\n'
+    for said, want in (("unexpected status 400 Bad Request: Unsupported parameter: 'max_tokens'", "model_rejected"),
+                       ("Your workspace is out of credits. Add credits to continue.", "usage_limit"),
+                       ('{"error":{"message":"Your input exceeds the context window of this model.",'
+                        '"type":"invalid_request_error","code":"context_length_exceeded"}}', None)):
+        streams = iter([start + json.dumps({"type": "turn.failed", "error": {"message": said}}) + "\n"])
+        relay = ModelEndpoint({"cli": "codex", "model": "gpt-5.6-luna"})
+        ask = relay._cli_answer(SimpleNamespace(backend="codex", settings={"log_dir": str(logs)}))
+        status, body, _ = reply = ask(request, None, threading.Event(), {})
+        assert status == 400 and json.loads(body)["error"]["message"].endswith(said), (said, body)
+        relay._note(reply)
+        facts = relay.facts()
+        assert (facts["rejected"], facts["unavailable"]) == (True, False), said
+        got = HarborAgent.session_verdict(exited, facts)
+        if want is None:
+            assert got["status"] == "agent_error" and got["failure_cause"] != "model_rejected", (said, got)
+        else:
+            assert (got["failure_cause"], bool(got.get("halt"))) == (want, want == "usage_limit"), (said, got)
 
 
 def test_a_login_trial_starts_no_container_once_another_trial_ended_the_run_while_it_waited(tmp_path, fake_harbor,
@@ -4530,6 +4574,30 @@ def test_a_codex_streams_usage_limit_and_refused_configuration_are_codexs_own_wo
                 start + error % "unexpected status 404 Not Found" + worked + failed % "the agent stopped",
                 start + record + f"    raise SystemExit('{quota}')\n" + failed % "exit"):
         assert signin.codex_rejected(raw) is None
+    # a provider's error body Codex gives as it is (a 400 it reads as an invalid request), and its words for a plan
+    # that refuses every session until someone acts: refusals too, of the configuration (model_rejected) or of the
+    # bill, which end the run (usage_limit, a halt); a body that refused the request's input is the agent's result
+    exited = errors.classify(trial_result(0.0, exc="NonZeroAgentExitCodeError"))
+    cases = {'{"error":{"message":"Unsupported value: \'xhigh\' is not supported with the \'gpt-5-mini\' model.",'
+             '"type":"invalid_request_error","param":"reasoning.effort","code":"unsupported_value"}}': "model_rejected",
+             '{"detail":"The \'gpt-x\' model is not supported when using Codex with a ChatGPT account."}':
+                 "model_rejected",
+             "Your workspace is out of credits. Add credits to continue.": "usage_limit",
+             "You hit your spend cap set in your workspace. Increase your spend cap to continue.": "usage_limit",
+             "To use Codex with your ChatGPT plan, upgrade to Plus: https://chatgpt.com/explore/plus.": "usage_limit",
+             '{"error":{"message":"Your input exceeds the context window of this model.",'
+             '"type":"invalid_request_error","code":"context_length_exceeded"}}': "agent"}
+    for said, want in cases.items():
+        raw = start + json.dumps({"type": "turn.failed", "error": {"message": said}}) + "\n"
+        refusal = signin.codex_rejected(raw)
+        assert refusal == said, said
+        got = HarborAgent.session_verdict(exited, {"served": False, "rejected": True, "failure": refusal,
+                                                   "started": True, "tokens": 0})
+        if want == "agent":
+            assert got["status"] == "agent_error" and got["failure_cause"] != "model_rejected", (said, got)
+        else:
+            assert (got["failure_cause"], got["halt"]) == (want, want == "usage_limit"), (said, got)
+    assert not signin.codex_refused(start + failed % "Your workspace is out of credits. Add credits to continue.")
     # the Base Agent's own reading takes the quoted limit for the plan's refusal
     from hermit.agent.base.cli import Codex
     stream = write(tmp_path / "agent-codex.jsonl", quoted)
@@ -4985,3 +5053,223 @@ def test_a_trial_or_step_the_disk_gate_held_back_names_the_gate_that_held_it(tmp
             out = agent.run(row, None)
             assert (out.output["status"], out.extra["unscored"]) == ("infra", "disk"), row["id"]
             assert out.extra["exception_message"] == f"{says}: {then}", (row["id"], out.extra["exception_message"])
+
+
+# ---- the round-12 review: a stream's next pass, a curated log's links, the providers' refusals ----------------------
+
+def test_a_driver_that_is_ending_or_died_unreaped_is_no_live_driver_and_the_next_waits_for_its_exit(tmp_path,
+                                                                                                  monkeypatch):
+    """StreamClient.running takes no driver whose record says it is ending (harborside.driver's _mark_ending: its
+    step loop over, its socket open a moment more), nor one killed and not yet reaped (a zombie, which `alive` still
+    finds, beside the socket it left): the stream's next step starts a new driver instead of reusing it (a repeat's
+    whole pass lost: stream_order) or failing on it (stream_lost). Before a new driver starts, an earlier one still
+    there is waited for until it has exited (ENDING_WAIT_S), then killed."""
+    import subprocess as subprocess_mod
+    if not Path("/proc/self/stat").exists():
+        pytest.skip("no /proc to tell a zombie or a driver's command line")
+    sock = write(tmp_path / "d.sock", "")
+    # a process named as this directory's driver would be, leading its own process group
+    proc = subprocess_mod.Popen([sys.executable, "-c", "import time; time.sleep(60)", "harborside.driver",
+                                 "--stream-dir", str(tmp_path)], start_new_session=True)
+    try:
+        client = stream.StreamClient(tmp_path, python="unused", log=lambda m: None)
+        write(tmp_path / "driver.json", json.dumps({"pid": proc.pid, "socket": str(sock)}))
+        assert client.running() is not None                          # alive, its socket there: live
+        write(tmp_path / "driver.json", json.dumps({"pid": proc.pid, "socket": str(sock), "ending": True}))
+        assert client.running() is None and not client.gone()        # ending: no live driver, its process still there
+        monkeypatch.setattr(stream, "ENDING_WAIT_S", 0.5)
+        client._wait_out()                                            # never exits by itself: killed
+        assert proc.wait(timeout=30) is not None and client.gone()
+    finally:
+        proc.kill()
+        proc.wait()
+    zombie = subprocess_mod.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        write(tmp_path / "driver.json", json.dumps({"pid": zombie.pid, "socket": str(sock)}))
+        assert client.running() is not None
+        zombie.kill()                                                # not reaped: a zombie
+        deadline = time.time() + 10
+        while not client.gone() and time.time() < deadline:
+            time.sleep(0.05)
+        assert client.gone() and client.running() is None
+    finally:
+        zombie.wait()
+
+
+def test_a_step_whose_folder_cannot_be_made_gives_its_stream_up_and_the_next_pass_starts_anew(tmp_path, fake_harbor,
+                                                                                              monkeypatch):
+    """A step whose own folder this machine cannot make (a full disk) ends host_failed before it reaches the driver,
+    which waits for it: the stream is given up and its driver stopped, so the stream's next pass (an eval's next
+    repeat) starts anew in an environment of its own, never running that step on the earlier pass's. Before, the
+    folder was made outside what gives a stream up: the next pass's first step met the old driver (stream_order) and
+    its last ran on the old environment, scored as the agent's."""
+    import errno
+    fake_driver(fake_harbor)
+    started = driver_starts(monkeypatch)
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "flow", steps=("one", "two"))
+    rows = {r["id"]: r for r in dataset.index(tasks)}
+    agent = make_agent(tmp_path, fake_harbor, tasks, stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 6})
+    real_mkdir = Path.mkdir
+
+    def full(self, *args, **kwargs):
+        if self.parent.name == "steps" and "-two-" in self.name:
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), str(self))
+        return real_mkdir(self, *args, **kwargs)
+    try:
+        assert agent.run(rows["flow:one"], None).output["status"] == "ok"
+        with monkeypatch.context() as patch:
+            patch.setattr(Path, "mkdir", full)
+            failed = agent.run(rows["flow:two"], None)
+        assert (failed.output["status"], failed.output["failure_cause"]) == ("infra", "host_failed")
+        again = [agent.run(rows[f"flow:{step}"], None) for step in ("one", "two")]       # the stream's next pass
+        assert [o.output["status"] for o in again] == ["ok", "ok"]
+        assert started == [stream_name(agent)] * 2                                      # in a driver of its own
+    finally:
+        stop_streams(tmp_path)
+
+
+@pytest.mark.parametrize("swap,after", [("link", 1), ("gone", 1), ("gone", 2), ("gone", 3)])
+def test_a_curated_log_never_copies_through_a_link_swapped_in_while_it_walks(tmp_path, monkeypatch, swap, after):
+    """A process the agent left running (a stream's environment stays up between steps) may swap a file of the step's
+    agent/ folders for a link to a file of this machine, or remove it, while the step's log is curated: each entry is
+    opened through its folder, never through a link at its name (curate._files, open_regular), so a link swapped in
+    after the walk's checks is left out, not copied through, and a file gone meanwhile (after any of the checks made of
+    it) is left out, the curation going on (no OSError that would make the step this machine's failure). Before, the
+    checks of each file were followed by a copy that followed a link, and a file gone between them raised."""
+    secret = write(tmp_path / "host" / "auth.json", "the machine's own secret\n")
+    outputs = tmp_path / "step"
+    victims = [write(outputs / "agent" / folder / f"a{n}.json", '{"ok": 1}\n')
+               for n, folder in enumerate(("hook-state", "hermit-collect", ".hermit", "hermit-copy/memory"))]
+    victims.append(write(outputs / "agent" / "hook-calls.jsonl", "{}\n"))
+    for folder in ("hook-state", "hermit-collect", ".hermit", "hermit-copy/memory"):
+        write(outputs / "agent" / folder / "kept.json", '{"kept": 1}\n')
+    real_stat, checks = os.stat, {str(v): 0 for v in victims}
+
+    def stat_then_move(path, *args, **kwargs):              # the container's move, right after a check of the file
+        got = real_stat(path, *args, **kwargs)
+        if isinstance(path, int):
+            return got
+        name = os.fsdecode(path)
+        if kwargs.get("dir_fd") is not None:
+            name = os.path.join(os.readlink(f"/proc/self/fd/{kwargs['dir_fd']}"), name)
+        name = os.path.abspath(name)
+        if name in checks:
+            checks[name] += 1
+            if checks[name] == after:
+                os.unlink(name)
+                if swap == "link":
+                    os.symlink(secret, name)
+        return got
+    if not Path("/proc/self/fd").is_dir():
+        pytest.skip("no /proc to name a folder by its descriptor")
+    monkeypatch.setattr(os, "stat", stat_then_move)
+    try:
+        log = curate.curate(outputs, tmp_path / "job", errors.classify(trial_result()))
+    finally:
+        monkeypatch.setattr(os, "stat", real_stat)
+    assert any(checks.values())                             # the curation checked the files (moved after that)
+    copied = {p.relative_to(log).as_posix(): p.read_text() for p in log.rglob("*") if p.is_file()}
+    assert not any("own secret" in text for text in copied.values()), copied
+    assert {"hook-state/kept.json", "agent/hermit-collect/kept.json", "agent/.hermit/kept.json",
+            "memory/kept.json"} <= set(copied)              # the walk went on
+
+
+def test_a_benchmark_files_cli_model_without_a_login_is_refused_at_startup(tmp_path, fake_harbor):
+    """The benchmark file's `model: {cli: ...}` is served as it is written (tools.ModelEndpoint): no config's loading
+    binds a `<backend>/<model>` reference there, as it binds `llm`'s, so one without a login (Pi's, which has none,
+    among them) would run sessions with no key, endpoint or host they may reach; it is refused at startup. On the
+    CLI's own login it runs."""
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    for model in ({"cli": "codex", "model": "openai/gpt-5.6-luna"}, {"cli": "pi", "model": "openai/gpt-5.6-luna"},
+                  {"cli": "claude", "model": "anthropic/claude-haiku-5-5"}):
+        with pytest.raises(ValueError, match="with no login"):
+            cli_answer_agent(tmp_path, fake_harbor, tasks, model)
+    chatgpt_login(tmp_path)
+    assert cli_answer_agent(tmp_path, fake_harbor, tasks, {"cli": "codex", "model": "gpt-5.6-luna",
+                                                           "login": "chatgpt"}).cli_model["login"] == "chatgpt"
+
+
+def test_a_login_in_the_acting_agents_settings_is_refused_and_a_relative_config_is_the_params_path(tmp_path,
+                                                                                                     fake_harbor):
+    """`acting_agent.settings.login` would sign the session in (launch.render_plan) where the runner, which reads
+    agent.params.login alone, neither checks it nor hands the trial its sign-in, plan and refusals: refused at startup.
+    mini-swe-agent's settings.config, when relative, is read beside the params (the runner's other paths), as main
+    reads agent.params.config beside the run config, never from the working directory."""
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    with pytest.raises(ValueError, match="acting_agent.settings.login"):
+        make_agent(tmp_path, fake_harbor, tasks, acting_agent={"cli": "codex", "settings": {"login": "chatgpt"}},
+                   model="gpt-5.6-luna", binding=None).check_agent()
+    write(tmp_path / "mini.yaml", "agent: {}\n")                    # beside the params, not in the working directory
+    agent = make_agent(tmp_path, fake_harbor, tasks, acting_agent={"cli": "mini-swe-agent",
+                                                                   "settings": {"config": "mini.yaml"}})
+    assert agent.settings()["config"] == str((tmp_path / "mini.yaml").resolve())
+    agent.check_agent()                                               # its dry render reads it there
+    absolute = write(tmp_path / "elsewhere" / "m.yaml", "agent: {}\n")
+    agent = make_agent(tmp_path, fake_harbor, tasks, acting_agent={"cli": "mini-swe-agent",
+                                                                   "settings": {"config": str(absolute)}})
+    assert agent.settings()["config"] == str(absolute)
+
+
+def test_a_held_trials_verdict_names_the_room_its_image_and_other_pulls_took(tmp_path, fake_harbor, monkeypatch):
+    """_disk_held names what held a trial back: the data root's gate, with the room the task's image takes when it is
+    not here yet (`image_sizes`) and the room other trials hold for their pulls, which the gate counts as taken."""
+    from hermit.harbor import docker as docker_mod
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha", image="example/alpha:1")
+    row = dataset.index(tasks)[0]
+    agent = make_agent(tmp_path, fake_harbor, tasks, disk_gate_gb=5)
+    agent._root = tmp_path
+    monkeypatch.setattr(docker_mod, "image_size", lambda image: None)
+    assert agent._disk_held(row) == f"the Docker data root {tmp_path} stayed under 5 GB free"
+    agent.image_sizes = {"example/alpha:1": 2 * docker_mod.GB}
+    agent.pulls.add("example/beta:1", 3.0)
+    held = agent._disk_held(row)
+    assert "GB more for the task's image example/alpha:1, not here yet" in held, held
+    assert held.endswith("beside 3.0 GB held for the images other trials are still to pull"), held
+
+
+def test_a_streams_first_step_holds_room_for_its_image_until_its_environment_is_up(tmp_path, fake_harbor,
+                                                                                   monkeypatch):
+    """The disk gate before a stream's environment starts is a single trial's: it keeps room for the task's image
+    (wait_for_disk with the task), held for the image's pull until the driver is up, then released."""
+    fake_driver(fake_harbor)
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "flow", steps=("one", "two"))
+    rows = {r["id"]: r for r in dataset.index(tasks)}
+    agent = make_agent(tmp_path, fake_harbor, tasks, stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 6})
+    calls = []
+
+    def gate(task=None, admitted=None):
+        calls.append(task["id"] if task else None)
+        if admitted is not None:
+            admitted.append(agent.pulls.add("example/flow:1", 1.0))
+        return True
+    monkeypatch.setattr(agent, "wait_for_disk", gate)
+    try:
+        assert [agent.run(rows[f"flow:{s}"], None).output["status"] for s in ("one", "two")] == ["ok", "ok"]
+    finally:
+        stop_streams(tmp_path)
+    assert calls == ["flow:one"] and not agent.pulls.pending      # the first step's, its room released
+
+
+def test_a_streams_step_waits_for_its_turn_over_the_budgets_of_the_steps_before_it(tmp_path, fake_harbor):
+    """A step's wait for its turn (stream.turn_wait_s left empty) is the budgets of the steps before it, each its
+    own (a step may set its own agent and verifier timeouts), and the driver's start; never this step's budget times
+    their number."""
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "flow", steps=("one", "two", "three"))
+    toml = tasks / "flow" / "task.toml"
+    text = toml.read_text().replace('name = "one"\n', 'name = "one"\n[steps.agent]\ntimeout_sec = 100.0\n') \
+        .replace('name = "two"\n', 'name = "two"\n[steps.agent]\ntimeout_sec = 900.0\n')
+    toml.write_text(text)
+    rows = {r["id"]: r for r in dataset.index(tasks)}
+    agent = make_agent(tmp_path, fake_harbor, tasks)
+    settings = {"start_timeout_s": 30, "turn_wait_s": None}
+    budget = {s: agent.wait_budget(rows[f"flow:{s}"], build=False) for s in ("one", "two", "three")}
+    assert len(set(budget.values())) == 3
+    assert agent._turn_wait(rows["flow:three"], 3, settings) == budget["one"] + budget["two"] + 30
+    assert agent._turn_wait(rows["flow:one"], 1, settings) == budget["one"] + 30
+    assert agent._turn_wait(rows["flow:three"], 3, {**settings, "turn_wait_s": 7}) == 7

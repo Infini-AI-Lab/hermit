@@ -1912,7 +1912,8 @@ def harbor_side(check: str, scratch: Path) -> dict:
                 if short != where:
                     short.rmdir()
             report[case] = {"answer": answer, "code": code, "recorded": trial.recorded, "loop_done": trial.loop_done,
-                            "finished": trial.finished}
+                            "finished": trial.finished,
+                            "ending": json.loads((where / "driver.json").read_text()).get("ending")}
 
     else:
         raise ValueError(f"unknown check {check}")
@@ -3079,7 +3080,7 @@ def test_a_full_disk_refusing_the_drivers_log_a_steps_reply_or_its_move_still_an
     failed step is answered with its result. A step whose reply cannot be kept in replies/, or whose agent/ cannot be
     moved under the failed step, is answered with an error saying so (infra on Hermit's side). Either way the request
     is answered, not left for the client to wait out its time, and the driver ends after its last step, as a stream's
-    driver does, instead of waiting for good on the open connection."""
+    driver does, instead of waiting for good on the open connection, its record saying it is ending."""
     r = report(checks, "driver_full_disk")
     for name, got in r.items():
         assert isinstance(got["answer"], dict), (name, got)                       # answered, not left to wait
@@ -3094,6 +3095,9 @@ def test_a_full_disk_refusing_the_drivers_log_a_steps_reply_or_its_move_still_an
     for name, got in r.items():
         assert got["code"] == 0 and got["recorded"] is None, (name, got)
         assert got["loop_done"] is True and got["finished"] is True, (name, got)
+        # its record said it was ending before its last answers (_mark_ending): no client takes it for a live driver
+        # in the moment its socket stays open, and the stream's next driver waits for this one to have exited
+        assert got["ending"] is True, (name, got)
 
 
 def test_harborside_is_harbor_and_stdlib_only():
