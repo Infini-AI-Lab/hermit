@@ -30,7 +30,7 @@ what is left is listed under [Not verified](#not-verified).
 | `utils/prepare.py` | The forty-two tasks with their development and held-out layouts |
 | `utils/judge.py` | The program on the held-out layout sets, on the host |
 | `utils/control/press_by_number.py` | The positive control: press_by_number with one layout's digits written in (not shown to a session) |
-| `prompt_only/` | `run.yaml`, `smoke.yaml`, `run_luna.yaml` and `smoke_luna.yaml` (the same with GPT-5.6-Luna on the machine's ChatGPT login), `run_sample_luna.yaml` (three of the tasks on Luna, for a run of a day or two), `run_sample_sol.yaml` (the same on GPT-6.1-Sol), `launch.sh`: the prompt-only template with the built-in Codex Evolver |
+| `prompt_only/` | `run.yaml`, `smoke.yaml`, `run_luna.yaml` and `smoke_luna.yaml` (the same with GPT-5.6-Luna on the machine's ChatGPT login), `run_sample_luna.yaml` (three of the tasks on Luna, for a run of a day or two), `run_sample_sol.yaml` (the same on GPT-6.1-Sol), `run_sample_opus.yaml` (the same with Claude Code on Claude Opus 5.5, on a Claude subscription: `CLAUDE_CODE_OAUTH_TOKEN`), `launch.sh`: the prompt-only template with the built-in Codex Evolver |
 
 ## Protocol
 

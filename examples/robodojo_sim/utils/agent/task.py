@@ -1,4 +1,4 @@
-"""The task functions of the Codex actor (agent.base: codex) on RoboDojo-Sim: the session writes `policy.py`, a
+"""The task functions of the actor (agent.base: codex, or claude) on RoboDojo-Sim: the session writes `policy.py`, a
 program that controls the robot, and develops it against the simulator, which runs on the host as the simulator
 service (dojo_service.py) and which the session reaches only through `bin/sim`.
 
@@ -54,7 +54,8 @@ def prompt(task: dict, params: dict, base: Path) -> str:
     return (HERE / "prompts" / "actor.md").read_text().format(
         task=task["suite"], dimension=str(task.get("dimension") or "").replace("_", " "),
         dev=int(hi or lo) - int(lo) + 1,
-        library="What earlier tasks of this benchmark taught is in your AGENTS.md; use it.")
+        library=f"What earlier tasks of this benchmark taught is in your {params.get('context_file') or 'AGENTS.md'}; "
+                "use it.")
 
 
 def answer(last_message: str, task: dict) -> dict:

@@ -19,7 +19,8 @@
 # The launcher writes the layouts into the task rows (utils/prepare.py), installs the harness's XPolicyLab policy
 # into the checkout (utils/policy/install.py), starts the simulator service the actors reach through bin/sim
 # (utils/agent/dojo_service.py, on ROBODOJO_SIM_PORT, default 8130; stopped when the run ends) and runs hermit. The
-# model key (FIREWORKS_API_KEY) comes from the environment; the sandboxes need bubblewrap (`bwrap`) on PATH.
+# model key (FIREWORKS_API_KEY), or the Claude subscription's token (CLAUDE_CODE_OAUTH_TOKEN), comes from the
+# environment; the sandboxes need bubblewrap (`bwrap`) on PATH.
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 : "${ROBODOJO_ROOT:?set ROBODOJO_ROOT to a RoboDojo checkout (scripts/robodojo.sh, Assets, XPolicyLab)}"
@@ -29,6 +30,7 @@ HERMIT="${HERMIT_PYTHON:-python}"
 [[ "$HERMIT" != */* || "$HERMIT" == /* ]] || HERMIT="$PWD/$HERMIT"
 cd "$HERE"
 ! grep -q "fireworks/" "$CONFIG" || : "${FIREWORKS_API_KEY:?set FIREWORKS_API_KEY}"
+! grep -q "login: claude" "$CONFIG" || : "${CLAUDE_CODE_OAUTH_TOKEN:?set CLAUDE_CODE_OAUTH_TOKEN (claude setup-token)}"
 # The RoboDojo commit this example was written against; another one is run, but named.
 PINNED=f57e1633ffed59761bc8e568cfe7530c4b33381c
 ACTUAL="$(git -C "$ROBODOJO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"

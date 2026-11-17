@@ -656,8 +656,22 @@ def test_the_configs_load_and_show_the_task_sandbox_nothing_of_robodojo():
         data = Config.load(path).data
         assert data["environment"]["read"] == ["../utils/agent"], path
         assert data["environment"]["env"] == ["ROBODOJO_SIM_URL"], path
-        # Codex reads AGENTS.md (the adapter) only up to this: past it every session is refused
-        assert data["agent"]["params"]["project_doc_max_bytes"] >= 65536, path
+        agent, evolver = data["agent"], data["evolver"]
+        if agent["name"] == "codex":
+            # Codex reads AGENTS.md (the adapter) only up to this: past it every session is refused
+            assert agent["params"]["project_doc_max_bytes"] >= 65536, path
+        else:       # Claude Code is given the adapter in CLAUDE.md, which the prompt names, on the subscription
+            assert agent["name"] == "claude-code" and agent["params"]["context_file"] == "CLAUDE.md", path
+            assert agent["params"]["login"] == evolver["params"]["login"] == "claude", path
+            assert evolver["name"] == "claude" and evolver["params"]["backend"] == "claude", path
+
+
+def test_the_prompt_names_the_file_the_cli_is_given_the_adapter_in():
+    task_py = _load("robodojo_task", UTILS / "agent" / "task.py")
+    task = {"suite": "stack_bowls", "dimension": "generalization", "debug_seeds": "0-9"}
+    assert "in your AGENTS.md;" in task_py.prompt(task, {}, EXAMPLE)
+    claude = task_py.prompt(task, {"context_file": "CLAUDE.md"}, EXAMPLE)
+    assert "in your CLAUDE.md;" in claude and "AGENTS.md" not in claude
 
 
 def test_the_press_by_number_control_sends_whole_actions_and_finishes_within_the_horizon():
