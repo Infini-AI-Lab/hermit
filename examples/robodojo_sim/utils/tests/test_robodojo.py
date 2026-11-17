@@ -590,3 +590,32 @@ def test_the_configs_load_and_show_the_task_sandbox_nothing_of_robodojo():
         assert data["environment"]["env"] == ["ROBODOJO_SIM_URL"], path
         # Codex reads AGENTS.md (the adapter) only up to this: past it every session is refused
         assert data["agent"]["params"]["project_doc_max_bytes"] >= 65536, path
+
+
+def test_the_press_by_number_control_sends_whole_actions_and_finishes_within_the_horizon():
+    """utils/control/press_by_number.py, the positive control: every chunk passes the harness's own check, it
+    presses as often as the counts say, and it is done, both arms at their first pose, before press_by_number's 700
+    steps. A stand-in arm reaches what it is told."""
+    model = _load("hermit_program_model", UTILS / "policy" / "hermit_program" / "model.py")
+    control = _load("press_by_number_control", UTILS / "control" / "press_by_number.py")
+    start = {"left": [-0.2995, -0.3523, 0.9215, 0.707, 0.0, 0.0, 0.707],
+             "right": [0.3005, -0.3523, 0.9215, 0.707, 0.0, 0.0, 0.707]}
+    state = {f"{s}_ee_pose": list(p) for s, p in start.items()}
+    state.update({f"{s}_arm_joint_state": [0.0] * 6 for s in start}, left_ee_joint_state=[0.0],
+                 right_ee_joint_state=[0.0])
+    control.reset()
+    steps = 0
+    while steps < 700:
+        chunk = model.checked(control.act({"state": state}), state)
+        for action in chunk:
+            steps += 1
+            for s in start:
+                if f"{s}_ee_pose" in action and f"{s}_arm_joint_state" not in action:
+                    state[f"{s}_ee_pose"] = list(action[f"{s}_ee_pose"])
+        if control._state["i"] >= len(control._state["seq"]):
+            break
+    assert steps < 700
+    for s in start:                                       # both arms back at their first pose
+        assert state[f"{s}_ee_pose"] == pytest.approx(start[s], abs=1e-3)
+    kinds = [kind for kind, _, _ in control._state["seq"]]
+    assert kinds.count("joint_press") == control.COUNTS[0] + control.COUNTS[1] + 2

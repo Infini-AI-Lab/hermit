@@ -13,7 +13,10 @@ XPolicyLab's source and are tested against a stand-in for `scripts/robodojo.sh` 
 `f57e163` with its pinned XPolicyLab (`5d0be14`), with the simulator in RoboDojo's container, a program's actions
 move the robot and RoboDojo's result comes back per layout through the engine, through the service and `bin/sim`
 on the development layouts, and through the judge on the held-out ones; the smoke (`smoke_luna.yaml`) completes.
-No training run has been made; what is left is listed under [Not verified](#not-verified).
+A positive control, `utils/control/press_by_number.py` (a program with one layout's card digits written in, not a
+policy for the task), succeeds on that layout (set 2, layout 0) through the engine and through the judge (score
+1.0); it is not robust (on set 0, layout 14, a cap's rebound counted a press twice). No training run has been made;
+what is left is listed under [Not verified](#not-verified).
 
 | Folder | What it is |
 |---|---|
@@ -26,6 +29,7 @@ No training run has been made; what is left is listed under [Not verified](#not-
 | `utils/agent/task.py`, `prompts/`, `docs/interface.md` | The Codex actor's task functions, its prompt and the interface page it is given |
 | `utils/prepare.py` | The forty-two tasks with their development and held-out layouts |
 | `utils/judge.py` | The program on the held-out layout sets, on the host |
+| `utils/control/press_by_number.py` | The positive control: press_by_number with one layout's digits written in (not shown to a session) |
 | `prompt_only/` | `run.yaml`, `smoke.yaml`, `run_luna.yaml` and `smoke_luna.yaml` (the same with GPT-5.6-Luna on the machine's ChatGPT login), `run_sample_luna.yaml` (three of the tasks on Luna, for a run of a day or two), `launch.sh`: the prompt-only template with the built-in Codex Evolver |
 
 ## Protocol
@@ -114,7 +118,8 @@ ROBODOJO_GPU=0 ./launch.sh                                # the forty-two tasks
 ## Not verified
 
 - `scripts/robodojo.sh eval` on a host with a native install: only the container path was run.
-- Any training run, and a program that solves a task: both tasks of the smoke score 0/2.
+- Any training run, and a learned program that solves a task: both tasks of the smoke score 0/2; only the
+  positive control succeeds.
 - The configs' timeouts and budgets. Measured on an L40: three to four minutes to start the simulator and about
   three minutes for a layout of `stack_bowls` (800 steps); a session's evaluation of one layout takes five to six
   minutes, and the smoke's two tasks 83 minutes.

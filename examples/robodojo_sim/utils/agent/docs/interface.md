@@ -23,6 +23,10 @@ A bimanual ARX X5: two 6-joint arms, each with a one-degree-of-freedom gripper. 
 action is one step of 0.04 s. An episode ends when the task's success condition holds or at the task's horizon
 (200 to 1900 steps, by task). Most tasks also require both arms to be back near their starting pose at the end.
 
+An arm's end-effector pose (below) is its last link's (`link6`), not the fingertips': the fingertips are 0.145 m
+from it along that link's x axis, the tool axis. The orientation `[0.7071, 0, 0.7071, 0]` (`qw, qx, qy, qz`) points
+the tool straight down. The two fingers close to about 2.5 cm either side of the tool axis, across the link's y axis.
+
 ## The observation
 
 `obs` is a dict:
@@ -49,7 +53,7 @@ A dict with the arm targets of **one** mode and, if you want to move them, the g
 | Mode | Keys | Values |
 |---|---|---|
 | joint | `left_arm_joint_state`, `right_arm_joint_state` | 6 absolute joint position targets each, radians |
-| end effector | `left_ee_pose`, `right_ee_pose` | an absolute pose each, `[x, y, z, qw, qx, qy, qz]`, in the frame of the observation's poses; solved by inverse kinematics, and an unreachable pose is silently not executed |
+| end effector | `left_ee_pose`, `right_ee_pose` | an absolute pose each, `[x, y, z, qw, qx, qy, qz]`, in the frame of the observation's poses; solved by inverse kinematics, which treats the table as an obstacle; a pose it cannot solve (one that would put the gripper into the table, for one) is silently not executed |
 | both | `left_ee_joint_state`, `right_ee_joint_state` | the gripper, one number in 0..1; which end is open is the robot's convention: find it from an observation after commanding it |
 
 A key you leave out keeps its value from the observation you were given (the arm stays where it is, the gripper as
