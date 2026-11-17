@@ -564,6 +564,8 @@ def test_the_task_sandbox_is_shown_the_staged_docs_and_never_a_page_that_lost_it
             assert "$ASPIRE_DOCS" in read and data["agent"]["params"]["aspire_docs"] == "$ASPIRE_DOCS", path
             # Codex reads AGENTS.md (the adapter's context) only up to this: past it every session is refused
             assert data["agent"]["params"]["project_doc_max_bytes"] >= 65536, path
+        if path.parent.name == "prompt_only":            # no search: none staged, granted or scored
+            assert data["agent"]["params"]["evosearch"] is False and not any("evosearch" in p for p in read), path
         if path.is_relative_to(EXAMPLE.parent):
             for key in ("train", "val", "test"):                # the splits prepare.py writes
                 name = Path(data["data"][key]).name
@@ -642,24 +644,41 @@ def test_the_neutral_libero_prompt_names_the_task_the_seeds_and_the_scored_progr
         tmp_path, service):
     """prompt_only/'s acting prompt and workspace: the engine's, without ASPIRE's fix-loop, library or search."""
     P = _load("libero_task", LIBERO / "utils" / "agent" / "task.py")
+    T = _task_module()
     root = tmp_path / "ASPIRE"                                         # the service fixture's ASPIRE tree
+    params = {"aspire_root": str(root), "evosearch": False}             # as prompt_only's configs set them
     row = {**LIBERO_ROW, "suite": "libero_object_task", "task_id": 4, "id": "libero_object_task-t04"}
-    text = P.prompt(row, {"aspire_root": str(root)}, tmp_path)
+    text = P.prompt(row, params, tmp_path)
     assert "Suite `libero_object_task`, task id `4`" in text and "get_task_context()" in text
     assert "**51-53**" in text and "**66**" in text and "3 held-out seeds" in text
-    scored = f"{_task_module().task_dir(_task_module().settings(row, {'aspire_root': str(root)}))}/fix_code.py"
+    scored = f"{T.task_dir(T.settings(row, params))}/fix_code.py"
     assert f"Your program is `{scored}`" in text                     # the file the engine's collect scores
     unseen = f"--output-root {scored.rsplit('/', 1)[0]}/debug/holdout"     # where the engine's collect reads it
     assert unseen in text and "docs/libero-pro.md" in text and "simulator steps" not in text
-    assert "at most 600 simulator steps" in P.prompt(row, {"aspire_root": str(root), "max_steps": 600}, tmp_path)
+    assert "at most 600 simulator steps" in P.prompt(row, {**params, "max_steps": 600}, tmp_path)
     assert not any(word in text for word in ("skill", "library", "coordinator", "fix-loop", "evolutionary"))
     with pytest.raises(ValueError, match="verifier"):
-        P.prompt({**row, "role": "verifier", "id": "verify-x"}, {"aspire_root": str(root)}, tmp_path)
+        P.prompt({**row, "role": "verifier", "id": "verify-x"}, params, tmp_path)
+    for call in (lambda: P.prompt(row, {"aspire_root": str(root)}, tmp_path),        # without evosearch: false the
+                 lambda: P.prepare(LIBERO_ROW, tmp_path / "w", {"aspire_root": str(root)}, tmp_path)):  # engine
+        with pytest.raises(ValueError, match="evosearch must be false"):                # would score a search's
+            call()                                                                      # program
     work = _workspace(service, LIBERO_ROW)
-    P.prepare(LIBERO_ROW, work, {"aspire_root": str(root)}, tmp_path)
+    P.prepare(LIBERO_ROW, work, params, tmp_path)
     assert (work / "bin" / "sim").is_file() and (work / "docs" / "libero-pro.md").is_file()
     assert (work / "docs" / "task-exploration.md").is_file()                 # the scene procedure stays
     assert not (work / "docs" / "evosearch-iteration.md").exists() and not (work / "task.md").exists()
+    # The scored program is fix_code.py even where a search's best is left; ASPIRE's own configs score the search's
+    s = T.settings(LIBERO_ROW, params)
+    (work / T.task_dir(s)).mkdir(parents=True, exist_ok=True)
+    (work / T.task_dir(s) / "fix_code.py").write_text("# fix\n")
+    (work / T.evo_dir(s)).mkdir(parents=True)
+    (work / T.evo_dir(s) / "evosearch_best_code.py").write_text("# best\n")
+    neutral = T.collect(LIBERO_ROW, work, tmp_path / "log-a", {**params, "prune_media": False})
+    assert neutral["scored_program"].endswith("/fix_code.py") and neutral["fix_code"] == "# fix\n"
+    assert "evosearch" not in neutral
+    aspire = T.collect(LIBERO_ROW, work, tmp_path / "log-b", {"aspire_root": str(root), "prune_media": False})
+    assert aspire["scored_program"].endswith("/evosearch_best_code.py") and aspire["fix_code"] == "# best\n"
 
 
 def test_a_session_cannot_forge_a_registration_for_more_seeds(tmp_path, service):

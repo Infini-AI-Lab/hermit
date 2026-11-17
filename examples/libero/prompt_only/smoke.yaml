@@ -17,6 +17,7 @@ agent:
     prepare: ../utils/agent/task.py:prepare  # the engine's workspace, without ASPIRE's method pages
     answer: ../../aspire_robosuite/utils/agent/task.py:answer
     collect: ../../aspire_robosuite/utils/agent/task.py:collect
+    evosearch: false                # no search: the engine scores fix_code.py and stages no search page
     aspire_root: $ASPIRE_ROOT
     aspire_docs: $ASPIRE_DOCS
   model: {ref: fireworks/accounts/fireworks/models/glm-5p3-flash, effort: medium}
@@ -33,7 +34,6 @@ environment:                        # the task sandbox: the engine's code, the s
     - $ASPIRE_DOCS
     - $ASPIRE_ROOT/.claude/skills/iterative-debugging/scripts/scene_snapshot.py
     - $ASPIRE_ROOT/.claude/skills/iterative-debugging/skills/task-exploration.md
-    - $ASPIRE_ROOT/.claude/skills/evosearch/skills/evosearch-iteration.md
   env: [ASPIRE_SIM_URL]             # the host's simulator service (launch.sh): its 127.0.0.1 port is forwarded
 judge:
   path: ../../aspire_robosuite/utils/judge.py           # on the host: the program once on the held-out seeds

@@ -11,6 +11,7 @@ leaves out of the workspace what is ASPIRE's method rather than the task's.
         prepare: ../utils/agent/task.py:prepare
         answer: ../../aspire_robosuite/utils/agent/task.py:answer
         collect: ../../aspire_robosuite/utils/agent/task.py:collect
+        evosearch: false        # the engine neither stages ASPIRE's search page nor scores a search's program
 """
 from __future__ import annotations
 
@@ -20,9 +21,10 @@ import sys
 
 HERE = Path(__file__).resolve().parent
 ENGINE = HERE.parents[2] / "aspire_robosuite" / "utils" / "agent"
-# What the engine's prepare writes that is ASPIRE's method, not the task's: the evolutionary search's procedure (a
-# program it leaves is the one the engine scores) and ASPIRE's assignment block (its coordinator's terms)
-ASPIRE_ONLY = ("docs/evosearch-iteration.md", "task.md")
+# What the engine's prepare writes that is ASPIRE's method, not the task's: ASPIRE's assignment block (its
+# coordinator's terms). Its evolutionary search is left out by `evosearch: false`, which `_settings` requires, so that
+# the engine's collect scores fix_code.py, the file this prompt names.
+ASPIRE_ONLY = ("task.md",)
 
 
 def _engine():
@@ -37,6 +39,9 @@ def _engine():
 
 def _settings(engine, task: dict, params: dict) -> dict:
     s = engine.settings(task, params)
+    if params.get("evosearch", True):
+        raise ValueError("agent.params.evosearch must be false: this prompt runs no evolutionary search, and the "
+                         "engine's collect scores the search's program where one is left")
     if s["role"] == "verifier":
         raise ValueError(f"{task['id']}: a verifier row belongs to a method that verifies (ASPIRE's); "
                          "this prompt acts on a task")
@@ -44,8 +49,8 @@ def _settings(engine, task: dict, params: dict) -> dict:
 
 
 def prepare(task: dict, workspace: Path, params: dict, base: Path) -> list[dict]:
-    """The engine's workspace (bin/sim registered with the service, the docs, the scene-snapshot program) without
-    ASPIRE_ONLY."""
+    """The engine's workspace (bin/sim registered with the service, the docs, the scene-snapshot program), without the
+    search's page (`evosearch: false`) and ASPIRE_ONLY."""
     engine = _engine()
     _settings(engine, task, params)
     mounts = engine.prepare(task, workspace, params, base)

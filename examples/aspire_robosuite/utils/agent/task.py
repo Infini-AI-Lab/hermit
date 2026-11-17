@@ -80,7 +80,8 @@ def prepare(task: dict, workspace: Path, params: dict, base: Path) -> list[dict]
     for name, text in pages.items():
         (work / "docs" / name).write_text(text)
     shutil.copy2(s["root"] / SKILLS / "skills" / "task-exploration.md", work / "docs" / "task-exploration.md")
-    shutil.copy2(s["root"] / EVOSEARCH / "skills" / "evosearch-iteration.md", work / "docs" / "evosearch-iteration.md")
+    if params.get("evosearch", True):                   # the search's procedure, for a prompt that runs it
+        shutil.copy2(s["root"] / EVOSEARCH / "skills" / "evosearch-iteration.md", work / "docs" / "evosearch-iteration.md")
     (work / "scripts").mkdir(exist_ok=True)
     shutil.copy2(s["root"] / SKILLS / "scripts" / "scene_snapshot.py", work / "scripts" / "scene_snapshot.py")
     if s["role"] == "verifier":
@@ -191,7 +192,8 @@ def collect(task: dict, workspace: Path, log: Path, params: dict) -> dict:
              "skill_report": _json(read("skill_report.json")), "verification": _json(read("verification_report.json")),
              "unseen": _unseen(work), "workspace": str(Path(workspace).resolve()), "max_steps": s["max_steps"]}
     evo = Path(workspace) / evo_dir(s)
-    if s["role"] == "actor" and evo.is_dir():
+    search = s["role"] == "actor" and params.get("evosearch", True)     # a prompt that runs the search
+    if search and evo.is_dir():
         for name in ("evosearch_best_code.py", "findings.md", "task_analysis.md", "BLOCKED"):
             if (evo / name).is_file():
                 (files / "evosearch").mkdir(parents=True, exist_ok=True)
@@ -200,8 +202,9 @@ def collect(task: dict, workspace: Path, log: Path, params: dict) -> dict:
                               if (evo / "findings.md").is_file() else None,
                               "best_code": (evo / "evosearch_best_code.py").is_file()}
     # The selected program: the search's best when the search ran (it falls back to fix_code.py itself), else the fix
-    # loop's. The judge scores it.
-    program = evo / "evosearch_best_code.py" if (evo / "evosearch_best_code.py").is_file() else work / "fix_code.py"
+    # loop's; with `evosearch: false`, fix_code.py alone. The judge scores it.
+    best = evo / "evosearch_best_code.py"
+    program = best if search and best.is_file() else work / "fix_code.py"
     facts["scored_program"] = str(program.relative_to(workspace)) if program.is_file() else None
     facts["fix_code"] = program.read_text(errors="replace") if program.is_file() else None
     if params.get("prune_media", True):

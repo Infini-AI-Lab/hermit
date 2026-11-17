@@ -96,7 +96,9 @@ is the evaluation on the test split (`rerun-<task>` rows, the same seeds), compa
 :language: yaml
 ```
 
-The Codex actor's settings (`agent.params`) are `aspire_root`, `aspire_docs` (the docs as the launcher stages them) and `max_steps`; its seeds are the task rows'
+The Codex actor's settings (`agent.params`) are `aspire_root`, `aspire_docs` (the docs as the launcher stages them), `max_steps` and
+`evosearch` (default true; false leaves out the evolutionary search: its part of the prompt, its page in the workspace, and its
+program as the scored one); its seeds are the task rows'
 (`utils/prepare.py`, which the launcher runs: `ASPIRE_EVAL_SEEDS` for the held-out ones), and the simulator's
 environment and workers are the simulator service's (`ASPIRE_SIM_ENV`). The direct comparison actor
 (`run_direct.yaml`) reads `debug_seeds`, `workers`, `aspire_root` and `sim_env` from `agent.params`, a task row's own
