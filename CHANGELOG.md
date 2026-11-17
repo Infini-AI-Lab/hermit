@@ -75,6 +75,23 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   `web_search: true` gives web fetch only unless the model is reached through DeepSeek's API on `DEEPSEEK_API_KEY`. The
   MWM and RRSI Adapter Evolvers refuse `evolver.params.backend: dsh`. `hermit deploy --host dsh` writes the adapter's
   tools, with a 120 s timeout, in a patch layer, `.dsh/hermit.patch.yml`, which a session loads with `--patch`.
+- Hermes Agent as a CLI Base Agent (`hermes`): the acting agent `agent.base: hermes` and the `hermes` Evolver run Hermes
+  Agent 0.19's `hermes chat -Q` in its own home, with a model reference as its config's provider `hermit` (the key by
+  its variable's name; chat completions, else the Messages or the Responses API). `chat -Q` prints only the reply:
+  hermit's Hermes plugin, copied into the home, writes each hook Hermes fires (requests with their reasoning, tool calls
+  and usage; failed requests with Hermes's own classification; tool results; the turn's end) as the session's JSON
+  stream, `agent-hermes.jsonl`. What Hermes reaches besides that model is off (its auxiliary tasks go to the same model;
+  no fallback provider, tirith download, update check, models.dev catalog, memory or skill nudges), and the reply is the
+  model's own (no verifier footer). The call's tools are an MCP server Hermes waits for; a session whose first request
+  lacks them, whose context file Hermes's prompt-injection scan refused, or that reached Hermes's turn limit
+  (`agent.hermes.max_turns`), fails although Hermes exits 0; only Hermes's classification of a failed request (rate
+  limit, overload, server error, timeout) makes it unavailable. A kept home (the Evolver's) holds only Hermes's
+  sessions, hermit's ledger and the logs between calls, and the Evolver's sessions are given no folder's `AGENTS.md`
+  (Hermes's subdirectory hints off). Hermes takes no roles, no login, no web search and a prompt of up to 120,000 bytes
+  (one argument). `hermit deploy --host hermes` writes the context to `.hermes.md` (Hermes's first project file),
+  `.hermes/skills`, and `.hermes/hermit.config.yaml`, the part of Hermes's own config the tools and skills need (Hermes
+  has no project file for them). The MWM and RRSI Adapter Evolvers refuse `evolver.params.backend: hermes`; the AHE
+  template lists its hooks in `.hermes.md` to run by hand, as for Pi.
 - Models in sandboxes as Harbor's agents get theirs: each sandbox gets its models' key variables and provider hosts
   (an isolated network becomes an allowlist) and forwards a model meter on the loopback; what a run keeps (the
   learning material, the step records, the adapter) is scrubbed of key values (`hermit/redact.py`). The allowlist
@@ -204,8 +221,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - The CLI Base Agents share one runner, `CliAgent` (`hermit/agent/base/cli.py`): what differs per CLI (its command,
   its home, how its event stream is read) is its subclass's hooks, and `CLIS` names every CLI. `codex` and `claude`
   behave as before; a new CLI is one subclass.
-- `Usage` gains `unreported_calls`, the calls whose tokens a CLI did not report (only DeepSeek Harness's reader sets
-  it): a usage that has any keeps an unknown cost, not the price of the tokens reported.
+- `Usage` gains `unreported_calls`, the calls whose tokens a CLI did not report (DeepSeek Harness's and Hermes Agent's
+  readers set it): a usage that has any keeps an unknown cost, not the price of the tokens reported.
 
 ### Fixed
 

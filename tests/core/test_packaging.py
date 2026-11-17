@@ -34,3 +34,12 @@ def test_package_data_covers_every_method_file():
     files = {p.relative_to(PACKAGE).as_posix() for p in methods.rglob("*")
              if p.is_file() and "__pycache__" not in p.parts and p.suffix not in (".pyc", ".pyo")}
     assert not (missing := sorted(files - _packaged())), missing
+
+
+def test_package_data_covers_the_hermes_plugin():
+    """The plugin a `hermes` Base Agent copies into each session's home (hermit.agent.base.cli.HERMES_PLUGIN_SOURCE):
+    its manifest is no Python module, which only package data ships; without it no Hermes session has a stream."""
+    plugin = PACKAGE / "agent" / "base" / "hermes_plugin"
+    files = {p.relative_to(PACKAGE).as_posix() for p in plugin.rglob("*")
+             if p.is_file() and "__pycache__" not in p.parts and p.suffix not in (".py", ".pyc", ".pyo")}
+    assert files and not (missing := sorted(files - _packaged())), missing

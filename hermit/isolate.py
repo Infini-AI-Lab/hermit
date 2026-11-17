@@ -191,6 +191,11 @@ def validate(config) -> None:
         problems = dsh_problems(params, "agent")         # the dsh Evolver's: login.evolver_problems, before its steps
         if problems:
             raise ValueError("; ".join(problems))
+    if kind == "hermes":      # likewise Hermes's (the hermes Evolver's: login.evolver_problems)
+        from hermit.agent.base.cli import hermes_problems
+        problems = hermes_problems(params, "agent")
+        if problems:
+            raise ValueError("; ".join(problems))
     if env.get("image"):
         if kind not in ("codex", "claude"):
             raise ValueError("environment.image runs a CLI acting agent (codex or claude) in a container: agent.base "

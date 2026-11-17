@@ -1,12 +1,17 @@
-# Codex, Claude, Pi, OpenCode and DeepSeek Harness agent learners
+# Codex, Claude, Pi, OpenCode, DeepSeek Harness and Hermes Agent learners
 
-Use `evolver.name: codex`, `claude`, `pi`, `opencode` or `dsh` when a learner should inspect trajectories, use tools,
-and edit an adapter directory over several actions. This is useful for skills, multiple files, and tool code that a
-single text rewrite does not capture well. The `pi` learner signs in through a model reference (`evolver.base: pi` with
-`evolver.model: <backend>/<model>`, or `evolver.params.model`); it copies no login from `~/.pi/agent` (`home: []`).
+Use `evolver.name: codex`, `claude`, `pi`, `opencode`, `dsh` or `hermes` when a learner should inspect trajectories, use
+tools, and edit an adapter directory over several actions. This is useful for skills, multiple files, and tool code that
+a single text rewrite does not capture well. The `pi` learner signs in through a model reference (`evolver.base: pi`
+with `evolver.model: <backend>/<model>`, or `evolver.params.model`); it copies no login from `~/.pi/agent` (`home: []`).
 The `opencode` learner runs only a model reference the same way (`evolver.base: opencode`); without one its session
 is refused.
 The `dsh` learner signs in as the `pi` learner does (`evolver.base: dsh`) and copies no file of `~/.dsh` (`home: []`).
+The `hermes` learner signs in the same way (`evolver.base: hermes`), copies no file of `~/.hermes` (`home: []`), reads
+no context file of the evolver workspace (`--ignore-rules`, and hermit's plugin turns off Hermes's subdirectory hints,
+which would add a folder's `AGENTS.md`, such as the adapter's, to a tool's result) and takes `max_turns` in
+`evolver.hermes` (model requests in one step's session; Hermes's 90 by default). `evolver.base: hermes` does not make the run's model Hermes for a
+method that calls it (only `pi` does), and MWM and RRSI Adapter refuse a `hermes` learner.
 On the single-file prompt-only template, the Codex learner is the [prompt-only](prompt-only.md) method.
 
 ## Every method on Pi

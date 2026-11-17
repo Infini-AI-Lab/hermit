@@ -200,7 +200,12 @@ STREAM_TEXTS = {"agent-pi.jsonl": (("agent-codex.jsonl", "agent-pi.jsonl"),
                                     ("the raw Codex event stream", "the raw DeepSeek Harness event stream"),
                                     ("the Codex event stream", "the DeepSeek Harness event stream"),
                                     ("`codex exec --json` event stream",
-                                     "`dsh --profile headless --json` event stream"))}
+                                     "`dsh --profile headless --json` event stream")),
+                "agent-hermes.jsonl": (("agent-codex.jsonl", "agent-hermes.jsonl"),
+                                       ("the raw Codex event stream", "the raw Hermes Agent event stream"),
+                                       ("the Codex event stream", "the Hermes Agent event stream"),
+                                       ("`codex exec --json` event stream",
+                                        "Hermes Agent event stream (hermit's plugin)"))}
 
 
 def stream_of(logs) -> str:

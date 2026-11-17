@@ -1,4 +1,4 @@
-"""`codex`, `claude`, `pi`, `mini-swe-agent`, `opencode` and `dsh`: a coding-agent CLI as a Base Agent
+"""`codex`, `claude`, `pi`, `mini-swe-agent`, `opencode`, `dsh` and `hermes`: a coding-agent CLI as a Base Agent
 (docs/framework/agent-layers.md#layer-2-base-agent).
 
 One `run` is one session of the CLI in print mode: the prompt is given, the CLI works in `workspace` with its own
@@ -91,6 +91,14 @@ Settings (given once; `configured(...)` for a call's own):
   runs under isolation none or sandbox; `args` may hold its own options. The caller's DSH_* variables,
   DEEPSEEK_BASE_URL and DEEPSEEK_SEARCH_BASE_URL never reach a session, whatever a sandbox lets through: `env`
   gives them (Dsh.dropped_env).
+  Hermes Agent (hermes) only: provider (its config.yaml provider for the bound model, from the binding:
+  Binding.hermes_provider; required: Hermes runs a model reference and takes no login), append_system_prompt (its
+  agent.system_prompt), effort (its agent.reasoning_effort: none, minimal, low, medium, high, xhigh, max, ultra),
+  max_turns (model requests a turn, its agent.max_turns; absent: Hermes's 90), skills_dir (a folder of skills the
+  session may load: the deployment's; none by default), context_files (false: no context file of the working
+  directory, --ignore-rules, and no folder's AGENTS.md added to a tool's result, Hermes's subdirectory hints, which
+  hermit's plugin turns off; default true). Hermes takes no roles, has no web search, takes a prompt of one
+  argument (ARG_MAX bytes) at most and runs under isolation none or sandbox.
 
 Limits are enforced by the isolation, or the call is refused (Unsupported):
 
@@ -120,11 +128,11 @@ import urllib.parse
 
 from hermit.agent.base import container, login as codex_login
 from hermit.agent.base.interface import BaseAgent, Limits, Mount, Result, Unsupported
-from hermit.agent.base.records import (parse_claude, parse_codex, parse_dsh, parse_mini_swe_agent, parse_opencode,
-                                       parse_pi, price_usage)
+from hermit.agent.base.records import (parse_claude, parse_codex, parse_dsh, parse_hermes, parse_mini_swe_agent,
+                                       parse_opencode, parse_pi, price_usage)
 from hermit.agent.base.tool import Tool
-from hermit.agent.base.trajectory import (claude_steps, codex_steps, dsh_steps, events, mini_swe_agent_steps,
-                                          opencode_steps, pi_steps)
+from hermit.agent.base.trajectory import (claude_steps, codex_steps, dsh_steps, events, hermes_events, hermes_steps,
+                                          mini_swe_agent_steps, opencode_steps, pi_steps)
 from hermit.agent.model.backends import CLAUDE_ENV
 
 ISOLATIONS = ("none", "sandbox", "container")
@@ -2331,8 +2339,464 @@ def _dsh_session(home: Path, handle) -> str | None:
     return str(handle) if found else None
 
 
+HERMES_PROVIDER = "hermit"              # the config.yaml provider a bound model is given under
+HERMES_PLUGIN = "hermit_stream"         # hermit's plugin (hermit.agent.base.hermes_plugin): the session's event stream
+HERMES_PLUGIN_SOURCE = Path(__file__).with_name("hermes_plugin")
+# The toolsets a session is offered: the shell (and its background processes), the file tools and the to-do list;
+# `skills` when it has skills (HERMIT_HERMES_SKILLS), the call's tools by their MCP server's name. Never: web search,
+# extraction and the browser (they reach the network past the run's sandbox, through services of their own keys),
+# delegation (no roles here), clarify (no one answers), memory, session search, cron, kanban and the rest of Hermes's
+# assistant's toolsets
+HERMES_TOOLSETS = ("terminal", "file", "todo")
+HERMES_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")   # agent.reasoning_effort
+# Hermes's auxiliary tasks (side requests of their own), all sent to the session's own model: by default each picks a
+# provider of its own (`auto`: OpenRouter, Nous, ... after the main one), past the run's model and its usage
+HERMES_AUX_TASKS = ("vision", "web_extract", "compression", "skills_hub", "approval", "mcp", "title_generation",
+                    "memory_query_rewrite", "tts_audio_tags", "triage_specifier", "kanban_decomposer",
+                    "profile_describer", "goal_judge", "curator", "monitor", "background_review", "moa_reference",
+                    "moa_aggregator")
+# Hermes's reasons (its classification of a failed request, `reason`) for a provider that could not serve, which it
+# retries itself first; and for a request a retry would send to the same refusal
+HERMES_OUTAGES = ("rate_limit", "upstream_rate_limit", "overloaded", "server_error", "timeout")
+HERMES_REJECTED = ("auth", "auth_permanent", "billing", "model_not_found", "provider_policy_blocked",
+                   "content_policy_blocked", "format_error", "context_overflow", "payload_too_large",
+                   "ssl_cert_verification")
+HERMES_SKILLS_ENV = "HERMIT_HERMES_SKILLS"   # the session's skills folder: its config names it by this variable
+HERMES_PARAMS = ("max_turns", "skills_dir")  # a Hermes session's settings a caller passes on
+HERMES_CHECKED = 4102444800             # when the home's update check was "made" (2100): Hermes makes no other
+HERMES_SETTINGS = "hermit.json"         # beside the plugin: what it is to check and set in the session
+# What a kept home (the Evolver's) keeps between calls: Hermes's sessions (its state database, with its write-ahead
+# log), hermit's usage ledger and Hermes's logs. Everything else a session could have left there to change the next
+# one is removed: a profile Hermes would switch its home to (active_profile, profiles/), a .env or .op.env it loads,
+# its identity text (SOUL.md), plugins, hooks, credentials (auth.json, .hermes/), skills, memories and caches
+HERMES_MARK = ".hermit-hermes-home"     # a home hermit made: the only kind it clears
+HERMES_KEPT = ("state.db", "state.db-wal", "state.db-shm", "usage", "logs", HERMES_MARK)
+# Hermes caps a hook's payload (the request it reports) at 50,000 characters, past which the plugin would see no tools
+HERMES_PAYLOAD_CHARS = "50000000"
+# A catalog of models Hermes reads as fresh (by its mtime) instead of fetching models.dev's, which it does for a model
+# of a known provider's host whose context window it is not told: no request besides the model's
+HERMES_CATALOG = json.dumps({HERMES_PROVIDER: {"id": HERMES_PROVIDER, "models": {}}})
+_HERMES_VERSIONS: dict[str, str | None] = {}
+
+
+def _hermes_version(program: str) -> str | None:
+    """The installed Hermes's version, which its update check's cache must name to be kept (else every session asks
+    PyPI), read from its package by the interpreter its launcher names, never by running Hermes (`hermes --version`
+    checks for an update itself); once per launcher. None when it cannot be read: Hermes then makes its check."""
+    found = shutil.which(program)
+    if not found:
+        return None
+    if found not in _HERMES_VERSIONS:
+        version = None
+        try:
+            with open(found, "rb") as f:
+                first = f.readline(512)
+            words = first[2:].decode().split() if first.startswith(b"#!") else []
+            interpreter = words[1:2] if words and Path(words[0]).name == "env" else words[:1]
+            if interpreter:
+                out = subprocess.run([*interpreter, "-I", "-c", "from importlib.metadata import version; "
+                                      "print(version('hermes-agent'))"], capture_output=True, text=True, timeout=60)
+                version = out.stdout.strip() or None if out.returncode == 0 else None
+        except (OSError, ValueError, subprocess.SubprocessError):
+            version = None
+        _HERMES_VERSIONS[found] = version
+    return _HERMES_VERSIONS[found]
+
+
+def _hermes_issues(settings: dict) -> list[tuple[str, str]]:
+    """(the setting, what is wrong with it) for a Hermes session's effort and turn limit."""
+    out, effort = [], settings.get("effort")
+    effort = "none" if effort is False else effort          # YAML reads a bare `off`/`no` as false
+    if effort is not None and str(effort) not in HERMES_EFFORTS:
+        out.append(("model.effort", f"is one of {', '.join(HERMES_EFFORTS)} for Hermes, not {effort!r}"))
+    if effort is not None and not settings.get("model"):
+        out.append(("model.effort", "needs its model for Hermes: it is that model's reasoning effort"))
+    turns = settings.get("max_turns")
+    if turns is not None and (isinstance(turns, bool) or not isinstance(turns, int) or turns < 1):
+        out.append(("hermes.max_turns", f"is a positive number of model requests a turn, not {turns!r}"))
+    return out
+
+
+def hermes_problems(settings: dict, who: str) -> list[str]:
+    """What every session of a hermes agent would refuse of its settings, found before the first one rather than at
+    each session, after its task's or its learner step's rollouts: an effort Hermes has not (it would warn and go on
+    at its default) or one with no model to take it, a turn limit that is not a positive number, web search.
+    `settings` are the agent's params as bound; `who` its section of the run config, agent or evolver."""
+    out = [f"{who}.{field} {why}" for field, why in _hermes_issues(settings)]
+    if settings.get("web_search"):
+        out.append(f"{who}.params.web_search: Hermes has no web search here (its search and extraction services reach "
+                   "the network past the run's sandbox, on keys of their own): set it to false")
+    return out
+
+
+class Hermes(CliAgent):
+    """Hermes Agent (`hermes chat -Q`, 0.19). Its home is HERMES_HOME and its HOME, holding the session's config.yaml
+    (rewritten for every call), its state database (the sessions a resume finds) and hermit's plugin. `chat -Q`
+    prints only the reply: the plugin (hermit.agent.base.hermes_plugin, enabled in the config) writes each hook
+    Hermes fires (a model request with its text, reasoning, tool calls and usage; a failed request with Hermes's own
+    classification; a tool's result; the turn's end) as a JSON line on the session's stdout, the stream hermit keeps.
+
+    A bound model is the config's provider `hermit` (Binding.hermes_provider), its key read by Hermes from the
+    backend's variable; Hermes runs a model reference only (no login, no provider of its own). What Hermes would reach
+    besides that model is off: its auxiliary tasks go to the same model (HERMES_AUX_TASKS), no fallback provider, no
+    tirith download, no update check, no models.dev catalog (HERMES_CATALOG), no memory, no skill-creation nudges or
+    background review, no title request (a local server it may still ask for the model's context window). The reply
+    is the model's own: Hermes's verifier footer and completion explainer are off. The call's tools are an MCP server Hermes waits for before its first request; the session's own tools
+    are HERMES_TOOLSETS. Approvals are never asked (--yolo: Hermes still refuses its hardline commands). The call's
+    system instructions are its config's agent.system_prompt, after Hermes's own.
+
+    Hermes reads the project's context file from its working directory (.hermes.md, up to the repository's root, else
+    AGENTS.md, CLAUDE.md, .cursorrules: the first found) and no project file of tools or skills: a deployment's
+    skills folder is the session's `skills_dir` (hermit.hosts.hermes). `context_files` false (the Evolver's) reads
+    none (--ignore-rules; the plugin turns off the subdirectory hints, which --ignore-rules leaves on). Hermes's
+    prompt-injection scan replaces a context file it matches with a notice: a session whose context was refused so
+    has failed (`tools_down`). A kept home holds only HERMES_KEPT between calls, and a home hermit did not make is
+    never cleared. Hermes exits 1 for a failed turn and 130 when a signal stopped it; whether the session
+    served is read from the stream (`outcome`). Hermes is a Python program: the caller's PYTHONPATH reaches its own
+    interpreter too, as it reaches the session's commands."""
+    name = backend = program = "hermes"
+    label = "Hermes Agent"
+    home_var, user_folder = "HERMES_HOME", ".hermes"
+    home_files = (".env",)                        # where Hermes keeps keys; never copied: it signs in through a model
+                                                  # reference only (_sign_in), and a session's home holds no .env
+    turn_done = "hermes.session_end"
+    binds_mounts = True                           # its search_files runs ripgrep without --follow
+
+    def home_env(self, home):
+        """Every variable Hermes reads its own files by: its home, HOME (its commands' too: Hermes keeps an HOME
+        that is not its profile's) and the XDG folders, so none of the user's own is read; tirith off; the session's
+        skills folder (HERMES_SKILLS_ENV), which the config names, as the sandbox spells it."""
+        s = self.settings
+        return {"HERMES_HOME": str(home), "HOME": str(home), "HERMES_REAL_HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"), "XDG_DATA_HOME": str(home / ".local" / "share"),
+                "XDG_CACHE_HOME": str(home / ".cache"), "XDG_STATE_HOME": str(home / ".local" / "state"),
+                "TIRITH_ENABLED": "0", "HERMES_PLUGIN_PAYLOAD_MAX_CHARS": HERMES_PAYLOAD_CHARS,
+                **({HERMES_SKILLS_ENV: str(s["skills_dir"])} if s.get("skills_dir") else {})}
+
+    @classmethod
+    def user_home(cls) -> Path:
+        return Path(os.environ.get("HERMES_HOME") or Path.home() / cls.user_folder)
+
+    def dropped_env(self):
+        """The caller's own Hermes settings (`HERMES_*`: another home, safe mode, which loads no plugin, yolo, a
+        system prompt, ...; `TERMINAL_*`, the backend and working directory of its commands; `TIRITH_*`) and the
+        keys of the providers Hermes could fall back to or route a side request to: the session has only its home's
+        settings and its model's key (a variable `env` gives still passes)."""
+        own = self._key_env()
+        return tuple(name for name in os.environ
+                     if name != own and (name.startswith(("HERMES_", "TERMINAL_", "TIRITH_")) or
+                                         name in HERMES_PROVIDER_KEYS))
+
+    def _sign_in(self, home):
+        """None: Hermes runs a model reference, its key read from the backend's variable."""
+        s = self.settings
+        if s.get("login"):
+            raise Unsupported("hermes takes no login: its model is a <backend>/<model> reference")
+        if not s.get("provider") or not s.get("model"):
+            raise Unsupported("hermes runs a <backend>/<model> reference (agent.model or evolver.model): it signs in "
+                              "no other way")
+        return []
+
+    def _config(self, tools_url: str | None, tools_name: str) -> dict:
+        s = self.settings
+        effort = "none" if s.get("effort") is False else s.get("effort")
+        binding = s.get("binding") or {}
+        model = {"default": str(s["model"]), "provider": HERMES_PROVIDER,
+                 **({"context_length": int(binding["context_window"])} if binding.get("context_window") else {}),
+                 # the output limit of a request (Hermes reads no provider's own for the session's requests)
+                 **({"max_tokens": int(binding["max_output_tokens"])} if binding.get("max_output_tokens") else {})}
+        agent = {**({"max_turns": int(s["max_turns"])} if s.get("max_turns") else {}),
+                 **({"reasoning_effort": str(effort)} if effort else {}),
+                 **({"system_prompt": str(s["append_system_prompt"])} if s.get("append_system_prompt") else {})}
+        aux = {task: {"provider": "main", "model": "", "base_url": "", "api_key": ""} for task in HERMES_AUX_TASKS}
+        aux["title_generation"]["enabled"] = False
+        config = {"model": model, "providers": {HERMES_PROVIDER: json.loads(json.dumps(s["provider"]))},
+                  "fallback_providers": [], "plugins": {"enabled": [HERMES_PLUGIN]}, "agent": agent,
+                  "auxiliary": aux, "memory": {"memory_enabled": False, "user_profile_enabled": False,
+                                               "nudge_interval": 0},
+                  "skills": {"creation_nudge_interval": 0,
+                             "external_dirs": [f"${{{HERMES_SKILLS_ENV}}}"] if s.get("skills_dir") else []},
+                  "curator": {"enabled": False},
+                  # the reply is the model's own: no verifier's footer or explanation of Hermes's added to it
+                  "display": {"show_reasoning": False, "file_mutation_verifier": False,
+                              "turn_completion_explainer": False},
+                  "security": {"tirith_enabled": False}, "approvals": {"mode": "off"},
+                  # the deployment's context whole (Hermes's default cuts one past a share of the context window)
+                  "context_file_max_chars": 1_000_000}
+        if tools_url:
+            # A tool call may take minutes (a Trainer tool runs rollouts); the first request waits for the server
+            config["mcp_servers"] = {tools_name: {"url": tools_url, "timeout": 1800, "connect_timeout": 60}}
+            config["mcp_discovery_timeout"] = 60
+        return config
+
+    def prepare_home(self, home, roles, tools_url, tools_name):
+        """config.yaml (the session's settings, _config), hermit's plugin and its settings (the MCP server it is to
+        find in the first request; the subdirectory hints off for a session that reads no context file), a fresh
+        model catalog and update check, in a home cleared of everything but HERMES_KEPT and the session's own
+        output (its stream, its stderr): a kept home (the Evolver's) holds nothing a session left to change the next
+        one. No host path is written in them: a sandbox translates only the command, the environment and the
+        prompt."""
+        if roles:
+            raise Unsupported("hermes takes no roles: an adapter's roles stay files its context names")
+        s = self.settings
+        if s.get("text_only"):
+            raise Unsupported("hermes: a session with no tools (text_only) is not offered")
+        if s.get("web_search"):
+            raise Unsupported("hermes has no web search here: set web_search to false")
+        if tools_url and not re.fullmatch(r"[A-Za-z0-9_]{1,64}", tools_name):
+            raise ValueError(f"hermes takes an MCP server name of letters, digits and _, not {tools_name!r}")
+        problems = _hermes_issues(s)
+        if problems:
+            raise ValueError("hermes: " + "; ".join(f"{field.split('.')[-1]} {why}" for field, why in problems))
+        import yaml
+        own = {f"agent-{self.backend}.jsonl", "last_message.txt",
+               *(Path(str(s[k])).name for k in ("log", "stderr_log")
+                 if s.get(k) and Path(os.path.abspath(str(s[k]))).parent == Path(os.path.abspath(home)))}
+        entries = [e for e in os.listdir(home) if e not in own]
+        if entries and not _regular(home / HERMES_MARK):
+            raise Unsupported(f"hermes: {home} holds files hermit did not put there, and a session's home is cleared "
+                              "before each call: give the session a home of its own (or none, a fresh one)")
+        (home / HERMES_MARK).touch()
+        for entry in entries:
+            if entry not in HERMES_KEPT:
+                _clear(home / entry)                  # a directory or a link
+                (home / entry).unlink(missing_ok=True)   # a file
+        plugin = home / "plugins" / HERMES_PLUGIN
+        plugin.mkdir(parents=True)
+        for name in ("__init__.py", "plugin.yaml"):   # copied as new files: never the installation's modes
+            (plugin / name).write_bytes((HERMES_PLUGIN_SOURCE / name).read_bytes())
+        (plugin / HERMES_SETTINGS).write_text(json.dumps({"mcp_servers": [tools_name] if tools_url else [],
+                                                          "subdirectory_hints": bool(s.get("context_files", True))}))
+        (home / "config.yaml").write_text(yaml.safe_dump(self._config(tools_url, tools_name), sort_keys=False))
+        (home / "models_dev_cache.json").write_text(HERMES_CATALOG)
+        version = _hermes_version(str(s.get("bin") or self.program))
+        if version:                                # no update check: Hermes's cache of one, for this version
+            (home / ".update_check").write_text(json.dumps({"ts": HERMES_CHECKED, "behind": 0, "rev": None,
+                                                            "ver": version}))
+
+    @classmethod
+    def web_search_args(cls, enabled: bool) -> list[str]:
+        """Hermes's web search and extraction are services of their own keys, past the run's sandbox: off is the
+        only setting (prepare_home refuses on)."""
+        if enabled:
+            raise Unsupported("hermes has no web search here: set web_search to false")
+        return []
+
+    def system_settings(self, system, prompt):
+        return {"append_system_prompt": system}, prompt
+
+    @classmethod
+    def served(cls, raw):
+        """The turn completed (its `hermes.session_end`), with a reply."""
+        objects = hermes_events(_objects(raw)[0])
+        end = next((e for e in reversed(objects) if e.get("type") == cls.turn_done), None)
+        return bool(end and end.get("completed") is True and
+                    any(e.get("type") == "hermes.reply" and e.get("text") for e in objects))
+
+    @classmethod
+    def notices(cls, raw):
+        """Hermes's lines that are no event (its stderr, its notes), without those it writes for every session (its id,
+        a resume's note), and the errors of the turn's own events (hermes_events: a reply printed after the turn
+        that reads as an event is none)."""
+        objects, other = _objects(raw)
+        found = [line for line in other
+                 if line.strip() and not line.startswith(("session_id: ", "↻ Resumed session ", "↪ "))]
+        for e in hermes_events(objects):
+            found += cls.errors(e)
+        return "\n".join(found)
+
+    @classmethod
+    def errors(cls, event):
+        """A failed request Hermes gave up on or retried (its reason, status and message); a turn that did not
+        complete."""
+        kind = event.get("type")
+        if kind == "hermes.api_error":
+            error = event.get("error") if isinstance(event.get("error"), dict) else {}
+            status = f" (HTTP {event['status_code']})" if event.get("status_code") else ""
+            return [f"hermes: {event.get('reason') or 'error'}{status}: {error.get('message') or ''}"]
+        if kind == cls.turn_done and event.get("completed") is False:
+            return ["hermes: the turn was interrupted" if event.get("interrupted") else
+                    "hermes: the turn did not complete (Hermes's turn limit, agent.hermes.max_turns, or no response "
+                    "of the model it could use)"]
+        return []
+
+    def outcome(self, raw, stream, last_file):
+        """From the plugin's events: a session served once its turn completed with a reply. One that did not is
+        `unavailable` when its last failed request was one Hermes classed as a provider that could not serve (its
+        `reason`: HERMES_OUTAGES, or a 429 or 5xx status), `rejected` when one a retry would meet again
+        (HERMES_REJECTED, or a 400, 401, 403 or 404), never by its words. A run that wrote no event (Hermes stopped
+        before its plugin loaded: a config it refused, an unknown session) started no session."""
+        objects = hermes_events(_objects(raw)[0])
+        notes, done = self.notices(raw), self.served(raw)
+        error = next((e for e in reversed(objects) if e.get("type") == "hermes.api_error"), {})
+        # a request after it (one that answered, or any sent: a reply cut at its output limit answers with no
+        # hermes.api_request) means Hermes went on past that failure
+        later = error and any(e.get("type") in ("hermes.api_request", "hermes.request_start")
+                              for e in objects[objects.index(error) + 1:])
+        reason, status = str(error.get("reason") or ""), error.get("status_code")
+        status = status if isinstance(status, int) and not later else None
+        reason = "" if later else reason
+        busy = not done and (reason in HERMES_OUTAGES or status == 429 or (status or 0) >= 500)
+        end = next((e for e in reversed(objects) if e.get("type") == self.turn_done), {})
+        reply = self.last_message(stream, last_file)
+        # the turn limit: the summary Hermes then asks for is the reply (a turn that ended with none met another end)
+        cut = end.get("completed") is False and not end.get("interrupted") and bool(reply)
+        hermes = objects
+        down = self.tools_down(objects)
+        if down:                                      # newest first: the cause before Hermes's own lines
+            notes = (f"{down}" + (f"\n{notes}" if notes else ""))
+        return {"reply": reply if done or cut else "", "served": done,
+                "unavailable": busy, "refused": False, "failed": not done or bool(down),
+                "rejected": not done and not busy and (reason in HERMES_REJECTED or status in (400, 401, 403, 404)),
+                "finish_reason": "stop" if done else ("length" if cut else None),
+                "failure": "" if done and not down else (notes or "the session ended without an answer")[-600:],
+                "started": bool(hermes)}
+
+    @staticmethod
+    def tools_down(objects: list[dict]) -> str | None:
+        """Why the session did not run as it was given, though it may have answered, or None: an MCP server hermit
+        gave it whose tools its first request did not offer (Hermes waits mcp_discovery_timeout for its servers, then
+        goes on without the ones it could not reach); a context file Hermes's prompt-injection scan refused whole (the
+        model saw a `[BLOCKED: ...]` notice in its place); subdirectory hints the plugin could not turn off for a
+        session that is to read no context file."""
+        settings = next((e for e in objects if e.get("type") == "hermes.settings"), {})
+        if settings.get("hints_off") is False:
+            return ("Hermes's subdirectory hints could not be turned off (not Hermes 0.19?): the session could be "
+                    "given a folder's AGENTS.md, which it is to read none of")
+        told = next((e for e in objects if e.get("type") == "hermes.request_tools"), None)
+        if not told:
+            return None
+        for item in told.get("blocked") or []:
+            if isinstance(item, dict):
+                return (f"Hermes's prompt-injection scan refused the context file {item.get('file')} "
+                        f"({item.get('findings')}): the session ran without it")
+        names = [str(n) for n in told.get("names") or []]
+        server = next((str(server) for server in told.get("expected") or []
+                       if not any(n.startswith(f"mcp__{server}__") for n in names)), None)
+        return None if server is None else (f"the MCP server {server} did not reach the session's first request, so "
+                                            "the session ran without its tools")
+
+    def adjust_usage(self, home, handle, usage, resumed):
+        """The auxiliary calls' usage (records.parse_hermes: the session's running totals) as this call's share: a
+        resumed session's earlier calls taken off (_this_call). A bound model's cost is left to its price
+        (price_usage): Hermes's own figure is its catalog's."""
+        from hermit.agent.base.records import HERMES_AUX
+        if handle and not any(u.model.endswith(HERMES_AUX) for u in usage):
+            # a turn that failed reports no end, so neither its auxiliary calls: Hermes's own record of them is read
+            usage = [*usage, *_hermes_aux(home, handle, (usage[0].model if usage else str(self.settings.get("model")))
+                                          + HERMES_AUX)]
+        out = []
+        for u in usage:
+            if u.model.endswith(HERMES_AUX) and handle:
+                u = _this_call(home, f"{handle}.aux", u, resumed=resumed,
+                               fields=("input_tokens", "cached_input_tokens", "output_tokens", "calls"))
+                if not (u.calls or u.input_tokens or u.output_tokens):
+                    continue
+            u.cost_usd = None
+            out.append(u)
+        return out
+
+    @classmethod
+    def last_message(cls, log, last=None):
+        """The turn's final reply (`hermes.reply`: Hermes's last text, or the summary it asked for at its turn
+        limit)."""
+        text = ""
+        for event in hermes_events(events(log)):
+            if event.get("type") == "hermes.reply" and isinstance(event.get("text"), str):
+                text = event["text"]
+        return text
+
+    @classmethod
+    def parse(cls, log, model):
+        return parse_hermes(log, model)
+
+    @classmethod
+    def steps(cls, stream):
+        return hermes_steps(stream)
+
+    def command(self, prompt, workspace, last_file, *, session=None, roles=(), tools_url=None):
+        """`chat -Q -q`: one turn, its reply on stdout (and the plugin's events), the session's id on stderr. The
+        session's toolsets only (`-t`); `--source tool` marks the session as one a program ran; a session handle the
+        home keeps is resumed (Hermes refuses an id it does not know, so one that is gone starts a new session).
+        Hermes takes the prompt as an argument only (128 KiB at most): a longer one is refused, not cut."""
+        s, home = self.settings, last_file.parent
+        if len(prompt.encode()) > ARG_MAX:
+            raise Unsupported(f"hermes takes its prompt as one argument, {ARG_MAX} bytes at most: this one is "
+                              f"{len(prompt.encode())} (put the rest in a file of the workspace the prompt names)")
+        toolsets = [*HERMES_TOOLSETS, *(["skills"] if s.get("skills_dir") else []),
+                    *([s.get("tools_name") or "hermit_tools"] if tools_url else [])]
+        resume = _hermes_session(home, session) if session else None
+        return [str(s.get("bin") or self.program), "chat", "-Q", "--yolo", "--source", "tool", "-t", ",".join(toolsets),
+                *([] if s.get("context_files", True) else ["--ignore-rules"]),
+                *(["--resume", resume, "--no-restore-cwd"] if resume else []), *(s.get("args") or []), "-q", prompt]
+
+
+# The variables of the providers Hermes reaches on its own (a fallback, an auxiliary task's `auto` choice): never a
+# session's, but for its own model's key
+# (ANTHROPIC_AUTH_TOKEN too: the Anthropic SDK of a Messages-API session sends it beside the bound key, to that backend)
+HERMES_PROVIDER_KEYS = ("OPENROUTER_API_KEY", "NOUS_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN",
+                        "ANTHROPIC_AUTH_TOKEN",
+                        "GEMINI_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY", "DEEPSEEK_API_KEY", "GROQ_API_KEY",
+                        "MISTRAL_API_KEY", "FIREWORKS_API_KEY", "TOGETHER_API_KEY", "KIMI_API_KEY", "ZAI_API_KEY",
+                        "GLM_API_KEY", "MINIMAX_API_KEY", "DASHSCOPE_API_KEY", "HF_TOKEN", "COPILOT_GITHUB_TOKEN",
+                        "OPENAI_BASE_URL", "ANTHROPIC_BASE_URL", "EXA_API_KEY", "FIRECRAWL_API_KEY",
+                        "TAVILY_API_KEY", "PARALLEL_API_KEY", "FAL_KEY", "BROWSERBASE_API_KEY")
+
+
+def _hermes_session(home: Path, handle) -> str | None:
+    """Session `handle` when the home's state database keeps it: Hermes refuses an id it does not know, so a call
+    whose session is gone starts a new one. The session could write its home: the database and its write-ahead log
+    are read as copies in a directory of this process's own (regular files of the home, never through a link), so
+    SQLite writes nothing there and sees what the log holds."""
+    import sqlite3
+    if not re.fullmatch(r"\d{8}_\d{6}_[0-9a-f]{6}", str(handle)):
+        return None
+    with tempfile.TemporaryDirectory(prefix="hermit-hermes-") as tmp:
+        for name in ("state.db", "state.db-wal"):
+            source = Path(os.path.abspath(home)) / name
+            if _regular(source) and Path(os.path.realpath(source)).parent == Path(os.path.realpath(home)):
+                shutil.copyfile(source, Path(tmp) / name, follow_symlinks=False)
+        if not (Path(tmp) / "state.db").is_file():
+            return None
+        try:
+            with contextlib.closing(sqlite3.connect(Path(tmp) / "state.db")) as c:
+                row = c.execute("SELECT 1 FROM sessions WHERE id = ?", (str(handle),)).fetchone()
+        except sqlite3.Error:
+            return None
+    return str(handle) if row else None
+
+
+def _hermes_aux(home: Path, handle, model: str) -> list:
+    """Session `handle`'s auxiliary calls (a compression's summary, ...) as Hermes recorded them in the home's state
+    database, running totals as the plugin's `hermes.session_end` reports them: [] when there are none or the database
+    cannot be read. Read as copies, as _hermes_session reads it."""
+    import sqlite3
+    from hermit.agent.model.usage import Usage
+    with tempfile.TemporaryDirectory(prefix="hermit-hermes-") as tmp:
+        for name in ("state.db", "state.db-wal"):
+            source = Path(os.path.abspath(home)) / name
+            if _regular(source) and Path(os.path.realpath(source)).parent == Path(os.path.realpath(home)):
+                shutil.copyfile(source, Path(tmp) / name, follow_symlinks=False)
+        if not (Path(tmp) / "state.db").is_file():
+            return []
+        try:
+            with contextlib.closing(sqlite3.connect(Path(tmp) / "state.db")) as c:
+                rows = c.execute("SELECT api_call_count, input_tokens, output_tokens, cache_read_tokens, "
+                                 "cache_write_tokens FROM session_model_usage WHERE session_id = ? AND "
+                                 "COALESCE(task, '') != ''", (str(handle),)).fetchall()
+        except sqlite3.Error:
+            return []
+    u = Usage(model=model)
+    for calls, given, output, read, written in rows:
+        u.calls += int(calls or 0)
+        u.input_tokens += int(given or 0) + int(read or 0) + int(written or 0)
+        u.cached_input_tokens += int(read or 0)
+        u.output_tokens += int(output or 0)
+    return [u] if u.calls or u.input_tokens or u.output_tokens else []
+
+
 # Every CLI Base Agent, by each name make() takes for it.
-CLIS: dict[str, type[CliAgent]] = {n: c for c in (Codex, Claude, Pi, MiniSweAgent, OpenCode, Dsh)
+CLIS: dict[str, type[CliAgent]] = {n: c for c in (Codex, Claude, Pi, MiniSweAgent, OpenCode, Dsh, Hermes)
                                    for n in (c.backend, *c.aliases)}
 
 

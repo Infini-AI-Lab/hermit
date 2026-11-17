@@ -90,10 +90,11 @@ agent:
 | `mini-swe-agent` | mini-swe-agent run in a fresh workspace the adapter is deployed into (no `login`, no roles; [tutorial](../tutorials/mini-swe-agent.md)) | `model`, `model_class`, `config`, `step_limit`, `effort`, `prompt`, `files`, `mounts`, `prepare`, `answer`, `collect`, `context_query`, `env`, `price`, `timeout_s`, `retries`, `retry_wait_s`, `workspaces` |
 | `opencode` | OpenCode run in a fresh workspace the adapter is deployed into (no `login`, no roles; a model reference only; the deployment's skills only) | `model`, `effort`, `prompt`, `files`, `mounts`, `prepare`, `answer`, `collect`, `context_query`, `args`, `env`, `price`, `timeout_s`, `retries`, `retry_wait_s`, `workspaces` |
 | `dsh` | DeepSeek Harness run in a fresh workspace the adapter is deployed into (no `login`, no roles; `permission_mode` sets its own sandbox: `read-only`, `workspace-write`, the default, or `danger-full-access`) | `model`, `provider`, `permission_mode`, `image_input`, `effort`, `prompt`, `files`, `mounts`, `prepare`, `answer`, `collect`, `context_query`, `args`, `env`, `price`, `timeout_s`, `retries`, `retry_wait_s`, `workspaces` |
+| `hermes` | Hermes Agent run in a fresh workspace the adapter is deployed into (no `login`, no roles, no web search; a model reference only; `max_turns` caps its model requests a turn, Hermes's 90 by default) | `model`, `provider`, `max_turns`, `effort`, `prompt`, `files`, `mounts`, `prepare`, `answer`, `collect`, `context_query`, `args`, `env`, `price`, `timeout_s`, `retries`, `retry_wait_s`, `workspaces` |
 
 ### A coding-agent CLI as the acting agent
 
-`codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode` and `dsh` are the framework's one way to act with a coding-agent CLI: a task gives what is its own,
+`codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh` and `hermes` are the framework's one way to act with a coding-agent CLI: a task gives what is its own,
 in configuration and, where its workspace is built in code, in functions it names (`file.py:function`); the agent
 does the rest. OfficeQA's Codex runs are one such configuration (`examples/officeqa/utils/task.py`):
 
@@ -122,7 +123,8 @@ What the agent does for every task:
   the whole adapter under `hermit/<adapter id>/` but its [`internal`](adapter-manifest.md#internal) files, each
   export connected to the CLI's own place, and the context naming the rest. Its tools are served by an MCP server
   on this machine; a container session, which cannot start one, gets them from the session's own tool server, which
-  the container reaches, and so does an OpenCode session (OpenCode waits only 2 s for a server it starts). An
+  the container reaches, and so does an OpenCode session (OpenCode waits only 2 s for a server it starts) and a Hermes
+  Agent session (Hermes reads MCP servers from its home's config only, and is given the deployment's skills folder). An
   adapter's [`context_tool`](adapter-manifest.md#per-task-context) is rendered for each
   task (the field `context_query`, else the task's question or prompt), deployed into the context and recorded in
   `RunOutput.extra["context_tool"]`; so is the context of any adapter whose template is not
@@ -131,6 +133,9 @@ What the agent does for every task:
   continual-harness template) is told so in the prompt, and the notes the session leaves come back in the log
   (`log/memory/`). The context must fit `project_doc_max_bytes` (Codex reads no further): a longer one is refused. So
   is one too long for DeepSeek Harness, which gives the model at most 65,536 bytes of a project's instructions.
+  Hermes Agent reads the context from `.hermes.md` and takes the prompt as one command-line argument, under 128 KiB
+  (120,000 bytes): a longer prompt is refused, not cut. Hermes's prompt-injection scan replaces a context file it
+  matches (benign rules can match) with a notice only the model sees: that session is an error, naming the file.
 - **Isolate.** With `environment.image`, the CLI runs in a container of its own, started from a worker on the host
   that runs the adapter's code the deployment renders or serves in the strict sandbox: the workspace and the session's
   home read-write, the mounts read-only at their targets, an internal network whose only way out is an egress proxy to
@@ -140,9 +145,10 @@ What the agent does for every task:
   and `HERMIT_CLAUDE_NETWORK`, `HERMIT_CLAUDE_PROXY` for Claude Code) names the network and the proxy. The agent checks
   the image and the network before its first session (for Claude Code, also the CLI in the image and that its sandbox
   starts there). Without an image the agent runs in the task sandbox (bubblewrap), where a mount inside the workspace
-  is a link for Codex; for Claude Code and DeepSeek Harness it is bound there by a nested bubblewrap, a real read-only
-  directory as in a container (a search that walks the tree, `grep -r`, `find`, Claude Code's Glob and Grep or
-  DeepSeek Harness's glob and grep, does not follow a link), and linked with a warning where bubblewrap cannot nest.
+  is a link for Codex; for Claude Code, DeepSeek Harness and Hermes Agent it is bound there by a nested bubblewrap, a
+  real read-only directory as in a container (a search that walks the tree, `grep -r`, `find`, Claude Code's Glob and
+  Grep, DeepSeek Harness's glob and grep or Hermes's `search_files`, does not follow a link), and linked with a warning
+  where bubblewrap cannot nest. Hermes Agent runs in the task sandbox or with no isolation, not in a container.
   DeepSeek Harness also confines its commands and file tools in a sandbox of its own, inside the task sandbox
   (`permission_mode`). Its default, `workspace-write`, lets them write only the workspace and `/tmp`, so not
   `environment.write`. Where neither bubblewrap nor Landlock (the Linux kernel's own way of confining a process) can
@@ -155,11 +161,16 @@ What the agent does for every task:
   `claude setup-token` in `CLAUDE_CODE_OAUTH_TOKEN`, passed by name (nothing is copied), and nothing else may pay
   ([Claude subscription](../guides/claude-subscription.md)). In the task sandbox a reference or the CLI's own login is
   required: the CLI's own sign-in from the user's home is not copied in (a model that is no reference uses it only
-  where the pipeline runs on the host). Each session has a home of its own: none of the user's Codex, Claude Code or
-  DeepSeek Harness settings apply, and a Codex session's commands see only Codex's core variables (`shell_env: all`
-  passes every variable).
+  where the pipeline runs on the host). Each session has a home of its own: none of the user's Codex, Claude Code,
+  DeepSeek Harness or Hermes Agent settings apply, and a Codex session's commands see only Codex's core variables
+  (`shell_env: all` passes every variable).
   A DeepSeek Harness session never gets the caller's `DSH_*`, `DEEPSEEK_BASE_URL` or `DEEPSEEK_SEARCH_BASE_URL`,
   even through `environment.env`: give them in the agent's `env` setting.
+  Nor does a Hermes Agent session get the caller's `HERMES_*`, `TERMINAL_*` or `TIRITH_*`, or another provider's key
+  (`OPENROUTER_API_KEY`, ...): give them in `env`. Its auxiliary tasks go to its own model, and it has no fallback
+  provider, no memory, no skill-creation nudges, no title request, no update check and no tirith download. Hermes
+  itself still loads the `.env` beside its own source (a checkout installed from source) and a machine-wide managed
+  `.env`, over what Hermit passed: keep keys out of those files for a Hermes that Hermit runs.
 - **Web search.** `web_search` must be set, `true` or `false`: Codex's hosted search runs at the provider, past any
   sandbox or proxy, so it is never left to a default. Claude Code's `WebSearch` and `WebFetch` follow it too, and every
   Claude Code session is denied the tools whose work outlives it or reaches past it: `RemoteTrigger`, `CronCreate`,
@@ -168,16 +179,21 @@ What the agent does for every task:
   DeepSeek Harness's web search and fetch follow `web_search` too; its search is DeepSeek's own service, so unless the
   model is reached through DeepSeek's API on `DEEPSEEK_API_KEY`, `true` gives the session web fetch only. Its fetch
   runs in the session, not at the provider: in the task sandbox it reaches only what `environment.network` allows.
+  Hermes Agent has none: `web_search` must be `false` (its search and extraction are third-party services that reach
+  past the sandbox).
 - **Stop and retry.** One session per run, stopped at `timeout_s`. A session the provider could not serve (429, 5xx,
   a container that did not start) runs again after `retry_wait_s`, up to `retries`; then the run is an error, not a
-  wrong answer. On Claude Code and DeepSeek Harness any failed session is an error, with its tokens and log kept
-  and no judge call, and on Claude Code a lost sign-in on a login ends the run, which `hermit train` resumes. A
-  session past its clock is an attempt with no answer.
+  wrong answer. On Claude Code, DeepSeek Harness and Hermes Agent any failed session is an error, with its tokens and
+  log kept and no judge call, and on Claude Code a lost sign-in on a login ends the run, which `hermit train` resumes. A
+  session past its clock is an attempt with no answer. Hermes Agent runs again only when Hermes classed its last failed
+  request as a provider that could not serve (`rate_limit`, `upstream_rate_limit`, `overloaded`, `server_error`,
+  `timeout`, or a 429 or 5xx); at `max_turns` it asks for a summary and exits 0, and that session is failed
+  (`finish_reason` `length`), the summary its reply.
 - **Record.** The run's directory holds `work/` (the workspace, kept for inspection without its links out),
   `home/` and `log/`. `RunOutput.log` is `log/`: the host's event stream (`agent-codex.jsonl`, `agent-claude.jsonl`,
-  `agent-dsh.jsonl`), `prompt.txt`, `last_message.txt`, `deployment.json`, and what `collect` added. The output
-  is what `answer` returned, with `fail_reason` when there is no answer; without `answer`, the last message. In a
-  run, a model key's value in what the call leaves is scrubbed (`<VARIABLE>`; the login's token too, as
+  `agent-dsh.jsonl`, `agent-hermes.jsonl`), `prompt.txt`, `last_message.txt`, `deployment.json`, and what `collect`
+  added. The output is what `answer` returned, with `fail_reason` when there is no answer; without `answer`, the last
+  message. In a run, a model key's value in what the call leaves is scrubbed (`<VARIABLE>`; the login's token too, as
   `<CLAUDE_CODE_OAUTH_TOKEN>`).
   `RunOutput.extra` has the same keys for every task: `backend`, `model`, `effort`, `web_search`, `deploy`,
   `isolation`, `deployed`, `exit_code`, `timed_out`, `attempts`, `workspace`, `mounts` (each mount's target inside
