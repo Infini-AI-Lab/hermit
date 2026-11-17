@@ -68,8 +68,10 @@ COLLECT = {"codex": [(LAST_MESSAGE, LAST_MESSAGE)], "mini-swe-agent": [(LAST_MES
 # which hermit.agent.base.login.usage_of reads as it does in a Hermit session's own home)
 COLLECT_LOGIN = {"chatgpt": [("sessions", "sessions")]}
 SECRET_NAME = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", re.I)
-# a variable named as a secret is (OPENAI_API_KEY, GH_TOKEN, AWS_SECRET_ACCESS_KEY), never a count (MAX_OUTPUT_TOKENS)
-SECRET_VAR = re.compile(r"(?:^|_)(?:API_?KEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH)$", re.I)
+# a variable named as a secret: one of the words of its name (between underscores) is a secret's (OPENAI_API_KEY,
+# GH_TOKEN, HF_TOKEN_READ, SECRET_ID, DB_PASSWD), never a count (MAX_OUTPUT_TOKENS) or a word that holds one
+# (GIT_AUTHOR_NAME, TOKENIZERS_PARALLELISM)
+SECRET_VAR = re.compile(r"(?:^|_)(?:API_?KEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH)(?:_|$)", re.I)
 # a name Harbor treats as a secret's (harbor.utils.env's rule: OPENAI_API_KEY, GH_TOKEN, NPM_AUTH, GIT_AUTHOR_NAME too)
 HARBOR_SECRET = re.compile(r"KEY|SECRET|TOKEN(?!S)|PASSWORD|CREDENTIAL|AUTH", re.I)
 VAR_REF = re.compile(r"\$(?:\{(\w+)\}|(\w+))")
@@ -95,8 +97,10 @@ def binding_of(params: dict):
 
 def _with_role(binding):
     """`binding` with its backend's developer_role, which a spec the config's loading kept drops (Binding.spec:
-    FRAMEWORK_SUPPORT.md, candidate 14) and Pi's and dsh's provider settings read (`compat`): the backends registry's,
-    for a backend it names at the same URL; a backend only the run config declares keeps the spec's (keep)."""
+    FRAMEWORK_SUPPORT.md, candidate 14) and Pi's and dsh's provider settings read (`compat`): the backends registry's
+    (the built-ins and the user's backends file), for a backend it has at the spec's URL; any other keeps the spec's
+    (keep). The run config's `backends:` is not read here: a role it sets gives way to the registry's, and a backend
+    it declares, or moves to another URL, keeps keep."""
     import dataclasses
     from hermit.agent.model.backends import registry
     try:
@@ -384,7 +388,8 @@ def _env_entry(name: str, value: str, env: dict, from_host: dict) -> None:
     """A setting's variable into the plan: `$NAME` alone passes that variable by name (its value never written);
     other `$NAME`s are expanded with this machine's values, as a session's are (`$PATH` is this machine's PATH),
     unless one names a secret (SECRET_NAME's, SECRET_VAR's or Harbor's rule), which is refused, as is a value given
-    as it is to a variable named as a secret (SECRET_VAR's): either would be written into the plan."""
+    as it is to a variable named as a secret (SECRET_VAR's: a word of its name is a secret's): either would be written
+    into the plan."""
     whole = re.fullmatch(r"\$(?:\{(\w+)\}|(\w+))", value)
     if whole:
         from_host[name] = whole.group(1) or whole.group(2)

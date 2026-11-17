@@ -360,6 +360,22 @@ def test_a_trials_provider_settings_are_what_mains_own_session_on_the_same_model
     assert json.dumps(own["provider"]).count("supportsDeveloperRole") == 1   # the role the deployment refuses
 
 
+def test_a_trials_developer_role_is_the_registrys_only_for_its_backend_at_its_url(monkeypatch):
+    """The developer_role a trial's spec dropped is the backends registry's only for the backend the registry has at
+    the spec's URL (launch._with_role): the same backend moved to another URL (a proxy, a run config's own
+    `base_url`), or one only the run config declares, keeps the spec's `keep` (hermit/harbor/FRAMEWORK_SUPPORT.md,
+    candidate 14)."""
+    from hermit.agent.model.backends import as_binding, registry
+    monkeypatch.setenv("FIREWORKS_API_KEY", "fw-key-0123456789abcdef")
+    spec = as_binding("fireworks/accounts/fireworks/models/glm-5p3", registry()).spec()
+    moved = {**spec, "base_url": "http://127.0.0.1:9/v1"}
+    own = {**spec, "backend": "myfw", "ref": "myfw/accounts/fireworks/models/glm-5p3"}
+    for key in ("binding", "model"):                       # the spec as `binding`, or as a loaded config's `model`
+        assert launch.binding_of({key: spec}).backend.developer_role == "system", key
+        assert launch.binding_of({key: moved}).backend.developer_role == "keep", key
+        assert launch.binding_of({key: own}).backend.developer_role == "keep", key
+
+
 def test_effort_off_as_yaml_reads_it_is_no_effort_flag_as_in_mains_own_sessions(tmp_path, monkeypatch):
     """`effort: off` (YAML's false) is no effort at all, as main's Base Agents take it: Codex gets no
     model_reasoning_effort, Claude Code no --effort (and no refusal), the answer agent none."""
@@ -378,20 +394,27 @@ def test_effort_off_as_yaml_reads_it_is_no_effort_flag_as_in_mains_own_sessions(
 
 
 def test_a_settings_env_secret_is_passed_by_name_only_whatever_its_names_rule(tmp_path, monkeypatch):
-    """acting_agent.settings.env: a variable inside other text that names a secret by any of the rules (Harbor's AUTH
-    among them, PASSWD) is refused, as is a value given as it is to a variable named as a secret; a count named like
-    one (MAX_OUTPUT_TOKENS) is no secret, and another variable inside other text is this machine's value."""
+    """acting_agent.settings.env: a variable inside other text that names a secret by any of the rules is refused
+    (Harbor's among them: OAUTH_CLIENT_ID, which only its AUTH names one; PASSWD, which only launch.SECRET_VAR does),
+    as is a value given as it is to a variable named as a secret, a word of its name being a secret's wherever it
+    stands (HF_TOKEN_READ, OPENAI_API_KEY_2, SECRET_ID); a count named like one (MAX_OUTPUT_TOKENS), or a word that
+    only holds one (GIT_AUTHOR_NAME, TOKENIZERS_PARALLELISM), is no secret, and another variable inside other text is
+    this machine's value."""
     monkeypatch.setenv("EXTRA_DIR", "/opt/extra")
     for env in ({"NPMRC": "//registry/:_auth=$NPM_AUTH"}, {"DSN": "postgres://u:$DB_PASSWD@db/x"},
-                {"OPENAI_API_KEY": "sk-local-0123456789"}, {"DB_PASSWD": "hunter2"}, {"NPM_AUTH": "abc"}):
+                {"HEADER": "client=$OAUTH_CLIENT_ID"},
+                {"OPENAI_API_KEY": "sk-local-0123456789"}, {"DB_PASSWD": "hunter2"}, {"NPM_AUTH": "abc"},
+                {"HF_TOKEN_READ": "hf_local0123456789"}, {"OPENAI_API_KEY_2": "sk-local-0123456789"},
+                {"SECRET_ID": "abc"}):
         with pytest.raises(ValueError, match="only whole|named as a secret"):
             launch.render("codex", settings("codex", extra={"env": env}), deploy=None, tools_url=None,
                           job=tmp_path / "bad")
     plan = plan_of(launch.render("codex", settings("codex", extra={"env": {
-        "MAX_OUTPUT_TOKENS": "4096", "LIBS": "$EXTRA_DIR/lib", "GH_TOKEN": "$GH_TOKEN"}}), deploy=None, tools_url=None,
-        job=tmp_path / "ok"))
+        "MAX_OUTPUT_TOKENS": "4096", "LIBS": "$EXTRA_DIR/lib", "GH_TOKEN": "$GH_TOKEN", "GIT_AUTHOR_NAME": "Hermit",
+        "TOKENIZERS_PARALLELISM": "false"}}), deploy=None, tools_url=None, job=tmp_path / "ok"))
     assert (plan["env"]["MAX_OUTPUT_TOKENS"], plan["env"]["LIBS"], plan["env_from_host"]["GH_TOKEN"]) == \
         ("4096", "/opt/extra/lib", "GH_TOKEN")
+    assert (plan["env"]["GIT_AUTHOR_NAME"], plan["env"]["TOKENIZERS_PARALLELISM"]) == ("Hermit", "false")
 
 
 def test_a_trials_env_on_a_login_is_what_mains_session_on_it_gets(tmp_path, monkeypatch):

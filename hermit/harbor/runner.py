@@ -1310,6 +1310,17 @@ class HarborAgent(Agent):
         self.stopped()                                       # another rollout ended the run while this one waited
         return free
 
+    def _disk_held(self) -> str:
+        """Which disk gate held a trial back once wait_for_disk gave up, for its verdict: the host's /tmp when it is
+        short of its own gate now (that gate is waited for first), else Docker's data root."""
+        tmp_gate = self.params.get("tmp_gate_gb")
+        tmp_gate = float(TMP_GATE_GB if tmp_gate is None else tmp_gate)
+        if tmp_gate > 0 and docker.free_gb(HOST_TMP) < tmp_gate:
+            return f"the host's {HOST_TMP} stayed under {tmp_gate:g} GB free"
+        gate = self.params.get("disk_gate_gb")
+        gate = float(DISK_GATE_GB if gate is None else gate)
+        return f"the Docker data root {self._docker_root()} stayed under {gate:g} GB free"
+
     def image_gb(self, image: str) -> float:
         """An image's estimated size on disk (GB), from `image_sizes`; 0 when unknown."""
         compressed = self.image_sizes.get(image)
@@ -1585,9 +1596,8 @@ class HarborAgent(Agent):
 
     def _trial_admitted(self, task: dict, adapter: Path | None, started: float, admitted: list) -> RunOutput:
         if not self.wait_for_disk(task, admitted):
-            return self._output(task, no_trial("disk", f"the Docker data root {self._docker_root()} stayed under "
-                                                       f"{self.params.get('disk_gate_gb', DISK_GATE_GB)} GB free: no "
-                                                       "container started"), None, None, started)
+            return self._output(task, no_trial("disk", f"{self._disk_held()}: no container started"), None, None,
+                                started)
         job_name = f"{_safe(task['id'])}-{uuid.uuid4().hex[:8]}"
         job = self.jobs_dir / job_name
         try:
@@ -2090,11 +2100,8 @@ class HarborAgent(Agent):
                         raise TurnLostError(index, why)          # no driver (an environment) started for it
                     if client.running() is None and not self.wait_for_disk():
                         self._give_up(stream, index, "disk")
-                        gate = self.params.get("disk_gate_gb", DISK_GATE_GB)
-                        return self._output(task, no_trial("disk", f"the Docker data root {self._docker_root()} stayed "
-                                                                   f"under {gate} GB free: the stream's environment "
-                                                                   "was not started"),
-                                            None, None, started)
+                        return self._output(task, no_trial("disk", f"{self._disk_held()}: the stream's environment "
+                                                                   "was not started"), None, None, started)
                     with self._streams_lock:                     # this runner's to stop until it finishes (close)
                         self._drivers.setdefault(stream, client)
                     client.ensure(task_dir=self.task_dir(task), name=stream, agent=agent,

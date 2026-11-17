@@ -3354,8 +3354,11 @@ def test_closing_the_runner_stops_the_drivers_of_its_unfinished_streams(tmp_path
     stopped = []                                            # each stop asked of a driver, by its stream's name
     real_stop = stream.StreamClient.stop
 
+    timeouts = []                                           # ... and the time each was given before its kill
+
     def counted(self, **kwargs):
         stopped.append(self.dir.name)
+        timeouts.append(kwargs.get("timeout_s"))
         return real_stop(self, **kwargs)
     monkeypatch.setattr(stream.StreamClient, "stop", counted)
 
@@ -3396,6 +3399,8 @@ def test_closing_the_runner_stops_the_drivers_of_its_unfinished_streams(tmp_path
         assert driver(idle, stopping=True) is None                                      # (as at its idle time)
         ended.close()
         assert stopped[4:] == []
+        # the last step's own stop waits as long as a stop does; a close's, its finalizer's, CLOSE_STOP_S each
+        assert timeouts == [None] + [runner_module.CLOSE_STOP_S] * 3
     finally:
         stop_streams(tmp_path)
 
@@ -3756,6 +3761,10 @@ def test_a_refusal_of_the_key_or_model_in_a_providers_own_wording_is_model_rejec
     from hermit.harbor.tools import ModelEndpoint
     relay = ModelEndpoint(BINDING)                                     # the answer agent's relay: the bill's own status
     relay._note((402, b'{"error": {"message": "Insufficient Balance"}}', {}))
+    relayed = HarborAgent.session_verdict(exited, relay.facts())
+    assert (relayed["failure_cause"], relayed["halt"]) == ("usage_limit", True)
+    relay = ModelEndpoint(BINDING)                                     # ... its 402 whatever its words
+    relay._note((402, b'{"error": {"message": "This account is not active"}}', {}))
     relayed = HarborAgent.session_verdict(exited, relay.facts())
     assert (relayed["failure_cause"], relayed["halt"]) == ("usage_limit", True)
     relay = ModelEndpoint(BINDING)                                     # ... and its refusal of the model
@@ -4212,8 +4221,12 @@ def test_the_disk_gate_waits_for_the_hosts_tmp_too(tmp_path, monkeypatch):
     r.params, r._root, r.pulls, r.image_sizes = {"disk_gate_wait_s": 0.01}, tmp_path, docker.Pulls(), {}
     r._stop, r._stop_why = threading.Event(), ""
     assert not r.wait_for_disk()                                  # /tmp under 1 GB: no trial starts
+    assert r._disk_held() == "the host's /tmp stayed under 1 GB free"     # the trial's verdict says which gate
     free[runner_mod.HOST_TMP] = 2.0
     assert r.wait_for_disk()
+    free[tmp_path] = 5.0                                          # the data root under its 20 GB
+    assert not r.wait_for_disk() and r._disk_held() == f"the Docker data root {tmp_path} stayed under 20 GB free"
+    free[tmp_path] = 100.0
     r.params["tmp_gate_gb"] = 0                                   # off
     free[runner_mod.HOST_TMP] = 0.0
     assert r.wait_for_disk()
@@ -4800,8 +4813,8 @@ def test_staging_deploys_pi_and_dsh_without_the_tools_the_runner_serves(tmp_path
 def test_a_staging_child_that_failed_beside_this_machines_own_failure_is_infra_never_the_adapters_0(
         tmp_path, fake_harbor, monkeypatch):
     """A staging child's failure (its RuntimeError) is the adapter's unless this process sees this machine fail any
-    adapter's staging there: less than STAGING_FREE_MB free beside the trial's job, or the strict adapter sandbox not
-    starting (bubblewrap without its namespaces: sandbox_fault). Then the trial, and a stream's step, are infra
+    adapter's staging there: a job folder it cannot write, less than STAGING_FREE_MB free beside the trial's job, or the
+    strict adapter sandbox not starting (bubblewrap without its namespaces: sandbox_fault). Then the trial, and a stream's step, are infra
     (staging_failed: run again), the child's own words kept in the message; the same failure beside room and a sandbox
     that starts is the adapter's (adapter_failed, scored 0)."""
     from collections import namedtuple
@@ -4816,19 +4829,26 @@ def test_a_staging_child_that_failed_beside_this_machines_own_failure_is_infra_n
     def stage(*args, **kwargs):
         raise RuntimeError("deploying the adapter failed: OSError: [Errno 28] No space left on device")
     monkeypatch.setattr("hermit.harbor.runner.stage", stage)
-    usage, real_usage = namedtuple("usage", "total used free"), shutil_mod.disk_usage
+    usage, real_usage, real_access = namedtuple("usage", "total used free"), shutil_mod.disk_usage, os.access
+    jobs = tmp_path / "jobs"
+
+    def access(path, mode, **kwargs):                       # the job folder this process may not write
+        return False if Path(path).is_relative_to(jobs) and mode & os.W_OK else real_access(path, mode, **kwargs)
     bwrap = "the strict adapter sandbox did not start (exit 1): bwrap: setting up uid map: Permission denied"
-    for case, low, fault in (("full", True, None), ("sandbox", False, bwrap), ("adapter", False, None)):
+    says = {"full": "10 MB free", "sandbox": "bwrap: setting up uid map", "unwritable": "cannot be written"}
+    for case, low, fault in (("full", True, None), ("sandbox", False, bwrap), ("unwritable", False, None),
+                             ("adapter", False, None)):
         monkeypatch.setattr(runner_mod.shutil, "disk_usage",
                             (lambda path: usage(1 << 40, 1 << 40, 10 << 20)) if low else real_usage)
         monkeypatch.setattr(runner_mod, "sandbox_fault", lambda enforce, fresh=True, fault=fault: fault)
+        monkeypatch.setattr(runner_mod.os, "access", access if case == "unwritable" else real_access)
         for row in (rows["alpha"], rows["flow:s1"]):
             out = agent.run(row, simple_template())
             want = ("agent_error", "adapter_failed") if case == "adapter" else ("infra", "staging_failed")
             assert (out.output["status"], out.output["failure_cause"]) == want, (case, row["id"])
             if case != "adapter":
                 message = out.extra["exception_message"]
-                assert ("10 MB free" if low else "bwrap: setting up uid map") in message, (case, message)
+                assert says[case] in message, (case, message)
                 assert "No space left on device" in message, (case, message)       # the child's own words, kept
     assert not agent._in_flight
 
@@ -4937,3 +4957,31 @@ def test_curate_puts_at_the_top_the_stream_the_plan_names_never_another_clis_the
     answer = write(tmp_path / "answer" / "launch" / "plan.json", json.dumps({"stream": "answer.json"}))
     log = curate.curate(trial, tmp_path / "answer", errors.classify(trial_result()), plan=answer)
     assert not (log / "agent-pi.jsonl").exists() and not (log / "agent-codex.jsonl").exists()
+
+
+# ---- the round-11 review: which disk gate held a trial back ---------------------------------------------------------
+
+def test_a_trial_or_step_the_disk_gate_held_back_names_the_gate_that_held_it(tmp_path, fake_harbor, monkeypatch):
+    """The verdict of a trial, or of a stream's first step, that a disk gate held back past its wait (disk: infra, not
+    run again) names the gate that held it: the host's /tmp (its own gate, waited for first) or Docker's data root.
+    Before, it named the data root whichever gate held it."""
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    make_task(tasks, "flow", steps=("one", "two"))
+    rows = {r["id"]: r for r in dataset.index(tasks)}
+    root = tmp_path / "docker-root"
+    free = {}
+    monkeypatch.setattr(docker, "free_gb", lambda path: free.get(path, 100.0))
+    monkeypatch.setattr(docker.time, "sleep", lambda s: None)
+    for case, (short, says) in enumerate(((runner_module.HOST_TMP, "the host's /tmp stayed under 1 GB free"),
+                                          (root, f"the Docker data root {root} stayed under 20 GB free"))):
+        free.clear()
+        free[short] = 0.5
+        agent = make_agent(tmp_path / f"case-{case}", fake_harbor, tasks, disk_gate_gb=20, tmp_gate_gb=1,
+                           disk_gate_wait_s=0.01)
+        agent._root = root
+        for row, then in ((rows["alpha"], "no container started"),
+                          (rows["flow:one"], "the stream's environment was not started")):
+            out = agent.run(row, None)
+            assert (out.output["status"], out.extra["unscored"]) == ("infra", "disk"), row["id"]
+            assert out.extra["exception_message"] == f"{says}: {then}", (row["id"], out.extra["exception_message"])

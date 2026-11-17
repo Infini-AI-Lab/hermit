@@ -77,8 +77,11 @@ The agent layers:
 13. **Hosts**: Pi's tool server in the strict adapter sandbox, as the others' are; `hermit/agent/acting/workspace.py`
     passing `serve_tools` to Pi and dsh for its container sessions.
 14. **`Binding.spec` keeping `developer_role`**, which a spec the config's loading kept drops: the runner takes the
-    backends registry's for a backend it names at the same URL (`launch._with_role`), so that Pi's and dsh's trials
-    get the provider settings Hermit's own sessions do; a backend only the run config declares keeps `keep`.
+    backends registry's (the built-ins and the user's backends file) for a backend the registry has at the trial's
+    URL (`launch._with_role`), so that Pi's and dsh's trials on it get the provider settings Hermit's own sessions
+    do. The run config's `backends:` is not the runner's to read: a backend it declares (`from:` another included)
+    or moves to another URL keeps the spec's `keep`, and a role it sets for a registry backend at the registry's URL
+    gives way to the registry's, where Hermit's own sessions take the run config's.
 15. **Clocks of AHE and its Debugger** that leave out a wait for the login's plan.
 16. **Harness²** for more CLIs; MWM's file names and its round count; RRSI Adapter's `halt_file`, which still names
     Harbor's `<jobs_dir>/HALT`, a file the runner no longer writes.

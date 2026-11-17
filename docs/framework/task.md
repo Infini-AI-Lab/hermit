@@ -276,7 +276,11 @@ does for Pi and dsh), or a binary of this machine mounted read-only (`<cli>_bin`
 only when it answers `--version` (asked as root) as the asked-for version and the task's agent user may execute it,
 else the install), and one executor for all of them. What the session is, the CLI's home, its command line and its
 environment, Hermit's side renders with the CLI Base Agent its own sessions use (`hermit.harbor.launch`: the trial's
-launch plan, `<job>/launch/plan.json`), against the adapter deployed by the CLI's host exactly as `hermit deploy` lays
+launch plan, `<job>/launch/plan.json`; Pi's and dsh's provider settings take the backend's `developer_role` from the
+backends registry, the built-ins and the user's backends file, when it has that backend at the trial's URL, whatever
+the run config's `backends:` sets for it, and `keep` otherwise, where Hermit's own sessions take the run config's
+`backends:` over the registry: `hermit/harbor/FRAMEWORK_SUPPORT.md`, candidate 14), against the adapter deployed by
+the CLI's host exactly as `hermit deploy` lays
 it out (`hermit.harbor.staging`: the context file, skills, roles and hooks, the whole adapter in `hermit/<adapter id>/`
 of the task's workdir; its record, `.hermit-deploy.json`, names the paths of this machine it was staged at, as the
 host writes it). harborside uploads the deployment and the home and runs the command as the task's agent user,
@@ -308,8 +312,10 @@ its variable's name only (`docker compose exec -e NAME`, Claude Code's subscript
 command line, a file, the plan or a log. `acting_agent.settings.env` passes a variable given whole (`$NAME`) by its
 name; another `$NAME` inside a value is this machine's value, written into the plan (`$PATH` is this machine's
 PATH), and is refused when its name is a secret's (holding `KEY`, `TOKEN` but not as `TOKENS`, `SECRET`, `PASSWORD`,
-`PASSWD`, `CREDENTIAL` or `AUTH`), as is a value given as it is to a variable named as a secret (`DB_PASSWD: hunter2`,
-`NPM_AUTH: ...`). The container gets no other variable of this machine's: one that main's Base Agents drop from a
+`PASSWD`, `CREDENTIAL` or `AUTH`), as is a value given as it is to a variable named as a secret, a word of its name
+(between underscores) being one of them (`DB_PASSWD: hunter2`, `NPM_AUTH: ...`, `HF_TOKEN_READ: ...`; not
+`MAX_OUTPUT_TOKENS` or `GIT_AUTHOR_NAME`).
+The container gets no other variable of this machine's: one that main's Base Agents drop from a
 session's environment (`dropped_env`, this process's variables) reaches it only when the settings name it, as in
 main, and on `login: claude` an `env` that names what would pay instead (`ANTHROPIC_API_KEY`) is refused, as in
 Hermit's own sessions. Codex's sign-in on `login:
@@ -320,7 +326,9 @@ the container, before a verifier that shares the container (Harbor's shared mode
 is removed, and with `environment.kwargs.keep_containers: true` in the stopped container Harbor keeps. The host's copy
 for the trial is removed after the trial. With `login: chatgpt` (Codex) or `login: claude` (Claude Code) a trial
 runs on the user's subscription and shares its plan with Hermit's other sessions on it (hermit.agent.base.login): it
-waits while the plan holds sessions back, its session notes the plan's usage (Codex's as Claude Code's), so `MAX_USED`
+waits while the plan holds sessions back, with no bound (main's `plan_max_wait_s` is no setting of the runner's: the
+window's reset, a PAUSE file's removal or the run's end ends the wait), its session notes the plan's usage (Codex's as
+Claude Code's), so `MAX_USED`
 holds trials back as it holds Hermit's own sessions, a session the plan refused runs again once its window allows (on
 Codex the refusal is read from Codex's own notices, never from what its log quotes of the session's tool calls), one
 the provider could not serve runs again after a pause (`busy_retries` times over all of the trial's runs:
@@ -349,9 +357,11 @@ on a login (`model: {cli, model, login}`, each request one session on the login,
 variable, does not loosen) is given in
 the benchmark file, whose model the runner serves itself: the trial waits for that plan before it starts (and does not
 start once another trial ended the run meanwhile), its relay waits for it before each request, and a trial whose one
-request was still unanswered when the agent's time ran out, held back by that plan, is infra (`usage_limit`; the run goes on),
+request was still unanswered when the agent's time ran out, held back by that plan at any time (a hold that lifted
+before the time ran out too: the time the plan took was not the agent's), is infra (`usage_limit`; the run goes on),
 not the agent's timeout; a session the plan refused comes back at once (the relay runs its sessions with `plan_rerun:
-false`), its trial infra (`usage_limit`), run again once the plan allows (not counted in `infra_retries`), never
+false`), its trial infra (`usage_limit`), run again once the plan allows (not counted in `infra_retries`, as often as
+it refuses, each time after the plan's hold: an hour when nothing says when its window resets), never
 waiting for the window inside the agent's time; a Codex session of the relay whose sign-in was lost ends the run, as a
 trial's does. The same model in the run config's own `agent.params.model`, which the pipeline serves, is refused at
 startup: its session would wait for the plan inside the request, which the runner cannot tell from the model's own
@@ -425,7 +435,8 @@ read: `infra`, `usage_limit`; or the verifier's own time ran out on the agent's 
 ended the session; the adapter's context over the CLI's limit beside the image's own; the adapter's own deployment or
 per-task context failing in its child process on this machine, `adapter_failed`, its message the feedback, no
 container started, unless this process then sees this machine fail any adapter's staging there (a job folder it
-cannot write, less than 64 MB free under it, the strict adapter sandbox not starting: `staging_failed`, infra; a
+cannot write, less than 64 MB free under it, the strict adapter sandbox not starting: `staging_failed`, infra, which
+an adapter's own staging that filled the disk reads as too, the host being checked after it; a
 child killed or out of its time stays the adapter's), and a trial's launch plan refused for what its adapter is (its
 tools beside `text_only`; dsh's MCP server name, made of the adapter's id: 32 characters at most of
 `[A-Za-z0-9_-]`), which the plan rendered at startup, with no adapter, does not meet (a manifest this process cannot
@@ -531,7 +542,8 @@ the stream's life) and the hosts its agent phase may reach, a step whose turn ha
 ones, running in other rollouts of the batch (one whose turn cannot come ends at once: the limits below), and stops it
 after the last step, an aborted step, a step whose turn could not come, or `stream.idle_s` without a request. At the
 runner's exit, or once the runner is freed, the drivers of the streams that did not finish are stopped, one after
-another, each killed if it has not stopped within 2 minutes (a process killed by a signal leaves them up for
+another (no thread may start at exit, so N hung drivers hold it up N × 2 minutes), each killed if it has not
+stopped within 2 minutes (a process killed by a signal leaves them up for
 `stream.idle_s`): no stream is resumed. A resumed `hermit train` (a new runner)
 has no driver for a stream under way, so that stream's remaining steps in the epoch end `infra` (`stream_order`),
 counted 0 in the step's mean and given to the learner as such, and the stream starts over at its first step's next

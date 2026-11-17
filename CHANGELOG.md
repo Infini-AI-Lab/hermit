@@ -116,8 +116,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   `hermit eval --adapter final`. Every CLI of Hermit's but Hermes Agent (#107: the runner refuses it) acts in a trial,
   one HermitXXX class per CLI (Codex, the default, Claude Code, Pi, OpenCode, dsh, mini-swe-agent) over one executor:
   Hermit's side renders the session with the CLI's own Base Agent (its home, command and environment: Pi's and dsh's
-  provider settings with the backend's `developer_role`, `effort: off` as no effort) against the adapter deployed as
-  `hermit deploy` lays it out, and reads the trial's stream back with the same Base Agent (the reply, whether it was
+  provider settings with the backends registry's `developer_role`, `effort: off` as no effort) against the adapter
+  deployed as `hermit deploy` lays it out, and reads the trial's stream back with the same Base Agent (the reply,
+  whether it was
   served, the plan's or the provider's refusal, the usage at the run's price). The answer-only agent
   (`acting_agent.cli: answer`) makes one model call from Harbor's process through an endpoint the runner serves, a
   model a CLI reaches (`model: {cli: ...}`) given in the benchmark file, each request one session whose refusal by the
@@ -149,7 +150,7 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   of the pipeline, as on `main`), unless this machine is seen to fail any adapter's staging there (a folder it cannot
   write, less than 64 MB free, the strict adapter sandbox not starting: infra); a trial's launch plan refused for
   what its adapter is (its tools beside `text_only`, dsh's MCP server name made of its id) is the agent's 0 too. A
-  session the provider refused for the run's configuration (Codex's: a 400 or a 404 it does not retry) is infra
+  session the provider refused for the run's configuration (Codex's: such a 400 or 404, not retried) is infra
   (`model_rejected`), as the other CLIs' are; one it refused for the account's bill (a 402, an API account's quota or
   credit spent) ends the run, as an API account's usage limit does; Codex's usage limit and lost sign-in are read from
   Codex's own notices, never from what its log quotes of the session's work. The judge scores the verifier's reward
