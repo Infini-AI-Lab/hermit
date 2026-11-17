@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Train, or evaluate, the ASPIRE method on Robosuite. Run it on the host that serves ASPIRE's providers.
+# (Another benchmark of ASPIRE's harness starts it from its own folder, as ASPIRE_EXAMPLE: its configs, in the
+# method folder ASPIRE_METHOD (default aspire), its utils/prepare.py and task rows, its runs; ../../libero/utils/launch.sh.)
 #
 #   ASPIRE_ROOT=/path/to/ASPIRE ./launch.sh                      # train run.yaml
 #   ASPIRE_CONFIG=smoke.yaml ./launch.sh                          # train the smoke (its seeds: ASPIRE_SEEDS=smoke)
@@ -8,7 +10,7 @@
 #   ASPIRE_SIM_ENV=/path/to/sim_env.yaml ./launch.sh              # the simulator's render environment (a YAML map)
 #   ASPIRE_SIM_GPU=8 ./launch.sh                                  # its GPUs, the N of /dev/nvidia<N> (none: software)
 #   ASPIRE_OUT=/big/disk/aspire ./launch.sh                       # the runs, the sessions, Stage 2 (default ../runs)
-#   ASPIRE_EVAL_SEEDS=1-50 ./launch.sh                            # held-out seeds other than ASPIRE's 1-100
+#   ASPIRE_EVAL_SEEDS=1-50 ./launch.sh                            # held-out seeds other than the preset's
 #
 # The launcher writes the seeds into the task rows (prepare.py; ASPIRE_SEEDS=smoke for the smoke's), starts the
 # simulator service the actors reach through bin/sim (utils/agent/sim_service.py, on ASPIRE_SIM_PORT, default 8120;
@@ -20,10 +22,11 @@
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 : "${ASPIRE_ROOT:?set ASPIRE_ROOT to an ASPIRE checkout with .venv-robosuite}"
+EXAMPLE="$(cd "${ASPIRE_EXAMPLE:-$HERE/..}" && pwd)"              # the folder with <method>/<config> and utils/prepare.py
+METHOD="${ASPIRE_METHOD:-aspire}"                                 # the folder of the configs
 # Absolute, from where the launcher was called: the service, the judge and the sandboxed workers each start elsewhere
 ASPIRE_ROOT="$(cd "$ASPIRE_ROOT" && pwd)"
 [[ -z "${ASPIRE_OUT:-}" ]] || { mkdir -p "$ASPIRE_OUT" && ASPIRE_OUT="$(cd "$ASPIRE_OUT" && pwd)"; }
-: "${FIREWORKS_API_KEY:?set FIREWORKS_API_KEY}"
 CONFIG="${ASPIRE_CONFIG:-run.yaml}"
 HERMIT="${HERMIT_PYTHON:-python}"
 [[ "$HERMIT" != */* || "$HERMIT" == /* ]] || HERMIT="$PWD/$HERMIT"          # a relative path: from here, as given
@@ -44,19 +47,26 @@ done
 PINNED=fa00f0ef2bc1d91d594b9aa502c22133c9f538f7
 ACTUAL="$(git -C "$ASPIRE_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
 [[ "$ACTUAL" == "$PINNED" ]] || echo "note: ASPIRE_ROOT is at $ACTUAL, not the pinned $PINNED" >&2
-cd "$HERE"
+cd "$EXAMPLE/$METHOD"
+# The model key, for a config whose models are Fireworks' (one on the machine's ChatGPT login needs none)
+! grep -q "ref: fireworks/" "$CONFIG" || : "${FIREWORKS_API_KEY:?set FIREWORKS_API_KEY}"
 
-# The seeds, in the task rows: the simulator service and the judge read them there.
-case "${ASPIRE_SEEDS:-$([[ "${CONFIG##*/}" == smoke* ]] && echo smoke || echo aspire)}" in
-  smoke)  SEEDS=(--dev 101-103 --unseen 126 --eval "${ASPIRE_EVAL_SEEDS:-1-3}") ;;
-  aspire) SEEDS=(--dev 101-125 --unseen 126-130 --eval "${ASPIRE_EVAL_SEEDS:-1-100}") ;;
-  *) echo "ASPIRE_SEEDS is smoke or aspire" >&2; exit 2 ;;
-esac
+# The seeds, in the task rows: the simulator service and the judge read them there. The example's prepare.py holds
+# its benchmark's (ASPIRE's defaults and the smoke's).
+PRESET="${ASPIRE_SEEDS:-$([[ "${CONFIG##*/}" == smoke* ]] && echo smoke || echo aspire)}"
+[[ "$PRESET" == smoke || "$PRESET" == aspire ]] || { echo "ASPIRE_SEEDS is smoke or aspire" >&2; exit 2; }
+SEEDS=(--preset "$PRESET")
+[[ -z "${ASPIRE_EVAL_SEEDS:-}" ]] || SEEDS+=(--eval "$ASPIRE_EVAL_SEEDS")
 (cd ../utils && "$HERMIT" prepare.py "${SEEDS[@]}")
+# ASPIRE's docs as the actors may read them, outside its checkout: the task sandbox is shown these, not the
+# checkout's pages, which name ASPIRE's worked programs per task.
+export ASPIRE_DOCS="$EXAMPLE/utils/aspire-docs"
+"$HERMIT" "$HERE/../utils/agent/stage_docs.py" --aspire-root "$ASPIRE_ROOT" --tasks ../utils/tasks.jsonl \
+  --out "$ASPIRE_DOCS"
 
 # Where the runs go (ASPIRE_OUT): the trainer's records, the actors' sessions (their simulator runs' records and
 # traces; their images are pruned after scoring), the judge's Stage 2. Put it on a large disk.
-OUT="${ASPIRE_OUT:-$HERE/../runs}"
+OUT="${ASPIRE_OUT:-$EXAMPLE/runs}"
 case "$(cd "$OUT" 2>/dev/null && pwd -P || echo "$OUT")/" in          # the simulator reads the checkout, not the runs
   "$(cd "$ASPIRE_ROOT" && pwd -P)"/*) echo "ASPIRE_OUT ($OUT) lies inside ASPIRE_ROOT: keep the runs elsewhere" >&2
                                       exit 2 ;;
@@ -69,7 +79,7 @@ export ASPIRE_ROOT ASPIRE_OUT="$OUT" ASPIRE_SIM_ENV="$SIM_ENV_JSON" ASPIRE_SIM_G
 [[ -n "${ASPIRE_SIM_GPU:-}" ]] || echo "note: ASPIRE_SIM_GPU names no GPU: the simulator renders in software" >&2
 PORT="${ASPIRE_SIM_PORT:-8120}"
 NONCE="$$-$RANDOM-$(date +%s%N)"                  # this launch's service answers /health with it, another run's not
-"$HERMIT" ../utils/agent/sim_service.py --port "$PORT" --aspire-root "$ASPIRE_ROOT" --tasks ../utils/tasks.jsonl \
+"$HERMIT" "$HERE/../utils/agent/sim_service.py" --port "$PORT" --aspire-root "$ASPIRE_ROOT" --tasks ../utils/tasks.jsonl \
   --workspaces "$OUT/actor-logs" --state "$OUT/sim-service" --sim-env "$SIM_ENV_JSON" --nonce "$NONCE" \
   --gpu "${ASPIRE_SIM_GPU:-}" > "$OUT/sim-service.log" 2>&1 &
 SERVICE=$!
@@ -86,8 +96,10 @@ export ASPIRE_SIM_URL="http://127.0.0.1:$PORT"
 
 MODE=train
 if [[ "${1:-}" == train || "${1:-}" == eval ]]; then MODE="$1"; shift; fi
-EXTRA=()
-[[ "$CONFIG" == *_direct* ]] && EXTRA=("agent.params.sim_env=$SIM_ENV_JSON")
+if [[ "$CONFIG" == *_direct* ]]; then EXTRA=("agent.params.sim_env=$SIM_ENV_JSON")
+else EXTRA=("agent.params.aspire_docs=$ASPIRE_DOCS"); fi
+TREES="$OUT/trees"                                # another method folder's adapters beside, not over, ASPIRE's
+[[ "$METHOD" == aspire ]] || TREES="$OUT/trees/$METHOD"
 "$HERMIT" -m hermit.cli "$MODE" --config "$CONFIG" "agent.params.aspire_root=$ASPIRE_ROOT" \
   "agent.params.logs=$OUT/actor-logs" "trainer.output_dir=$OUT" \
-  "trainer.tree_dir=$OUT/trees/$(basename "$CONFIG" .yaml)" "${EXTRA[@]}" "$@"
+  "trainer.tree_dir=$TREES/$(basename "$CONFIG" .yaml)" "${EXTRA[@]}" "$@"

@@ -3,7 +3,7 @@ the seeds it is scored on, and its success rate. For an actor these are the task
 session can run (the simulator service refuses them); for a verifier, its own development seeds, and it counts only
 with its own verdict `verified` (ASPIRE: `refuted` and `void` are never promoted) and only for one of the two programs
 its attempt budget ran (the simulator service's ledger). A seed counts when ASPIRE's harness reports task_success
-(Robosuite's own success check, run after the program finished), within the session's max_steps.
+(the benchmark's own success check, run after the program finished), within the session's max_steps.
 
 The engine's settings come from the launcher's environment: ASPIRE_ROOT (the checkout), ASPIRE_SIM_ENV (the
 simulator's environment, a JSON object), ASPIRE_OUT (where the runs go; the service's ledger is its sim-service/)."""
@@ -45,7 +45,7 @@ def score(task: dict, output) -> dict:
     (out / "program.py").write_text(program)
     engine = sim.Engine(os.environ["ASPIRE_ROOT"], env=json.loads(os.environ.get("ASPIRE_SIM_ENV") or "{}"),
                         workers=int(os.environ.get("ASPIRE_WORKERS", 4)), max_steps=facts.get("max_steps"),
-                        timeout_s=7200)
+                        timeout_s=7200, benchmark=task.get("benchmark") or "robosuite")
     refused = engine.validate(out / "program.py")
     records = [] if refused else engine.run(out / "program.py", suite=task["suite"], seeds=seeds, out=out / "runs",
                                             task_id=int(task.get("task_id", 0)))
