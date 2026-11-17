@@ -1,7 +1,7 @@
 # Harbor and the Hermit core
 
 The Harbor integration changes nothing in `hermit/` outside this package but one thing: Pi's and dsh's host
-deployments (`hermit/hosts/pi.py`, `hermit/hosts/dsh.py`) take `serve_tools`, as the other four hosts already do, so
+deployments (`hermit/hosts/pi.py`, `hermit/hosts/dsh.py`) take `serve_tools`, as the other five hosts already do, so
 that a trial in a task's container gets the adapter's tools from the runner, not from a server its workspace would
 start on this machine. The three agent layers (`hermit/agent/`), the Trainer, `hermit eval`, `hermit check`, the
 configuration and the sandbox are unchanged. This note records how Harbor's needs fit the existing interfaces, and

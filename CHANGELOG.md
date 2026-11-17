@@ -113,19 +113,20 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   `python -m hermit.harbor.dataset prepare` downloads the tasks outside the checkout and writes the `tasks` link,
   `tasks.jsonl`, the splits, smoke rows, the images' sizes and a lock (a patch of the download, such as LAB-Bench
   FigQA's, is the folder's only code); a baseline is `hermit eval`, a method `hermit train` and then
-  `hermit eval --adapter final`. Every CLI of Hermit's acts in a trial, one HermitXXX class per CLI (Codex, the default,
-  Claude Code, Pi, OpenCode, dsh, mini-swe-agent) over one executor: Hermit's side renders the session with the CLI's
-  own Base Agent (its home, command and environment: Pi's and dsh's provider settings with the backend's
-  `developer_role`, `effort: off` as no effort) against the adapter deployed as `hermit deploy` lays it out, and
-  reads the trial's stream back with the same Base Agent (the reply, whether it was served, the plan's or the provider's
-  refusal, the usage at the run's price). The answer-only agent (`acting_agent.cli: answer`) makes one model call from
-  Harbor's process through an endpoint the runner serves, a model a CLI reaches (`model: {cli: ...}`) given in the
-  benchmark file, each request one session whose refusal by the plan comes back at once (`plan_rerun: false`: the
-  trial infra, run again once the plan allows, never the agent's timeout). The adapter's tools are served from this
-  machine on the Docker bridge's gateway, each call logged; a per-task context is computed in the adapter sandbox; the
-  adapter's notes come back after the session. The trial's log is curated where the methods' readers look in a log of
-  Hermit's own sessions: the CLI's stream as `agent-<backend>.jsonl`, `task.md`, `prompt.txt`, `last_message.txt` and
-  the hook audit at its top. [Benchmarks](docs/framework/task.md#benchmarks) has the whole of it.
+  `hermit eval --adapter final`. Every CLI of Hermit's but Hermes Agent (#107: the runner refuses it) acts in a trial,
+  one HermitXXX class per CLI (Codex, the default, Claude Code, Pi, OpenCode, dsh, mini-swe-agent) over one executor:
+  Hermit's side renders the session with the CLI's own Base Agent (its home, command and environment: Pi's and dsh's
+  provider settings with the backend's `developer_role`, `effort: off` as no effort) against the adapter deployed as
+  `hermit deploy` lays it out, and reads the trial's stream back with the same Base Agent (the reply, whether it was
+  served, the plan's or the provider's refusal, the usage at the run's price). The answer-only agent
+  (`acting_agent.cli: answer`) makes one model call from Harbor's process through an endpoint the runner serves, a
+  model a CLI reaches (`model: {cli: ...}`) given in the benchmark file, each request one session whose refusal by the
+  plan comes back at once (`plan_rerun: false`: the trial infra, run again once the plan allows, never the agent's
+  timeout). The adapter's tools are served from this machine on the Docker bridge's gateway, each call logged; a
+  per-task context is computed in the adapter sandbox; the adapter's notes come back after the session. The trial's
+  log is curated where the methods' readers look in a log of Hermit's own sessions: the CLI's stream as
+  `agent-<backend>.jsonl`, `task.md`, `prompt.txt`, `last_message.txt` and the hook audit at its top.
+  [Benchmarks](docs/framework/task.md#benchmarks) has the whole of it.
 
   A key or a token reaches the container by its variable's name only (a secret's `$NAME` inside a value of
   `acting_agent.settings.env`, or a secret's value written there as it is, is refused); Codex's ChatGPT sign-in is a

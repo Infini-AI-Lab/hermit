@@ -1028,6 +1028,16 @@ def test_a_harbor_command_that_is_not_there_is_refused_at_startup(tmp_path, fake
         make_agent(tmp_path, tmp_path / "nowhere", tasks, acting_agent={"name": "terminus-2"}, binding=None)
 
 
+def test_an_acting_agent_cli_with_no_class_of_the_table_is_refused_at_startup(tmp_path, fake_harbor):
+    """`acting_agent.cli` names a CLI of the table: Hermes Agent, a CLI Base Agent of main's (#107), runs in Hermit's
+    own workspaces only, and a CLI with no HermitXXX class would make every trial an error."""
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    for cli in ("hermes", "nope"):
+        with pytest.raises(ValueError, match=f"acting_agent.cli is one of codex, .*, not '{cli}'"):
+            make_agent(tmp_path, fake_harbor, tasks, acting_agent={"cli": cli})
+
+
 def test_a_harbor_named_on_path_or_by_a_relative_path_is_the_one_every_trial_starts(tmp_path, fake_harbor, monkeypatch):
     """`harbor: harbor` is the command on PATH, and a relative path is the working directory's: each is resolved once,
     so the startup check and every trial (whose harbor runs in its job's directory) start the same one."""
