@@ -46,8 +46,11 @@ layout.
 A method's number is measured the same way whatever its prompt: the workspace, `bin/sim`, the seeds, the scored
 program (`fix_code.py`) and the judge are the engine's. ASPIRE's configs give the session ASPIRE's own prompts (the
 fix-loop subagent and the evolutionary search); `prompt_only/` gives it a method-neutral one (`utils/agent/prompt.md`:
-the task, the workspace, what is scored), and a workspace without ASPIRE's evolutionary-search page and assignment
-(`utils/agent/task.py:prepare`).
+the task, the workspace, what is scored) and `evosearch: false`, with which the engine neither stages ASPIRE's
+evolutionary-search page nor scores a search's program: the scored program is `fix_code.py`. Its workspace leaves out
+ASPIRE's assignment (`utils/agent/task.py:prepare`). Its task sandbox can still read the engine's folder
+(`../aspire_robosuite/utils/agent`), which holds the engine's adaptations of ASPIRE's prompts, beside the code the
+session runs.
 
 ## Setup
 

@@ -1,6 +1,7 @@
 # run_luna.yaml on a sample of the forty (splits/libero_sample.txt: task ids 0 and 5 of Object, Spatial and Goal),
-# for a run of a day or two. Its baseline is the same tasks with ASPIRE's empty library:
-# ./launch.sh eval --adapter root. Started by launch.sh: ASPIRE_CONFIG=run_sample_luna.yaml ./launch.sh
+# for a run of a day or two; the run stops at 48 hours. Started by launch.sh: ASPIRE_CONFIG=run_sample_luna.yaml
+# ./launch.sh. Its baseline, the same tasks with ASPIRE's empty library:
+# ASPIRE_CONFIG=run_sample_luna.yaml ./launch.sh eval --adapter root
 data:
   tasks: ../utils/tasks.jsonl
   train: ../utils/splits/libero_sample.txt
