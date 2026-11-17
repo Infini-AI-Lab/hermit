@@ -597,6 +597,19 @@ def test_the_judge_scores_the_program_on_the_held_out_sets_only(tmp_path, monkey
         J.score(row, out({"program": GOOD}))
     assert "NoResult" in str(raised.value) and str(tmp_path) not in str(raised.value)   # no host path to the Evolver
 
+    class Unreadable(Engine):                                # any other failure of the host's, the same way
+        def run(self, program, *, task, layout_seed, layouts, out):
+            raise PermissionError(f"[Errno 13] Permission denied: '{tmp_path}/eval_result/x/_result.json'")
+
+    class NoCheckout(Engine):
+        def __init__(self, root, **options):
+            raise FileNotFoundError(f"{tmp_path}/RoboDojo/scripts/robodojo.sh: not a RoboDojo checkout")
+    for engine in (Unreadable, NoCheckout):
+        monkeypatch.setattr(J.dojo, "Engine", engine)
+        with pytest.raises(RuntimeError) as raised:
+            J.score(row, out({"program": GOOD}))
+        assert "not the program's doing" in str(raised.value) and str(tmp_path) not in str(raised.value)
+
 
 def test_the_engine_gives_robodojo_no_secrets_and_the_program_s_worker_its_limits(tmp_path, monkeypatch):
     """RoboDojo's processes get the host's environment without its secrets; the program's worker runs with a
@@ -632,8 +645,9 @@ def test_the_engine_gives_robodojo_no_secrets_and_the_program_s_worker_its_limit
     env = seen[0]["env"]
     assert "FIREWORKS_API_KEY" not in env and "GH_TOKEN" not in env and env["PATH"] == os.environ["PATH"]
     assert boxes[0]["limits"] == {"memory_mb": 8192, "file_mb": 512}
-    assert engine.step_timeout_s < 120 and env["HERMIT_PROGRAM_STEP_TIMEOUT"] == str(engine.step_timeout_s)
-    assert model.STEP_TIMEOUT_S < 120                         # the policy server's own default
+    # 100 s: with the worker's start and stop, a late answer stays under RoboDojo's client's 120 s
+    assert engine.step_timeout_s == model.STEP_TIMEOUT_S == 100.0
+    assert env["HERMIT_PROGRAM_STEP_TIMEOUT"] == str(engine.step_timeout_s)
 
 
 def test_the_configs_load_and_show_the_task_sandbox_nothing_of_robodojo():

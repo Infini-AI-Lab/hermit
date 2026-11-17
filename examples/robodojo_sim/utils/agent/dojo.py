@@ -43,8 +43,8 @@ NOT_STARTED = (70, 125, 126, 127)                        # split_eval.sh: no pol
 NAME = POLICY.name
 # What RoboDojo's processes are not given of the host's environment: its secrets (a model's API key, say)
 SECRET = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH", re.I)
-# The program's worker, per process: memory and the size of a file it writes (its stderr log among them), so that
-# a program exhausts its own sandbox, not the host the simulator and the policy server share
+# The program's worker, per process: memory and the size of a file it writes (its stderr log among them). No limit
+# on the number of processes: a program that starts many can still take more of the host (README)
 PROGRAM_LIMITS = {"memory_mb": 8192, "file_mb": 512}
 BENCH = "RoboDojo"
 # One simulator at a time for a GPU, across the service's sessions and the judge (two processes): Isaac Sim takes
@@ -110,7 +110,7 @@ class Engine:
 
     def __init__(self, root: Path | str, *, policy_env: str = "RoboDojo", eval_env: str = "RoboDojo",
                  env_cfg: str = "arx_x5", action_type: str = "joint", gpu: str | int = 0,
-                 timeout_s: float = 6 * 3600, step_timeout_s: float = 110.0, image: str | None = None,
+                 timeout_s: float = 6 * 3600, step_timeout_s: float = 100.0, image: str | None = None,
                  cache: Path | str | None = None):
         self.root = Path(root).expanduser().resolve()
         if not (self.root / "scripts" / "robodojo.sh").is_file():

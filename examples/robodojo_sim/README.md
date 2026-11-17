@@ -44,8 +44,10 @@ the later one is not counted). An evaluation that leaves no result at all (a sim
 that is missing), or does not start, is the host's failure, not failed layouts of the program: `bin/sim` says so to
 the session, and the judge raises it, which the trainer records as a judge error (`judge_error`, scored 0 in the
 step's mean). RoboDojo puts no time limit on a set; the judge stops one after two days (`ROBODOJO_JUDGE_TIMEOUT`;
-the longest task's 50 layouts take about six hours) and the layouts it did not reach count as failed. A program has
-110 s to answer a call (RoboDojo's client waits 120 s). **This is not RoboDojo's leaderboard protocol**, which
+the longest task's 50 layouts take about six hours) and the layouts it did not reach count as failed; with two
+held-out sets a slow program can hold the judge's GPU for up to four days, longer than `run_sample_luna.yaml`'s
+48-hour budget. A program has 100 s to answer a call (RoboDojo's client waits 120 s, which also covers the
+worker's start and stop). **This is not RoboDojo's leaderboard protocol**, which
 scores all three sets: a number from here is on two of them, with the third developed on. The tasks are RoboDojo's
 forty-two (`scripts/internal/task_inventory.py`); its `*_random` variants of the generalization tasks are left out.
 
@@ -61,8 +63,8 @@ the success conditions and the results, beside which XPolicyLab's policy server 
 - The program is never imported by the policy server. It runs as a worker in a bubblewrap sandbox with no network
   that reads the worker and a directory holding the program alone: not the checkout, and not the run's output,
   where the held-out results are written while it runs (`dojo.Engine._worker`; the sandbox's own check finds both
-  missing inside), with 8 GB of memory and 512 MB a file (its stderr log among them), so that it exhausts its
-  own sandbox, not the host the simulator shares. It receives RoboDojo's observation and returns an action chunk.
+  missing inside), with 8 GB of memory and 512 MB a file (its stderr log among them) per process; the number of
+  processes it starts is not limited, so a program that starts many can still take more of the host's memory. It receives RoboDojo's observation and returns an action chunk.
   RoboDojo's processes get the host's environment without its secrets (a model's API key).
 - Every action that reaches the simulator is whole and bounded (`model.py`: `checked`): both arms in one mode and
   both grippers, what the program left out filled from the observation, numbers within 1000 after the cast to
