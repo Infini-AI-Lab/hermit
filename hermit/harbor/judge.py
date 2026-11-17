@@ -70,7 +70,7 @@ def score(task: dict, output) -> dict:
         if cause == "solution_timed_out":
             feedback += ("; the verifier ran out of its time on the agent's solution (too slow to finish its tests, "
                          "or a process it left that hung them)")
-        elif cause == "context_over_limit":            # the session never started: harborside's message says why
+        elif cause in ("context_over_limit", "adapter_failed"):   # no session ran: the message says why
             extra = getattr(output, "extra", None) or {}
             feedback += "; " + str(extra.get("exception_message") or "").removeprefix("hermit: ")[:600]
         elif status == "timeout":

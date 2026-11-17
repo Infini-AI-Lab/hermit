@@ -57,12 +57,18 @@ solved rate; use the benchmark's own definition and raw scores. It is also disti
 
 On a Harbor task set, a trial that is not the agent's result (`infra`: the host, the model provider, a session that
 never started) runs again in the runner itself (`agent.params.infra_retries`, default 2, each after `infra_wait_s`,
-default 300 s). One that ends `infra` all the same gets no score: the judge refuses it, so its record has status
-`judge_error`, its cost and log kept, and it counts in `errors` and as 0 in `mean_score`. A benchmark's own figure
-leaves such trials out: `python -m hermit.harbor.report <output_dir>/<run_name>/eval/<selector>` reads the eval's
-`results.jsonl` and gives, over all repeats and for each, the trials scored, infra and otherwise failed, pass@1 over
-the scored ones (the judge's `passed`), their mean score and `mean_score`. A lost sign-in, or an API account's usage
-limit, stops the eval ([Benchmarks](../framework/task.md#benchmarks)).
+default 300 s), unless its cause runs no better again: a disk gate that waited its time out, a provider's refusal of
+the run's configuration (`model_rejected`), a host failure past the trial's staging (`host_failed`, whose session may
+have run), a task Harbor runs for none of Hermit's agents, or a multi-step task's step. One that ends `infra` all the
+same gets no score: the judge refuses it, so its record has status `judge_error`, its cost and log kept, and it counts
+in `errors` and as 0 in `mean_score`. A benchmark's own figure leaves such trials out: `python -m hermit.harbor.report
+<output_dir>/<run_name>/eval/<selector>` reads the eval's `results.jsonl` and gives, over all repeats and for each,
+the trials scored, infra and otherwise failed, pass@1 over the scored ones (the judge's `passed`), their mean score
+and `mean_score`. A lost sign-in, or an API account's usage limit, stops the eval
+([Benchmarks](../framework/task.md#benchmarks)): it writes no row of the repeat it stopped in (a repeat's rows are
+written once all its trials are done), so its `results.jsonl` holds the repeats it finished, none with one repeat,
+beside the `summary.json` of the eval before, if any (the eval writes its summary when it ends). The report says such
+an eval did not finish (`unfinished`, and `finished: false` with `--json`). Run it again before reading either.
 
 ## Preserve the artifact and evidence
 

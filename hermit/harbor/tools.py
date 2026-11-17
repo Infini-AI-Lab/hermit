@@ -180,12 +180,18 @@ class ModelEndpoint:
     def start(self) -> "ModelEndpoint":
         if self.spec.get("cli"):
             from hermit.agent.base.endpoint import cli_endpoint
-            from hermit.isolate import cli_sandbox
+            from hermit.isolate import HOME_SECRETS, cli_sandbox
+            # the isolation check proves the user's own secrets absent, as for the pipeline's sessions of such a model
+            # (hermit.isolate.agent_pipeline); the run's own secret paths are the config's, which the runner never gets
             box, proxy = cli_sandbox(self.spec, records=self.records, enforce=self.enforce or "required",
-                                     role="agent-model")
+                                     role="agent-model", probe_absent=HOME_SECRETS)
             try:
-                endpoint = cli_endpoint(self.spec, self.records / "model-sessions" if self.records else None,
-                                        sandbox=box)
+                # a session the plan refused comes back at once (429: `refused`, the trial infra, run again once the
+                # plan allows: HarborAgent._model_plan_wait), never run again inside the request (main's CliAgent.run
+                # does so by default, plan_rerun), which would wait for the plan's window inside the agent's time and
+                # end the trial as the agent's timeout
+                endpoint = cli_endpoint({**self.spec, "plan_rerun": False},
+                                        self.records / "model-sessions" if self.records else None, sandbox=box)
             except BaseException:
                 for thing in (box, proxy):
                     if thing is not None:

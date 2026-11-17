@@ -45,7 +45,21 @@ framework's stdio server. Neither command guarantees that arbitrary tool depende
 - The proposed manifest `serve` section, health checks, standalone startup, and relay lifecycle are not supported.
 - A model reached through a CLI (`llm: {cli: ...}`, `agent.model: {cli: ...}`) takes text and gives text: tool calls, sampling and structured-output requests are refused ([the model contract](../guides/claude-subscription.md#the-model-contract)). A subscription has no per-token cost, so `budget.usd` bounds nothing on it.
 - Harness²'s editors are told of upstream's Codex surface (the `harness2-codex` template); a Claude Code acting agent runs the same tree in its own places, and its execution's stream reaches them rendered in upstream's grammar by `harness2_upstream/render.py`.
-- On a Harbor task set, a multi-step task's training steps run in the Trainer's own stream of that task, in order, each once ([Benchmarks](../framework/task.md#benchmarks)), and [`run_agent`](../framework/evolver.md#interaction-with-the-trainer) runs such a step in that same stream: a step that already ran ends `stream_order` while the stream goes on, a judge failure scored 0, and so does a later one while no rollout runs the step the stream waits for, which also stops the stream, so the Trainer's later steps of it end the same way; the step the stream waits for runs there, on the candidate, in the Trainer's turn, which the Trainer's own rollout of it then finds taken. No check refuses a method that tests its candidates on training rows through `run_agent` on such a set: GEPA's children, ACE's retry rounds, OPRO's new instructions, SkillOpt's slow update and meta skill (two skills compared on training tasks), Harness²'s probes and compositions, and RRSI Adapter's smoke when its domain names such a row get these failures in place of runs. Such a set trains with a method that learns from the Trainer's own rollouts, as the CLI Evolvers and Meta-Harness Adapter do.
+- On a Harbor task set, a multi-step task's training steps run in the Trainer's own stream of that task, in order,
+  each once ([Benchmarks](../framework/task.md#benchmarks)), and
+  [`run_agent`](../framework/evolver.md#interaction-with-the-trainer) runs such a step in that same stream: a step
+  that already ran ends `stream_order` while the stream goes on, a judge failure scored 0, and so does a later one
+  while no rollout runs the step the stream waits for, which also stops the stream, so the Trainer's later steps of it
+  end the same way; the step the stream waits for runs there, on the candidate, in the Trainer's turn, which the
+  Trainer's own rollout of it then finds taken; and the stream's first step, run once the Trainer's pass of the stream
+  has finished, starts a new pass there on the candidate, in a new environment that stays up, which the Trainer's next
+  epoch inherits: its own first step ends `stream_order`, and its later steps run in the environment the candidate's
+  step left, scored as the agent's (the runner cannot tell `run_agent`'s rollout from the Trainer's: candidate 3 of
+  `hermit/harbor/FRAMEWORK_SUPPORT.md`). No check refuses a method that tests its candidates on training rows through
+  `run_agent` on such a set: GEPA's children, ACE's retry rounds, OPRO's new instructions, SkillOpt's slow update and
+  meta skill (two skills compared on training tasks), Harness²'s probes and compositions, and RRSI Adapter's smoke
+  when its domain names such a row get these failures in place of runs. Such a set trains with a method that learns
+  from the Trainer's own rollouts, as the CLI Evolvers and Meta-Harness Adapter do.
 
 ## Earlier command interfaces
 

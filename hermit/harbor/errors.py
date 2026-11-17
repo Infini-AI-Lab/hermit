@@ -19,7 +19,8 @@ not serve the run, or refused its configuration, is not the agent's result.
                  UnprocessableEntityError: model_provider_failed), a verifier that left no reward Harbor could read
                  (no reward file, an empty one, one that does not parse: verifier_failed), a session the model's
                  safeguards ended (agent_refused_task: runner.session_verdict), the adapter's context over the CLI's
-                 limit beside the image's own (context_over_limit)
+                 limit beside the image's own (context_over_limit), the adapter's deployment or per-task context
+                 failing in its child process on this machine, before any container (adapter_failed)
     infra        a sandbox, model provider or Harbor failure; harbor killed by the wait budget; no trial directory;
                  no exception and no reward; an unlisted exception whose message is the host's (HOST_FAILURE);
                  harborside's launch of the session failing for a reason not the agent's (launch_failed); a verifier
@@ -29,13 +30,14 @@ not serve the run, or refused its configuration, is not the agent's result.
                  machine (staging_failed), the plan's usage limit (usage_limit), a lost sign-in (login_failed), a
                  provider that refused the run's configuration before it served any request (model_rejected: a key it
                  does not take, a permission it does not give, a model it does not have, an account it does not bill;
-                 no halt), a session that never started or whose tools never came up (session_failed), the adapter's
-                 tools not served (tools_failed)
+                 no halt, and never run again), a session that never started or whose tools never came up
+                 (session_failed), the adapter's tools not served (tools_failed)
 
 The judge (judge.py) scores the verifier's reward whenever there is one (ok, timeout, agent_error), else 0. An infra
-rollout is not the agent's result: the runner marks it `unscored` and runs it again (agent.params.infra_retries); the
-judge refuses to score one that stays so (judge.Unscored), and the run records a failed run (judge_error). Tokens and
-cost are Hermit's reading of the CLI's stream (runner.session); Harbor's own for its built-in agents.
+rollout is not the agent's result: the runner marks it `unscored` and runs it again (agent.params.infra_retries; not a
+cause that runs no better again, runner.NO_RETRY); the judge refuses to score one that stays so (judge.Unscored), and
+the run records a failed run (judge_error). Tokens and cost are Hermit's reading of the CLI's stream (runner.session);
+Harbor's own for its built-in agents.
 """
 from __future__ import annotations
 
@@ -70,7 +72,7 @@ FAILURE_CAUSE: dict[str, str] = {name: cause for cause, names in {
     "context_over_limit": ("HermitContextLimitError",),
 }.items() for name in names}
 INFRA_CAUSES = {"sandbox_failed", "model_provider_failed", "verifier_failed", "harbor_failed", "cancelled",
-                "harbor_timeout", "halted", "disk", "stream_lost", "stream_order", "launch_failed",
+                "harbor_timeout", "disk", "stream_lost", "stream_order", "launch_failed",
                 # read from the session's stream by the runner (runner.session_verdict), or met before the trial
                 "session_failed", "tools_failed", "login_failed", "usage_limit", "model_rejected", "staging_failed",
                 # this machine's own failure past the guarded steps (runner.HarborAgent.run): a file, a process
@@ -167,6 +169,14 @@ def classify(result: dict | None, *, expired: bool = False, harbor_exit: int | N
     infra = cause in INFRA_CAUSES and exc_type not in GRADED
     return _verdict("infra" if infra else "agent_error", cause, exc_type, message,
                     float(reward) if reward is not None else None, halt=exc_type in HALTING)
+
+
+def adapter_failed(message: str) -> dict:
+    """The verdict of a rollout whose adapter failed on this machine before any container: its deployment, or its
+    per-task context, raised in their child process (hermit.harbor.staging, hermit.harbor.context). That is the
+    agent's result, scored 0 (agent_error), as a session's failure on its adapter is, its message the feedback; no
+    session ran, so it spent nothing (`ran` False)."""
+    return {**_verdict("agent_error", "adapter_failed", None, message, None), "ran": False}
 
 
 def no_trial(cause: str, message: str) -> dict:

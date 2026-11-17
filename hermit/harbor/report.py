@@ -18,7 +18,13 @@ gives, over all its repeats and for each repeat:
     mean_scored   the scored trials' mean score
     mean_all      every trial's mean score, the failed and the infra ones counted 0 (hermit eval's mean_score)
 
-Nothing is run again here; a rerun of the infra trials is an eval run again.
+An eval that did not finish (a lost sign-in stopped it: LoginFailed, or anything else) wrote no row of the repeat it
+stopped in (hermit.trainer.rollout.run_tasks hands back a repeat's records once all of them are done), so its
+results.jsonl holds the rows of the repeats it finished, none with one repeat; and `hermit eval` writes its
+summary.json when it ends, so there is none beside them, or the summary of the eval before it; an eval stopped as it
+wrote its rows leaves the last one cut off, which is left out. The report says so (`unfinished`, the reason; the
+JSON's `finished` false), reading the summary's content, never the files' times, which a copy changes. Nothing is run
+again here; a rerun of the infra trials, or of an unfinished eval, is an eval run again.
 """
 from __future__ import annotations
 
@@ -28,20 +34,63 @@ from pathlib import Path
 import sys
 
 RESULTS = "results.jsonl"
+SUMMARY = "summary.json"
 
 
-def rows_of(path: Path) -> list[dict]:
-    """The rows of an eval's results.jsonl (`path`, or the file in the eval directory `path`)."""
+def read_rows(path: Path) -> tuple[list[dict], bool]:
+    """(the rows of an eval's results.jsonl, `path` or the file in the eval directory `path`; whether its last line is
+    cut off: no JSON, and no line end after it, as an eval stopped while it wrote that row leaves it). Lines end at
+    "\n" alone, as hermit eval writes them; any other line that is no JSON raises ValueError."""
     path = Path(path)
     if path.is_dir():
         path = path / RESULTS
-    rows = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
+    lines = path.read_text(encoding="utf-8").split("\n")
+    rows, cut = [], False
+    for n, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
             row = json.loads(line)
-            if isinstance(row, dict):
-                rows.append(row)
-    return rows
+        except (ValueError, RecursionError):
+            if n == len(lines) - 1:                         # the last line, no line end after it: cut off
+                cut = True
+                continue
+            raise ValueError(f"line {n + 1} of {path} is no JSON row") from None
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows, cut
+
+
+def rows_of(path: Path) -> list[dict]:
+    """The rows of an eval's results.jsonl (read_rows), a last row cut off left out."""
+    return read_rows(path)[0]
+
+
+def unfinished(path: Path, rows: list[dict]) -> str | None:
+    """Why the rows of the eval at `path` are not those of a finished eval (the module's docstring), or None: no
+    summary.json beside them, one that cannot be read, or one that is not of them: it counts other trials (its tasks
+    times its repeats), or other failed runs (`errors`, the rows whose status is not ok) or another mean score
+    (`mean_score`, of every row's score) than the rows hold, as the summary of the eval before does."""
+    path = Path(path)
+    results = path / RESULTS if path.is_dir() else path
+    try:
+        written = json.loads((results.parent / SUMMARY).read_text(encoding="utf-8"))
+        tasks, repeats = int(written["tasks"]), int(written["repeats"])
+        errors = None if written.get("errors") is None else int(written["errors"])
+        mean = None if written.get("mean_score") is None else float(written["mean_score"])
+    except FileNotFoundError:
+        return f"no {SUMMARY} beside its rows: the eval did not finish"
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return f"its {SUMMARY} cannot be read as an eval's summary"
+    if tasks * repeats != len(rows):
+        return (f"its {SUMMARY} counts {tasks * repeats} trials and its {RESULTS} holds {len(rows)}: the eval did not "
+                "finish")
+    scores = [float((row.get("judge") or {}).get("score") or 0.0) for row in rows]
+    if (errors is not None and errors != sum(1 for row in rows if row.get("status") != "ok")) or \
+            (mean is not None and abs(mean - (sum(scores) / len(scores) if scores else 0.0)) > 1e-9):
+        return (f"its {SUMMARY} is not of its rows (another count of failed runs, or another mean score): the eval "
+                "before's, and this one did not finish")
+    return None
 
 
 def kind(row: dict) -> str:
@@ -75,9 +124,14 @@ def summary(rows: list[dict]) -> dict:
 
 
 def report(path: Path) -> dict:
-    """An eval's figures: over all its rows, and by repeat when it has more than one."""
-    rows = rows_of(path)
-    out = {"results": str(path), **summary(rows)}
+    """An eval's figures: over all its rows, and by repeat when it has more than one; a last row cut off (read_rows)
+    is left out, and the eval did not finish."""
+    rows, cut = read_rows(path)
+    why = f"the last row of its {RESULTS} is cut off: the eval stopped as it wrote it" if cut else \
+        unfinished(path, rows)
+    out = {"results": str(path), **summary(rows), "finished": why is None}
+    if why is not None:
+        out["unfinished"] = why
     repeats = sorted({r.get("repeat") for r in rows if r.get("repeat") is not None})
     if len(repeats) > 1:
         out["by_repeat"] = {str(n): summary([r for r in rows if r.get("repeat") == n]) for n in repeats}
@@ -112,6 +166,8 @@ def main(argv=None) -> int:
             print(json.dumps(figures))
             continue
         print(f"{path}: {line(figures)}")
+        if figures.get("unfinished"):
+            print(f"  unfinished: {figures['unfinished']}; the figures are of the repeats it finished, if any")
         for n, each in (figures.get("by_repeat") or {}).items():
             print(f"  repeat {n}: {line(each)}")
     return 0

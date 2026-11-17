@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TEMPLATES = ROOT / "hermit" / "adapter" / "templates"
 KEY_ENV = "FAKE_MODEL_KEY"
 KEY = "fake-model-key-0123456789abcdef"                 # never a real key: what a plan must never hold
-# A model bound as the config's loading binds it (hermit.agent.model.backends.bind_harbor_params): its id, and the
+# A model bound as the config's loading binds it (hermit.agent.model.backends.bind_agent_params): its id, and the
 # whole spec under `binding`
 BINDING = {"ref": "fake/glm-5", "backend": "fake", "model": "glm-5", "base_url": "https://models.example/v1",
            "api_key_env": KEY_ENV, "key_required": True, "apis": ["chat", "responses"],
@@ -231,6 +231,15 @@ def make_agent(tmp_path, fake_harbor, tasks, **params) -> HarborAgent:
     return HarborAgent({"tasks_dir": str(tasks), "jobs_dir": str(tmp_path / "jobs"), "harbor": str(fake_harbor),
                         "disk_gate_gb": 0, "tmp_gate_gb": 0, "model": BINDING["model"], "binding": BINDING,
                         "web_search": False, "infra_retries": 0, **params}, base=tmp_path)
+
+
+def cli_answer_agent(tmp_path, fake_harbor, tasks, model: dict, **params) -> HarborAgent:
+    """A runner for the answer agent on a model a CLI reaches, given where it must be, in the benchmark file (the
+    runner serves it itself; a run config's own is the pipeline's to serve, refused)."""
+    bench = write(tmp_path / "bench" / "benchmark.yaml", yaml.safe_dump({"model": model}))
+    return HarborAgent({"tasks_dir": str(tasks), "jobs_dir": str(tmp_path / "jobs"), "harbor": str(fake_harbor),
+                        "disk_gate_gb": 0, "tmp_gate_gb": 0, "benchmark": str(bench), "acting_agent": {"cli": "answer"},
+                        "web_search": None, "infra_retries": 0, **params}, base=tmp_path)
 
 
 def chatgpt_login(root: Path, account: str = "acct-1") -> Path:
@@ -836,11 +845,19 @@ def test_the_answer_agent_without_its_models_key_is_refused_at_startup(tmp_path,
         make_agent(tmp_path, fake_harbor, tasks, acting_agent={"cli": "answer"}, web_search=None)
 
 
-# The spec hermit.isolate.agent_pipeline gives the runner for a model a CLI reaches (endpoint.endpoint_spec): its
+# The spec hermit.isolate.agent_pipeline gives the runner for a model a CLI reaches, made by main's own
+# endpoint.endpoint_spec (so that a key main adds to it breaks the runner's check of it here, PIPELINE_CLI_SPEC): its
 # endpoint's URL and, on a login, a timeout that waits out the plan (3600 s and plan_max_wait_s); it names neither the
 # CLI nor its login
-SERVED = {"base_url": "http://127.0.0.1:9/" + "0" * 32, "model": "gpt-5.6-luna", "api_key_env": None,
-          "key_required": False, "price": None, "timeout": 3600.0 + 12 * 3600}
+def _served() -> dict:
+    from types import SimpleNamespace
+    from hermit.agent.base.endpoint import endpoint_spec
+    endpoint = SimpleNamespace(url="http://127.0.0.1:9/" + "0" * 32,
+                               agent=SimpleNamespace(settings={"model": "gpt-5.6-luna", "login": "chatgpt"}))
+    return endpoint_spec(endpoint, {"cli": "codex", "model": "gpt-5.6-luna", "login": "chatgpt"})
+
+
+SERVED = _served()
 
 
 def test_the_answer_agents_attachments_on_a_model_a_cli_reaches_are_refused_at_startup(tmp_path, fake_harbor):
@@ -848,21 +865,25 @@ def test_the_answer_agents_attachments_on_a_model_a_cli_reaches_are_refused_at_s
     a model the runner serves (model: {cli: ...}, the benchmark file's) would be refused in every trial, so the run is
     refused before the first one. Without attachments, or on a <backend>/<model> reference, it starts. A model a CLI
     reaches that the pipeline serves (a run config's own `{cli}`: hermit.isolate.agent_pipeline gives the runner its
-    endpoint's spec alone, which names no CLI) is refused with or without them: its session waits for its login's plan
-    inside the request, which the runner cannot tell from the model's own time (the benchmark file's is the runner's
-    own to serve, and wait for)."""
+    endpoint's spec alone, which names no CLI; hermit check, the config's params as written) is refused with or
+    without them: its session waits for its login's plan inside the request, which the runner cannot tell from the
+    model's own time (the benchmark file's is the runner's own to serve, and wait for)."""
     tasks = tmp_path / "tasks"
     make_task(tasks, "alpha")
     figures = {"attachments": ["/app/figure*.png"]}
     answer = {"acting_agent": {"cli": "answer"}, "binding": None, "web_search": None}
     reached = {"cli": "codex", "model": "gpt-5.6-luna", "login": "chatgpt"}
     with pytest.raises(ValueError, match="takes text only"):
-        make_agent(tmp_path, fake_harbor, tasks, **answer, model=reached, answer=figures)
+        cli_answer_agent(tmp_path, fake_harbor, tasks, reached, answer=figures)
     assert make_agent(tmp_path, fake_harbor, tasks, acting_agent={"cli": "answer"}, web_search=None,
                       answer=figures).cli == "answer"
+    from hermit.harbor.runner import PIPELINE_CLI_SPEC
+    assert set(SERVED) == PIPELINE_CLI_SPEC and SERVED["timeout"] == 3600.0 + 12 * 3600
     for given in ({}, {"answer": figures}):
-        with pytest.raises(ValueError, match="Give it in the benchmark file"):
+        with pytest.raises(ValueError, match="Give it in the benchmark file"):     # as hermit eval hands it
             make_agent(tmp_path, fake_harbor, tasks, **answer, model=SERVED, **given)
+        with pytest.raises(ValueError, match="Give it in the benchmark file"):     # as hermit check hands it
+            make_agent(tmp_path, fake_harbor, tasks, **answer, model=reached, **given)
     # a model with more than the pipeline endpoint's keys (a loaded config's binding) is the config's own
     assert make_agent(tmp_path, fake_harbor, tasks, **answer, model={**SERVED, "ref": "local/gpt-5.6-luna"}).cli \
         == "answer"
@@ -1424,8 +1445,10 @@ def test_an_adapter_this_machine_could_not_stage_is_infra_and_one_whose_own_depl
     """Staging the adapter (its host's deployment, its per-task context) runs on this machine before the trial: an
     OSError there (a full disk) is the host's, infra (run again), not the agent's 0, for a trial and for a stream's step
     alike, and neither a trial nor a stream's driver is started; a RuntimeError, the adapter's deployment or context
-    failing in its child process, is the agent's result, scored 0 as on main (what the child printed could be the
-    adapter's own words)."""
+    failing in its child process, is the agent's result (what the child printed could be the adapter's own words):
+    agent_error (adapter_failed), scored 0 with its message as the feedback, a trial python -m hermit.harbor.report
+    counts among the scored ones (its pass@1 a fail), as hermit eval's mean does."""
+    from hermit.harbor import report
     from hermit.trainer.rollout import run_one
     tasks = tmp_path / "tasks"
     make_task(tasks, "alpha")
@@ -1443,9 +1466,11 @@ def test_an_adapter_this_machine_could_not_stage_is_infra_and_one_whose_own_depl
                 unscored_record(record, "staging_failed")
                 assert record["output"]["failure_cause"] == "staging_failed", row["id"]
                 assert str(failure) in record["pipeline_extra"]["exception_message"]
-            else:
-                assert (record["status"], record["judge"]["score"]) == ("error", 0.0), row["id"]
-                assert "deploying the adapter failed" in record["error"]
+            else:                                    # the agent's result: scored 0, its message the feedback
+                assert (record["status"], record["output"]["status"], record["output"]["failure_cause"]) == \
+                    ("ok", "agent_error", "adapter_failed"), row["id"]
+                assert record["judge"]["score"] == 0.0 and "deploying the adapter failed" in record["judge"]["feedback"]
+                assert (report.kind(record), report.passed(record)) == ("scored", False), row["id"]
     assert not list((tmp_path / "jobs").glob("alpha-*/alpha__*"))                     # no trial ran
     assert not list((tmp_path / "jobs" / "streams").glob("flow__s1__*/driver.json"))    # no driver started
 
@@ -1798,6 +1823,69 @@ def test_a_codex_session_whose_sign_in_the_provider_refused_ends_the_run(tmp_pat
         run_tasks([row], None, make_agent(tmp_path, fake_harbor, tasks).run, judge.score, concurrency=1)
 
 
+def test_a_codex_session_an_api_account_refused_for_its_bill_or_model_is_model_rejected_and_a_quoted_limit_no_halt(
+        tmp_path, fake_harbor, monkeypatch):
+    """Codex on an API account (a key, no login): a session the provider refused for the run's configuration or bill
+    (the account's quota, a 402, a model not there) is infra (model_rejected) and never run again, as the other CLIs'
+    are, never the agent's 0; the run goes on. The plan's usage-limit words that Codex's log quotes of a tool call (a
+    file the session patched) are no refusal: the trial is the agent's result, and the run goes on (the Base Agent's
+    reading of the whole stream takes them for the account's limit, which on an API account ends the run)."""
+    monkeypatch.setenv("FAKE_HARBOR_MODE", "agent_exit")                     # the CLI exited 1; the verifier ran
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha", image="example/alpha:1")
+    row = dataset.index(tasks)[0]
+    start = '{"type":"thread.started","thread_id":"th-1"}\n{"type":"turn.started"}\n'
+    failed = '{"type":"turn.failed","error":{"message":"%s"}}\n'
+    for n, why in enumerate(("Quota exceeded. Check your plan and billing details.",
+                             "unexpected status 402 Payment Required: {\\\"detail\\\":\\\"payment required\\\"}",
+                             "unexpected status 404 Not Found: The model `gpt-x` does not exist")):
+        monkeypatch.setenv("FAKE_DEFAULT_STREAM", start + '{"type":"error","message":"%s"}\n' % why + failed % why)
+        jobs = tmp_path / f"jobs-{n}"
+        agent = make_agent(tmp_path, fake_harbor, tasks, infra_retries=2, infra_wait_s=0, jobs_dir=str(jobs))
+        out = agent.run(row, None)
+        assert (out.output["status"], out.output["failure_cause"], out.extra["halt"]) == \
+            ("infra", "model_rejected", False), why
+        assert out.extra["unscored"] == "model_rejected" and not agent._stop.is_set(), why
+        assert len(list(jobs.glob("alpha-*"))) == 1, why                       # never run again
+    quoted = (start + "2026-11-12T01:02:03.456789Z ERROR codex_core::tools::router: error=apply_patch verification "
+              "failed: Failed to find expected lines in /app/limits.py:\n"
+              '{"note": "a JSON line of the patch"}\n'
+              "    raise Exhausted(\"You've hit your usage limit. Try again in 2 hours.\")\n" + failed % "exit")
+    monkeypatch.setenv("FAKE_DEFAULT_STREAM", quoted)
+    agent = make_agent(tmp_path, fake_harbor, tasks, jobs_dir=str(tmp_path / "jobs-quoted"))
+    out = agent.run(row, None)
+    assert (out.output["status"], out.extra["halt"], out.extra["session"]["refused"]) == ("agent_error", False, False)
+    assert not agent._stop.is_set()
+
+
+def test_a_login_trial_the_plan_refused_holds_the_plan_with_the_runs_stop(tmp_path, fake_harbor, monkeypatch):
+    """On a login, a trial whose session the plan refused for its usage limit (Codex's own words) holds every session
+    until the window resets and runs again then; the hold gets the run's stop, so that a hold that cannot be written
+    (main's hold then waits five minutes itself, in the trial's slot) ends as soon as the run ends."""
+    from hermit.agent.base import login as subscription
+    monkeypatch.setenv("FAKE_HARBOR_MODE", "agent_exit")
+    limit = "You've hit your usage limit. Upgrade to Pro or try again in 2 hours."
+    start = '{"type":"thread.started","thread_id":"th-1"}\n{"type":"turn.started"}\n'
+    events = start + ('{"type":"error","message":"%s"}\n' % limit
+                      + '{"type":"turn.failed","error":{"message":"%s"}}\n' % limit)
+    monkeypatch.setenv("FAKE_STREAMS", str(write(tmp_path / "limit.jsonl", events)))
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha", image="example/alpha:1")
+    row = dataset.index(tasks)[0]
+    chatgpt_login(tmp_path)
+    agent = make_agent(tmp_path, fake_harbor, tasks, binding=None, model="gpt-5.6-luna", login="chatgpt",
+                       plan_dir=str(tmp_path / "plan"))
+    holds = []
+
+    def hold(plan, until=None, why="session_refused", *, cancel=None, max_s=None):
+        holds.append(cancel)
+        agent._stop.set()                                    # the run ends meanwhile (another rollout's lost sign-in)
+    monkeypatch.setattr(subscription, "hold", hold)
+    with pytest.raises(LoginFailed):
+        agent.run(row, None)
+    assert holds == [agent._stop] and (tmp_path / "jobs" / ".fake-calls").read_text() == "1"
+
+
 # A Codex session that met a provider's notice (a reconnect), then lost its sign-in: the turn failed with a 401
 LOST_AFTER_NOTICE = ('{"type":"thread.started","thread_id":"th-1"}\n{"type":"turn.started"}\n'
                      '{"type":"error","message":"Reconnecting... 1/5 (stream disconnected before completion: error '
@@ -2133,6 +2221,44 @@ def test_closing_the_answer_agents_endpoint_cancels_its_sessions_and_waits_for_t
         release.set()
 
 
+def test_an_answer_model_a_cli_reaches_on_a_login_with_no_sign_in_is_refused_at_startup(tmp_path, fake_harbor):
+    """The answer agent's model reached through a CLI on a login (the benchmark file's `model: {cli, login}`): with no
+    sign-in there (no Codex login, or no Claude token), the runner refuses the run at startup, as it does the acting
+    CLI's, instead of every trial going unserved (model_provider_failed), run again and then a failed run."""
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    spec = {"cli": "codex", "model": "gpt-5.6-luna", "login": "chatgpt", "plan_dir": str(tmp_path / "plan")}
+    with pytest.raises(ValueError, match="login: chatgpt, but there is no Codex login"):
+        cli_answer_agent(tmp_path, fake_harbor, tasks, spec)
+    chatgpt_login(tmp_path)
+    assert cli_answer_agent(tmp_path, fake_harbor, tasks, spec).model_plan() is not None
+
+
+def test_the_relays_cli_sessions_return_a_refusal_never_wait_for_the_window_inside_the_request(monkeypatch):
+    """The answer agent's model reached through a CLI (the benchmark file's `model: {cli, ...}`): each request's session
+    runs with plan_rerun off, whatever the spec says, so that a session the plan refused comes back at once (429, the
+    relay's `refused`: the trial infra, run again once the plan allows) instead of waiting for the plan's window inside
+    the request, as main's CliAgent.run does by default, which would end the trial as the agent's timeout."""
+    from types import SimpleNamespace
+    from hermit import isolate
+    from hermit.agent.base import endpoint as endpoint_mod
+    from hermit.harbor import tools
+    specs = []
+
+    def sessions(spec, log_dir=None, *, sandbox=None):        # the CLI's endpoint, over a stand-in of its agent
+        specs.append(dict(spec))
+        served = endpoint_mod.ChatEndpoint(None).start()
+        served.agent = SimpleNamespace(settings={"model": spec["model"]})
+        return served
+    monkeypatch.setattr(endpoint_mod, "cli_endpoint", sessions)
+    monkeypatch.setattr(isolate, "cli_sandbox", lambda spec, **kwargs: (None, None))
+    for given in ({}, {"plan_rerun": True}):
+        endpoint = tools.ModelEndpoint({"cli": "codex", "model": "gpt-5.6-luna", "login": "chatgpt", **given}).start()
+        endpoint.close()
+    assert [spec["plan_rerun"] for spec in specs] == [False, False]
+    assert all(spec["model"] == "gpt-5.6-luna" and spec["login"] == "chatgpt" for spec in specs)
+
+
 def test_an_answer_trial_on_a_login_waits_for_its_plan_and_one_whose_request_the_plan_held_is_not_the_agents_timeout(
         tmp_path, fake_harbor, monkeypatch):
     """The answer agent's model reached through a CLI on a login, which the runner serves (model: {cli, login}, the
@@ -2246,11 +2372,12 @@ def answer_trial_on_a_login(root: Path, fake_harbor, monkeypatch, *, held: bool,
     monkeypatch.setenv("FAKE_HARBOR_MODE", "timeout")
     monkeypatch.setenv("FAKE_ANSWER_WAIT_S", "1")       # the agent's time, as the fake's request waits it out
     sessions = planned_sessions(plan, on_start)
+    chatgpt_login(root)                                  # the sign-in its startup check looks for
     try:
         monkeypatch.setattr(endpoint_mod, "cli_endpoint", lambda spec, log_dir=None, *, sandbox=None: sessions)
         monkeypatch.setattr(isolate, "cli_sandbox", lambda spec, **kwargs: (None, None))
-        agent = make_agent(root, fake_harbor, tasks, acting_agent={"cli": "answer"}, binding=None, web_search=None,
-                           model={"cli": "codex", "model": "gpt-5.6-luna", "login": "chatgpt", "plan_dir": str(plan)})
+        agent = cli_answer_agent(root, fake_harbor, tasks,
+                                 {"cli": "codex", "model": "gpt-5.6-luna", "login": "chatgpt", "plan_dir": str(plan)})
         runner["agent"] = agent
         ran = agent.harbor_run
         agent.harbor_run = lambda *a, **k: (ran(*a, **k), after_harbor())[0]
@@ -2545,57 +2672,66 @@ def test_a_step_whose_driver_is_gone_is_infra_and_closes_the_streams_tools(tmp_p
                                                                             fake_tools):
     """A driver killed while a step waits for its turn (its socket refuses): the step is infra (stream_lost), not a
     pipeline error scored 0, and the stream's tool server is closed. A driver only silent past a request's time is
-    infra too, its tools kept (it may still be running the step before on them)."""
+    infra too; that step was never asked for, so its stream is given up: once none of its rollouts runs (none here),
+    its driver is stopped and its tools closed, no later step's turn being able to come."""
     fake_driver(fake_harbor)
     tasks = tmp_path / "tasks"
     make_task(tasks, "flow", steps=("s1", "s2", "s3"))
     rows = {r["id"]: r for r in dataset.index(tasks)}
-    agent = make_agent(tmp_path, fake_harbor, tasks, tools_host="127.0.0.1",
-                       stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 6})
+    settings = {"tools_host": "127.0.0.1", "stream": {"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 6}}
+    agent, other = (make_agent(tmp_path, fake_harbor, tasks, **settings) for _ in range(2))   # a stream each
     adapter = tool_adapter(tmp_path / "adapter")
     try:
         assert agent.run(rows["flow:s1"], adapter).output["status"] == "ok"
 
         def silent(self, index, *, timeout_s, missing=None):
             raise TimeoutError("timed out")
-        monkeypatch.setattr(stream.StreamClient, "wait_turn", silent)
-        slow = agent.run(rows["flow:s2"], adapter)
-        kept = stream_name(agent) in agent._streams and not fake_tools[0].closed
+        with monkeypatch.context() as patched:
+            patched.setattr(stream.StreamClient, "wait_turn", silent)
+            slow = agent.run(rows["flow:s2"], adapter)
+        client = stream.StreamClient(tmp_path / "jobs" / "streams" / stream_name(agent), python="unused")
+        given_up = stream_name(agent) not in agent._streams and fake_tools[0].closed and client.running() is None
+        assert other.run(rows["flow:s1"], adapter).output["status"] == "ok"
 
         def gone(self, index, *, timeout_s, missing=None):
             raise ConnectionRefusedError(111, "Connection refused")
-        monkeypatch.setattr(stream.StreamClient, "wait_turn", gone)
-        lost = agent.run(rows["flow:s3"], adapter)
+        with monkeypatch.context() as patched:
+            patched.setattr(stream.StreamClient, "wait_turn", gone)
+            lost = other.run(rows["flow:s2"], adapter)
     finally:
         stop_streams(tmp_path)
-    assert (slow.output["status"], slow.output["failure_cause"]) == ("infra", "stream_lost") and kept
+    assert (slow.output["status"], slow.output["failure_cause"]) == ("infra", "stream_lost") and given_up
     assert (lost.output["status"], lost.output["failure_cause"], lost.extra["unscored"]) == \
         ("infra", "stream_lost", "stream_lost")
-    [served] = fake_tools
-    assert served.closed and stream_name(agent) not in agent._streams
+    assert len(fake_tools) == 2 and all(served.closed for served in fake_tools)
+    assert stream_name(other) not in other._streams
 
 
 def test_a_driver_that_died_while_it_answered_closes_the_streams_tools(tmp_path, fake_harbor, monkeypatch, fake_tools):
     """A driver killed while it answered closed the connection without an answer (a StreamError) and is gone: no step
     after it reaches it, so the stream's tool server is closed, as for a driver whose socket refuses. A driver still
-    running that reports an error keeps them."""
+    running that reports its environment failed has its step never asked for either: its stream is given up, its
+    driver stopped and its tools closed once none of its rollouts runs."""
     import signal
     import time
     fake_driver(fake_harbor)
     tasks = tmp_path / "tasks"
     make_task(tasks, "flow", steps=("s1", "s2", "s3"))
     rows = {r["id"]: r for r in dataset.index(tasks)}
-    agent = make_agent(tmp_path, fake_harbor, tasks, tools_host="127.0.0.1",
-                       stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 6})
+    settings = {"tools_host": "127.0.0.1", "stream": {"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 6}}
+    agent, other = (make_agent(tmp_path, fake_harbor, tasks, **settings) for _ in range(2))   # a stream each
     adapter = tool_adapter(tmp_path / "adapter")
     try:
         assert agent.run(rows["flow:s1"], adapter).output["status"] == "ok"
 
         def failed(self, index, *, timeout_s, missing=None):
             raise stream.StreamError("the stream's environment failed: a step's container exited")
-        monkeypatch.setattr(stream.StreamClient, "wait_turn", failed)
-        running = agent.run(rows["flow:s2"], adapter)
-        kept = stream_name(agent) in agent._streams and not fake_tools[0].closed
+        with monkeypatch.context() as patched:
+            patched.setattr(stream.StreamClient, "wait_turn", failed)
+            running = agent.run(rows["flow:s2"], adapter)
+        client = stream.StreamClient(tmp_path / "jobs" / "streams" / stream_name(agent), python="unused")
+        given_up = stream_name(agent) not in agent._streams and fake_tools[0].closed and client.running() is None
+        assert other.run(rows["flow:s1"], adapter).output["status"] == "ok"
 
         def dies(self, index, *, timeout_s, missing=None):  # killed while it answered (its zombie is not reaped)
             pid = int(self.info()["pid"])
@@ -2604,14 +2740,15 @@ def test_a_driver_that_died_while_it_answered_closes_the_streams_tools(tmp_path,
             while time.time() < deadline and state.exists() and " Z " not in state.read_text():
                 time.sleep(0.05)
             raise stream.StreamError("the stream driver closed the connection without an answer")
-        monkeypatch.setattr(stream.StreamClient, "wait_turn", dies)
-        lost = agent.run(rows["flow:s3"], adapter)
+        with monkeypatch.context() as patched:
+            patched.setattr(stream.StreamClient, "wait_turn", dies)
+            lost = other.run(rows["flow:s2"], adapter)
     finally:
         stop_streams(tmp_path)
-    assert (running.output["status"], running.output["failure_cause"]) == ("infra", "stream_lost") and kept
+    assert (running.output["status"], running.output["failure_cause"]) == ("infra", "stream_lost") and given_up
     assert (lost.output["status"], lost.output["failure_cause"]) == ("infra", "stream_lost")
-    [served] = fake_tools
-    assert served.closed and stream_name(agent) not in agent._streams
+    assert len(fake_tools) == 2 and all(served.closed for served in fake_tools)
+    assert stream_name(other) not in other._streams
 
 
 def test_a_step_lost_before_its_driver_was_asked_for_it_costs_0_and_one_lost_after_keeps_its_cost_unknown(
@@ -2624,7 +2761,9 @@ def test_a_step_lost_before_its_driver_was_asked_for_it_costs_0_and_one_lost_aft
     tasks = tmp_path / "tasks"
     make_task(tasks, "flow", steps=("s1", "s2", "s3"))
     rows = {r["id"]: r for r in dataset.index(tasks)}
-    agent = make_agent(tmp_path, fake_harbor, tasks, stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 6})
+    settings = {"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 6}
+    # two runners, each its own stream of the task: the first's is given up as its step 2 is lost before its driver
+    agent, other = (make_agent(tmp_path, fake_harbor, tasks, stream=settings) for _ in range(2))
     try:
         assert agent.run(rows["flow:s1"], simple_template()).output["status"] == "ok"
 
@@ -2633,12 +2772,13 @@ def test_a_step_lost_before_its_driver_was_asked_for_it_costs_0_and_one_lost_aft
         with monkeypatch.context() as patched:
             patched.setattr(stream.StreamClient, "wait_turn", unreached)
             before = agent.run(rows["flow:s2"], simple_template())
+        assert other.run(rows["flow:s1"], simple_template()).output["status"] == "ok"
 
         def unanswered(self, **request):                     # sent, and the connection closed without an answer
             raise stream.StreamError("the stream driver closed the connection without an answer")
         with monkeypatch.context() as patched:
             patched.setattr(stream.StreamClient, "step", unanswered)
-            after = agent.run(rows["flow:s2"], simple_template())
+            after = other.run(rows["flow:s2"], simple_template())
     finally:
         stop_streams(tmp_path)
     assert (before.output["failure_cause"], before.cost_usd, before.tokens) == ("stream_lost", 0.0, 0)
@@ -2725,12 +2865,135 @@ def driver_starts(monkeypatch) -> list[str]:
     return started
 
 
+def test_a_streams_last_step_that_never_reached_its_driver_stops_it_and_its_next_pass_starts_anew(
+        tmp_path, fake_harbor, monkeypatch):
+    """A stream's last step that ends before it reaches the driver (this machine could not stage its adapter) gives
+    the stream up too, though no step comes after it: its rollout stops the driver as it ends, so that the stream's
+    next pass in the same runner (an eval's next repeat, a later epoch) runs from its first step in a new environment.
+    Before, the driver stayed up, waiting for that step: the next pass's first step ended stream_order (already run),
+    and its last step ran on the environment the pass before had left, scored as the agent's result."""
+    fake_driver(fake_harbor)
+    monkeypatch.setattr(stream, "POLL_S", 0.1)
+    started = driver_starts(monkeypatch)
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "flow", steps=("one", "two"))
+    rows = {r["id"]: r for r in dataset.index(tasks)}
+    agent = make_agent(tmp_path, fake_harbor, tasks, stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 60})
+    real_stage, failing = HarborAgent._stage, {"two"}
+
+    def stage(self, task, adapter, where):
+        if task["step"] in failing:
+            raise OSError(28, "No space left on device")
+        return real_stage(self, task, adapter, where)
+    monkeypatch.setattr(HarborAgent, "_stage", stage)
+    client = stream.StreamClient(tmp_path / "jobs" / "streams" / stream_name(agent), python="unused")
+    try:
+        first = [agent.run(rows[f"flow:{step}"], None) for step in ("one", "two")]
+        deadline = time.time() + 10
+        while client.running() is not None and time.time() < deadline:
+            time.sleep(0.1)
+        stopped = client.running() is None
+        failing.clear()
+        again = [agent.run(rows[f"flow:{step}"], None) for step in ("one", "two")]
+    finally:
+        stop_streams(tmp_path)
+    assert [(out.output["status"], out.output["failure_cause"]) for out in first] == \
+        [("ok", None), ("infra", "staging_failed")]
+    assert stopped                                           # as its last step's rollout ended
+    assert [(out.output["status"], out.output["failure_cause"]) for out in again] == [("ok", None), ("ok", None)]
+    assert started == [stream_name(agent)] * 2               # the next pass in a new driver
+
+
+@pytest.mark.parametrize("end", ["deadline", "swap", "config"])
+def test_a_streams_last_step_that_ends_in_any_way_before_its_driver_is_asked_gives_the_stream_up(
+        tmp_path, fake_harbor, monkeypatch, fake_tools, end):
+    """Every way a stream's step can end before its driver is asked for it gives the stream up, not only a staging
+    that failed: its turn's wait running out (a plain StreamOrderError), the adapter's tools failing to swap in at its
+    turn, an exception of its launch's (a ValueError of agent_config). The driver, waiting for that step, is stopped as
+    the last rollout ends, and the stream's next pass runs from its first step in a new driver. Before, each of these
+    left the driver up for stream.idle_s, and the next pass's steps met it (already run, or scored on the old
+    environment)."""
+    fake_driver(fake_harbor)
+    monkeypatch.setattr(stream, "POLL_S", 0.1)
+    started = driver_starts(monkeypatch)
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "flow", steps=("one", "two"))
+    rows = {r["id"]: r for r in dataset.index(tasks)}
+    agent = make_agent(tmp_path, fake_harbor, tasks, tools_host="127.0.0.1",
+                       stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 60})
+    adapter = tool_adapter(tmp_path / "adapter")
+    client = stream.StreamClient(tmp_path / "jobs" / "streams" / stream_name(agent), python="unused")
+    real_wait, real_config = stream.StreamClient.wait_turn, HarborAgent.agent_config
+    failing = {"two"}
+
+    def wait_turn(self, index, *, timeout_s, missing=None):
+        if index == 2 and failing:
+            raise stream.StreamOrderError(f"waited {timeout_s:.0f} s for step {index}'s turn (the driver is at step 1)")
+        return real_wait(self, index, timeout_s=timeout_s, missing=missing)
+
+    def agent_config(self, task, *args, **kwargs):
+        if task["step"] in failing:
+            raise ValueError("an agent config the launch cannot take")
+        return real_config(self, task, *args, **kwargs)
+    if end == "deadline":
+        monkeypatch.setattr(stream.StreamClient, "wait_turn", wait_turn)
+    elif end == "config":
+        monkeypatch.setattr(HarborAgent, "agent_config", agent_config)
+    try:
+        first = [agent.run(rows["flow:one"], adapter)]
+        if end == "swap":
+            def swap(adapter, audit_log):
+                raise OSError(28, "No space left on device")
+            fake_tools[0].swap = swap
+        if end == "config":
+            with pytest.raises(ValueError, match="cannot take"):
+                agent.run(rows["flow:two"], adapter)
+        else:
+            first.append(agent.run(rows["flow:two"], adapter))
+        deadline = time.time() + 10
+        while client.running() is not None and time.time() < deadline:
+            time.sleep(0.1)
+        stopped = client.running() is None and fake_tools[0].closed
+        failing.clear()
+        again = [agent.run(rows[f"flow:{step}"], adapter) for step in ("one", "two")]
+    finally:
+        stop_streams(tmp_path)
+    causes = {"deadline": ("infra", "stream_order"), "swap": ("infra", "tools_failed")}
+    assert [(out.output["status"], out.output["failure_cause"]) for out in first] == \
+        [("ok", None), *([causes[end]] if end in causes else [])]
+    assert stopped                                           # as its last step's rollout ended
+    assert [(out.output["status"], out.output["failure_cause"]) for out in again] == [("ok", None), ("ok", None)]
+    assert started == [stream_name(agent)] * 2               # the next pass in a new driver
+    assert not agent._given_up and not agent._in_flight
+
+
+def test_a_second_rollout_of_a_step_the_stream_already_ran_gives_nothing_up(tmp_path, fake_harbor, monkeypatch):
+    """A rollout of a step its stream's driver is already past (an Evolver's run_agent of a training step whose stream
+    went on) ends stream_order and gives nothing up: the stream goes on in the same driver, its next step's turn
+    intact."""
+    fake_driver(fake_harbor)
+    monkeypatch.setattr(stream, "POLL_S", 0.1)
+    started = driver_starts(monkeypatch)
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "flow", steps=("one", "two", "three"))
+    rows = {r["id"]: r for r in dataset.index(tasks)}
+    agent = make_agent(tmp_path, fake_harbor, tasks, stream={"idle_s": 60, "start_timeout_s": 30, "turn_wait_s": 60})
+    try:
+        outs = [agent.run(rows[f"flow:{step}"], None) for step in ("one", "two", "one", "three")]
+    finally:
+        stop_streams(tmp_path)
+    assert [(out.output["status"], out.output["failure_cause"]) for out in outs] == \
+        [("ok", None), ("ok", None), ("infra", "stream_order"), ("ok", None)]
+    assert "already run" in outs[2].extra["exception_message"]
+    assert started == [stream_name(agent)]                   # one driver, the stream never given up
+
+
 def test_a_step_after_one_that_never_reached_the_driver_ends_at_once_and_stops_the_stream(tmp_path, fake_harbor,
                                                                                             monkeypatch, fake_tools):
-    """A step whose driver waits for an earlier step no rollout is running (it ended before it reached the driver:
-    this machine could not stage its adapter) cannot have its turn: it ends at once, infra (stream_order), and the
-    stream's driver and tool server, of use to no step after it, are stopped and closed. Before, each later step held
-    a rollout worker for its whole turn's wait (by default over an hour, more for each later step), then ended so."""
+    """A step that ends before it reaches its stream's driver (this machine could not stage its adapter) gives the
+    stream up: its driver and tool server, of use to no later step, are stopped and closed as it ends, and a later step
+    cannot have its turn: it ends at once, infra (stream_order), starting no driver. Before, each later step held a
+    rollout worker for its whole turn's wait (by default over an hour, more for each later step), then ended so."""
     fake_driver(fake_harbor)
     monkeypatch.setattr(stream, "POLL_S", 0.1)
     started = driver_starts(monkeypatch)
@@ -2762,7 +3025,7 @@ def test_a_step_after_one_that_never_reached_the_driver_ends_at_once_and_stops_t
     assert (first.output["status"], second.output["failure_cause"]) == ("ok", "staging_failed")
     assert (third.output["status"], third.output["failure_cause"], third.extra["unscored"]) == \
         ("infra", "stream_order", "stream_order")
-    assert "step 3's turn cannot come: the driver waits for step 2" in third.extra["exception_message"]
+    assert "step 3's turn cannot come: the stream has no driver" in third.extra["exception_message"]
     assert took < 20                                         # its turn's wait is 60 s
     assert started == [stream_name(agent)] and stopped
     [served] = fake_tools
@@ -3019,11 +3282,12 @@ def test_a_stream_run_again_after_its_last_step_reads_none_of_the_first_runs_out
 def test_closing_the_runner_stops_the_drivers_of_its_unfinished_streams(tmp_path, fake_harbor, monkeypatch):
     """A runner's streams are met by no later runner (a resumed run names its own anew): its close stops the driver of
     each stream it stepped that did not finish, which would otherwise hold its task's environment for stream.idle_s;
-    so does `_close_all` at exit for a runner never closed (hermit.isolate.agent_pipeline's close does not close it).
-    A stream that finished was stopped by its last step, and is not stopped again; nor is a driver that ended by itself
-    (its idle time) asked to stop."""
-    import weakref
-    from hermit.harbor import runner
+    so does its finalizer for a runner never closed (hermit.isolate.agent_pipeline's close does not close it): at exit
+    for one still held then, and as soon as one is freed. Before, a weak set of the runners was closed at exit, and a
+    runner freed before then (`hermit check`'s probe, `hermit eval` once it returned) left its drivers up. A stream that
+    finished was stopped by its last step, and is not stopped again; nor is a driver that ended by itself (its idle
+    time) asked to stop."""
+    import gc
     fake_driver(fake_harbor)
     tasks = tmp_path / "tasks"
     make_task(tasks, "flow", steps=("one", "two"))          # not "s2": the fake driver aborts the stream there
@@ -3057,17 +3321,23 @@ def test_closing_the_runner_stops_the_drivers_of_its_unfinished_streams(tmp_path
         assert driver(left) is not None
         other.close()
         assert stopped[1:] == [left.output["trial"]] and driver(left, stopping=True) is None
-        interrupted = make_agent(tmp_path, fake_harbor, tasks, **settings)               # never closed
+        interrupted = make_agent(tmp_path, fake_harbor, tasks, **settings)               # never closed, held at exit
         cut = interrupted.run(rows["flow:one"], None)
-        monkeypatch.setattr(runner, "_LIVE", weakref.WeakSet([interrupted]))
-        runner._close_all()                                                             # at exit
+        assert interrupted._finalizer.atexit and interrupted._finalizer.alive
+        interrupted._finalizer()                                                        # as at exit
         assert stopped[2:] == [cut.output["trial"]] and driver(cut, stopping=True) is None
+        freed = make_agent(tmp_path, fake_harbor, tasks, **settings)                    # never closed, and let go
+        dropped = freed.run(rows["flow:one"], None)
+        assert driver(dropped) is not None
+        del freed
+        gc.collect()
+        assert stopped[3:] == [dropped.output["trial"]] and driver(dropped, stopping=True) is None
         ended = make_agent(tmp_path, fake_harbor, tasks, **settings)
         idle = ended.run(rows["flow:one"], None)
         real_stop(stream.StreamClient(Path(idle.extra["stream_dir"]), python="unused"), timeout_s=10)   # by itself
         assert driver(idle, stopping=True) is None                                      # (as at its idle time)
         ended.close()
-        assert stopped[3:] == []
+        assert stopped[4:] == []
     finally:
         stop_streams(tmp_path)
 
@@ -4110,22 +4380,36 @@ def test_a_codex_streams_lost_sign_in_is_codexs_own_word_since_the_session_last_
 
 def test_a_codex_streams_provider_outage_is_its_last_failure_or_a_retry_it_was_still_making(tmp_path):
     """signin.codex_unavailable: the provider could not serve a Codex session that served no turn when its last
-    failure says so (the error its turn failed with, else its last error since it last worked), when it ended while
-    Codex was retrying, or when no session began and a line says so (docker's own error); never a reconnect Codex went
-    on from before the session failed on its own, which the Base Agent's reading would take for an outage."""
+    failure says so (the error its turn failed with, else its last error since it last worked), when its turn failed
+    with the error Codex was retrying (its retries run out) or the stream ended while it retried, or when no session
+    began and a line says so (docker's own error); never a reconnect Codex went on from before the session failed on
+    its own (its retried request got through: the session's own error came after it), which the Base Agent's reading
+    would take for an outage, nor a response the provider's content filter ended (Codex writes it as a disconnected
+    stream): the agent's result."""
     from hermit.harbor import signin
     start = '{"type":"thread.started","thread_id":"th-1"}\n{"type":"turn.started"}\n'
     error = '{"type":"error","message":"%s"}\n'
     failed = '{"type":"turn.failed","error":{"message":"%s"}}\n'
     worked = '{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"working"}}\n'
+    routing = "workspace routing discovery failed"
     out = (UNREACHABLE,
            start + failed % "stream disconnected before completion: error sending request",
            start + worked + error % "Reconnecting... 3/5 (stream disconnected before completion)",
-           start + error % "Reconnecting... 5/5 (workspace routing discovery failed)" + failed % "exit",
-           start + error % "Reconnecting... 2/5 (unexpected status 401 Unauthorized)" + failed % "exit",
+           start + error % f"Reconnecting... 5/5 ({routing})" + error % routing + failed % routing,
+           start + error % "Reconnecting... 2/5 (unexpected status 401 Unauthorized)",    # it ended as Codex retried
+           start + error % "Reconnecting... 2/5" + failed % "exit",                      # no word of what it retried
            "docker: Error response from daemon: no such image.\nSee 'docker run --help'.\n")
     own = (start + error % "Reconnecting... 1/5 (stream disconnected before completion)" + worked
            + failed % "Your input exceeds the context window of this model.",
+           start + error % "Reconnecting... 1/5 (stream disconnected before completion)"
+           + error % "Your input exceeds the context window of this model."
+           + failed % "Your input exceeds the context window of this model.",
+           start + error % f"Reconnecting... 5/5 ({routing})" + failed % "the agent stopped",
+           start + failed % ("stream disconnected before completion: Incomplete response returned, reason: "
+                             "content_filter"),
+           start + error % "Reconnecting... 1/5 (stream disconnected before completion: Incomplete response returned, "
+           "reason: content_filter)" + failed % "stream disconnected before completion: Incomplete response returned, "
+           "reason: content_filter",
            start + worked + failed % "the agent stopped")
     assert [signin.codex_unavailable(raw) for raw in out] == [True] * len(out)
     assert [signin.codex_unavailable(raw) for raw in own] == [False] * len(own)
@@ -4133,6 +4417,41 @@ def test_a_codex_streams_provider_outage_is_its_last_failure_or_a_retry_it_was_s
     from hermit.agent.base.cli import Codex
     stream = write(tmp_path / "agent-codex.jsonl", own[0])
     assert Codex({}).outcome(own[0], stream, None)["unavailable"] is True
+
+
+def test_a_codex_streams_usage_limit_and_refused_configuration_are_codexs_own_words(tmp_path):
+    """signin.codex_refused and signin.codex_rejected read Codex's own notices only: the plan's usage limit (the Base
+    Agent's words) in a line of Codex's or an error since the session last worked, and a refusal of the run's
+    configuration or bill in its last failure (a 400, 402 or 404 Codex does not retry, an API account's quota); never
+    the words in what Codex's log quotes of the session's tool calls, a line of which may be a JSON object, which the
+    Base Agent's reading takes for its notices (and its JSON line for an event that ends the record)."""
+    from hermit.harbor import signin
+    start = '{"type":"thread.started","thread_id":"th-1"}\n{"type":"turn.started"}\n'
+    error = '{"type":"error","message":"%s"}\n'
+    failed = '{"type":"turn.failed","error":{"message":"%s"}}\n'
+    worked = '{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"working"}}\n'
+    record = "2026-11-12T01:02:03.456789Z ERROR codex_core::tools::router: error=apply_patch verification failed:\n"
+    limit = "You've hit your usage limit. Upgrade to Pro or try again in 2 hours."
+    quota = "Quota exceeded. Check your plan and billing details."
+    assert signin.codex_refused(start + error % limit + failed % limit)
+    assert signin.codex_refused(start + "Error: " + limit + "\n")
+    assert not signin.codex_refused(start + error % limit + worked + failed % "the context window ran out")
+    quoted = start + record + '{"note": "a JSON line of the patch"}\n' + f"    say('{limit}')\n" + failed % "exit"
+    assert not signin.codex_refused(quoted)
+    assert signin.codex_rejected(start + failed % quota) == quota
+    for status in ("400 Bad Request: Unsupported parameter: 'max_tokens'", "402 Payment Required",
+                   "404 Not Found: The model `gpt-x` does not exist"):
+        raw = start + error % f"unexpected status {status}" + failed % f"unexpected status {status}"
+        assert signin.codex_rejected(raw) == f"unexpected status {status}"
+    for raw in (start + failed % "unexpected status 401 Unauthorized",
+                start + failed % "unexpected status 429 Too Many",
+                start + error % "unexpected status 404 Not Found" + worked + failed % "the agent stopped",
+                start + record + f"    raise SystemExit('{quota}')\n" + failed % "exit"):
+        assert signin.codex_rejected(raw) is None
+    # the Base Agent's own reading takes the quoted limit for the plan's refusal
+    from hermit.agent.base.cli import Codex
+    stream = write(tmp_path / "agent-codex.jsonl", quoted)
+    assert Codex({}).outcome(quoted, stream, None)["refused"] is True
 
 
 def test_a_returned_sign_in_becomes_the_shared_copy_only_as_a_small_regular_chatgpt_sign_in_on_a_clock_it_trusts(
@@ -4203,6 +4522,47 @@ def test_a_trial_that_ended_infra_runs_again_and_one_that_stays_so_is_a_failed_r
     monkeypatch.setattr(HarborAgent, "_pause", lambda self, seconds: paused.append(seconds))
     once = make_agent(tmp_path / "once", fake_harbor, tasks, infra_retries=2).run(rows["mcp"], None)
     assert once.extra["unscored"] == "unsupported_task" and paused == [] and "attempts" not in once.extra
+
+
+def test_a_cause_no_run_again_helps_ends_at_its_first_run(tmp_path, fake_harbor, monkeypatch):
+    """With runs again allowed (infra_retries 2), a trial whose cause runs no better again is not run again
+    (runner.NO_RETRY): a disk gate that waited its time out, and a request the provider refused for the run's
+    configuration (model_rejected: its key, its permission, its model, its bill); nor is a host failure past the
+    trial's staging (host_failed, whose session may have run: HarborAgent.run catches it outside the trial's runs).
+    Each is a failed run at once, its first run's; another infra cause (a session that never started) runs again."""
+    from hermit.trainer.rollout import run_one
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    row = dataset.index(tasks)[0]
+    paused = []
+    monkeypatch.setattr(HarborAgent, "_pause", lambda self, seconds: paused.append(seconds))
+    agent = make_agent(tmp_path, fake_harbor, tasks, infra_retries=2, infra_wait_s=0)
+    with monkeypatch.context() as patch:
+        patch.setattr(HarborAgent, "wait_for_disk", lambda self, *args, **kwargs: False)
+        record = run_one(row, None, agent.run, judge.score)
+    unscored_record(record, "disk")
+    assert paused == [] and "attempts" not in record["pipeline_extra"]
+    runs = []
+
+    def once(self, task, adapter, started):                 # a trial's verdict, as the runner reads its session
+        runs.append(cause)
+        return self._output(task, errors.no_trial(cause, f"{cause}: a stand-in"), None, None, started)
+    monkeypatch.setattr(HarborAgent, "_trial_once", once)
+    for cause, times in (("model_rejected", 1), ("session_failed", 3)):
+        runs.clear()
+        record = run_one(row, None, agent.run, judge.score)
+        unscored_record(record, cause)
+        assert len(runs) == times, cause
+    assert paused == [0.0, 0.0]                              # session_failed's two runs again
+    launched = []
+
+    def no_fork(self, task, adapter, started):              # a host failure past the staging: its session may have run
+        launched.append(task["id"])
+        raise BlockingIOError(11, "Resource temporarily unavailable")
+    monkeypatch.setattr(HarborAgent, "_trial_once", no_fork)
+    record = run_one(row, None, agent.run, judge.score)
+    unscored_record(record, "host_failed")
+    assert launched == [row["id"]] and paused == [0.0, 0.0]  # never run again
 
 
 def test_the_runner_refuses_a_trial_cache_and_infra_settings_it_cannot_take(tmp_path, fake_harbor):
@@ -4286,6 +4646,57 @@ def test_the_report_gives_pass_at_1_over_the_trials_that_are_the_agents_result(t
     out = capsys.readouterr().out
     assert "5 trials: 3 scored, 1 infra, 1 failed; pass@1 66.7% of the scored" in out and "\n  repeat 2: " in out
     assert report.main([str(tmp_path / "none")]) == 1
+
+
+def test_the_report_says_when_an_eval_did_not_finish(tmp_path, monkeypatch, capsys):
+    """Through main's own `hermit eval` (hermit.evaluate.evaluate, on the toy task): a finished eval reads as finished,
+    and so does its copy whatever the files' times (a copy changes them). An eval of the same folder that a lost
+    sign-in stopped (LoginFailed) wrote no row of the repeat it stopped in, run_tasks handing back a repeat's records
+    once all are done, beside the summary of the eval before: the report says it did not finish (`finished` false,
+    `unfinished` why), as it does for rows with no summary beside them, for a summary that is not of its rows, and for
+    rows whose last one is cut off (an eval stopped as it wrote it), which is left out instead of failing the report."""
+    import shutil
+    from hermit.agent.base.interface import LoginFailed
+    from hermit.config import Config
+    from hermit.evaluate import evaluate
+    from hermit.harbor import report
+    from hermit.trainer import rollout
+    from toy_task import make_task
+    cfg = Config.load(make_task(tmp_path), [])
+    evaluate(cfg, "none", log=lambda *_: None)
+    folder = cfg.run_dir() / "eval" / "none"
+    rows, summary = report.rows_of(folder), (folder / "summary.json").read_text()
+    finished = report.report(folder)
+    assert (finished["finished"], finished["trials"]) == (True, 3) and "unfinished" not in finished
+    copy = shutil.copytree(folder, tmp_path / "handed-back")
+    os.utime(copy / "summary.json", (time.time() - 3600, time.time() - 3600))   # an hour older than the rows
+    assert report.report(copy)["finished"] is True
+    (copy / "summary.json").unlink()
+    assert "no summary.json beside its rows" in report.report(copy)["unfinished"]
+    other = write(tmp_path / "other" / "results.jsonl", "".join(
+        json.dumps({**r, "judge": {**r["judge"], "score": 1.0 - r["judge"]["score"]}}) + "\n" for r in rows))
+    write(other.parent / "summary.json", summary)                 # three trials, but another mean score
+    assert "is not of its rows" in report.report(other)["unfinished"]
+    text = (folder / "results.jsonl").read_text()                 # an eval stopped as it wrote its last row
+    cut = write(tmp_path / "cut" / "results.jsonl", text[:len(text) - 40])
+    write(cut.parent / "summary.json", summary)
+    figures = report.report(cut.parent)
+    assert (figures["finished"], figures["trials"]) == (False, 2) and "is cut off" in figures["unfinished"]
+    assert report.main([str(cut.parent)]) == 0 and "  unfinished: the last row" in capsys.readouterr().out
+    broken = write(tmp_path / "broken" / "results.jsonl", text.replace("\n", "\n{not json\n", 1))
+    with pytest.raises(ValueError, match="line 2 of .* is no JSON row"):    # a row of its own that is none: no cut
+        report.read_rows(broken)
+
+    def lost(task, adapter, pipeline, judge):
+        raise LoginFailed("the sign-in was lost (a stand-in)")
+    monkeypatch.setattr(rollout, "run_one", lost)
+    with pytest.raises(LoginFailed):
+        evaluate(cfg, "none", log=lambda *_: None)
+    stopped = report.report(folder)
+    assert (stopped["finished"], stopped["trials"]) == (False, 0)               # beside the eval before's summary
+    assert "counts 3 trials and its results.jsonl holds 0" in stopped["unfinished"]
+    assert report.main([str(folder)]) == 0
+    assert "\n  unfinished: its summary.json counts 3 trials" in capsys.readouterr().out
 
 
 # ---- staging's child: the host's deployment with the tools the runner serves ---------------------------------------

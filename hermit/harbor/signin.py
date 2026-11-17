@@ -15,7 +15,12 @@ trial in a task's container needs beyond them are here:
   limit, the network). Codex's `outcome` takes any notice of its stream for one, a reconnect Codex recovered from too:
   a trial that worked on after one and then failed on its own (its context full, say) would be run again and left
   out of the scored trials, though it is the agent's result. Here only the session's last failure counts, or a retry
-  Codex was still making when the stream ended.
+  Codex was still making when the turn failed with the error it retried, or when the stream ended; a response the
+  provider's content filter ended is the agent's result, never an outage.
+- `codex_refused(raw)` and `codex_rejected(raw)`: the plan's usage limit (the Base Agent's words, login.LIMIT) and a
+  refusal of the run's configuration or bill (CODEX_REJECTED: a 400, 402 or 404 Codex does not retry, an API
+  account's quota), each read from Codex's own notices only (`lines`), never from what its log quotes of the session's
+  work, which the Base Agent's reading takes for its notices too.
 - `take_back(root, returned, local=...)`: the sign-in a trial's container handed back becomes the shared copy only
   when it is a regular file of at most MAX_BYTES, a ChatGPT sign-in (its refresh and access tokens), stamped at most
   SKEW past this machine's clock in Harbor's local Docker environment (whose containers share it; OTHER_CLOCK in any
@@ -57,8 +62,23 @@ CODEX_FORBIDDEN = re.compile(r"unexpected status 403\b")
 # Codex's notices of an error it recovers from, the session going on: its retry ("Reconnecting... 2/5 (unexpected
 # status 401 Unauthorized: ...)") and its fall back from a WebSocket the provider refused to HTTPS
 CODEX_RECOVERY = re.compile(r"\s*(?:Reconnecting\.\.\.|Falling back from WebSockets to HTTPS transport\b)")
-# Of those, its retry of a request that failed; its fall back to HTTPS retries none (the request goes on over HTTPS)
-CODEX_RETRY = re.compile(r"\s*Reconnecting\.\.\.")
+# Of those, its retry of a request that failed, with what failed (in its parentheses, when it names it); its fall back
+# to HTTPS retries none (the request goes on over HTTPS)
+CODEX_RETRY = re.compile(r"\s*Reconnecting\.\.\.(?:\s*\d+\s*/\s*\d+)?\s*(?:\((?P<reason>.*)\))?", re.S)
+# Codex's failure of a request that no retry changes, in the error its turn failed with: a status it does not retry
+# ("unexpected status 402 Payment Required: ..."; a 400, a request setting the model does not take or a prompt too
+# long, which the runner's CONFIG_REFUSED tells apart; a 402, the account's bill; a 404, a model or an endpoint not
+# there), and its own words for an API account's quota (OpenAI's insufficient_quota). A 401 or a 403 is a lost sign-in
+# (CODEX_AUTH, CODEX_FORBIDDEN); a 429 or a 5xx the provider's (the Base Agent's UNAVAILABLE).
+CODEX_REJECTED = re.compile(r"unexpected status (?:400|402|404)\b|^\s*Quota exceeded\. Check your plan and billing "
+                            r"details\b", re.M)
+# The provider's content filter ending a response ("stream disconnected before completion: Incomplete response
+# returned, reason: content_filter"): what the task's or the adapter's input made the request, the agent's result
+CODEX_FILTERED = re.compile(r"\bcontent_filter\b")
+# The type of each event `codex exec --json` writes: a line of another JSON object inside a record of Codex's log is
+# text the record quotes (a file, a command's output), never an event
+CODEX_EVENTS = frozenset({"thread.started", "turn.started", "turn.completed", "turn.failed", "item.started",
+                          "item.updated", "item.completed", "error"})
 # A record of Codex's own log on its stderr ("<time> <LEVEL> <target>: <message>", its target in group 1), after the
 # spans the record was logged in ("<time> ERROR session_loop{thread_id=...}:turn{...}: <target>:"). The target is one
 # of Codex's own crates' (codex_core::tools::router, codex_exec, ...) or of the MCP client it runs (rmcp::...): a line
@@ -77,15 +97,16 @@ def lines(raw: str):
     (CODEX_TOOLS) and every line that continues a record (one that starts no record and follows one before the next
     event: the text the record quoted). A line that starts no record and follows none (codex exec's own error, docker's)
     and Codex's other records are kept; so a lost sign-in Codex reports on a line of its own right after a record of
-    its log goes unseen, as on main (the trial then scores 0, and the run goes on). U+0085, U+2028 and U+2029 end no
-    line (an event's strings may hold them unescaped)."""
+    its log goes unseen, as on main (the trial then scores 0, and the run goes on). Inside a record, a line of a JSON
+    object that is no event of Codex's (its `type` not one of CODEX_EVENTS) is what the record quoted. U+0085, U+2028
+    and U+2029 end no line (an event's strings may hold them unescaped)."""
     record = None                                   # the target of the record since the last event, if any
     for line in raw.split("\n"):
         try:
             event = json.loads(line)
         except (ValueError, RecursionError):        # no JSON, or nested past the parser's depth
             event = None
-        if isinstance(event, dict):
+        if isinstance(event, dict) and (record is None or event.get("type") in CODEX_EVENTS):
             record = None
             yield event, line
             continue
@@ -127,19 +148,17 @@ def codex_signin_lost(raw: str) -> bool:
     return bool(CODEX_AUTH.search("\n".join(recent + failed)) or CODEX_FORBIDDEN.search("\n".join(failed)))
 
 
-def codex_unavailable(raw: str) -> bool:
-    """Whether the stream of a Codex session that served no turn says its provider could not serve it: the Base
-    Agent's UNAVAILABLE (hermit.agent.base.cli) in the session's last failure, which is the error its turn failed with,
-    else its last error or line since it last worked (an item the provider served, a completed turn), never a notice
-    it went on from (a recovery notice, CODEX_RECOVERY, or a warning, an `error` item); in any line of a stream with no
-    event (no session began: a container that could not start, whose `docker run` ends its error with a help line);
-    or a turn that failed, or a stream that ended,
-    while Codex was retrying (a retry notice, CODEX_RETRY, since the session last worked), unless the sign-in was lost
-    (codex_signin_lost): Codex retries what the provider or the network failed, and the error it fails the turn with
-    when its retries run out need not say so (Codex 0.164 when chatgpt.com cannot be reached: "Reconnecting... 5/5
-    (workspace routing discovery failed)", then the turn failed with "workspace routing discovery failed")."""
-    from hermit.agent.base.cli import UNAVAILABLE
-    lasting, failed, began, since, retried = [], [], False, [], False
+def _failure(raw: str) -> tuple[str, bool]:
+    """(the last failure of a Codex session that served no turn, whether Codex was retrying when it ended): the error
+    its turn failed with, else its last error or line since it last worked (an item the provider served, a completed
+    turn), never a notice it went on from (a recovery notice, CODEX_RECOVERY, or a warning, an `error` item); in a
+    stream with no event (no session began: a container that could not start, whose `docker run` ends its error with a
+    help line), all its lines. Codex was retrying when a retry notice (CODEX_RETRY) came since the session last worked
+    and no error of the session's own came after it: none but the error it retried (the one its turn fails with when
+    its retries run out) or a recovery notice, so a session that failed on its own after a retry Codex recovered from
+    was not retrying."""
+    lasting, failed, began, since = [], [], False, []
+    retried, own = None, False          # what the last retry since the session last worked retried; an error after it
     for event, line in lines(raw):
         if event is None:                           # a line of its own (its stderr)
             lasting.append(line)
@@ -149,16 +168,67 @@ def codex_unavailable(raw: str) -> bool:
         item = event.get("item") if isinstance(event.get("item"), dict) else None
         warning = item is not None and item.get("type") == "error"
         if event.get("type") == "turn.completed" or (item is not None and not warning):
-            since, retried = [], False              # the session worked: it went on from what came before
+            since, retried, own = [], None, False   # the session worked: it went on from what came before
         said = codex_errors(event)
         if event.get("type") == "turn.failed":
             failed += said
-        retried = retried or any(CODEX_RETRY.match(m) for m in said)
+        for message in said:
+            retry = CODEX_RETRY.match(message)
+            if retry:
+                retried, own = (retry.group("reason") or "").strip(), False
+            elif retried and not warning and not CODEX_RECOVERY.match(message) and \
+                    message.strip() not in retried and retried not in message:
+                own = True                          # the session's own failure: Codex went on from the retry
         kept = [m for m in said if not CODEX_RECOVERY.match(m)]
         lasting += kept
         since += [] if warning else kept
     last = failed[-1] if failed else "\n".join(since[-1:] if began else lasting)
-    return bool(UNAVAILABLE.search(last)) or (retried and not codex_signin_lost(raw))
+    return last, retried is not None and not own
+
+
+def codex_unavailable(raw: str) -> bool:
+    """Whether the stream of a Codex session that served no turn says its provider could not serve it: the Base
+    Agent's UNAVAILABLE (hermit.agent.base.cli) in the session's last failure (_failure), or a turn that failed, or a
+    stream that ended, while Codex was retrying, unless the sign-in was lost (codex_signin_lost): Codex retries what the
+    provider or the network failed, and the error it fails the turn with when its retries run out need not say so
+    (Codex 0.164 when chatgpt.com cannot be reached: "Reconnecting... 5/5 (workspace routing discovery failed)", then
+    the turn failed with "workspace routing discovery failed"). A last failure the provider's content filter ended
+    (CODEX_FILTERED, which Codex writes as a disconnected stream) is none: the agent's result."""
+    from hermit.agent.base.cli import UNAVAILABLE
+    last, retrying = _failure(raw)
+    if CODEX_FILTERED.search(last):
+        return False
+    return bool(UNAVAILABLE.search(last)) or (retrying and not codex_signin_lost(raw))
+
+
+def codex_refused(raw: str) -> bool:
+    """Whether the stream of a Codex session that served no turn says the plan refused it for its usage limit (the
+    Base Agent's words, hermit.agent.base.login.LIMIT), in a line of Codex's own or an error since the session last
+    worked, or in the error its turn failed with: never in what Codex's log quotes of the session's work (`lines`),
+    which the Base Agent's reading of the whole stream takes for its notices too."""
+    from hermit.agent.base.login import refused
+    recent, failed = [], []
+    for event, line in lines(raw):
+        if event is None:
+            recent.append(line)
+            continue
+        item = event.get("item") if isinstance(event.get("item"), dict) else None
+        if event.get("type") == "turn.completed" or (item is not None and item.get("type") != "error"):
+            recent = []                             # the session worked: it went on from what came before
+        said = codex_errors(event)
+        if event.get("type") == "turn.failed":
+            failed += said
+        recent += [m for m in said if not CODEX_RECOVERY.match(m)]
+    return refused("\n".join(recent + failed))
+
+
+def codex_rejected(raw: str) -> str | None:
+    """The last failure of a Codex session that served no turn (_failure) when it is a refusal of the run's
+    configuration or bill, which no wait or retry changes (CODEX_REJECTED: a 400, 402 or 404 Codex does not retry, an
+    API account's quota), else None. Whether a 400 refused the configuration or the request's input is the runner's
+    reading (CONFIG_REFUSED), as for the other CLIs."""
+    last, _ = _failure(raw)
+    return last if CODEX_REJECTED.search(last) else None
 
 
 def _regular_bytes(path: Path, limit: int) -> bytes | None:

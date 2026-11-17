@@ -40,9 +40,10 @@ The Trainer's rollouts run the current instruction on every training task. Then 
 5. each new instruction passes the template check, runs on every training task (`run_agent`), and joins the history
    with its mean score. A wrong answer scores 0; a run that fails for an infrastructure reason (a container or
    proxy error) is run again, and an instruction whose runs fail twice is left unscored rather than scored 0. On a
-   Harbor task set whose training split holds a multi-step task, a new instruction's runs of its steps are out of their
-   turn in the Trainer's own stream of that task and end `stream_order`: such a set trains with a method that learns
-   from the Trainer's own rollouts ([Known limitations](../reference/compatibility.md#known-limitations));
+   Harbor task set whose training split holds a multi-step task, a new instruction's runs of its steps are in the
+   Trainer's own stream of that task: out of their turn they end `stream_order`, and a run of its first step once the
+   stream finished starts a pass there that the Trainer's next epoch inherits, so such a set trains with a method that
+   learns from the Trainer's own rollouts ([Known limitations](../reference/compatibility.md#known-limitations));
 6. the instruction with the best training score so far becomes the adapter.
 
 ```mermaid

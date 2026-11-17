@@ -119,34 +119,47 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   reads the trial's stream back with the same Base Agent (the reply, whether it was served, the plan's or the provider's
   refusal, the usage at the run's price). The answer-only agent (`acting_agent.cli: answer`) makes one model call from
   Harbor's process through an endpoint the runner serves, a model a CLI reaches (`model: {cli: ...}`) given in the
-  benchmark file. The adapter's tools are served from this machine on the Docker bridge's gateway, each call logged; a
-  per-task context is computed in the adapter sandbox; the adapter's notes come back after the session. The trial's log
-  is curated where the methods' readers look in a log of Hermit's own sessions: the CLI's stream as
-  `agent-<backend>.jsonl`, `task.md`, `prompt.txt`, `last_message.txt` and the hook audit at its top.
-  [Benchmarks](docs/framework/task.md#benchmarks) has the whole of it.
+  benchmark file, each request one session whose refusal by the plan comes back at once (`plan_rerun: false`: the
+  trial infra, run again once the plan allows, never the agent's timeout). The adapter's tools are served from this
+  machine on the Docker bridge's gateway, each call logged; a per-task context is computed in the adapter sandbox; the
+  adapter's notes come back after the session. The trial's log is curated where the methods' readers look in a log of
+  Hermit's own sessions: the CLI's stream as `agent-<backend>.jsonl`, `task.md`, `prompt.txt`, `last_message.txt` and
+  the hook audit at its top. [Benchmarks](docs/framework/task.md#benchmarks) has the whole of it.
 
   A key or a token reaches the container by its variable's name only; Codex's ChatGPT sign-in is a file of its home
   there (mode 600), and the refresh it hands back becomes the shared copy only as a regular file of at most 64 KiB
   holding a later refresh of the copy's account, stamped at most a minute ahead of this machine's clock (an hour off
   Harbor's local Docker environment); a stream's step gets the copy at its turn. Codex and Claude Code run on the user's
-  subscription (`login: chatgpt | claude`) in the plan's slots and holds, each trial noting the plan's usage. A trial
+  subscription (`login: chatgpt | claude`), each trial in the plan's slots and holds and noting the plan's usage (a
+  multi-step task's steps take neither and note nothing: they run as their turn comes). A trial
   that is not the agent's result (infra: the host, the model provider, a session that never started) runs again in the
-  runner (`agent.params.infra_retries`, default 2, each after `infra_wait_s`, default 300 s); one still infra gets no
-  score from `hermit.harbor.judge`, so the run records a failed run (`judge_error`), counted in `hermit eval`'s `errors`
-  and as 0 in its `mean_score`, and `python -m hermit.harbor.report` gives an eval's pass@1 over the trials that are the
-  agent's result. The judge scores the verifier's reward whenever the verifier gave one, a timeout or an agent error
-  included, as Harbor's own job mean does. A lost sign-in (a Codex trial's, read from its stream, or a Claude Code
-  trial's), or an API account's usage limit, ends the run (`LoginFailed`): `hermit train` resumes after its last
-  finished step. A multi-step task's stream is each runner's own (`jobs_dir/streams/<task>__s<rollout>__<id>`) and is
-  never resumed; its steps run in order, each with its own launch plan and allowed hosts, so a split keeps their file
-  order (`data.shuffle: false`), and a step out of its turn ends `stream_order`. Startup refuses what every trial would:
-  a login for another CLI, a sign-in or a key that is not there, no `web_search`, a loopback model, Harbor's retry on
-  `login: chatgpt`, a secret in `acting_agent.env` (a name Harbor takes for one), a benchmark file whose `model` is a
-  `<backend>/<model>` reference (it goes in the config's own `agent.params.model`), an answer agent's model a CLI
-  reaches given in the run config, and `trial_cache` (there is no trial cache). From the Terminal-Bench 2.1 runs: a host
-  failure (Docker's, a full `/tmp`) is infra and no trial starts while `/tmp` is short; the trial of a task whose name
-  is longer than 32 characters is found; a `harbor run` past its wait budget is killed and its trial's compose projects,
-  the verifier's included, are taken down by name.
+  runner (`agent.params.infra_retries`, default 2, each after `infra_wait_s`, default 300 s), unless its cause runs no
+  better again (a disk gate that waited its time out, a provider's refusal of the run's configuration, a host failure
+  past the trial's staging, whose session may have run); one still infra
+  gets no score from `hermit.harbor.judge`, so the run records a failed run (`judge_error`), counted in `hermit eval`'s
+  `errors` and as 0 in its `mean_score`, and `python -m hermit.harbor.report` gives an eval's pass@1 over the trials
+  that are the agent's result, and says when the eval did not finish. An adapter whose own deployment or per-task
+  context fails on this machine is the agent's 0 (`adapter_failed`; a manifest that cannot be loaded is a failed run
+  of the pipeline, as on `main`). A Codex session the provider refused for the run's configuration or bill (a 400, 402
+  or 404 it does not retry, an API account's quota) is infra (`model_rejected`), as the other CLIs' are; its usage
+  limit and its lost sign-in are read from Codex's own notices, never from what its log quotes of the session's work.
+  The judge scores the verifier's reward whenever the verifier gave one, a timeout or an agent error included, as
+  Harbor's own job mean does. A lost sign-in (a Codex trial's, read from its stream, or a Claude Code trial's), or an
+  API account's usage limit, ends the run (`LoginFailed`; trials that race on one copy for its refresh too, whose
+  loser's refusal reads as a lost sign-in): `hermit train` resumes after its last finished step. A multi-step task's
+  stream is each runner's own (`jobs_dir/streams/<task>__s<rollout>__<id>`) and is never resumed (a resumed `hermit
+  train` loses a stream's remaining steps in that epoch); its steps run in order, each with its own launch plan and
+  allowed hosts, so a split keeps their file order (`data.shuffle: false`), and a step out of its turn ends
+  `stream_order`, as do the later steps of one that ended in any way before its driver was asked for it, which is then
+  stopped, as the drivers of the streams a runner leaves unfinished are when it is freed or the process exits. Startup
+  refuses what every trial would: a login for another CLI, a sign-in or a key that is not there, no `web_search`, a
+  loopback model, Harbor's retry on `login: chatgpt`, a secret in `acting_agent.env` (a name Harbor takes for one), a
+  benchmark file whose `model` is a `<backend>/<model>` reference (it goes in the config's own `agent.params.model`),
+  an answer agent's model a CLI reaches given in the run config, or one on a login with no sign-in there, and
+  `trial_cache` (there is no trial cache). From the Terminal-Bench 2.1 runs: a host failure (Docker's, a full `/tmp`)
+  is infra and no trial starts while `/tmp` is short; the trial of a task whose name is longer than 32 characters is
+  found; a `harbor run` past its wait budget is killed and its trial's compose projects, the verifier's included, are
+  taken down by name.
 
   The framework's layers are used as they are: outside `hermit/harbor/` only Pi's and dsh's hosts change, their
   `prepare(serve_tools=False)` deploying for a caller that serves the adapter's tools, as the other hosts' already did.

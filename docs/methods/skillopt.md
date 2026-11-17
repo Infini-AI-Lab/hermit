@@ -21,8 +21,9 @@ acting side.
 Each framework step runs a SkillOpt update on the batch. With `use_gate: true`, the method keeps an update only
 if its validation score improves. The slow update and meta skill run at an epoch boundary when enabled. Both compare
 the previous and the current skill on a sample of training tasks through `run_agent`: on a Harbor task set whose
-training split holds a multi-step task, such a run of one of its steps is out of its turn in the Trainer's own stream
-of that task and ends `stream_order` (score 0), so such a set trains with both off (`use_slow_update: false`,
+training split holds a multi-step task, such a run of one of its steps is in the Trainer's own stream of that task:
+out of its turn it ends `stream_order` (score 0), and a run of its first step once the stream finished starts a pass
+there that the Trainer's next epoch inherits, so such a set trains with both off (`use_slow_update: false`,
 `use_meta_skill: false`), when SkillOpt learns from the Trainer's own rollouts
 ([Known limitations](../reference/compatibility.md#known-limitations)).
 Finalization considers the method's retained validation candidates.

@@ -62,6 +62,11 @@ class StreamOrderError(StreamError):
     """The step's turn did not come: an earlier step is missing, or this one was already run."""
 
 
+class StepAlreadyRunError(StreamOrderError):
+    """The step's turn has passed: the driver is past it (a second rollout of a step the stream already ran, as an
+    Evolver's run_agent of a training step whose stream went on). The stream is not this rollout's to give up."""
+
+
 class TurnLostError(StreamOrderError):
     """The step's turn cannot come: no rollout runs the step its driver waits for, or the stream has no driver and no
     rollout of its first step is running to start one (`why`)."""
@@ -268,7 +273,7 @@ class StreamClient:
                 raise StreamError(f"the stream's environment failed: {status['error']}")
             nxt = int(status.get("next_index") or 0)
             if nxt > index:
-                raise StreamOrderError(f"step {index} was already run (the driver is at step {nxt})")
+                raise StepAlreadyRunError(f"step {index} was already run (the driver is at step {nxt})")
             if status.get("finished") or status.get("aborted"):    # before its turn: the driver would refuse the step
                 raise StreamError(f"the stream {'aborted: ' + str(status.get('aborted')) if status.get('aborted') else 'finished'} "
                                   f"before step {index}")

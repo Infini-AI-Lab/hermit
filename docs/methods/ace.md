@@ -42,8 +42,9 @@ asked to name the bullet ids it used on a `bullet_ids:` line of its final messag
    with the reflection after its context (`run_agent`), stopping when it is right; a right answer: one reflection,
    to tag the bullets. The Reflector tags the named bullets helpful, harmful or neutral; the counters are updated
    without a model. On a Harbor task set, a step of a multi-step task in the training split run again through
-   `run_agent` is out of its turn in the Trainer's own stream of that task: it ends `stream_order` (score 0) and counts
-   as a wrong answer, so the rounds after the first reflect on runs that never happened: such a set trains with a
+   `run_agent` is in the Trainer's own stream of that task: out of its turn it ends `stream_order` (score 0) and
+   counts as a wrong answer, so the rounds after the first reflect on runs that never happened, and a run of its first
+   step once the stream finished starts a pass there that the Trainer's next epoch inherits: such a set trains with a
    method that learns from the Trainer's own rollouts ([Known limitations](../reference/compatibility.md#known-limitations));
 3. every `curator_frequency` samples, the Curator turns the last reflection into ADD operations, merged into the
    playbook deterministically (new ids, a section that does not exist goes to OTHERS);
