@@ -31,6 +31,7 @@ hermit train --config run.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8  
 | `agent.params.model` with `agent.name: opencode`, `evolver.params.model` of the `opencode` Evolver | OpenCode | chat completions |
 | `agent.params.model` with `agent.name: dsh`, `evolver.params.model` of the `dsh` Evolver | DeepSeek Harness | chat completions, else the Messages API, else the Responses API: the first the backend serves |
 | `agent.params.model` with `agent.name: hermes`, `evolver.params.model` of the `hermes` Evolver | Hermes Agent | chat completions, else the Messages API, else the Responses API: the first the backend serves |
+| `agent.params.model` with `agent.name: harbor` (else the top-level `model`, else the benchmark file's `model`, a model's name or, for the answer agent, one a CLI reaches: a `<backend>/<model>` reference goes in the config) | a Harbor task set's acting agent: the CLI of `acting_agent.cli` in the task's container, or the answer agent (`cli: answer`) from Harbor's process ([Benchmarks](../framework/task.md#benchmarks)) | that CLI's, as in the rows above; chat completions for `cli: answer` (`hermit check` and `train` check it as chat completions whatever the CLI: below) |
 | `model` (top level) | the default for all of the above when they name none | |
 | the examples' task agents (`agent.params.model`, or the launchers' `MW_MODEL`) | CL-Bench's litellm host, ServeLearnBench's loop, the SkillOpt rollout | chat completions |
 
@@ -133,7 +134,11 @@ speaks the OpenAI Responses API only** (`wire_api = "chat"` is rejected since Co
 Anthropic Messages API only**. A
 backend's `apis` says what it serves, and the framework checks a model's dialect against its backend before a run
 starts: `hermit check` reports it, `train` refuses to start on a mismatch, and `hermit backends check <ref>` sends
-one short request in each dialect (and lists `GET /models`) so a wrong claim shows up before anything is spent.
+one short request in each dialect (and lists `GET /models`) so a wrong claim shows up before anything is spent. A
+Harbor task set's acting model (`agent.name: harbor`) is checked as chat completions whatever its CLI, as for an agent
+the check does not know: Claude Code on a backend that serves only the Messages API (Anthropic's) is refused by
+`check` and `train`, though `hermit eval` runs it, and a Codex model on a backend without the Responses API passes
+them, every trial then failing at the provider (`hermit/harbor/FRAMEWORK_SUPPORT.md`, candidate 7).
 
 | Backend | chat | responses (Codex) | messages (Claude Code) |
 |---|---|---|---|

@@ -3,19 +3,29 @@
 The driver (`harborside/driver.py`, under Harbor's interpreter) holds the task's environment open between steps
 and answers on a Unix socket in the stream's directory; this client starts it when there is none (under a file
 lock, so concurrent rollouts of one stream start one driver), waits for its turn (the driver runs steps in order),
-asks for its step and reads the step's result back. The stream's directory:
+asks for its step and reads the step's result back. A driver that answers no stop (hung in a step) is ended with its
+process group, and its trial's compose projects are taken down by name, as an expired trial's are. The stream's
+directory:
 
     <jobs_dir>/streams/<stream>/
-      driver.json          {pid, socket, started, trial_dir}: the live driver
+      driver.json          {pid, socket, name, steps, started, trial_dir}: the live driver (name: Harbor's trial;
+                           steps: the task's step names, which name each step's separate verifier environment)
       driver.log           its log (Harbor's trial log is in trial_dir)
       .lock                the start lock
-      steps/<index>-<name>/   this step's staging (deploy/) and curated log
+      steps/<index>-<name>-<id>/   a rollout of this step: its staging (deploy/), launch plan (launch/) and curated
+                           log, each rollout in a directory of its own
       trials/<stream>/     Harbor's trial directory: steps/<name>/{agent,verifier,result.json}, result.json at the end
+      replies/<index>.json the driver's answer for each step it ran
+      earlier/<n>/         an earlier driver's trials/ and replies/, set aside when a new driver starts here (Harbor's
+                           trial of the same name would reuse its step directories: a step that leaves no output of
+                           its own would be read with the earlier run's); driver.log goes on, each start headed
 
 Protocol: one JSON object per line, one request per connection.
     {"op": "status"}                      -> {"ok": true, "ready": bool, "next_index": i, "running": name|null,
                                               "finished": bool, "aborted": reason|null, "error": msg|null}
-    {"op": "step", "name", "index", "deploy_dir", "agent_kwargs"}
+    {"op": "step", "name", "index", "plan", "agent_kwargs", "allowed_hosts"}   (plan: the step's launch plan,
+                                          hermit.harbor.launch; allowed_hosts: the hosts the step's agent phase lets
+                                          the CLI reach, Harbor's extra_allowed_hosts, set for each step)
                                           -> {"ok": true, "step": <StepResult>, "paths": {...}, "aborted": ...}
                                            | {"ok": false, "out_of_order": true, "next_index": i} | {"ok": false, "error"}
     {"op": "result", "index": i}          -> the stored reply of a finished step, or {"ok": false, "error"}
@@ -28,6 +38,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import signal
 import socket
 import subprocess
 import sys
@@ -35,8 +46,12 @@ import time
 
 DRIVER_INFO = "driver.json"
 DRIVER_LOG = "driver.log"
+EARLIER = "earlier"                                      # earlier drivers' trials and replies, set aside
 POLL_S = 5.0
+TURN_GRACE_POLLS = 2                                     # a missing earlier step is waited for this many polls more
 START_TIMEOUT_S = 3600.0                                 # the environment's build and the agent's install
+ENDING_WAIT_S = 30.0                                     # an ending driver's exit, waited for before the next starts
+STOP_TIMEOUT_S = 900.0                                   # a stop's answer: the environment down, the result written
 HARBORSIDE = Path(__file__).resolve().parent / "harborside"
 
 
@@ -46,6 +61,21 @@ class StreamError(RuntimeError):
 
 class StreamOrderError(StreamError):
     """The step's turn did not come: an earlier step is missing, or this one was already run."""
+
+
+class StepAlreadyRunError(StreamOrderError):
+    """The step's turn has passed: the driver is past it (a second rollout of a step the stream already ran, as an
+    Evolver's run_agent of a training step whose stream went on). The stream is not this rollout's to give up."""
+
+
+class TurnLostError(StreamOrderError):
+    """The step's turn cannot come: no rollout runs the step its driver waits for, or the stream has no driver and no
+    rollout of its first step is running to start one (`why`)."""
+
+    def __init__(self, index: int, why: str):
+        self.why = why
+        super().__init__(f"step {index}'s turn cannot come: {why}; a stream's steps run in order, each after the one "
+                         "before it")
 
 
 def socket_path(stream_dir: Path) -> Path:
@@ -93,16 +123,37 @@ class StreamClient:
             return None
 
     def running(self) -> dict | None:
-        """The live driver's record, or None when there is none (or it died)."""
+        """The live driver's record, or None when there is none: no record, its process gone (a zombie too: gone), its
+        socket gone, or a driver that is ending (its record's `ending`: its step loop over, its socket about to close),
+        which no request may use any more and whose stream's next pass starts a new driver (ensure waits it out)."""
         info = self.info()
-        if info and alive(int(info.get("pid", 0))) and Path(info.get("socket", "")).exists():
+        if info and not info.get("ending") and alive(int(info.get("pid", 0))) and \
+                Path(info.get("socket", "")).exists() and not self.gone():
             return info
         return None
 
+    def gone(self) -> bool:
+        """Whether the driver's process has ended: no record, no such process, or a zombie (a driver this process
+        started and that died stays one until it is reaped, and `alive` still finds it): no request reaches it again."""
+        info = self.info()
+        if not info:
+            return True
+        pid = int(info.get("pid") or 0)
+        if pid <= 0:
+            return False
+        if not alive(pid):
+            return True
+        try:
+            return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z"
+        except (OSError, IndexError):
+            return False                                  # no /proc here: alive's answer
+
     def ensure(self, *, task_dir: Path, name: str, agent: dict, environment: dict, verifier: dict | None = None,
-               idle_s: float = 4 * 3600, env: dict | None = None, start_timeout_s: float = START_TIMEOUT_S) -> dict:
+               idle_s: float = 4 * 3600, env: dict | None = None, start_timeout_s: float = START_TIMEOUT_S,
+               trial: dict | None = None) -> dict:
         """The live driver, started if there is none, ready (environment up, agent installed) or raising with the
-        error it reported."""
+        error it reported. A driver it starts runs with `env` as it is (this process's environment when none is
+        given), and `trial` holds the settings of Harbor's trial config (its timeout multipliers)."""
         self.dir.mkdir(parents=True, exist_ok=True)
         if os.environ.get("HA_ADAPTER_SANDBOX") == "1" and self.running() is None:
             # A driver started from a sandboxed worker would die with it (bubblewrap's --die-with-parent), and its
@@ -115,24 +166,43 @@ class StreamClient:
             try:
                 info = self.running()
                 if info is None:
+                    self._wait_out()
                     info = self._start(task_dir=task_dir, name=name, agent=agent, environment=environment,
-                                       verifier=verifier or {}, idle_s=idle_s, env=env)
+                                       verifier=verifier or {}, idle_s=idle_s, env=env, trial=trial or {})
             finally:
                 fcntl.flock(lock, fcntl.LOCK_UN)
         self._wait_ready(info, start_timeout_s)
         return info
 
+    def _wait_out(self, timeout_s: float | None = None) -> None:
+        """An earlier driver of this directory that `running` no longer takes but whose process is still there (one
+        ending: its step loop over, its socket still open; one whose socket is gone) waited for until its process has
+        ended (ENDING_WAIT_S at most), then killed if it has not: a new driver never binds the socket's path while the
+        old one is still to remove it at its exit, nor shares its trial's name with a process still using it."""
+        if self.gone():
+            return
+        deadline = time.time() + (ENDING_WAIT_S if timeout_s is None else timeout_s)
+        while time.time() < deadline and not self.gone():
+            time.sleep(0.1)
+        if not self.gone():
+            self.log(f"the stream's earlier driver had not ended {ENDING_WAIT_S:.0f} s after it stopped answering: "
+                     "killing it")
+            self.kill()
+
     def _start(self, *, task_dir: Path, name: str, agent: dict, environment: dict, verifier: dict, idle_s: float,
-               env: dict | None) -> dict:
+               env: dict | None, trial: dict) -> dict:
         sock = socket_path(self.dir)
         sock.unlink(missing_ok=True)
         self.info_path.unlink(missing_ok=True)
+        self._set_aside()
         cmd = [self.python, "-m", "harborside.driver", "--task-dir", str(task_dir), "--stream-dir", str(self.dir),
                "--name", name, "--socket", str(sock), "--agent-json", json.dumps(agent),
                "--environment-json", json.dumps(environment), "--verifier-json", json.dumps(verifier),
-               "--idle-s", str(idle_s)]
-        run_env = {**os.environ, **(env or {})}
-        run_env["PYTHONPATH"] = str(HARBORSIDE.parent) + (os.pathsep + run_env["PYTHONPATH"] if run_env.get("PYTHONPATH") else "")
+               "--trial-json", json.dumps(trial), "--idle-s", str(idle_s)]
+        # The environment as given (harbor_env: what Harbor's processes may have), never this process's back under it
+        run_env = dict(os.environ if env is None else env)
+        run_env["PYTHONPATH"] = str(HARBORSIDE.parent) + (os.pathsep + run_env["PYTHONPATH"]
+                                                          if run_env.get("PYTHONPATH") else "")
         with open(self.dir / DRIVER_LOG, "a") as log:
             log.write(f"=== {datetime.now().isoformat(timespec='seconds')} start: {' '.join(cmd)}\n")
             log.flush()
@@ -148,6 +218,21 @@ class StreamClient:
                                   f"{self.dir / DRIVER_LOG}")
             time.sleep(0.5)
         raise StreamError(f"the stream driver did not listen within 120 s; see {self.dir / DRIVER_LOG}")
+
+    def _set_aside(self) -> None:
+        """What an earlier driver of this directory left, moved to earlier/<n>/ before a new one starts (under the start
+        lock): its trial directory, whose step directories Harbor's next trial of the same name would reuse (a step
+        that leaves no output of its own would be read with the earlier run's: its usage billed again, its reply and
+        outputs taken for the step's), and its replies. driver.log, which every step's curated log copies, stays: each
+        driver's part of it begins with the line its start writes."""
+        left = [self.dir / name for name in ("trials", "replies") if os.path.lexists(self.dir / name)]
+        if not left:
+            return
+        taken = [int(p.name) for p in (self.dir / EARLIER).glob("*") if p.name.isdigit()]
+        place = self.dir / EARLIER / str(max(taken, default=0) + 1)
+        place.mkdir(parents=True)
+        for path in left:
+            path.rename(place / path.name)
 
     def _wait_ready(self, info: dict, timeout_s: float) -> None:
         deadline = time.time() + timeout_s
@@ -185,45 +270,106 @@ class StreamClient:
         data = b"".join(chunks).decode("utf-8", errors="replace").strip()
         if not data:
             raise StreamError("the stream driver closed the connection without an answer")
-        return json.loads(data)
+        try:
+            return json.loads(data)
+        except ValueError:                                # cut off: a driver killed while it wrote its answer
+            raise StreamError("the stream driver closed the connection before its answer was whole") from None
 
     def status(self) -> dict:
         return self.request({"op": "status"}, timeout=60)
 
-    def wait_turn(self, index: int, *, timeout_s: float) -> dict:
+    def wait_turn(self, index: int, *, timeout_s: float, missing=None) -> dict:
         """Block until the driver's next step is `index` (earlier steps of the stream, running in other rollouts,
-        come first); the status then. Raises when the stream finished, aborted or died first."""
+        come first); the status then. Raises when the stream finished, aborted or died first (an aborted stream's
+        driver refuses every step, the step at its turn too, so that step is never asked for), and when `missing`
+        (called with the step the driver waits for, while it is idle at an earlier one) says why no rollout will ask
+        for that step, on TURN_GRACE_POLLS polls more in a row (by then a rollout submitted just before this one has
+        come): a turn that cannot come ends at once (TurnLostError), not at the deadline."""
         deadline = time.time() + timeout_s
+        missed = 0
         while True:
             status = self.status()
             if status.get("error"):
                 raise StreamError(f"the stream's environment failed: {status['error']}")
             nxt = int(status.get("next_index") or 0)
-            if nxt == index and not status.get("running"):
-                return status
             if nxt > index:
-                raise StreamOrderError(f"step {index} was already run (the driver is at step {nxt})")
-            if status.get("finished") or status.get("aborted"):
+                raise StepAlreadyRunError(f"step {index} was already run (the driver is at step {nxt})")
+            if status.get("finished") or status.get("aborted"):    # before its turn: the driver would refuse the step
                 raise StreamError(f"the stream {'aborted: ' + str(status.get('aborted')) if status.get('aborted') else 'finished'} "
                                   f"before step {index}")
+            if nxt == index and not status.get("running"):
+                return status
+            why = missing(nxt) if missing is not None and not status.get("running") else None
+            missed = missed + 1 if why else 0
+            if missed > TURN_GRACE_POLLS:
+                raise TurnLostError(index, why)
             if time.time() >= deadline:
                 raise StreamOrderError(f"waited {timeout_s:.0f} s for step {index}'s turn (the driver is at step {nxt}): "
                                        "a stream's steps run in order, each after the one before it")
             time.sleep(POLL_S)
 
-    def step(self, *, name: str, index: int, deploy_dir: str | None, agent_kwargs: dict | None,
-             timeout_s: float) -> dict:
+    def step(self, *, name: str, index: int, plan: str | None, agent_kwargs: dict | None,
+             timeout_s: float, allowed_hosts: list[str] | None = None) -> dict:
         try:
-            return self.request({"op": "step", "name": name, "index": index, "deploy_dir": deploy_dir,
-                                 "agent_kwargs": agent_kwargs or {}}, timeout=timeout_s)
+            return self.request({"op": "step", "name": name, "index": index, "plan": plan,
+                                 "agent_kwargs": agent_kwargs or {}, "allowed_hosts": list(allowed_hosts or [])},
+                                timeout=timeout_s)
         except (socket.timeout, TimeoutError):
             return {"ok": False, "expired": True, "error": f"no answer from the stream driver within {timeout_s:.0f} s"}
 
     def result(self, index: int) -> dict:
         return self.request({"op": "result", "index": index}, timeout=60)
 
-    def stop(self, *, timeout_s: float = 900) -> None:
+    def stop(self, *, timeout_s: float | None = None) -> None:
+        """Ask the driver to stop (its step loop ends, the environment goes down, the trial's result is written) and
+        wait for its answer. A driver that gives none within `timeout_s` (STOP_TIMEOUT_S) is hung in a step, which the
+        stop would wait behind (one whose request expired), and neither its idle stop nor a later stop would end it:
+        it is killed (kill)."""
         try:
-            self.request({"op": "stop"}, timeout=timeout_s)
+            self.request({"op": "stop"}, timeout=STOP_TIMEOUT_S if timeout_s is None else timeout_s)
+        except TimeoutError as exc:
+            killed = self.kill()
+            self.log(f"stopping the stream driver: no answer ({exc}); "
+                     + ("killed it, its compose projects taken down" if killed else "no process of it to kill"))
         except (OSError, StreamError, ValueError) as exc:
             self.log(f"stopping the stream driver: {exc}")
+
+    def kill(self) -> bool:
+        """End the driver's process group (it leads one: started in a session of its own), SIGTERM then SIGKILL, as
+        an expired trial's `harbor run` is ended, and take its trial's compose projects down by name (its environment,
+        which its own stop would have taken down: docker.compose_down); whether it did. Only a live process whose
+        command line names this stream's directory is signalled: the pid its record gives may since be another
+        program's."""
+        pid = self._driver_pid()
+        if pid is None:
+            return False
+        for sig, grace in ((signal.SIGTERM, 30.0), (signal.SIGKILL, 10.0)):
+            try:
+                os.killpg(pid, sig)
+            except (ProcessLookupError, PermissionError):
+                break
+            deadline = time.time() + grace
+            while time.time() < deadline and not self.gone():
+                time.sleep(0.2)
+        if self.gone():                     # its socket, which a killed driver leaves (its own exit removes it)
+            socket_path(self.dir).unlink(missing_ok=True)
+        info = self.info() or {}
+        if info.get("name"):
+            from hermit.harbor import docker
+            docker.compose_down(str(info["name"]), keys=[str(s) for s in info.get("steps") or []])
+        return True
+
+    def _driver_pid(self) -> int | None:
+        """The pid of this directory's live driver, when its command line (/proc) says it is one and it leads its own
+        process group; None otherwise (no record, a process gone, one of another program, no /proc to tell)."""
+        pid = int((self.info() or {}).get("pid") or 0)
+        if pid <= 0 or self.gone():
+            return None
+        try:
+            argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+            leads = os.getpgid(pid) == pid
+        except OSError:
+            return None
+        where = argv.index(b"--stream-dir") + 1 if b"--stream-dir" in argv else len(argv)
+        named = where < len(argv) and Path(os.fsdecode(argv[where])).resolve() == self.dir.resolve()
+        return pid if leads and named and b"harborside.driver" in argv else None

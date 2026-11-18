@@ -50,7 +50,7 @@ Use the same run name for training and evaluation. Unknown configuration keys ar
 |---|---|
 | `data` | Task JSONL file, split files, tasks per step, whether to shuffle the train split (`shuffle`, default true), and shuffle seed. |
 | `task_info` | Directory explaining the task and objective to the learner. |
-| `agent.name` | A built-in agent (`react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `hermes`), `file.py:Class` for the task's own `Agent` subclass, or `file.py:function` for a plain `run(task, adapter)`. `pipeline.run` is the older spelling. |
+| `agent.name` | A built-in agent (`react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `hermes`, or `harbor`: a benchmark's task set in Harbor's format, [Benchmarks](task.md#benchmarks)), `file.py:Class` for the task's own `Agent` subclass, or `file.py:function` for a plain `run(task, adapter)`. `pipeline.run` is the older spelling. |
 | `agent.concurrency` | Maximum concurrent task executions during rollout and evaluation. |
 | `agent.params` | The agent's settings: for a built-in agent its model, prompt and tools; for the task's own agent whatever it reads. |
 | `judge.path`, `judge.name` | Scoring module/file and function name; the default name is `score`. |

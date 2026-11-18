@@ -233,9 +233,13 @@ per-token price, so `cost_usd` is unknown and the CLI's `total_cost_usd`, an est
 
 Not yet counted or stopped: the tokens of an attempt that is run again (a plan's rerun, an acting retry, a chat client's
 retry) and of a failed session through the acting endpoint are not added to the records or to `budget.tokens`, which
-therefore undercounts; a rollout waiting for the plan is not stopped by the Trainer's budget or stop until its wait ends
-(as on Codex's ChatGPT login). A lost sign-in met inside a Trainer tool that a learner's session calls over the tool
-server (`run_agent`, `llm`) stops the learner and ends the run after its call, unfinished, as at a step.
+therefore undercounts (a Harbor trial on the login is the exception: its usage is every run's,
+[Benchmarks](../framework/task.md#benchmarks)); a rollout waiting for the plan is not stopped by the Trainer's budget
+or stop until its wait ends (as on Codex's ChatGPT login). A lost sign-in met inside a Trainer tool that a learner's
+session calls over the tool server (`run_agent`, `llm`) stops the learner and ends the run after its call,
+unfinished, as at a step. A Harbor trial's lost sign-in on the login ends the run the same way
+([Benchmarks](../framework/task.md#benchmarks)): before the learner is called on the step's rollouts, after the
+learner's call on `run_agent`'s.
 
 ## The model contract
 

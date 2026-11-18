@@ -29,7 +29,7 @@ import sys
 
 HERE = Path(__file__).resolve().parent
 UTILS = HERE.parent
-sys.path.insert(0, str(UTILS / "agent"))
+sys.path.insert(0, str(UTILS))
 
 INSTRUCTION = ("Inspect or search the full OfficeQA corpus under `docs/` and answer the question below. Treat the "
                "candidate files as hints, not an access limit. Return the final answer inside <answer>...</answer> in "
@@ -68,7 +68,7 @@ def task_toml(row: dict) -> str:
 
 
 def build(out: Path, rows: list[dict], answers: dict[str, str], docs: str, base_image: str) -> list[str]:
-    from codex_agent import task_text                     # SkillOpt's task.md, and the corpus roots it names
+    from task import task_text                            # SkillOpt's task.md, and the corpus roots it names
     out.mkdir(parents=True, exist_ok=True)
     roots: list[str] = []
     written = []

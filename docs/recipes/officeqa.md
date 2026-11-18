@@ -278,12 +278,15 @@ hermit eval  --config examples/officeqa/gepa/run_codex_harbor.yaml --adapter fin
 ```
 
 What differs from the Codex route above: the container is Harbor's (`ubuntu:24.04` with python3 and ripgrep;
-`build_tasks.py --base-image` takes one with Codex installed, which saves Harbor's install per trial), its network
-is the task's (no egress proxy: the model's endpoint and key reach Codex through Harbor), the question and its
-parsed pages are the instruction rather than a `task.md`, and the judge
-(`utils/harbor/judge.py`, SkillOpt's exact match) reads the `<answer>` from the session's final message, or
-`/app/answer.txt`, inside the container. The scores of this route are not in the results table: a run through it is
-a different setting and is reported as one.
+`build_tasks.py --base-image` takes one with Codex installed, which saves Harbor's install per trial only when its
+`codex --version` is exactly the config's `codex_version`, `0.134.0`: with another, Harbor still installs that one in
+each trial), its network is the task's (no egress proxy: the model's endpoint and key reach Codex through Harbor), the
+question and its parsed pages are the instruction rather than a `task.md`, and the judge
+(`utils/harbor/judge.py`, SkillOpt's exact match) reads the `<answer>` from the session's final message, in the
+Codex stream the trial keeps (`/logs/agent/agent-codex.jsonl`; `codex.txt` for Harbor's own Codex agent), or
+`/app/answer.txt`, inside the container. The build copies the judge into each task's `tests/`: a task set built
+before a change to it needs building again. The scores of this route are not in the results table: a run through it
+is a different setting and is reported as one.
 
 ### What the isolation stopped
 

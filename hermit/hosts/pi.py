@@ -25,9 +25,11 @@ NATIVE = {"skills"}
 
 
 def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path | None = None,
-            context: str | None = None) -> dict:
+            context: str | None = None, serve_tools: bool = True) -> dict:
     """`context`: the adapter's context for one task, which the harness computed, in place of the one rendered
-    here; an adapter whose context is per task deploys only so."""
+    here; an adapter whose context is per task deploys only so. `serve_tools`: false when the caller serves the
+    adapter's tools to the session itself (a container session, which cannot start a server on this machine): the
+    workspace's .pi/mcp.json then names no server for them."""
     adapter, output = adapter.resolve(), output.resolve()
     refused = not_portable(load_manifest(adapter), "A Pi workspace")   # before anything is written
     if refused and context is None:
@@ -38,7 +40,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     check_skills(adapter, output, manifest, previous, output / ".pi" / "skills")
     exports = render_exports(adapter, python)
     listed, placed = resources(adapter, output, manifest, exports, hook_definitions(adapter, manifest), NATIVE)
-    has_tools = bool(agent_tools(manifest))     # the context tool is the harness's, not served
+    has_tools = bool(agent_tools(manifest)) and serve_tools     # the context tool is the harness's, not served
     if has_tools:
         subprocess.run([python, "-c", "import mcp.server"], check=True, capture_output=True)
     output.mkdir(parents=True, exist_ok=True)
