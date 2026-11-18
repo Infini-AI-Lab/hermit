@@ -190,7 +190,8 @@ class ModelEndpoint:
                 # plan allows: HarborAgent._model_plan_wait), never run again inside the request (main's CliAgent.run
                 # does so by default, plan_rerun), which would wait for the plan's window inside the agent's time and
                 # end the trial as the agent's timeout
-                endpoint = cli_endpoint({**self.spec, "plan_rerun": False},
+                # a Codex session asks for web_search set either way; the answer agent's takes none unless given
+                endpoint = cli_endpoint({"web_search": False, **self.spec, "plan_rerun": False},
                                         self.records / "model-sessions" if self.records else None, sandbox=box)
             except BaseException:
                 for thing in (box, proxy):

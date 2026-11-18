@@ -198,8 +198,9 @@ def render(cli: str, settings: dict, *, deploy: dict | None, tools_url: str | No
     login = login or settings.get("login")
     launch = Path(job) / LAUNCH_DIR
     shutil.rmtree(launch, ignore_errors=True)
+    launch.mkdir(parents=True, mode=0o700)    # its plan and home name the trial's tool URL and token: this user's only
     home = launch / HOME_DIR
-    home.mkdir(parents=True)
+    home.mkdir()
     work = Path(deploy["deploy"]) if deploy else launch / "work"
     work.mkdir(parents=True, exist_ok=True)
     work = work.resolve()
@@ -340,7 +341,7 @@ def render_answer(settings: dict, *, endpoint: str, job: Path, system: str = "",
         raise ValueError("agent.params.answer.answer_format must hold {answer}")
     launch = Path(job) / LAUNCH_DIR
     shutil.rmtree(launch, ignore_errors=True)
-    launch.mkdir(parents=True)
+    launch.mkdir(parents=True, mode=0o700)    # its plan names the relay's URL and token: this user's only
     effort = settings.get("effort")
     plan = {"version": PLAN_VERSION, "cli": "answer", "label": "answer", "workdir": None, "deploy": None,
             "home": None, "bundle": None, "command": None, "stdin": False, "prompt_suffix": "",
@@ -399,7 +400,8 @@ def _env_entry(name: str, value: str, env: dict, from_host: dict) -> None:
     if secret:
         raise ValueError(f"the acting agent's env {name} holds ${secret[0]} inside other text: a secret reaches the "
                          f"container only whole, by its variable's name ({name}: ${secret[0]})")
-    if value and SECRET_VAR.search(name):
+    from hermit.agent.model.backends import PLACEHOLDER_KEY
+    if value and value != PLACEHOLDER_KEY and SECRET_VAR.search(name):   # a keyless backend's placeholder: no secret
         raise ValueError(f"the acting agent's env {name} is named as a secret and given a value: it would be written "
                          f"into each trial's plan; export it here and pass it by name ({name}: ${name})")
     env[name] = os.path.expandvars(value) if named else value

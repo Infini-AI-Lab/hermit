@@ -103,3 +103,16 @@ def test_a_final_message_holding_a_unicode_line_separator_is_read_as_one_event(j
     write(judge.STREAMS[0], [*STREAM[:-2], final, STREAM[-1]])
     assert separator in judge.STREAMS[0].read_text(encoding="utf-8")         # unescaped, as Codex writes it
     assert judge.find_answer() == ("44,463", "final message")
+
+
+def test_build_tasks_finds_skillopts_task_text_in_utils(tmp_path, monkeypatch):
+    """build_tasks.py, which the recipe has run again after a change to the judge, imports task_text from utils/task.py
+    (the module it moved to): building no rows still writes the mounts."""
+    import sys
+    monkeypatch.delitem(sys.modules, "task", raising=False)          # another example's task module, if one is loaded
+    path = JUDGE.parent / "build_tasks.py"
+    spec = importlib.util.spec_from_file_location("officeqa_build_tasks", path)
+    build_tasks = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(build_tasks)
+    assert build_tasks.build(tmp_path / "out", [], {}, str(tmp_path), "ubuntu:24.04") == []
+    assert json.loads((tmp_path / "out" / "MOUNTS.json").read_text()) == []
