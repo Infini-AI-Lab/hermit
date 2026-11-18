@@ -1,0 +1,50 @@
+# run_sample_luna.yaml with the agent and the models changed and nothing else of the protocol: Claude Opus 5.5 at medium
+# effort acts and learns through Claude Code, on a Claude subscription (`claude setup-token` once, the token exported as
+# CLAUDE_CODE_OAUTH_TOKEN; no API key; docs/guides/claude-subscription.md). The acting agent is Claude Code in the task
+# sandbox, which reaches api.anthropic.com and the simulator service's port; the learner is the `claude` Evolver, one
+# Claude Code session per step that edits ADAPTER.md. Started by launch.sh: ROBODOJO_CONFIG=run_sample_opus.yaml
+# ./launch.sh
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/sample.txt
+  test: ../utils/splits/sample.txt  # `launch.sh eval`: the tasks again, with an adapter given
+  step_size: 1
+  shuffle: false
+task_info: ../utils/task-info
+agent:
+  base: claude
+  concurrency: 1                    # one simulator: an evaluation takes a GPU
+  params:
+    prompt: ../utils/agent/task.py:prompt
+    prepare: ../utils/agent/task.py:prepare
+    answer: ../utils/agent/task.py:answer
+    collect: ../utils/agent/task.py:collect
+    context_file: CLAUDE.md         # where Claude Code is given the adapter; the prompt names it
+  model: {name: claude-opus-5-5, login: claude, effort: medium}
+  claude:
+    web_search: false
+    timeout_s: 21600
+environment:                        # the task sandbox: the actor's code and the interface page, nothing of RoboDojo
+  read:
+    - ../utils/agent
+  env: [ROBODOJO_SIM_URL]           # the host's simulator service (launch.sh): its 127.0.0.1 port is forwarded
+judge:
+  path: ../utils/judge.py           # on the host: the program on the held-out layout sets
+template: prompt-only@1.0
+evolver:
+  name: claude                      # the built-in Claude Code AgentEvolver: it revises ADAPTER.md after each task
+  base: claude
+  model: {name: claude-opus-5-5, login: claude, effort: medium}
+  claude: {web_search: false}
+  params:
+    tools: [check_spec]
+sandbox:
+  enabled: true
+  enforce: required
+trainer:
+  run_name: robodojo-prompt-only-sample-opus
+  epochs: 1
+  call_timeout_min: 60
+  budget: {usd: null, hours: 48}      # the subscription has no price
+eval:
+  repeats: 1
