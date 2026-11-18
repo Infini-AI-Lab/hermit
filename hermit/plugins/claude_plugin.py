@@ -10,18 +10,46 @@ them in a workspace):
 - roles: subagent files in the conventional `agents/` directory. Naming that directory in the manifest breaks it:
   as a string the manifest fails validation, as a list nothing loads.
 - skills: the conventional `skills/` directory.
+- the adapter's files: embedded under `adapter/`. In training and in a `hermit deploy` workspace the context says
+  where the adapter's copy is and names the files no export connects (hermit.hosts.inputs.resources). An output
+  style cannot say where the plugin is installed (Claude Code substitutes `${CLAUDE_PLUGIN_ROOT}` in skills,
+  agents, hooks and servers, not in an output style), so a `SessionStart` hook says it: Claude Code adds a
+  SessionStart hook's output to the context. The hook runs under `sh` (Git Bash on Windows).
 """
 from __future__ import annotations
 
 from pathlib import Path
 import json
 
+from hermit.hosts.inputs import other_files_section
 from hermit.plugins.common import (ADAPTER_DIR, AUDIT_LOG, FRAMEWORK_VERSION, SERVER_COMMAND, clear, copy_skills,
                                            embed_adapter, load, prepare_output, record, refuse, server_args,
                                            subagent_file, write_json)
 
 SCHEMA = "https://anthropic.com/claude-code/plugin.schema.json"
 MARKETPLACE = ".claude-plugin/marketplace.json"
+FILES_NOTE = "hermit-files.md"            # the list of the adapter's other files the hook prints
+HOOKS = "hooks/hooks.json"
+
+
+def folder_hook(bundle, plugin: Path, skills: list[str]) -> str | None:
+    """Write the hook that tells the session where the adapter's files are, as the deployment's context does
+    (hermit.hosts.inputs.folder_note and the "Other files" list), when the adapter has any the agent may be sent to:
+    files no export connects, or skills and roles whose paths are relative to the adapter. Returns the hooks file."""
+    others = bundle.other_files
+    if not (others or bundle.roles or skills):
+        return None
+    note = (f"The files of the `{bundle.id}` adapter are in `%s/{ADAPTER_DIR}/`. Paths in its instructions, and in "
+            f"its skills and roles, are relative to that folder: run a command they give from there "
+            f"(`cd \"%s/{ADAPTER_DIR}\" && ...`).")
+    command = f"printf '{note}\\n' \"$CLAUDE_PLUGIN_ROOT\" \"$CLAUDE_PLUGIN_ROOT\""
+    if others:
+        # Past 10,000 characters Claude Code keeps a hook's output in a file and shows its first 2,000, which hold the
+        # folder; the list (at most LISTED_FILES entries, as a deployment's) is shorter for any ordinary adapter.
+        (plugin / FILES_NOTE).write_text("\n" + other_files_section(bundle.adapter, others, None) + "\n")
+        command += f" && cat \"$CLAUDE_PLUGIN_ROOT/{FILES_NOTE}\""
+    write_json(plugin / HOOKS, {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": command}]}]}})
+    return HOOKS
 
 
 def output_style(name: str, description: str, context: str) -> str:
@@ -35,7 +63,7 @@ def build(adapter: Path, output: Path, python: str, *, allow_lossy: bool = False
     output = prepare_output(output, bundle.adapter, MARKETPLACE)
     plugin = output / "plugins" / bundle.id
     plugin.mkdir(parents=True, exist_ok=True)
-    clear(plugin, "agents", "output-styles", "skills", ".mcp.json")
+    clear(plugin, "agents", "output-styles", "skills", ".mcp.json", "hooks", FILES_NOTE)
 
     write_json(output / MARKETPLACE, {
         "name": f"{bundle.id}-adapters", "owner": {"name": "hermit"},
@@ -59,6 +87,7 @@ def build(adapter: Path, output: Path, python: str, *, allow_lossy: bool = False
             output_style(bundle.id, f"Context of the {bundle.name} harness adapter", context))
 
     skills = copy_skills(bundle, plugin / "skills")
+    hooks = folder_hook(bundle, plugin, skills)
     embed_adapter(bundle, plugin)
     record(bundle, plugin)
     if bundle.tools:
@@ -72,7 +101,7 @@ def build(adapter: Path, output: Path, python: str, *, allow_lossy: bool = False
                                                f"claude plugin install {bundle.id}@{bundle.id}-adapters"],
             "context": f"output-styles/{bundle.id}.md" if bundle.has_context else None,
             "skills": skills, "roles": roles, "server_name": bundle.server if bundle.tools else None,
-            "omitted": omitted}
+            "folder_hook": hooks, "unnamed_files": [], "omitted": omitted}
 
 
 def _readme(bundle, output: Path, skills: list, roles: dict, omitted: list) -> str:
@@ -84,6 +113,8 @@ def _readme(bundle, output: Path, skills: list, roles: dict, omitted: list) -> s
         "The tools run as `hermit serve`, so `hermit` must be installed and on PATH.", "",
         f"- Context: the output style `{bundle.id}`, applied automatically while the plugin is enabled "
         "(`force-for-plugin`)." if bundle.has_context else "- Context: none",
+        f"- The adapter's files: under `{ADAPTER_DIR}/`, which a `SessionStart` hook names to the session"
+        + (f", with the {len(bundle.other_files)} files no export connects" if bundle.other_files else ""),
         f"- Skills: {', '.join(skills) or 'none'}", f"- Roles: {', '.join(roles.values()) or 'none'}",
         f"- Tools: {', '.join(t['name'] for t in bundle.tools) or 'none'}",
         f"- Left out (--allow-lossy): {', '.join(omitted)}" if omitted else "- Left out: nothing", ""])

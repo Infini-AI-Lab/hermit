@@ -28,6 +28,12 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- `hermit convert` names the adapter's folder and files as a deployment does: a Claude Code plugin prints, from a
+  `SessionStart` hook, where its embedded adapter is and the files no export connects (the list a deployment's
+  context gives); Codex, Pi and Hermes plugins, which cannot say where they are installed, list those files under
+  `unnamed_files` in the result and in their README.
+- A test that training deploys an adapter into a task's workspace as `hermit deploy` does, file for file on every
+  host, the tools' server entry aside (calls approved; the session's own tool server for a host that cannot start it).
 - LIBERO (`examples/libero/`): LIBERO's Object, Spatial, Goal, Long and LIBERO-90 suites and LIBERO-Pro's `_swap` and
   `_task` perturbations as tasks of ASPIRE's harness, on the Robosuite example's engine, which now takes a task row's
   `benchmark` and with it the venv, the init mode (`seeded` for LIBERO), the environment and the docs page; the

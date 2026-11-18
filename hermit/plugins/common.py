@@ -16,7 +16,7 @@ import shutil
 
 from hermit import __version__ as FRAMEWORK_VERSION
 from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest
-from hermit.hosts.inputs import (copy_skills as _copy_skills, render_exports, role_body, server_name,
+from hermit.hosts.inputs import (copy_skills as _copy_skills, other_files, render_exports, role_body, server_name,
                                          subagent_markdown, subagent_name)
 
 # The adapter travels inside the plugin: a plugin that referenced an outside directory would break the moment it
@@ -67,6 +67,13 @@ class Bundle:
     def has_context(self) -> bool:
         return bool(self.context.strip())
 
+    @property
+    def other_files(self) -> list[str]:
+        """The adapter's files no export connects (paths in the adapter). In training and in a `hermit deploy`
+        workspace the agent's context names them, at the adapter's copy (hermit.hosts.inputs.resources); a plugin
+        embeds them under `adapter/`, where only a target that can say where it is installed names them."""
+        return other_files(self.adapter, self.manifest, {"agents": self.roles}, self.hooks)
+
 
 def load(adapter: Path, python: str) -> Bundle:
     adapter = adapter.resolve()
@@ -89,6 +96,17 @@ def refuse(bundle: Bundle, target: str, reasons: dict[str, str], *, allow_lossy:
         raise Unsupported(f"A {target} plugin cannot carry these parts of the {bundle.id} adapter:\n{lines}\n"
                           f"{other} --allow-lossy to emit the plugin without them.")
     return sorted(reasons)
+
+
+def unnamed_line(bundle: Bundle, target: str) -> str:
+    """The README's line on the adapter's files that no export connects: in training and in a `hermit deploy`
+    workspace the context names them; this target's plugin carries them under `adapter/` but cannot say where it is
+    installed, so the session is not told about them."""
+    if not bundle.other_files:
+        return "- Files the session is not told about: none"
+    return (f"- Files the session is not told about: {', '.join(bundle.other_files)} (under `{ADAPTER_DIR}/`; a "
+            f"{target} plugin cannot name where it is installed, while a `hermit deploy` workspace's context names "
+            "them)")
 
 
 def prepare_output(output: Path, adapter: Path, own_file: str) -> Path:

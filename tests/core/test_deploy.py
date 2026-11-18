@@ -1,4 +1,5 @@
 """Deploying the Lean template into Codex, Claude Code, Pi and DeepSeek Harness workspaces."""
+import importlib.util
 import json
 from pathlib import Path
 import sys
@@ -9,6 +10,7 @@ import pytest
 from hermit.hosts.claude_code import prepare as claude_prepare
 from hermit.hosts.codex import prepare as codex_prepare
 from hermit.hosts.dsh import prepare as dsh_prepare
+from hermit.agent.base.mini_swe_agent import CONFIG_FILE as MINI_CONFIG
 from hermit.hosts.opencode import prepare as opencode_prepare
 from hermit.hosts.pi import prepare as pi_prepare
 
@@ -594,3 +596,55 @@ def test_codex_agent_deploys_a_codex_tree_and_writes_the_home(tmp_path):
     config = tomllib.loads((tmp_path / "home2" / "config.toml").read_text())
     assert "multi_agent" not in config["features"] and config["forced_login_method"] == "chatgpt"
     assert config["web_search"] == "disabled"                 # the hosted search would reach past the proxy
+
+
+# ---- training delivers the adapter as `hermit deploy` does -----------------------------------------------------------
+HOSTS = [("codex", "codex"), ("claude", "claude-code"), ("pi", "pi"), ("opencode", "opencode"), ("dsh", "dsh"),
+         ("hermes", "hermes"),
+         pytest.param("mini-swe-agent", "mini-swe-agent", marks=pytest.mark.skipif(
+             importlib.util.find_spec("minisweagent") is None, reason="mini-swe-agent is not installed"))]
+# What training changes on purpose (hermit.agent.acting.workspace._deploy): nobody is there to approve a tool call, and
+# a host that cannot start the adapter's tool server in time, or reads none from the workspace, gets the tools from the
+# session's own tool server instead. These files hold the tools' server entry.
+TOOL_SERVER_FILES = {"codex": {".codex/config.toml"}, "opencode": {"opencode.json"},
+                     "hermes": {".hermes/hermit.config.yaml"}, "mini-swe-agent": {MINI_CONFIG}}
+
+
+def _workspace(path: Path) -> dict:
+    """Every file of a workspace with the workspace's own path written as <W>, so that two can be compared."""
+    files = {}
+    for p in sorted(path.rglob("*")):
+        if p.is_file():
+            files[p.relative_to(path).as_posix()] = p.read_bytes().replace(str(path).encode(), b"<W>")
+    return files
+
+
+def _deployed_by_both(adapter: Path, tmp_path: Path, backend: str, host: str, capsys) -> tuple[dict, dict, dict]:
+    """The workspace training gives a task's session and the one `hermit deploy` makes, and training's record."""
+    from hermit.agent.acting import workspace as cli
+    from hermit.cli import main
+    deployed, _ = cli._deploy({"id": "t"}, adapter, tmp_path / "train", backend, {})
+    assert main(["deploy", "--adapter", str(adapter), "--workspace", str(tmp_path / "user"), "--host", host]) == 0
+    capsys.readouterr()
+    return _workspace(tmp_path / "train"), _workspace(tmp_path / "user"), deployed
+
+
+@pytest.mark.parametrize("backend,host", HOSTS)
+def test_training_deploys_an_adapter_without_tools_as_hermit_deploy_does(tmp_path, backend, host, capsys):
+    train, user, _ = _deployed_by_both(tree_adapter(tmp_path), tmp_path, backend, host, capsys)
+    assert train == user                     # context, skills, roles, hooks and the adapter's copy, byte for byte
+
+
+@pytest.mark.parametrize("backend,host", HOSTS)
+def test_training_deploys_an_adapter_with_tools_as_hermit_deploy_does_but_for_the_tool_server(tmp_path, backend,
+                                                                                             host, capsys):
+    a = Path(__file__).resolve().parents[2] / "docs" / "_examples" / "file_adapter"
+    train, user, deployed = _deployed_by_both(a, tmp_path, backend, host, capsys)
+    differ = {k for k in train.keys() | user.keys() if train.get(k) != user.get(k)}
+    assert differ <= TOOL_SERVER_FILES.get(backend, set()) | {".hermit-deploy.json"}
+    if backend == "codex":                   # the same server, its calls approved
+        config = tomllib.loads(train[".codex/config.toml"].decode())
+        assert config["mcp_servers"]["file_example"].pop("default_tools_approval_mode") == "approve"
+        assert config == tomllib.loads(user[".codex/config.toml"].decode())
+    elif differ:                             # the session's own tool server serves them
+        assert deployed["harness_tools"] == "file-example" and deployed.get("server_name") is None
