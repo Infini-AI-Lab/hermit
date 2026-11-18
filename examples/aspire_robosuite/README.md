@@ -14,6 +14,7 @@ only if a fresh verifier re-solves the task from the library and the proposals a
 |---|---|
 | `utils/agent/task.py` | The Codex actor's task functions: the workspace (`bin/sim`, docs, the snapshot program) and its registration with the simulator service, the prompt (an adaptation page, the assignment, ASPIRE's template verbatim), the selected program (`collect`) |
 | `utils/agent/sim_service.py` | The simulator service on the host: ASPIRE's `cap-harness` for the sandboxed actors, holding their seed rules |
+| `utils/agent/stage_docs.py` | ASPIRE's docs as the actors may read them, staged outside its checkout by `launch.sh` |
 | `utils/agent/sim_cli.py` | `bin/sim`: the actor's client of the simulator service |
 | `utils/agent/sim.py` | The robot execution engine from the harness's side (the held-out run) and the trace digest |
 | `utils/agent/prompts/` | The pages that map ASPIRE's fix-loop, verifier and evolutionary-search templates onto the workspace (and the direct actor's prompts) |
@@ -110,7 +111,9 @@ up over a campaign. Set `ASPIRE_OUT` to a large disk: `launch.sh` puts the runs 
 ## The actor's rules
 
 The actor runs in the task sandbox, which shows it only what the config declares (`environment.read`): its own code
-(`utils/agent/`) and, of the ASPIRE checkout, the prompt templates, the docs and the snapshot program it is given.
+(`utils/agent/`), of the ASPIRE checkout the prompt templates and the snapshot program it is given, and ASPIRE's
+docs as `launch.sh` stages them outside the checkout (`utils/agent/stage_docs.py`: without the lines, and for LIBERO
+the section, that name ASPIRE's worked programs; the checkout's own pages are not shown).
 ASPIRE's shipped skill library, its worked solutions and examples, other sessions' workspaces, the task rows and the
 judge do not exist inside; its network reaches only its model and the simulator service's forwarded port. The
 simulator service is the trusted side of the seed rules: it reads the task rows on the host, `prepare` registers the
