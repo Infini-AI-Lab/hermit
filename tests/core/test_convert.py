@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 
 import pytest
@@ -269,7 +270,6 @@ def test_hooks_are_refused_by_every_target(tmp_path, target):
 # ---- the adapter's files: named to the session as a deployment names them ------------------------------------------
 def _session_start(plugin: Path, cwd: Path) -> str:
     """What the plugin's SessionStart hooks print, run as Claude Code runs them: `sh -c` with CLAUDE_PLUGIN_ROOT set."""
-    import subprocess
     hooks = json.loads((plugin / "hooks" / "hooks.json").read_text())["hooks"]["SessionStart"]
     return "".join(subprocess.run(["sh", "-c", h["command"]], cwd=cwd, capture_output=True, text=True, check=True,
                                   env={**os.environ, "CLAUDE_PLUGIN_ROOT": str(plugin)}).stdout
@@ -315,10 +315,40 @@ def test_a_reconversion_drops_the_list_of_files_the_adapter_no_longer_has(tmp_pa
     (a / "tools.py").unlink()
     build("claude-code", a, tmp_path / "cc", sys.executable)
     assert not (plugin / "hermit-files.md").exists()             # the folder is still named: skills and a role
-    assert "Other files" not in _session_start(plugin, tmp_path) and "adapter/`." in _session_start(plugin, tmp_path)
+    text = _session_start(plugin, tmp_path)
+    assert "Other files" not in text and "adapter/`." in text
+    shutil.rmtree(a / "skills")
+    shutil.rmtree(a / "agents")
+    (a / "exports.yaml").write_text("context: ADAPTER.md\n")
+    result = build("claude-code", a, tmp_path / "cc", sys.executable)
+    assert result["folder_hook"] is None and not (plugin / "hooks").exists()   # nothing left for a hook to name
+    assert "none is named to the session" in (plugin / "README.md").read_text()
 
 
-@pytest.mark.parametrize("target", ["codex", "pi", "hermes"])
+def test_hermes_names_the_adapters_folder_and_files_at_the_end_of_its_section(tmp_path):
+    out = tmp_path / "installed here"
+    result = build("hermes", variant(tmp_path, roles=False), out, sys.executable)
+    assert result["files_named"] is True and result["unnamed_files"] == []
+    ctx = StubContext()
+    load_hermes_module(out).register(ctx)
+    section = ctx.sections["file-example"]
+    assert section.startswith("Review the task requirements")
+    assert f"The files of the `file-example` adapter are in `{out.resolve()}/adapter/`." in section
+    assert "- `README.md`: File interface example" in section and "- `tools.py`:" in section
+    assert len(section) <= 4_000
+
+
+def test_hermes_reports_the_files_when_naming_them_would_pass_its_section_limit(tmp_path):
+    a = variant(tmp_path, roles=False)
+    (a / "ADAPTER.md").write_text("Check the result. " * 210)              # about 3,800 characters: within 4,000
+    result = build("hermes", a, tmp_path / "h", sys.executable)
+    assert result["files_named"] is False and result["unnamed_files"] == ["README.md", "tools.py"]
+    ctx = StubContext()
+    load_hermes_module(tmp_path / "h").register(ctx)
+    assert "adapter/`" not in ctx.sections["file-example"]
+
+
+@pytest.mark.parametrize("target", ["codex", "pi"])
 def test_a_target_that_cannot_name_its_folder_reports_the_files_the_session_is_not_told_about(tmp_path, target):
     result = build(target, variant(tmp_path, roles=False, context=False), tmp_path / target, sys.executable)
     assert result["unnamed_files"] == ["README.md", "tools.py"]

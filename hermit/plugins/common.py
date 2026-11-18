@@ -10,6 +10,7 @@ that the plugin would be incomplete before installing it.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 import json
 import shutil
@@ -67,11 +68,11 @@ class Bundle:
     def has_context(self) -> bool:
         return bool(self.context.strip())
 
-    @property
+    @cached_property
     def other_files(self) -> list[str]:
         """The adapter's files no export connects (paths in the adapter). In training and in a `hermit deploy`
         workspace the agent's context names them, at the adapter's copy (hermit.hosts.inputs.resources); a plugin
-        embeds them under `adapter/`, where only a target that can say where it is installed names them."""
+        embeds them under `adapter/`, and names them where the target can say where it is installed."""
         return other_files(self.adapter, self.manifest, {"agents": self.roles}, self.hooks)
 
 
@@ -96,6 +97,19 @@ def refuse(bundle: Bundle, target: str, reasons: dict[str, str], *, allow_lossy:
         raise Unsupported(f"A {target} plugin cannot carry these parts of the {bundle.id} adapter:\n{lines}\n"
                           f"{other} --allow-lossy to emit the plugin without them.")
     return sorted(reasons)
+
+
+def folder_sentence(bundle: Bundle, root: str) -> str:
+    """The deployment's folder note (hermit.hosts.inputs.folder_note) for a plugin installed at `root`."""
+    return (f"The files of the `{bundle.id}` adapter are in `{root}/{ADAPTER_DIR}/`. Paths in its instructions, and in "
+            f"its skills and roles, are relative to that folder: run a command they give from there "
+            f"(`cd \"{root}/{ADAPTER_DIR}\" && ...`).")
+
+
+def names_folder(bundle: Bundle, skills: list[str]) -> bool:
+    """Whether the session should be told where the adapter's files are: it has files no export connects, or skills
+    or roles whose paths are relative to the adapter's folder (as a deployment's context says)."""
+    return bool(bundle.other_files or bundle.roles or skills)
 
 
 def unnamed_line(bundle: Bundle, target: str) -> str:

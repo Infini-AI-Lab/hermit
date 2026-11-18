@@ -642,6 +642,9 @@ def test_training_deploys_an_adapter_with_tools_as_hermit_deploy_does_but_for_th
     train, user, deployed = _deployed_by_both(a, tmp_path, backend, host, capsys)
     differ = {k for k in train.keys() | user.keys() if train.get(k) != user.get(k)}
     assert differ <= TOOL_SERVER_FILES.get(backend, set()) | {".hermit-deploy.json"}
+    records = [json.loads(w[".hermit-deploy.json"].decode()) for w in (train, user)]
+    assert {k for k in records[0].keys() | records[1].keys() if records[0].get(k) != records[1].get(k)} <= \
+        {"server", "server_name", "audit_log", "environment_class", "tools"}          # the tools' entries only
     if backend == "codex":                   # the same server, its calls approved
         config = tomllib.loads(train[".codex/config.toml"].decode())
         assert config["mcp_servers"]["file_example"].pop("default_tools_approval_mode") == "approve"
