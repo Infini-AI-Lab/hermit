@@ -2,8 +2,8 @@
 
 `convert` copies this file unchanged into every Hermes plugin it emits, as the plugin's `__init__.py`. What is
 specific to the adapter sits next to it: `hermit.json` (plugin id, version, tool list), `context.md`, `files.md`
-(where the adapter's files are), `skills/` and the embedded `adapter/`. The tools run in one `hermit serve` process, started on the first call and reused for the
-session.
+(where the adapter's files are), `skills/` and the embedded `adapter/`. The tools run in one `hermit serve`
+process, started on the first call and reused for the session.
 """
 import json
 from pathlib import Path
