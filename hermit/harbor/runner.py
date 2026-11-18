@@ -1583,7 +1583,7 @@ class HarborAgent(Agent):
             return None
         from hermit.harbor.launch import context_limit
         return stage(adapter, where, self.python, self.params.get("sandbox_enforce"), self.cli,
-                     task=dict(task),
+                     task={**task, "instruction": self.instruction(task)},   # a row without one: Harbor's file's
                      context_query=self.params.get("context_query"),
                      context_limit=context_limit(self.cli, self.settings(task)) if self.cli == "codex" else None)
 
@@ -1790,6 +1790,8 @@ class HarborAgent(Agent):
                 # plan's hold it met, before the session): why the plan held it back
                 facts["plan_held"] = facts["plan_waited"]
             usage = served.usage if served is not None and served.usage.calls else None
+            if served is not None and usage is None and not facts.get("calls"):  # no request reached the relay:
+                usage = dataclasses.replace(served.usage, cost_usd=0.0)          # nothing was spent
             return facts, usage, {"reply": said.get("reply"), "answer": said.get("answer")}
         raw = _read(agent_dir / data["stream"]) if agent_dir is not None else None
         if raw is None:
@@ -1917,8 +1919,9 @@ class HarborAgent(Agent):
                     "exception_message": f"the model's one request waited for its login's plan, which held its "
                                          f"session back ({facts['plan_held']}), and had no answer when the agent's "
                                          "time ran out"}
-        if facts.get("unavailable") and not facts.get("refused") and not facts.get("served") and not ran_out and \
-                quota_spent(facts):         # a 429 for a quota spent: nothing later can be served, as after a 402
+        if facts.get("unavailable") and not facts.get("refused") and not facts.get("served") and \
+                quota_spent(facts):         # a 429 for a quota spent: nothing later can be served, as after a 402,
+            # however long the CLI went on retrying it (a session that ran out of the agent's time all the same)
             return {**verdict, "status": "infra", "failure_cause": "usage_limit", "halt": True,
                     "exception_message": f"the provider does not bill the account (its quota spent): {message()}"}
         if (facts.get("refused") or facts.get("unavailable")) and not facts.get("served") and not ran_out:

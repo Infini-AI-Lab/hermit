@@ -7,6 +7,7 @@ import ast
 import json
 import os
 from pathlib import Path
+import stat
 import sys
 
 import pytest
@@ -415,6 +416,30 @@ def test_a_settings_env_secret_is_passed_by_name_only_whatever_its_names_rule(tm
     assert (plan["env"]["MAX_OUTPUT_TOKENS"], plan["env"]["LIBS"], plan["env_from_host"]["GH_TOKEN"]) == \
         ("4096", "/opt/extra/lib", "GH_TOKEN")
     assert (plan["env"]["GIT_AUTHOR_NAME"], plan["env"]["TOKENIZERS_PARALLELISM"]) == ("Hermit", "false")
+
+
+def test_a_plans_folder_is_this_users_only(tmp_path):
+    """The launch folder holds the plan and the CLI's home, which name the trial's tool URL or the answer agent's relay
+    URL with its token: it is made this user's only, whatever the umask or the jobs directory's mode."""
+    old = os.umask(0o022)
+    try:
+        cli = launch.render("codex", settings("codex"), deploy=None, tools_url=None, job=tmp_path / "codex")
+        answer = launch.render_answer(launch.settings_for("answer", binding=None, model="m"),
+                                      endpoint="http://127.0.0.1:1/t0ken/v1", job=tmp_path / "answer")
+    finally:
+        os.umask(old)
+    assert [stat.S_IMODE(Path(p).parent.stat().st_mode) for p in (cli, answer)] == [0o700, 0o700]
+
+
+def test_claude_on_a_backend_that_needs_no_key_gets_the_placeholder_token(tmp_path, monkeypatch):
+    """A backend with no key (vLLM's, key_required false): Claude Code is given the placeholder token main gives its own
+    sessions (Binding.claude_env), which is no secret, so the plan is rendered, not refused as an inline secret."""
+    from hermit.agent.model.backends import PLACEHOLDER_KEY, as_binding, registry
+    monkeypatch.delenv("VLLM_API_KEY", raising=False)
+    spec = as_binding("vllm/Qwen/Qwen3-30B", registry()).spec()
+    claude = launch.settings_for("claude", binding=launch.binding_of({"binding": spec}), web_search=False)
+    plan = plan_of(launch.render("claude", claude, deploy=None, tools_url=None, job=tmp_path / "claude"))
+    assert plan["env"]["ANTHROPIC_AUTH_TOKEN"] == PLACEHOLDER_KEY
 
 
 def test_a_trials_env_on_a_login_is_what_mains_session_on_it_gets(tmp_path, monkeypatch):

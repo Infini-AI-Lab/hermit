@@ -157,6 +157,21 @@ def _walk(dir_fd: int, dst: Path, text_only: bool, skip: frozenset) -> None:
         os.close(dir_fd)
 
 
+def _subdir(parent: Path, name: str) -> int | None:
+    """`parent/name` open as a directory, each of the two opened without following a link (DIR_FLAGS), the second
+    through the first, so that neither a link at `name` nor one swapped in for `parent` is followed; None otherwise."""
+    try:
+        top = os.open(parent, DIR_FLAGS)
+    except OSError:
+        return None
+    try:
+        return os.open(name, DIR_FLAGS, dir_fd=top)
+    except OSError:
+        return None
+    finally:
+        os.close(top)
+
+
 def _copy_open(fd: int, target: Path) -> None:
     """The file open at `fd` (closed after it) copied to `target` with its times, when it is a regular file of at most
     AGENT_FILE_LIMIT; at most that much of it all the same when it grows meanwhile. A read that fails (the
@@ -276,8 +291,8 @@ def _outputs(outputs: Path, log: Path, result: dict | None, redact, named: str |
                     _files(child, log / "agent" / child.name)
                 elif child.name == COLLECT_DIR:              # Codex's collected session logs are its transcripts
                     _files(child, log / "agent" / COLLECT_DIR, text_only=True, skip=AGENT_SKIP)
-                elif child.name == COPY_DIR and (child / MEMORY).is_dir() and not (child / MEMORY).is_symlink():
-                    _files(child / MEMORY, log / MEMORY)
+                elif child.name == COPY_DIR and (memory := _subdir(child, MEMORY)) is not None:
+                    _walk(memory, log / MEMORY, False, frozenset())     # through the copy's folder, never a link
                 continue
             # a regular file only, opened at its own name (open_regular): a FIFO or a device the session left under a
             # text name is never read, nor a link swapped in for the file since the checks above
@@ -293,5 +308,5 @@ def _outputs(outputs: Path, log: Path, result: dict | None, redact, named: str |
             text = f"[... {len(text) - STDOUT_TAIL} characters dropped ...]\n" + text[-STDOUT_TAIL:]
         (log / "verifier" / "test-stdout.txt").write_text(text, encoding="utf-8")
     for reward in verifier.glob("reward.*") if verifier.is_dir() else []:
-        if reward.is_file() and not reward.is_symlink():
-            shutil.copy2(reward, log / "verifier" / reward.name)
+        if (fd := open_regular(reward)) is not None:          # never a link swapped in since the glob
+            _copy_open(fd, log / "verifier" / reward.name)

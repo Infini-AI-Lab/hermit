@@ -2188,6 +2188,32 @@ def test_a_first_request_still_in_flight_when_the_agent_runs_out_of_time_is_the_
             ("timeout", timed_out["failure_cause"], 1.0)
 
 
+def test_an_answer_trial_whose_agent_sent_no_request_cost_nothing(tmp_path, fake_harbor):
+    """The answer agent failed before its request (its instruction file never came, an attachment it could not read):
+    the relay saw no call, so the trial's usage is known, none, not unknown, which would make the whole eval's cost
+    unknown."""
+    from types import SimpleNamespace
+    from hermit.agent.model.usage import Usage
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    agent = make_agent(tmp_path, fake_harbor, tasks, acting_agent={"cli": "answer"})
+    served = SimpleNamespace(facts=lambda: {"started": False, "calls": 0, "statuses": []}, usage=Usage(model="m"))
+    facts, usage, _ = agent.session(None, write(tmp_path / "plan.json", "{}"), served, tmp_path)
+    assert (usage.calls, usage.input_tokens + usage.output_tokens, usage.cost_usd) == (0, 0, 0.0)
+    # a request that reached the relay and had no reply (its upstream dropped it) may have been billed: unknown
+    served = SimpleNamespace(facts=lambda: {"started": True, "calls": 1, "statuses": [None]}, usage=Usage(model="m"))
+    assert agent.session(None, write(tmp_path / "plan.json", "{}"), served, tmp_path)[1] is None
+
+
+def test_a_quota_spent_ends_the_run_even_when_the_cli_retried_it_until_the_agents_time_ran_out():
+    """A session the provider never served because the account's quota is spent (a 429 insufficient_quota, which a CLI
+    such as Pi retries until the agent's time runs out) ends the run (usage_limit, a halt), not the agent's timeout."""
+    facts = {"started": True, "served": False, "unavailable": True, "code": runner_module.QUOTA_SPENT}
+    verdict = errors.classify(trial_result(None, exc="AgentTimeoutError"))
+    out = HarborAgent.session_verdict(verdict, facts)
+    assert (out["status"], out["failure_cause"], out["halt"]) == ("infra", "usage_limit", True)
+
+
 def test_closing_the_answer_agents_endpoint_gives_its_calls_in_flight_up_and_leaves_their_cost_unknown(monkeypatch):
     """Harbor's timeout stops the answer agent, not its request (its thread keeps the connection; a stream's driver
     keeps running): closed after the trial, the endpoint gives each call still in flight up, so the relay drops it
@@ -2289,6 +2315,42 @@ def test_the_relays_cli_sessions_return_a_refusal_never_wait_for_the_window_insi
         endpoint.close()
     assert [spec["plan_rerun"] for spec in specs] == [False, False]
     assert all(spec["model"] == "gpt-5.6-luna" and spec["login"] == "chatgpt" for spec in specs)
+
+
+def test_the_answer_agents_codex_model_has_web_search_off_unless_given(monkeypatch):
+    """The answer agent's model reached through Codex (`model: {cli: codex, model, login}`, the docs' minimal form):
+    each session gets web_search off unless the spec sets it, since Codex refuses a session without it (main's
+    Codex.run), which would make every request the trial's model_rejected."""
+    from types import SimpleNamespace
+    from hermit import isolate
+    from hermit.agent.base import endpoint as endpoint_mod
+    from hermit.harbor import tools
+    specs = []
+
+    def sessions(spec, log_dir=None, *, sandbox=None):
+        specs.append(dict(spec))
+        served = endpoint_mod.ChatEndpoint(None).start()
+        served.agent = SimpleNamespace(settings={"model": spec["model"]})
+        return served
+    monkeypatch.setattr(endpoint_mod, "cli_endpoint", sessions)
+    monkeypatch.setattr(isolate, "cli_sandbox", lambda spec, **kwargs: (None, None))
+    for given in ({}, {"web_search": True}):
+        tools.ModelEndpoint({"cli": "codex", "model": "gpt-5.6-luna", "login": "chatgpt", **given}).start().close()
+    assert [spec["web_search"] for spec in specs] == [False, True]
+
+
+def test_a_rows_context_is_computed_for_harbors_instruction_when_the_row_gives_none(tmp_path, fake_harbor,
+                                                                                     monkeypatch):
+    """An adapter whose context is per task gets the instruction the agent is given (the task's instruction.md) when
+    the row carries none (`{"id", "harbor_task"}`), not the row's JSON."""
+    tasks = tmp_path / "tasks"
+    make_task(tasks, "alpha")
+    staged = []
+    monkeypatch.setattr(runner_module, "stage", lambda *args, task, **kwargs: staged.append(task) or {})
+    agent = make_agent(tmp_path, fake_harbor, tasks)
+    agent._stage({"id": "alpha", "harbor_task": "alpha"}, tmp_path / "adapter", tmp_path)
+    agent._stage({"id": "alpha", "harbor_task": "alpha", "instruction": "the row's"}, tmp_path / "adapter", tmp_path)
+    assert [t["instruction"] for t in staged] == ["Do alpha.", "the row's"]
 
 
 def test_an_answer_trial_on_a_login_waits_for_its_plan_and_one_whose_request_the_plan_held_runs_again_once_it_allows(
@@ -5127,6 +5189,25 @@ def test_a_step_whose_folder_cannot_be_made_gives_its_stream_up_and_the_next_pas
         assert started == [stream_name(agent)] * 2                                      # in a driver of its own
     finally:
         stop_streams(tmp_path)
+
+
+def test_a_reward_or_the_copys_folder_swapped_for_a_link_after_its_checks_is_never_copied_through(tmp_path, monkeypatch):
+    """A verifier's reward file, and the agent's hermit-copy folder above its memory/, swapped for links to this
+    machine's files after the curation's checks (a process the agent left running): neither link is followed, the
+    reward opened at its own name (open_regular) and memory/ through the copy's folder (curate._subdir)."""
+    secret = write(tmp_path / "host" / "auth.json", "the machine's own secret\n")
+    write(tmp_path / "host" / "memory" / "notes.md", "the machine's own notes\n")
+    outputs = tmp_path / "step"
+    (outputs / "verifier").mkdir(parents=True)
+    os.symlink(secret, outputs / "verifier" / "reward.txt")
+    (outputs / "agent").mkdir()
+    os.symlink(tmp_path / "host", outputs / "agent" / "hermit-copy")
+    job = tmp_path / "job"
+    job.mkdir()
+    monkeypatch.setattr(Path, "is_symlink", lambda self: False)      # the checks, made before the swap
+    log = Path(curate.curate(outputs, job, errors.classify(trial_result())))
+    monkeypatch.undo()
+    assert not [p for p in log.rglob("*") if p.is_file() and "machine's own" in p.read_text()]
 
 
 @pytest.mark.parametrize("swap,after", [("link", 1), ("gone", 1), ("gone", 2), ("gone", 3)])

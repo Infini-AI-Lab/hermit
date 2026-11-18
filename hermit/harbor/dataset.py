@@ -449,7 +449,11 @@ def load_patch(spec: str, base: Path):
     if module_spec is None or not path.is_file():
         raise ValueError(f"dataset.patch: no file {path}")
     module = importlib.util.module_from_spec(module_spec)
-    module_spec.loader.exec_module(module)
+    written, sys.dont_write_bytecode = sys.dont_write_bytecode, True     # no __pycache__ beside the benchmark file
+    try:
+        module_spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = written
     fn = getattr(module, name, None)
     if not callable(fn):
         raise ValueError(f"dataset.patch: {path} has no function {name}")
