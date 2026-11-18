@@ -131,6 +131,9 @@ ROBODOJO_GPU=0 ROBODOJO_CONFIG=smoke.yaml ./launch.sh     # two tasks, two devel
 ROBODOJO_GPU=0 ./launch.sh                                # the forty-two tasks
 ```
 
+Run one launch at a time on a checkout of this repository and a RoboDojo checkout: each launch rewrites the task
+rows and splits (`utils/prepare.py`) and reinstalls the policy into RoboDojo's checkout, which a running one reads.
+
 ## Not verified
 
 - `scripts/robodojo.sh eval` on a host with a native install: only the container path was run.

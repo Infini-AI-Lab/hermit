@@ -614,6 +614,7 @@ def test_the_judge_scores_the_program_on_the_held_out_sets_only(tmp_path, monkey
 def test_the_engine_gives_robodojo_no_secrets_and_the_program_s_worker_its_limits(tmp_path, monkeypatch):
     """RoboDojo's processes get the host's environment without its secrets; the program's worker runs with a
     memory and file-size limit and answers within RoboDojo's client's 120 s."""
+    pytest.importorskip("numpy")            # the policy server's Model uses it
     dojo = _load("dojo", UTILS / "agent" / "dojo.py")
     model = _load("hermit_program_model", UTILS / "policy" / "hermit_program" / "model.py")
     root = fake_robodojo(tmp_path)
@@ -678,6 +679,7 @@ def test_the_press_by_number_control_sends_whole_actions_and_finishes_within_the
     """utils/control/press_by_number.py, the positive control: every chunk passes the harness's own check, it
     presses as often as the counts say, and it is done, both arms at their first pose, before press_by_number's 700
     steps. A stand-in arm reaches what it is told."""
+    pytest.importorskip("numpy")            # the policy server's Model uses it
     model = _load("hermit_program_model", UTILS / "policy" / "hermit_program" / "model.py")
     control = _load("press_by_number_control", UTILS / "control" / "press_by_number.py")
     start = {"left": [-0.2995, -0.3523, 0.9215, 0.707, 0.0, 0.0, 0.707],
