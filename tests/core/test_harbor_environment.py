@@ -1041,7 +1041,7 @@ def test_a_host_pipelines_answer_and_react_agents_keep_the_tasks_budget(tmp_path
 
 
 def test_a_rotated_sign_in_comes_back_though_the_sessions_exec_failed(tmp_path, monkeypatch):
-    from hermit.agent.base import cli, login
+    from hermit.agent.base import login
     from hermit.agent.base.interface import make
     monkeypatch.setenv("HERMIT_HOMES", str(tmp_path / "homes"))
     seen = []
