@@ -1,4 +1,4 @@
-# Adapter contract
+# AHE-Beta Adapter contract
 
 `ADAPTER.md` is deployed as Codex project instructions. `exports.yaml` declares
 optional skills, roles and command hooks. The learnable file patterns and size
