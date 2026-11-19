@@ -136,7 +136,7 @@ def main(argv=None) -> int:
     dataset.write_jsonl(index, out / "tasks.jsonl")
     mounts = json.loads((out / "MOUNTS.json").read_text())
     print(f"{len(written)} tasks -> {out}  (tasks.jsonl beside them)")
-    print("the corpus mount for the config's agent.params.environment.mounts:")
+    print("the corpus mount for the config's environment.harbor.environment.mounts:")
     print("  export OFFICEQA_DOCS_ROOT=" + mounts[0]["source"])
     return 0
 

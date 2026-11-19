@@ -227,13 +227,23 @@ def start_cause(kind: str | None, message: str) -> str:
     return cause if cause in INFRA_CAUSES else "sandbox_failed"
 
 
-# What the acting agent raises when its session never started, or the provider could not serve it after its own runs
-# again (hermit.agent.acting.workspace: the runner read the same of a trial's session, session_failed and
-# model_provider_failed): infra, not the agent's result
-PIPELINE_INFRA = ((re.compile(r"could not be served"), "model_provider_failed"),
-                  (re.compile(r"before starting a session"), "session_failed"))
+# What an acting agent raises that is not its result (the runner read the same of a trial's session): an environment
+# that failed under it (its driver gone, the image's context file unreadable), a session that never started, a provider
+# that could not serve it after the agent's own runs again (the Codex agent's `retries`: the runner's busy_retries,
+# one allowance over all of a rollout's runs, so it is not run again here), a model endpoint that failed (the answer
+# agent's: a 408, 409, 429 or 5xx, or no answer, after the chat client's own retries), and a refusal of the run's
+# configuration (a CLI's, read by the Codex agent's stream reader; the answer agent's endpoint's 401-404), which no
+# run again changes. (cause, whether the rollout runs again).
+PIPELINE_INFRA = ((re.compile(r"\bmodel_rejected\b|chat/completions HTTP 40[1-4]\b"), "model_rejected", False),
+                  (re.compile(r"could not be served after"), "model_provider_failed", False),
+                  (re.compile(r"before starting a session"), "session_failed", True),
+                  (re.compile(r"chat/completions HTTP (?:408|409|429|5\d\d)\b|chat/completions failed: "),
+                   "model_provider_failed", True),
+                  (re.compile(r"\bEnvironmentUnavailable\b|the Harbor driver|the environment is not started|"
+                              r"the image's own context file could not be read"), "harbor_failed", True))
 
 
-def pipeline_cause(message: str) -> str | None:
-    """The infra cause of an acting agent's failure (PIPELINE_INFRA), or None: the pipeline's own failure."""
-    return next((cause for pattern, cause in PIPELINE_INFRA if pattern.search(message or "")), None)
+def pipeline_cause(message: str) -> tuple[str, bool] | None:
+    """(the infra cause of an acting agent's failure, whether it runs again) by PIPELINE_INFRA, or None: the
+    pipeline's own failure, a failed run as any."""
+    return next(((cause, again) for pattern, cause, again in PIPELINE_INFRA if pattern.search(message or "")), None)

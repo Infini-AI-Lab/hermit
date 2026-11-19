@@ -23,7 +23,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   that is not the agent's result keeps the runner's semantics (`hermit/environment/harbor_errors.py`, ported from
   `hermit/harbor/errors.py`): it runs again in a fresh environment (`environment.harbor.infra_retries`, default 2,
   after `infra_wait_s`, never for `disk` or `model_rejected`), and one that stays infra is `unscored`, which the judge
-  refuses (a failed run, never the agent's 0). Not carried over: the session-level causes the runner read from a CLI's
+  refuses (a failed run, never the agent's 0). A session in a task's environment is not resumed (refused: its home
+  there is made anew for each call). The CLI agent's usage now counts every attempt it ran (a provider it ran again
+  on, as the runner counted a trial's runs). Not carried over: the session-level causes the runner read from a CLI's
   stream inside the container (a plan's usage limit, a lost sign-in, a refused configuration: the acting agent reports
   those itself), multi-step tasks (streams), the adapter's tools in a task's environment, the `<cli>_bin` mount (a config mounts a
   binary through `environment.harbor.environment.mounts` and names it as `agent.<cli>.bin`), Harbor's own agents

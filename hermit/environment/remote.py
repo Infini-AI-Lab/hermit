@@ -85,6 +85,9 @@ class EnvironmentServer:
                     elif op == "install":
                         request = json.loads(body)
                         payload = {"version": server.environment.install(request["cli"], request.get("version"))}
+                    elif op == "ensure":
+                        server.environment.ensure(json.loads(body)["packages"])
+                        payload = {}
                     else:
                         return self._send(404, b"{}")
                     self._send(200, json.dumps({"ok": True, **payload}).encode())
@@ -113,7 +116,8 @@ class EnvironmentServer:
     def info(self) -> dict:
         env = self.environment
         return {"workspace": str(env.workspace), "timeout_s": env.limits.timeout_s, "isolation": env.isolation,
-                "installs": hasattr(env, "install")}
+                "installs": hasattr(env, "install"), "instruction": getattr(env, "instruction", None),
+                "network_public": getattr(env, "network_public", True)}
 
     def spec(self) -> dict:
         return {"url": self.url, **self.info()}
@@ -139,17 +143,21 @@ class ProxyEnvironment(Environment):
     """The environment an EnvironmentServer serves, from the agent's process (module docstring)."""
     isolation = "remote"
 
-    def __init__(self, url: str, workspace: str, limits: Limits | None = None, *, installs: bool = False):
+    def __init__(self, url: str, workspace: str, limits: Limits | None = None, *, installs: bool = False,
+                 instruction: str | None = None, network_public: bool = True):
         super().__init__(PurePosixPath("/"), limits)
         self.workspace = PurePosixPath(workspace)
         self.url = url.rstrip("/")
         self.installs = installs
+        self.instruction = instruction                   # the task's instruction as its environment gives it
+        self.network_public = network_public             # whether the agent's phase reaches the public network
 
     @classmethod
     def from_spec(cls, spec: dict) -> "ProxyEnvironment":
         timeout = spec.get("timeout_s")
         return cls(spec["url"], spec.get("workspace") or "/", Limits(timeout_s=float(timeout) if timeout else None),
-                   installs=bool(spec.get("installs")))
+                   installs=bool(spec.get("installs")), instruction=spec.get("instruction"),
+                   network_public=spec.get("network_public", True) is not False)
 
     def __repr__(self) -> str:
         return f"ProxyEnvironment(workspace={str(self.workspace)!r})"
@@ -212,6 +220,11 @@ class ProxyEnvironment(Environment):
                     target.unlink()
                 shutil.move(str(got), str(target))
         return target
+
+    def ensure(self, packages) -> None:
+        if not self.installs:
+            raise Unsupported("the environment installs nothing")
+        self._post("ensure", json.dumps({"packages": list(packages)}).encode(), timeout=3600)
 
     def install(self, cli: str, version: str | None = None) -> str | None:
         if not self.installs:

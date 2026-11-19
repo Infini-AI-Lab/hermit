@@ -364,20 +364,29 @@ only through a server of these operations on the host (`hermit/environment/remot
 `verify`); the environment, its driver and Docker stay in the run's process.
 
 **The agents.** A CLI Base Agent (Codex, Claude Code) runs where the environment runs its commands (isolation
-`remote`, `hermit/agent/base/cli.py`): its home is rendered here and uploaded to `/installed-agent/hermit-home`, the
-CLI is the environment's (`agent.<cli>.bin`, a path there, such as a binary of this machine the environment mounts,
-`environment.harbor.environment.mounts`; else Harbor installs it, `agent.<cli>.version`), the command runs from the
-workspace with the prompt on its stdin, its output is the stream Hermit reads as it reads its own sessions, and the
-CLI's last message comes back. The model's key reaches the exec by name; Claude Code's subscription token (`login:
-claude`) is moved into a pipe there before the CLI starts. Codex's own sandbox is off there (the environment is the
-boundary, as Harbor's own agents run) unless `codex_sandbox` says otherwise, and Claude Code runs as the
-environment's root may. A ChatGPT sign-in's refresh comes back and is removed from the environment before the
-verifier runs. The acting agent deploys the adapter as `hermit deploy` lays it out for a session there (its hooks run
-from `hermit/<id>/` relative to the workspace, a context file the image already has kept after Hermit's text) and
-uploads it into the workspace; the adapter's notes come back. The answer-only agent (`agent.name: answer`,
-`hermit/agent/acting/answer.py`) makes one model call (the adapter's context its system message) and writes the answer
-where the verifier reads it (`answer_file`, `answer_pattern`, `answer_format`, `instruction_file`, `attachments`: the
-environment's images sent with the question).
+`remote`, `hermit/agent/base/cli.py`), as the Harbor runner's launch plan ran a session in a task's container: its home
+is rendered here and uploaded to `/installed-agent/hermit-home`, the CLI is the environment's (`agent.<cli>.bin`, a
+path there, such as a binary of this machine the environment mounts, `environment.harbor.environment.mounts`; else
+Harbor installs it, `agent.<cli>.version`, under the environment's baseline network policy and within Harbor's setup
+timeout, Debian bullseye's archived sources repaired first; nvm's and `~/.local/bin` are on PATH), the command runs
+from the workspace with the prompt (Harbor's instruction, unless the agent's `prompt` says otherwise) on its stdin, its
+output is the stream Hermit reads as it reads its own sessions (Codex's lost sign-in, provider failure, plan limit and
+refused configuration read from its own notices, as the runner read them), and the CLI's last message comes back. Its
+clock is the task's agent budget unless the agent's `timeout_s` says less. The model's key reaches the exec by name;
+Claude Code's subscription token (`login: claude`) is moved into a pipe there before the CLI starts; on a login the
+run waits for the plan before the environment starts. Codex's own sandbox is off there (the environment is the
+boundary, as Harbor's own agents run) unless `codex_sandbox` says otherwise, Claude Code runs as the environment's root
+may, and the CLI's web search is off where the task's agent phase has no public network. Every sign-in file the home
+took is removed from the environment before the verifier runs (a ChatGPT sign-in's refresh, and the plan's usage
+reports, come back first); a removal that fails fails the call. A session is not resumed there. Before the verifier,
+the agent's commands still running are ended (what an ended one left running, a server the task asked for, stays). The
+acting agent deploys the adapter as `hermit deploy` lays it out for a session there (its hooks run from `hermit/<id>/`
+relative to the workspace with `python3`, installed when missing; a context file the image already has kept after
+Hermit's text, the whole within Codex's cap) and uploads it into the workspace; the adapter's notes and the hooks' audit
+and state (`hook-calls.jsonl`, `hook-state/`) come back into the log. The answer-only agent (`agent.name: answer`,
+`hermit/agent/acting/answer.py`) makes one model call (the adapter's context its system message, Harbor's instruction
+the question) and writes the answer where the verifier reads it (`answer_file`, `/app/answer.txt` unless null;
+`answer_pattern`, `answer_format`, `instruction_file`, `attachments`: the environment's images sent with the question).
 
 Not supported in a Harbor environment yet, and refused rather than dropped: the adapter's tools (the framework's tool
 server runs on this machine), the agent's `mounts`, `prepare` and `collect`, readable mounts, hidden paths or a

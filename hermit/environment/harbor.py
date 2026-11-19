@@ -82,6 +82,8 @@ HOST_TMP = Path("/tmp")
 START_TIMEOUT_S = 3600.0             # the driver's start: the image's pull or build, the healthcheck
 VERIFY_TIMEOUT_S = 7200.0            # ... and its verifier (Harbor's own timeout ends it first)
 STOP_TIMEOUT_S = 600.0
+SETUP_ALLOWANCE_S = 360.0            # beside a task's agent budget: the CLI's install, the home's upload (the runner's
+                                     # SETUP_BUDGET_S)
 PASS_REWARD = 1.0
 MULTIPLIERS = ("verifier_timeout_multiplier", "environment_build_timeout_multiplier")
 SETTINGS = (*MULTIPLIERS, "benchmark", "tasks_dir", "environment", "verifier", "agent_timeout_sec",
@@ -176,6 +178,8 @@ class HarborEnvironments:
         self.log = log or (lambda m: print(m, file=sys.stderr, flush=True))
         self._root: Path | None = None
         self.live: set = set()                  # the environments started and not stopped: stopped at exit
+        self.stopping = threading.Event()       # set once the run ends (a lost sign-in): no gate or pause waits on
+        self.before_start = None                # a wait before each environment starts (the agent's login's plan)
         self._lock = threading.Lock()
         atexit.register(self.stop_all)
 
@@ -239,6 +243,7 @@ class HarborEnvironments:
         it is not here yet (`image_sizes`), beside the room other environments still to pull hold (`admitted` gets
         the key of the room this one holds, given back by `done`)."""
         wait_s = float(self.settings.get("disk_gate_wait_s") or DISK_GATE_WAIT_S)
+        cancel = cancel or self.stopping
         if not docker.wait_for_disk(HOST_TMP, self._gate("tmp_gate_gb", TMP_GATE_GB), wait_s, cancel=cancel,
                                     log=self.log):
             return False
@@ -353,8 +358,25 @@ class _Driver:
         self.waiting: dict[int, queue.Queue] = {}
         self.next_id = 0
         self.dead: str | None = None
-        self.reader = threading.Thread(target=self._read, daemon=True)
-        self.reader.start()
+        self.outbox: queue.Queue = queue.Queue()          # the requests to write: a writer thread of its own, so that
+        self.reader = threading.Thread(target=self._read, daemon=True)   # a hung driver's full pipe holds no caller
+        self.reader.start()                                              # past its request's timeout
+        self.writer = threading.Thread(target=self._write, daemon=True)
+        self.writer.start()
+
+    def _write(self) -> None:
+        while True:
+            item = self.outbox.get()
+            if item is None:
+                return
+            rid, data = item
+            try:
+                self.proc.stdin.write(data)
+                self.proc.stdin.flush()
+            except (BrokenPipeError, OSError, ValueError) as exc:
+                box = self.waiting.pop(rid, None)
+                if box is not None:
+                    box.put({"ok": False, "error": f"the Harbor driver is gone: {exc}", "type": "DriverGone"})
 
     def _read(self) -> None:
         for line in self.proc.stdout:
@@ -378,18 +400,15 @@ class _Driver:
             self.next_id += 1
             rid = self.next_id
             self.waiting[rid] = box
-            try:
-                self.proc.stdin.write((json.dumps({"id": rid, "op": op, **fields}, default=str) + "\n").encode())
-                self.proc.stdin.flush()
-            except (BrokenPipeError, OSError) as exc:
-                self.waiting.pop(rid, None)
-                raise EnvironmentUnavailable(f"the Harbor driver is gone: {exc}", "harbor_failed") from None
+        self.outbox.put((rid, (json.dumps({"id": rid, "op": op, **fields}, default=str) + "\n").encode()))
         try:
             reply = box.get(timeout=timeout)
         except queue.Empty:
             self.waiting.pop(rid, None)
             raise TimeoutError(f"the Harbor driver did not answer {op} in {timeout:.0f} s") from None
         if not reply.get("ok"):
+            if reply.get("type") == "DriverGone":
+                raise EnvironmentUnavailable(str(reply.get("error")), "harbor_failed")
             error = RuntimeError(str(reply.get("error") or f"{op} failed"))
             error.kind = reply.get("type")
             raise error
@@ -397,6 +416,8 @@ class _Driver:
 
     def close(self, timeout: float) -> bool:
         """Close its stdin (it stops its trial and exits); True when it exited by itself, else it is killed."""
+        self.outbox.put(None)
+        self.writer.join(timeout=5)
         with contextlib.suppress(OSError):
             self.proc.stdin.close()
         try:
@@ -432,6 +453,9 @@ class HarborEnvironment(Environment):
         self.trials_dir = owner.jobs_dir / self.name
         self.driver: _Driver | None = None
         self.started: dict = {}
+        self.instruction: str | None = None
+        self.network_public = True
+        self.setup_budget_s = SETUP_ALLOWANCE_S
         self.admitted: list = []
         self.verified: dict | None = None
 
@@ -461,6 +485,9 @@ class HarborEnvironment(Environment):
                                          errors.start_cause(kind, str(exc))) from None
         self.started = started
         self.workspace = PurePosixPath(started.get("workdir") or "/")
+        self.instruction = started.get("instruction")           # Harbor's own, as its agents are given it
+        self.network_public = (started.get("agent_network") or "public") == "public"
+        self.setup_budget_s = float(started.get("setup_timeout_sec") or 0) + SETUP_ALLOWANCE_S
         budget = started.get("agent_timeout_sec")
         self.limits = Limits(readable=self.limits.readable, hidden=self.limits.hidden, network=self.limits.network,
                              timeout_s=float(budget) if budget else self.limits.timeout_s)
@@ -537,9 +564,26 @@ class HarborEnvironment(Environment):
     def install(self, cli: str, version: str | None = None) -> str | None:
         """The CLI installed by Harbor's own installed agent of that name (codex, claude-code, ...), as Harbor's trials
         install it; the version it reports."""
-        reply = self._live().request("install", float(self.owner.settings.get("setup_timeout_sec") or 900) + 60,
-                                     agent=cli, version=version)
+        try:
+            reply = self._live().request("install", float(self.started.get("setup_timeout_sec") or 900) + 60,
+                                         agent=cli, version=version)
+        except (RuntimeError, TimeoutError) as exc:      # the agent's setup failed: infra, as Harbor's trial grades it
+            if isinstance(exc, EnvironmentUnavailable):
+                raise
+            raise EnvironmentUnavailable(f"the CLI's install failed: {exc}"[-3000:], "sandbox_failed") from None
         return reply.get("version")
+
+    def ensure(self, packages) -> None:
+        """System packages (python3 for an adapter's hooks) installed with Harbor's own installer, under the
+        environment's baseline network policy."""
+        try:
+            self._live().request("ensure", float(self.started.get("setup_timeout_sec") or 900) + 60,
+                                 packages=list(packages))
+        except (RuntimeError, TimeoutError) as exc:
+            if isinstance(exc, EnvironmentUnavailable):
+                raise
+            raise EnvironmentUnavailable(f"the system packages' install failed: {exc}"[-3000:],
+                                         "sandbox_failed") from None
 
     def verify(self, agent_logs: Path | str | None = None) -> dict:
         """Harbor's verifier on the agent's work (the agent's phase ends first: no command runs after it); the

@@ -86,6 +86,7 @@ BACKENDS = ("codex", "claude", "pi", "mini-swe-agent", "opencode", "dsh", "herme
 DEPLOYS = ("host",)
 ISOLATIONS = ("none", "container")
 INPUT_FIELDS = ("question", "prompt", "instruction", "input", "query")
+MODEL_REJECTED = "model_rejected"         # the provider refused the configuration (hermit.environment.harbor_errors)
 MEMORY = Path("memory") / "NOTES.md"     # an adapter's notes the agent keeps across tasks (continual-harness)
 MEMORY_NOTE = ("`{path}` is your memory across questions: read it first, and record under a `## <topic>` "
                "heading anything worth keeping for later questions (where figures live, how a source is laid out, "
@@ -110,8 +111,10 @@ def _call(fn, *args, params: dict, base: Path):
     return fn(*args, **{k: v for k, v in (("params", params), ("base", Path(base))) if k in wanted})
 
 
-def _prompt(params: dict, base: Path, task: dict) -> str:
+def _prompt(params: dict, base: Path, task: dict, environment=None) -> str:
     value = params.get("prompt")
+    if not value and getattr(environment, "instruction", None) is not None:
+        return environment.instruction        # a task's own environment: Harbor's instruction, as the runner gave it
     if not value:
         for field in ("prompt", "question", "instruction", "input"):
             if isinstance(task.get(field), str):
@@ -359,23 +362,68 @@ def run(task: dict, adapter: Path | None, *, params: dict, base: Path, environme
     return _run(task, adapter, params, base, environment)
 
 
-def _upload_staging(environment: Environment, work: Path, backend: str, deployed: dict) -> None:
+def _upload_staging(environment: Environment, work: Path, backend: str, deployed: dict, params: dict) -> None:
     """The staging folder's files into a remote environment's workspace. A context file the image already has there
-    is kept after Hermit's text (Hermit's first)."""
+    is kept after Hermit's text (Hermit's first), as the Harbor runner merged them; a file that is there but cannot be
+    read fails the call (the environment's fault: never the adapter's text alone in its place), and for Codex the
+    merged text must fit its cap on AGENTS.md (project_doc_max_bytes), as the runner checked it."""
     name = CONTEXT_FILES.get(backend)
     mine = work / name if name else None
     if mine is not None and mine.is_file() and deployed.get("adapter_id"):
-        theirs = work.parent / f"image-{name}"
-        try:
-            environment.download(name, theirs)
-        except Exception:                                # noqa: BLE001 - the image has none
-            theirs = None
-        if theirs is not None and theirs.is_file():
-            mine.write_text(mine.read_text(encoding="utf-8") + "\n\n" + theirs.read_text(encoding="utf-8",
-                                                                                         errors="replace"),
-                            encoding="utf-8")
+        if environment.exec(["test", "-e", name], timeout=60).code == 0:
+            theirs = work.parent / f"image-{name}"
+            try:
+                environment.download(name, theirs)
+                text = theirs.read_text(encoding="utf-8", errors="replace")
+            except Exception as exc:
+                raise RuntimeError(f"{IMAGE_CONTEXT_UNREAD} ({name}): {type(exc).__name__}: {exc}") from None
+            mine.write_text(mine.read_text(encoding="utf-8") + "\n\n" + text, encoding="utf-8")
+        if backend == "codex":
+            from hermit.hosts.codex import DOC_BYTES
+            limit = int(params.get("project_doc_max_bytes") or DOC_BYTES)
+            size = len(mine.read_bytes())
+            if size > limit:
+                raise ValueError(f"the adapter's context with the image's own {name} is {size} bytes, over Codex's "
+                                 f"limit of {limit} (project_doc_max_bytes): the session would not read all of it")
     for entry in sorted(work.iterdir()):
         environment.upload(entry, entry.name)
+
+
+IMAGE_CONTEXT_UNREAD = "the image's own context file could not be read"
+
+
+def _ensure_python3(environment: Environment) -> bool:
+    """python3 where the session runs, for the adapter's hooks (rendered for `python3`): installed by the environment's
+    own installer when it has one and Python is missing, as the Harbor runner did before a session with hooks. False,
+    never an exception: the session then runs with hooks that may fail open."""
+    if environment.exec(["sh", "-c", "command -v python3"], timeout=60).code == 0:
+        return True
+    ensure = getattr(environment, "ensure", None)
+    if ensure is None:
+        return False
+    try:
+        ensure(["python3"])
+    except Exception as exc:                             # noqa: BLE001 - as the runner: warn, run on
+        print(f"WARNING: python3 for the adapter's hooks could not be installed: {exc}", file=sys.stderr, flush=True)
+        return False
+    return environment.exec(["sh", "-c", "command -v python3"], timeout=60).code == 0
+
+
+def _collect_hooks(environment: Environment, log: Path) -> None:
+    """The adapter's hook audit and state (`.hermit-hooks/` in the workspace: hook-calls.jsonl, hook-state/) into the
+    log, where the Harbor runner's curated log kept them and the AHE Debugger and learner read them."""
+    if environment.exec(["test", "-d", ".hermit-hooks"], timeout=60).code != 0:
+        return
+    got = log.parent / "hook-logs"
+    environment.download(".hermit-hooks", got)
+    for entry in sorted(got.iterdir()):
+        target = log / entry.name
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        elif os.path.lexists(target):
+            target.unlink()
+        shutil.move(str(entry), str(target))
+    shutil.rmtree(got, ignore_errors=True)
 
 
 def _check(backend: str, params: dict) -> str:
@@ -477,8 +525,13 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
     work, home, log = run_dir / "work", run_dir / "home", run_dir / "log"
     agent = agent.configured(home=home, log=log / f"agent-{backend}.jsonl",
                              **({"login_root": params["login_root"]} if params.get("login_root") else {}))
-    timeout_s = float(params.get("timeout_s", 3600))
+    # In a task's own environment the session's clock is the task's agent budget unless the agent's own `timeout_s`
+    # says less (the Harbor runner gave each task its own: Terminal-Bench-Science's 8 hours)
+    own_budget = given.limits.timeout_s if remote else None
+    default_s = float(own_budget) if own_budget else 3600.0
+    timeout_s = float(params.get("timeout_s") or default_s)
     retries = max(1, int(params.get("retries", 3)))
+    usages: list = []                   # every attempt's usage: a run again spends too
     started = time.time()
     # `deadline_s`: the whole call's time (attempts and waits), set by a caller that is stopped at it (a container
     # session must end, and remove its container, before its worker is killed)
@@ -505,16 +558,18 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
             target = work / source.name
             shutil.copytree(source, target) if source.is_dir() else shutil.copy2(source, target)
         if remote:
-            _upload_staging(given, work, backend, deployed)
+            _upload_staging(given, work, backend, deployed, params)
+            if deployed.get("hooks"):
+                _ensure_python3(given)
         mounts = [] if remote else _mounts(task, work, params, base)
-        prompt = _prompt(params, base, task) + (
+        prompt = _prompt(params, base, task, given if remote else None) + (
             "\n" + MEMORY_NOTE.format(path=memory.relative_to(work).as_posix()) if memory else "")
         (log / "prompt.txt").write_text(prompt, encoding="utf-8")
         (log / "deployment.json").write_text(json.dumps(deployed, indent=1, default=str))
         from hermit.adapter.session import Session
         served = Session(adapter) if deployed.get("harness_tools") else None
         if budget is not None:          # what is left once the deployment, the files and the server are ready
-            timeout_s = min(float(params.get("timeout_s", 3600)), budget - (time.time() - started))
+            timeout_s = min(float(params.get("timeout_s") or default_s), budget - (time.time() - started))
             if timeout_s <= 0:
                 if served is not None:
                     served.close()
@@ -529,8 +584,12 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
         finally:
             if served is not None:
                 served.close()
+        usages += list(result.usage or [])
         if result.extra.get("login_failed"):          # before a timeout: a session that then hung is no attempt
             raise LoginFailed(f"agent {backend}: {result.extra.get('failure')}")
+        if remote and result.extra.get("rejected") and not result.extra["served"]:
+            # the provider refused the run's configuration (its key, model, bill): no run again changes it
+            raise RuntimeError(f"agent {backend}: {MODEL_REJECTED}: {result.extra.get('failure')}")
         if result.extra["served"] or result.timed_out:
             break
         if not result.extra["unavailable"]:
@@ -544,7 +603,7 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
                                f"{result.extra['output_tail']}")
         wait = float(params.get("retry_wait_s", 120))
         time.sleep(wait if budget is None else max(0.0, min(wait, budget - (time.time() - started) - 1)))
-    code, timed_out, last, usage = result.exit_code, result.timed_out, result.reply, result.usage
+    code, timed_out, last, usage = result.exit_code, result.timed_out, result.reply, usages
     (log / "last_message.txt").write_text(last, encoding="utf-8")
     if memory is not None and remote:                                  # the notes the session left, from there
         try:
@@ -553,6 +612,8 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
             pass
     elif memory is not None and memory.parent.is_dir():                # the notes the session left
         shutil.copytree(memory.parent, log / "memory", dirs_exist_ok=True)
+    if remote and deployed.get("hooks"):
+        _collect_hooks(given, log)
     # A session the CLI itself reports as failed has no answer to read or to judge (trainer.rollout: an error record).
     failed = result.extra.get("failed")
     output = None if failed else _output(last, task, params, base, code, timed_out, timeout_s)

@@ -8,9 +8,11 @@ session of work in the task's environment.
         model: fireworks/accounts/fireworks/models/glm-5p3   # a <backend>/<model> reference, as react's
         instruction_file: /app/instruction.md   # optional: the question is this file of the task's environment (a
                                                 # task whose entrypoint writes it), waited for up to wait_s; else the
-                                                # task's instruction (its prompt-like field)
+                                                # environment's instruction (Harbor's), else the task's prompt-like
+                                                # field
         attachments: ["/app/*.png"]             # optional: globs of images in the environment, sent with the question
-        answer_file: /app/answer.txt            # optional: where the answer is written in the environment
+        answer_file: /app/answer.txt            # where the answer is written in the environment (the default, as the
+                                                # Harbor runner's answer agent wrote it; null: nowhere)
         answer_pattern: '<answer>(.*?)</answer>'   # optional: the answer is the reply's last match (group 1)
         answer_format: "{answer}"               # optional: the text written, with {answer} in it
         max_tokens: 16384
@@ -38,6 +40,7 @@ from hermit.agent.model.llm import ChatClient
 from hermit.common import RunOutput
 
 INPUT_FIELDS = ("prompt", "question", "instruction", "input")
+ANSWER_FILE = "/app/answer.txt"                  # where the answer goes in the environment unless answer_file says
 MAX_ATTACHMENT_BYTES = 20 * 2**20
 DEFAULT_WAIT_S = 30.0
 POLL_S = 1.0
@@ -68,12 +71,13 @@ class AnswerAgent(Agent):
         client = ChatClient.from_spec(model)
         reply = Direct({"max_tokens": int(p.get("max_tokens") or 16384)}, client).run(messages)
         answer = self.answer(reply.reply)
-        if environment is not None and p.get("answer_file"):
+        answer_file = None if "answer_file" in p and p["answer_file"] is None else p.get("answer_file") or ANSWER_FILE
+        if environment is not None and answer_file:
             text = str(p.get("answer_format") or "{answer}").replace("{answer}", answer)
             with tempfile.TemporaryDirectory(prefix="hermit-answer-") as tmp:
                 local = Path(tmp) / "answer.txt"
                 local.write_text(text, encoding="utf-8")
-                environment.upload(local, str(p["answer_file"]))
+                environment.upload(local, str(answer_file))
         logs = self.log_dir()
         log = Path(tempfile.mkstemp(prefix=f"{task.get('id', 'task')}-", suffix=".json", dir=logs)[1])
         shown = [{**m, "content": question if isinstance(m["content"], list) else m["content"]} for m in messages]
@@ -102,6 +106,8 @@ class AnswerAgent(Agent):
                     raise RuntimeError(f"the task's environment has no {path} (waited "
                                        f"{self.params.get('wait_s') or DEFAULT_WAIT_S} s)")
                 time.sleep(POLL_S)
+        if getattr(environment, "instruction", None) is not None:
+            return environment.instruction            # Harbor's instruction, as the runner's answer agent was given it
         for field in INPUT_FIELDS:
             if isinstance(task.get(field), str):
                 return task[field]

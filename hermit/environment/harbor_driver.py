@@ -65,6 +65,46 @@ TRIAL_FIELDS = ("verifier_timeout_multiplier", "environment_build_timeout_multip
 AGENT_FIELDS = ("override_timeout_sec", "override_setup_timeout_sec", "max_timeout_sec", "extra_allowed_hosts")
 KILL_GRACE_S = 10                       # `timeout -k`: after the TERM, the KILL
 BACKSTOP_S = 60                         # Harbor's own exec timeout past the command's, should `timeout` not end it
+MARK = "HERMIT_AGENT_EXEC"              # each agent command's variable: what kills it, and whatever it started, when
+                                        # its time runs out or the verifier starts while it still runs (not after it
+                                        # ended: a server it left for the tests stays), with no `ps` needed
+# Debian 11 (bullseye) images: the bullseye pools on deb.debian.org no longer serve the release's packages, so an
+# install fails before the CLI starts. Point main and security at archive.debian.org, accept its expired Release files,
+# refresh the lists, once per environment; other images are untouched (the Harbor runner's _repair_apt_sources).
+APT_REPAIR = ("if grep -qs 'VERSION_CODENAME=bullseye' /etc/os-release && command -v apt-get >/dev/null 2>&1; "
+              "then sed -i "
+              "-e 's|http://deb.debian.org/debian-security|http://archive.debian.org/debian-security|g' "
+              "-e 's|http://security.debian.org/debian-security|http://archive.debian.org/debian-security|g' "
+              "-e 's|http://deb.debian.org/debian |http://archive.debian.org/debian |g' /etc/apt/sources.list "
+              "/etc/apt/sources.list.d/*.list 2>/dev/null; "
+              "echo 'Acquire::Check-Valid-Until \"false\";' > /etc/apt/apt.conf.d/99hermit-archive; "
+              "apt-get update; fi")
+
+
+def kill_marked(mark: str) -> str:
+    """A shell line (run as root) that kills every process whose environment holds `MARK=<mark...>`: an agent's
+    commands and whatever they started, found through /proc."""
+    return (f"for p in /proc/[0-9]*; do tr '\\0' '\\n' < $p/environ 2>/dev/null | grep -q '^{MARK}={mark}' && "
+            "kill -9 ${p#/proc/} 2>/dev/null; done; true")
+
+
+def safe_copy(source: Path, target: Path) -> None:
+    """`source`'s files under `target`, never through a link already there (the agent's environment may have put one
+    in a folder it shares with this machine, /logs/agent): an entry in the way is removed first, a link copied as the
+    link it is."""
+    for folder, dirs, files in os.walk(source):
+        rel = Path(folder).relative_to(source)
+        where = target / rel
+        if where.is_symlink() or (where.exists() and not where.is_dir()):
+            where.unlink()
+        where.mkdir(parents=True, exist_ok=True)
+        for name in [*files, *(d for d in dirs if (Path(folder) / d).is_symlink())]:
+            dest = where / name
+            if dest.is_symlink() or (dest.exists() and not dest.is_dir()):
+                dest.unlink()
+            elif dest.is_dir():
+                shutil.rmtree(dest)
+            shutil.copy2(Path(folder) / name, dest, follow_symlinks=False)
 
 
 def log(message: str) -> None:
@@ -83,6 +123,12 @@ class Driver:
         self.has_timeout: bool | None = None
         self.verified = False
         self.stopped = False
+        self.plan = None                               # the agent phase's network plan (an install runs under the
+                                                       # environment's baseline, as Harbor's setup does)
+        self.mark = uuid.uuid4().hex                   # this environment's agent commands' mark (MARK)
+        self.agent_ops: set = set()                    # the agent's operations in flight (drained before verify)
+        self.running: set = set()                      # the marks of the agent commands still running
+        self.repaired = False
         self.lock = asyncio.Lock()                     # one request that changes the trial's phase at a time
 
     def reply(self, rid, payload: dict) -> None:
@@ -117,7 +163,7 @@ class Driver:
             raise
         self.user = trial.task.config.agent.user
         stack = contextlib.AsyncExitStack()
-        plan = trial._network_plan(None, warn_unknown_inference=True)
+        plan = self.plan = trial._network_plan(None, warn_unknown_inference=True)
         stack.enter_context(trial.agent_environment.with_default_user(self.user))
         await stack.enter_async_context(trial._phase_network_policy(
             trial.agent_environment, baseline_policy=plan.agent_env_baseline, phase_policy=plan.agent_phase))
@@ -126,8 +172,25 @@ class Driver:
         found = await trial.agent_environment.exec("pwd")
         workdir = (found.stdout or "").strip().splitlines()[-1] if (found.stdout or "").strip() else "/"
         return {"workdir": workdir, "user": self.user, "agent_timeout_sec": trial.agent_timeout_sec,
+                "setup_timeout_sec": trial.agent_setup_timeout_sec,
                 "trial_dir": str(trial.paths.trial_dir), "os": str(trial.task.config.environment.os.value),
-                "verifier_mode": resolve_task_verifier_mode(trial.task.config).value}
+                "verifier_mode": resolve_task_verifier_mode(trial.task.config).value,
+                "instruction": trial.task.instruction,    # Harbor's own, as its agents are given it
+                "agent_network": str(getattr(plan.agent_phase.network_mode, "value", plan.agent_phase.network_mode))}
+
+    async def _drain(self) -> None:
+        """The agent's operations still in flight ended before the verifier starts: their requests cancelled, and the
+        processes of each command still running killed in the environment (MARK), so that no command of the agent's
+        runs on while the task's tests are there. What a command that already ended left running (a server the task
+        asked for) stays, as Harbor's own agents leave it."""
+        marks = list(self.running)
+        for task in list(self.agent_ops):
+            task.cancel()
+        if self.agent_ops:
+            await asyncio.gather(*self.agent_ops, return_exceptions=True)
+        for mark in marks:
+            with contextlib.suppress(Exception):
+                await self.env.exec(kill_marked(mark), user="root")
 
     async def _end_agent_phase(self) -> None:
         if self.agent_phase is not None:
@@ -143,11 +206,12 @@ class Driver:
             raise RuntimeError("the environment is not started")
         if self.verified:
             raise RuntimeError("the task was verified already")
-        self.verified = True
+        self.verified = True                             # no agent operation starts from here on
+        await self._drain()
         await self._end_agent_phase()
         logs = req.get("agent_logs")
         if logs and Path(logs).is_dir():
-            shutil.copytree(logs, trial.paths.agent_dir, symlinks=True, dirs_exist_ok=True)
+            safe_copy(Path(logs), trial.paths.agent_dir)
         mode = resolve_task_verifier_mode(trial.task.config)
         exception = None
         try:
@@ -217,18 +281,26 @@ class Driver:
             else:
                 outer = timeout
         started = time.time()
+        mark = f"{self.mark}-{uuid.uuid4().hex[:8]}"
+        self.running.add(mark)
         try:
-            result = await self._exec(command, cwd=req.get("cwd"), env=req.get("env") or {}, timeout=outer,
-                                      user=user)
+            result = await self._exec(command, cwd=req.get("cwd"), env={**(req.get("env") or {}), MARK: mark},
+                                      timeout=outer, user=user)
             code = result.return_code
             output = (result.stdout or "") + (result.stderr or "")
-        except asyncio.TimeoutError:
-            code, output = -1, ""
+        except Exception as exc:                        # Harbor's own client timeout (no `timeout` in the image)
+            if not (timeout and time.time() - started >= timeout - 1):
+                raise
+            code, output = -1, f"{type(exc).__name__}: {exc}"
         finally:
+            self.running.discard(mark)
             if staged is not None:
                 with contextlib.suppress(Exception):
                     await env.exec(f"rm -f {shlex.quote(staged)}", user="root")
         timed_out = bool(timeout) and (code in (124, 137, -1) and time.time() - started >= timeout - 1)
+        if timed_out:                                    # nothing it started outlives its time, `timeout` or not
+            with contextlib.suppress(Exception):
+                await env.exec(kill_marked(mark), user="root")
         return {"code": -1 if timed_out else code, "output": output, "timed_out": timed_out}
 
     async def _exec(self, command: str, *, cwd, env: dict, timeout, user):
@@ -279,26 +351,69 @@ class Driver:
             await self.env.download_file(source, target)
         return {}
 
+    async def _repair(self) -> None:
+        if not self.repaired:
+            self.repaired = True
+            with contextlib.suppress(Exception):         # a failure here is left to the install to report
+                await self.env.exec(APT_REPAIR, user="root")
+
+    @contextlib.asynccontextmanager
+    async def _setup_phase(self):
+        """An install as Harbor's setup runs one: under the environment's baseline network policy, not the agent
+        phase's (a task whose agent may not reach the network still installs its CLI), then back."""
+        plan, env = self.plan, self.env
+        switch = plan is not None and self.agent_phase is not None and plan.agent_phase != plan.agent_env_baseline
+        if switch:
+            await env.set_network_policy(plan.agent_env_baseline)
+        try:
+            yield
+        finally:
+            if switch:
+                await env.set_network_policy(plan.agent_phase)
+
+    def _installer(self, name: str, version=None):
+        logs = self.trial.paths.trial_dir / "install" / name
+        logs.mkdir(parents=True, exist_ok=True)
+        return AgentFactory.create_agent_from_name(AgentName(name), logs_dir=logs, version=version)
+
     async def install(self, req: dict) -> dict:
         trial = self.trial
-        logs = trial.paths.trial_dir / "install" / str(req["agent"])
-        logs.mkdir(parents=True, exist_ok=True)
-        agent = AgentFactory.create_agent_from_name(AgentName(str(req["agent"])), logs_dir=logs,
-                                                    version=req.get("version"))
-        await agent.setup(self.env)                     # Harbor's install of the CLI, as its trials run it
+        agent = self._installer(str(req["agent"]), req.get("version"))
+        async with self._setup_phase():
+            await self._repair()
+            # Harbor's install of the CLI, as its trials run it: within Harbor's agent setup timeout
+            await asyncio.wait_for(agent.setup(self.env), timeout=trial.agent_setup_timeout_sec)
         return {"version": agent.version()}
+
+    async def ensure(self, req: dict) -> dict:
+        """System packages (python3 for an adapter's hooks) with Harbor's own installer, as the runner ensured them."""
+        agent = self._installer("codex")
+        async with self._setup_phase():
+            await self._repair()
+            await asyncio.wait_for(agent.ensure_system_dependencies(self.env, tuple(req.get("packages") or ())),
+                                   timeout=self.trial.agent_setup_timeout_sec)
+        return {}
 
     # --- the loop -----------------------------------------------------------------------------------------------
     async def handle(self, req: dict) -> None:
         rid, op = req.get("id"), req.get("op")
         try:
-            if op in ("start", "verify", "stop", "install"):
+            if op in ("start", "verify", "stop", "install", "ensure"):
                 async with self.lock:
                     payload = await getattr(self, op)(req)
             elif op in ("exec", "upload", "download"):
                 if self.verified or self.stopped:
                     raise RuntimeError("the agent's phase is over: the task was verified or stopped")
-                payload = await getattr(self, op)(req)
+                task = asyncio.current_task()
+                self.agent_ops.add(task)
+                try:
+                    payload = await getattr(self, op)(req)
+                except asyncio.CancelledError:          # drained: the verifier starts
+                    self.reply(rid, {"ok": False, "error": f"{op}: the agent's phase ended (the verifier started)",
+                                     "type": "AgentPhaseOver"})
+                    return
+                finally:
+                    self.agent_ops.discard(task)
             else:
                 raise ValueError(f"unknown op {op!r}")
             self.reply(rid, {"ok": True, **payload})

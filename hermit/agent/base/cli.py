@@ -143,7 +143,7 @@ import urllib.parse
 
 from hermit.agent.base import login as codex_login
 from hermit.environment import docker as container
-from hermit.environment.base import Environment, _descendants, as_environment
+from hermit.environment.base import Environment, ExecResult, _descendants, as_environment
 from hermit.agent.base.interface import BaseAgent, Limits, Mount, Result, Unsupported
 from hermit.agent.base.records import (parse_claude, parse_codex, parse_dsh, parse_hermes, parse_mini_swe_agent,
                                        parse_opencode, parse_pi, price_usage)
@@ -156,6 +156,10 @@ ISOLATIONS = ("none", "sandbox", "container", "remote")
 REMOTE_HOME = "/installed-agent/hermit-home"       # a session's home in a remote environment (a task's Harbor one)
 # The installed agent of Harbor's that installs each CLI in a remote environment that installs CLIs (its `install`)
 REMOTE_INSTALL = {"codex": "codex", "claude": "claude-code"}
+# Where those installs put the CLI, put on PATH first in a remote session as the Harbor runner's launch did: nvm's
+# (Harbor's Codex on a glibc image, loaded with the user's own HOME) and ~/.local/bin (Harbor's Claude Code)
+REMOTE_PATH = ('export NVM_DIR="$HOME/.nvm"; if [ -s "$NVM_DIR/nvm.sh" ]; then . "$NVM_DIR/nvm.sh" >/dev/null 2>&1; '
+               'fi; export PATH="$HOME/.local/bin:$PATH"\n')
 ENVIRONMENT_KEYS = ("isolation", "sandbox", "container")    # the environment's (hermit.environment), not settings
 # The CLI's own reports of a provider it could not reach (it retries those itself first), and of a container that
 # could not start, not the session's text
@@ -1063,14 +1067,14 @@ class CliAgent(BaseAgent):
         return Path(path).is_file()
 
     def _remote_program(self, environment: Environment) -> None:
-        """The CLI in a remote environment: `bin` as it is, else the program found there (with `version` set, the
-        installer is asked anyway: Harbor's keeps a CLI already at that version), else installed by the environment's
-        own installer (Harbor's installed agent of the CLI)."""
+        """The CLI in a remote environment: `bin` as it is, else the program found there (on REMOTE_PATH's PATH; with
+        `version` set, the installer is asked anyway: Harbor's keeps a CLI already at that version), else installed by
+        the environment's own installer (Harbor's installed agent of the CLI)."""
         s = self.settings
         if s.get("bin"):
             return
         if not s.get("version"):
-            found = environment.exec(["sh", "-c", f"command -v {self.program}"], timeout=60)
+            found = environment.exec(["bash", "-c", REMOTE_PATH + f"command -v {self.program}"], timeout=60)
             if found.code == 0 and found.output.strip():
                 return
         installer = REMOTE_INSTALL.get(self.backend)
@@ -1094,7 +1098,16 @@ class CliAgent(BaseAgent):
         if tools:
             raise Unsupported(f"{self.name} in a remote environment cannot reach the call's tools (the framework's "
                               "tool server runs on this machine)")
+        if session:
+            raise Unsupported(f"{self.name} in a remote environment does not resume a session: its home there is "
+                              "made anew for each call")
         self._isolation(PurePosixPath(str(environment.workspace)), limits)
+        # As the Harbor runner's launch plan ran a session in a task's container: the prompt on stdin, whatever its
+        # length (Codex reads it as `-`); the CLI's web search off where the task's agent phase has no public network
+        overrides = {"stdin": True}
+        if getattr(environment, "network_public", True) is False:
+            overrides["web_search"] = False
+        self.settings = s = {**s, **overrides}
         prompt = self.prompt_text(prompt)
         workspace = PurePosixPath(str(environment.workspace))
         remote_home = PurePosixPath(str(s.get("remote_home") or REMOTE_HOME))
@@ -1126,13 +1139,13 @@ class CliAgent(BaseAgent):
             command = self.command(prompt, workspace, remote_home / "last_message.txt", session=session, roles=roles,
                                    tools_url=None)
             by_fd = self.by_fd()
-            if by_fd:                                    # each secret into a pipe, out of the environment, first
-                missing = set(by_fd) - set(env)
-                if missing:
-                    raise ValueError(f"by_fd names variables the session does not pass: {sorted(missing)}")
-                command = ["sh", "-c", container._by_fd(by_fd) + 'exec "$@"', "sh", *command]
+            missing = set(by_fd) - set(env)
+            if missing:
+                raise ValueError(f"by_fd names variables the session does not pass: {sorted(missing)}")
+            # the installs' places on PATH (nvm's, ~/.local/bin), then each secret into a pipe, out of the environment
+            command = ["bash", "-c", REMOTE_PATH + container._by_fd(by_fd) + 'exec "$@"', "bash", *command]
             self._remote_program(environment)
-            environment.exec(["rm", "-rf", str(remote_home)], timeout=120)
+            environment.exec(["rm", "-rf", str(remote_home)], cwd="/", timeout=120)
             environment.upload(home, str(remote_home))
             timeout = self._left(timeout)
             if timeout is False:
@@ -1145,18 +1158,31 @@ class CliAgent(BaseAgent):
             stream.write_text(raw, encoding="utf-8")
             with contextlib.suppress(Exception):         # a session that wrote none: the stream's last message
                 environment.download(str(remote_home / "last_message.txt"), last_file)
-            if s.get("login") == "chatgpt":              # the refreshed sign-in back here, then out of the environment
+            if s.get("login") == "chatgpt":              # the refreshed sign-in and the plan's usage reports back here
                 with contextlib.suppress(Exception):
                     environment.download(str(remote_home / codex_login.FILE), home / codex_login.FILE)
+                with contextlib.suppress(Exception):
+                    environment.download(str(remote_home / "sessions"), home / "sessions")
         finally:
             self._remote_home = None
+            # every sign-in file the home took (the login's, or the user's own CLI home's) out of the environment,
+            # from a directory the session cannot have removed, before its verifier runs; a removal not confirmed
+            # fails the call (no verifier then reads them)
+            left = [str(remote_home / path.name) for path in copied]
+            gone = None
+            if left:
+                try:
+                    gone = environment.exec(["rm", "-f", *left], cwd="/", timeout=120)
+                except Exception as exc:                 # noqa: BLE001 - reported below
+                    gone = ExecResult(-1, f"{type(exc).__name__}: {exc}")
             if s.get("login") == "chatgpt":
-                with contextlib.suppress(Exception):
-                    environment.exec(["rm", "-f", str(remote_home / codex_login.FILE)], timeout=120)
                 codex_login.keep_refreshed(Path(s.get("login_root") or codex_login.ROOT), home)
                 codex_login.note_usage(codex_login.plan_dir(s.get("plan_dir")), home)
             for path in copied:
                 path.unlink(missing_ok=True)
+        if gone is not None and gone.code != 0:
+            raise RuntimeError(f"{self.name}: the sign-in could not be removed from the environment: "
+                               f"{gone.output[-300:]}")
         said = self.outcome(raw, stream, last_file)
         said["failed"] = said.get("failed", False) and not timed_out
         began = said.pop("started", None)
@@ -1259,9 +1285,18 @@ class Codex(CliAgent):
 
     def outcome(self, raw, stream, last_file):
         notes, done = self.notices(raw), self.served(raw)
-        return {"reply": self.last_message(stream, last_file), "served": done,
+        said = {"reply": self.last_message(stream, last_file), "served": done,
                 "unavailable": bool(UNAVAILABLE.search(notes)), "refused": codex_login.refused(notes) and not done,
                 "failure": notes[-600:]}
+        if not done and self.environment is not None and self.environment.isolation == "remote":
+            # a session in a task's container, read as the Harbor runner read one (hermit.agent.base.codex_stream):
+            # from Codex's own notices only, a lost sign-in or key, the provider, the plan, a refused configuration
+            from hermit.agent.base import codex_stream
+            rejected = codex_stream.codex_rejected(raw)
+            said.update(login_failed=codex_stream.codex_signin_lost(raw),
+                        unavailable=codex_stream.codex_unavailable(raw), refused=codex_stream.codex_refused(raw),
+                        rejected=bool(rejected and codex_stream.CONFIG_REFUSED.search(rejected)))
+        return said
 
 
 class Claude(CliAgent):

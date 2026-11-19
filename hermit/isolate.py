@@ -235,6 +235,17 @@ def _secrets(config) -> tuple[list[Path], Path | None]:
     if judge.get("path") and str(judge["path"]).partition(":")[0].endswith(".py"):
         out.append(config.path(judge["path"]))
     out += [config.path(t) for t in judge.get("tests") or []]
+    harbor = (d.get("environment") or {}).get("harbor")
+    if harbor:              # a task set in Harbor's environments: its task directories hold the tests and solutions
+        try:
+            from hermit.environment.harbor import settings_of
+            settings, folder = settings_of(harbor, Path(config.base))
+            if settings.get("tasks_dir"):
+                tasks = Path(os.path.expandvars(str(settings["tasks_dir"]))).expanduser()
+                tasks = tasks if tasks.is_absolute() else folder / tasks
+                out += [tasks.resolve(), Path(os.path.realpath(tasks))]
+        except (OSError, ValueError):                    # its own check reports a benchmark file it cannot read
+            pass
     runs = None
     try:
         out.append(config.run_dir())
@@ -489,6 +500,16 @@ def _deadline(run_timeout: float | None, task: dict) -> float | None:
     return own if run_timeout is None else min(run_timeout, own)
 
 
+def _call_deadline(run_timeout: float | None, environment, needs: dict) -> float | None:
+    """A call's deadline (_deadline): for a task in its own environment, that environment's agent budget (Harbor's,
+    after its overrides: Terminal-Bench's 3,600 s over the task's 900) with its CLI's install beside it; else the
+    task's own."""
+    budget = getattr(getattr(environment, "limits", None), "timeout_s", None) if environment is not None else None
+    if budget:
+        needs = {"agent_timeout_sec": float(budget) + float(getattr(environment, "setup_budget_s", 0) or 0)}
+    return _deadline(run_timeout, needs)
+
+
 class SandboxedAgent:
     """The run's agent as a pipeline, every call in a worker inside the task sandbox."""
 
@@ -599,7 +620,8 @@ class SandboxedAgent:
             try:
                 payload = _run_worker(self.sandbox, job, work, home=home, readable=[adapter] if adapter else [],
                                       env=env, keep=keep, forward=forward,
-                                      timeout=_deadline(self.timeout, needs or task),
+                                      timeout=_call_deadline(self.timeout, server.environment if server else None,
+                                                             needs or task),
                                       binds=binds)
             finally:
                 if self.chatgpt:
@@ -885,7 +907,17 @@ def task_environments(config, *, log=None):
     from hermit.environment.harbor import HarborEnvironments
     params = dict(d["agent"].get("params") or {})
     _, hosts, _ = model_access([params.get("binding"), params.get("model")])
-    return HarborEnvironments(section, base=Path(config.base), allowed_hosts=hosts, log=log)
+    login = params.get("login")
+    hosts = [*hosts, *(h for h in codex_login.hosts(login) if h not in hosts)]     # a subscription's own hosts too
+    environments = HarborEnvironments(section, base=Path(config.base), allowed_hosts=hosts, log=log)
+    if codex_login.LOGINS.get(login):
+        # As the Harbor runner did before a trial on a login: wait while its plan holds sessions back before the
+        # task's environment is started and held, never inside the agent's time
+        plan = codex_login.plan_dir(params.get("plan_dir"), login)
+        credits = codex_login.opted_in(params.get("usage_credits"))
+        say = log or (lambda m: print(m, file=sys.stderr, flush=True))
+        environments.before_start = lambda: codex_login.wait(plan, environments.stopping, say, None, credits)
+    return environments
 
 
 def judge_for(config, pipeline):
