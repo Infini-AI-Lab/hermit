@@ -28,5 +28,5 @@ class TrialCodexAgent(CliAgent):
 
 
 def score(task: dict, output) -> dict:
-    """`judge.path: trials.py`: SkillOpt's exact match (../utils/judge.py) on the row's question."""
+    """`judge.path: trials.py`: SkillOpt's exact match (../utils/benchmark/judge.py) on the row's question."""
     return _judge.score({**task, "id": question(task["id"])}, output)

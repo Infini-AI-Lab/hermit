@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Write rows/: tasks.jsonl (every row of ../utils/tasks.jsonl, then each training question k times as `<id>#<j>`,
-interleaved by trial so that every question's first trial comes before any second one) and train_k<k>.txt (those
-trial rows; smoke_k<k>.txt, the same for ../utils/splits/smoke_train.txt). RRSI evaluates each candidate on the whole evolve set with k trials per task; the validation and test
-rows are the questions' own, unchanged.
+"""Write rows/: tasks.jsonl (every row of ../utils/benchmark/tasks, then each training question k times as `<id>#<j>`,
+interleaved by trial so that every question's first trial comes before any second one) and train_k<k>.txt (those trial
+rows; smoke_k<k>.txt, the same for ../utils/benchmark/splits/smoke_train.txt). RRSI evaluates each candidate on the
+whole evolve set with k trials per task; the validation and test rows are the questions' own, unchanged.
 
     python examples/officeqa/rrsi_adapter/make_rows.py [--k 2]
 """

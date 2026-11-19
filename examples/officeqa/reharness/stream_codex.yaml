@@ -11,11 +11,11 @@
 # scores (steps.jsonl); no `hermit eval` follows. Started by launch.sh, which puts the embedding model behind a
 # loopback relay for the adapter's reader.
 data:
-  tasks: ../utils/tasks.jsonl
-  train: stream_s0.txt                 # upstream Harness²'s seed-0 order of ../utils/splits/test.txt
+  tasks: ../utils/benchmark/tasks
+  train: stream_s0.txt                 # upstream Harness²'s seed-0 order of ../utils/benchmark/splits/test.txt
   step_size: 1                         # one question per step: one ReHarness instance (read, revise, write)
   shuffle: false                       # the stream's own order
-task_info: ../utils/task-info/
+task_info: ../utils/benchmark/task-info/
 agent:
   base: codex                          # Layer 2: Codex as a Base Agent (hermit/agent/base/cli.py)
   concurrency: 1                       # one question at a time, and there is no eval
@@ -34,7 +34,7 @@ agent:
     project_doc_max_bytes: 204800           # 200 KiB: five retrieved reflections exceed Codex's default 32 KiB,
                                        # past which it silently drops the rest of AGENTS.md
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 template: reharness
 start_from: seed_adapter               # make_seed.py: SkillOpt's initial skill over the reharness template, an empty bank
 evolver:

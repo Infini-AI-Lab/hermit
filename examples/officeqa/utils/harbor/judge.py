@@ -7,7 +7,7 @@ codex.txt Harbor's own Codex agent writes; or the content of /app/answer.txt whe
 wins). Scoring is SkillOpt's: exact match after its normalisation, no tolerance; token F1 is recorded beside
 it. The normalisation is SkillOpt's envs/officeqa/evaluator.py (microsoft/SkillOpt, MIT), copied so that the
 container needs nothing but python3. Writes /logs/verifier/reward.txt (the exact match) and reward.json
-({reward, f1, answered}); prints the feedback utils/judge.py gives on the host."""
+({reward, f1, answered}); prints the feedback utils/benchmark/judge.py gives on the host."""
 from __future__ import annotations
 
 from collections import Counter

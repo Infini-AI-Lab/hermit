@@ -6,18 +6,18 @@
 # Before: python examples/officeqa/utils/harbor/build_tasks.py, and export OFFICEQA_DOCS_ROOT as it prints (the corpus,
 # mounted read-only at /app/docs/root_1). The recipe's "Through Harbor" section has the rest.
 data:
-  tasks: ../utils/.private/harbor_tasks/tasks.jsonl     # the same UIDs as ../utils/tasks.jsonl: the splits apply
-  train: ../utils/splits/train.txt
-  val: ../utils/splits/val.txt
-  test: ../utils/splits/test.txt
+  tasks: ../utils/benchmark/.private/harbor_tasks/tasks.jsonl     # the same UIDs as ../utils/benchmark/tasks: the splits apply
+  train: ../utils/benchmark/splits/train.txt
+  val: ../utils/benchmark/splits/val.txt
+  test: ../utils/benchmark/splits/test.txt
   step_size: 3
   shuffle_seed: 42
-task_info: ../utils/task-info/
+task_info: ../utils/benchmark/task-info/
 agent:
   name: harbor
   concurrency: 8
   params:
-    tasks_dir: ../utils/.private/harbor_tasks
+    tasks_dir: ../utils/benchmark/.private/harbor_tasks
     model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the backend's endpoint and key go to Codex in the container
     effort: medium
     web_search: false                    # as the Codex route: the answer is in the corpus, not on the web
@@ -32,7 +32,7 @@ agent:
 judge:
   path: hermit.harbor.judge              # the reward the container's judge wrote (exact match), its feedback line
 template: prompt-only@1.0
-start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
+start_from: ../utils/benchmark/seed_adapter  # SkillOpt's initial OfficeQA skill
 evolver:
   name: gepa
 llm:                           # the optimizer: GLM 5.3 at medium effort (the paper: GPT-5.5, medium)

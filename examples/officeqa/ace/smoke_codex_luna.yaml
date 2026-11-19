@@ -1,13 +1,13 @@
 # Smoke of run_codex_luna.yaml: 4 training questions one at a time, 2 validation questions, 4 test questions, one
 # epoch, one retry round; shows that ACE's levers work (bullets named, counters moving, bullets added).
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/smoke_train.txt
-  val: ../utils/splits/smoke_val.txt
-  test: ../utils/splits/smoke_test.txt
+  tasks: ../utils/benchmark/tasks
+  train: ../utils/benchmark/splits/smoke_train.txt
+  val: ../utils/benchmark/splits/smoke_val.txt
+  test: ../utils/benchmark/splits/smoke_test.txt
   step_size: 1                         # upstream's per-sample loop
   shuffle_seed: 42
-task_info: ../utils/task-info/
+task_info: ../utils/benchmark/task-info/
 agent:
   base: codex                          # Layer 2: Codex as a Base Agent (hermit/agent/base/cli.py)
   concurrency: 2
@@ -27,9 +27,9 @@ agent:
     project_doc_max_bytes: 409600      # 400 KiB, the ace template's limit: the skill with a growing playbook; past
                                        # Codex's default 32 KiB it would cut AGENTS.md (deploy refuses that)
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 template: ace@1.0
-start_from: seed_adapter               # make_seed.py writes it from ../utils/seed_adapter
+start_from: seed_adapter               # make_seed.py writes it from ../utils/benchmark/seed_adapter
 evolver:
   name: ace
   params:

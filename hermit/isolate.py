@@ -49,7 +49,12 @@ from hermit.redact import redact_name, redact_tree
 from hermit.sandbox import (LIMITS, NETWORK_MODES, PACKAGE, AllowlistProxy, Bind, Sandbox, framework_env,
                             gpu_list, hidden_paths, model_access, network_mode, owner_readable, package_closure,
                             program_paths, sanitized_copy, set_hidden)
+from hermit.environment.bwrap import task_sandbox
+from hermit.environment.spec import EnvironmentSpec
 from hermit.task import RunOutput, load_callable, output_record
+from hermit.task.verify import LOGS, SANDBOX_ENV, TESTS
+
+SCRIPT_VERIFIER = ("hermit.task.verify", "script")      # judge: {path, name} of a task directory's own verifier
 
 WORKER = PACKAGE / "worker.py"
 CLI_HOMES = {c.backend: (c.user_folder, c.home_var, c.home_files[0]) for c in CLIS.values()}   # folder, var, sign-in
@@ -482,8 +487,7 @@ class SandboxedAgent:
         missing = [p for p in envc.get("packages") or [] if p != "*" and not package_closure([p])]
         if missing:
             raise ValueError(f"environment.packages names distributions that are not installed: {missing}")
-        readable = config_paths(config, "environment.read", envc.get("read"))
-        writable = config_paths(config, "environment.write", envc.get("write"))
+        self.spec = EnvironmentSpec.from_section(envc, lambda where, values: config_paths(config, where, values))
         self.params = dict(agent.get("params") or {})
         if model_endpoint is not None:       # a model only a CLI reaches: its endpoint is out here, with the sign-in;
             self.params["model"] = endpoint_spec(model_endpoint, self.params["model"])   # the call gets a URL
@@ -498,8 +502,7 @@ class SandboxedAgent:
         for log_dir in self.logs:                        # the mount point of each call's own log directory
             log_dir.mkdir(exist_ok=True)
         self.others: list[Sandbox] = []                  # the judge's sandboxes, closed with this one
-        if self.cli:                                     # the CLI and the node it may run on, as installed
-            readable += program_paths(CLIS[self.cli].program)
+        program = program_paths(CLIS[self.cli].program) if self.cli else []   # a CLI and its node, as installed
         # A CLI agent on a login waits for the login's plan with every session on the machine: the plan's directory
         # (its PAUSE, MAX_USED, SLOTS and report) is the one outside, shared into every call; the worker inside runs
         # the Base Agent's wait, slot and holds there. A ChatGPT login's file is copied in; a Claude login signs in
@@ -513,25 +516,20 @@ class SandboxedAgent:
             if self.cli and codex_login.LOGINS.get(login) == self.cli else None
         if self.plan is not None:
             self.plan.mkdir(parents=True, exist_ok=True)
-        network, allow = envc.get("network") or "no-network", list(envc.get("allowed_hosts") or [])
-        wanted = [*model_hosts, *(codex_login.hosts(login) if self.plan is not None else [])]   # and a plan login's
-        if network != "public" and wanted:
-            network, allow = "allowlist", [*allow, *[h for h in wanted if h not in allow]]
-        isolated, wants_proxy = network_mode(network)
-        self.allow_proxy = AllowlistProxy(allow, log=records / f"network-{role}.jsonl" if records else None) \
-            if (isolated == "isolated" and wants_proxy and allow) else None
-        self.sandbox = Sandbox(enabled=True, network=network, allow=allow, readable=readable,
-                               writable=[*writable, *([self.plan] if self.plan is not None else [])],
-                               proxy_url=self.allow_proxy.url if self.allow_proxy else None,
-                               env_allow=[*(envc.get("env") or []), *model_keys], enforce=self.enforce,
-                               packages=list(envc.get("packages") or []), framework=True, record_dir=records,
-                               probe_absent=[*HOME_SECRETS, *run_secrets(config)],
-                               limits=dict(envc.get("resources") or {}), gpu=gpu_list(envc.get("gpu")), role=role)
+        # The task sandbox is the bwrap backend's (hermit.environment.bwrap), with what is the agent's own added: its
+        # model's hosts and key variable, a login's plan and its hosts, the CLI's installation.
+        self.sandbox, self.allow_proxy = task_sandbox(
+            self.spec, enforce=self.enforce, records=records, role=role,
+            probe_absent=[*HOME_SECRETS, *run_secrets(config)], extra_readable=program,
+            extra_writable=[self.plan] if self.plan is not None else [], extra_env=model_keys,
+            extra_hosts=[*model_hosts, *(codex_login.hosts(login) if self.plan is not None else [])])
         # What the config declares (not the CLI's installation), searched again for run records before calls.
-        self._recheck = Recheck([*config_paths(config, "environment.read", envc.get("read")),
-                                 *config_paths(config, "environment.write", envc.get("write"))])
+        self._recheck = Recheck([*self.spec.read, *self.spec.write])
 
     def __call__(self, task: dict, adapter: Path | None) -> RunOutput:
+        problems = self.spec.problems_for(task)           # a task directory asks for its environment: never less
+        if problems:
+            raise ValueError(f"task {task.get('id')!r} cannot run in this run's environment: {'; '.join(problems)}")
         self._recheck()
         work = self.work_root / f"{_safe(task.get('id', 'task'))}-{uuid.uuid4().hex[:8]}"
         home = work / "home"
@@ -757,6 +755,9 @@ class SandboxedJudge:
         self.readable = [*([config.path(module)] if module.endswith(".py") else []),     # the file, not its dir
                          *config_paths(config, "judge.tests", d["judge"].get("tests"))]
         self.collect = list(d["judge"].get("collect") or [])
+        # A task directory's own verifier (hermit.task.verify.script): each call shows the task's tests at /tests and a
+        # fresh log directory at /logs/verifier, as Harbor's verifier sees them.
+        self.script = self.spec == f"{SCRIPT_VERIFIER[0]}:{SCRIPT_VERIFIER[1]}"
         # The judge's own sandbox: the task sandbox's settings, and its probe checks only the home's secrets (the
         # judge, its tests and the data are its to read, and so is what sandbox.hide covers for everyone else). A
         # separate judge gets none of what the agent could write (environment.write): only what is collected. Nor
@@ -792,9 +793,21 @@ class SandboxedJudge:
             binds, writable = [Bind(fresh, str(work), True)], []
         # The log the agent returned is a sanitized copy beside its work directory: the judge reads it there.
         log_copy = [out.log.parent] if out.log and Path(out.log).parent.name == f"{work.name}.log" else []
+        env, keep = framework_env(), []
+        if self.script:
+            private = task.get("_private") or {}
+            if not private.get("tests"):
+                raise RuntimeError(f"task {task.get('id')!r} has no tests/ for its verifier script")
+            if (private.get("verifier") or {}).get("environment_mode") == "separate" and self.mode != "separate":
+                raise RuntimeError(f"task {task.get('id')!r} asks for a separate verifier (task.toml "
+                                   "[verifier] environment_mode); set judge.mode: separate")
+            logs = place / "verifier"
+            logs.mkdir()
+            binds = [*binds, Bind(Path(private["tests"]), TESTS), Bind(logs, LOGS, True)]
+            env[SANDBOX_ENV], keep = "1", [SANDBOX_ENV]
         try:
             payload = _run_worker(self.box, job, place, home=home, readable=[*self.readable, *log_copy],
-                                  writable=writable, env=framework_env(),
+                                  writable=writable, env=env, keep=keep,
                                   forward=self.agent.forward, timeout=self.agent.timeout, binds=binds)
         finally:
             for kept in (place, *writable):              # the judge holds the task's keys too: none kept

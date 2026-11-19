@@ -1,7 +1,7 @@
 # Upstream Harness²'s prompt slots for OfficeQA answered by Codex (run_codex.yaml): the per-task text its stage prompts
 # interpolate. They describe the work, never its measurement: upstream refuses the words benchmark, evaluation, grader,
 # rubric and score here. `work` names the deliverable's form, as upstream's own benchmarks do: the final answer is the
-# value alone, which is how the task's answers are taken (../utils/task-info/README.md). No session sees an answer.
+# value alone, which is how the task's answers are taken (../utils/benchmark/task-info/README.md). No session sees an answer.
 work: >-
   Answering a question about U.S. Treasury Bulletins (1939-2025). The agent is a Codex session in a workspace:
   `task.md` holds the question, the parsed pages its answer comes from and the bulletin files those pages are in; the

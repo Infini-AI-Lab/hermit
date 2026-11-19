@@ -38,11 +38,11 @@ def trials():
 
 
 def prepared() -> dict:
-    """../utils's data.json once utils/prepare.py has run (tasks.jsonl, splits/, the answers, the corpus it names), and
-    skillopt; the test is skipped without them."""
+    """../utils's data.json once utils/benchmark/prepare.py has run (tasks.jsonl, splits/, the answers, the corpus it
+    names), and skillopt; the test is skipped without them."""
     pytest.importorskip("skillopt")
     if not all((UTILS / name).exists() for name in ("tasks.jsonl", "splits", "data.json")):
-        pytest.skip("OfficeQA is not prepared here (examples/officeqa/utils/prepare.py)")
+        pytest.skip("OfficeQA is not prepared here (examples/officeqa/utils/benchmark/prepare.py)")
     data = json.loads((UTILS / "data.json").read_text())
     if not all((Path(data["docs"]) / sub).is_dir() for sub in ("transformed", "jsons")):
         pytest.skip(f"the OfficeQA corpus is not at {data['docs']}")
@@ -61,8 +61,8 @@ def context(tmp: Path, params: dict) -> StepContext:
 # ---------- the configs ----------
 
 @pytest.mark.parametrize("name, train, test, step_size, concurrency, target", [
-    ("run_codex_luna.yaml", "rows/train_k2.txt", "../utils/splits/test.txt", 100, 8, 0.95),
-    ("smoke_codex_luna.yaml", "rows/smoke_k2.txt", "../utils/splits/smoke_test.txt", 8, 4, 1.01)])
+    ("run_codex_luna.yaml", "rows/train_k2.txt", "../utils/benchmark/splits/test.txt", 100, 8, 0.95),
+    ("smoke_codex_luna.yaml", "rows/smoke_k2.txt", "../utils/benchmark/splits/smoke_test.txt", 8, 4, 1.01)])
 def test_the_configs_resolve_the_template_and_the_evolver_on_the_luna_row(tmp_path, name, train, test, step_size,
                                                                            concurrency, target):
     config = Config.load(EXAMPLE / name)

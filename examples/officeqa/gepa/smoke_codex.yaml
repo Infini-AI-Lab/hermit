@@ -4,13 +4,13 @@
 # per session). The published Codex-harness numbers were made with SkillOpt's own Codex harness (the skill as
 # SKILL.md, 180 s sessions), which this replaces.
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/smoke_train.txt
-  val: ../utils/splits/smoke_val.txt
-  test: ../utils/splits/smoke_test.txt
+  tasks: ../utils/benchmark/tasks
+  train: ../utils/benchmark/splits/smoke_train.txt
+  val: ../utils/benchmark/splits/smoke_val.txt
+  test: ../utils/benchmark/splits/smoke_test.txt
   step_size: 2
   shuffle_seed: 42
-task_info: ../utils/task-info/
+task_info: ../utils/benchmark/task-info/
 agent:
   base: codex                          # Layer 2: Codex as a Base Agent (hermit/agent/base/cli.py)
   concurrency: 4
@@ -29,9 +29,9 @@ agent:
     project_doc_max_bytes: 65536       # 64 KiB: the skill (up to 40 KB) with the deployment's notes; past
                                        # Codex's default 32 KiB it would cut AGENTS.md (deploy refuses that)
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 template: prompt-only@1.0
-start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
+start_from: ../utils/benchmark/seed_adapter  # SkillOpt's initial OfficeQA skill
 evolver:
   name: gepa
 llm:                           # the optimizer: GLM 5.3 at medium effort (the paper: GPT-5.5, medium)

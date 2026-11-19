@@ -1,5 +1,5 @@
 .private/
-tasks.jsonl
+tasks/
 splits/
 data.json
 seed_adapter/

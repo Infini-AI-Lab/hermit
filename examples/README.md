@@ -210,7 +210,7 @@ evaluate with a method's config:
 
 ```bash
 python -m pip install -e . --group skillopt --group gepa
-python examples/officeqa/utils/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
+python examples/officeqa/utils/benchmark/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
 export FIREWORKS_API_KEY=...                   # the configs name GLM models on Fireworks
 hermit check --config examples/officeqa/gepa/smoke.yaml
 hermit train --config examples/officeqa/gepa/smoke.yaml

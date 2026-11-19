@@ -1,12 +1,12 @@
 # Smoke: 4 training questions in 2 steps of 2, 4 test questions, one epoch. Confirms the Continual Harness Evolver
 # runs end to end on the Codex harness (check -> train -> eval), not a measurement. The full run is run_codex.yaml.
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/smoke_train.txt
-  test: ../utils/splits/smoke_test.txt
+  tasks: ../utils/benchmark/tasks
+  train: ../utils/benchmark/splits/smoke_train.txt
+  test: ../utils/benchmark/splits/smoke_test.txt
   step_size: 2
   shuffle_seed: 42
-task_info: ../utils/task-info/
+task_info: ../utils/benchmark/task-info/
 agent:
   base: codex                          # Layer 2: Codex as a Base Agent (hermit/agent/base/cli.py)
   concurrency: 2
@@ -25,9 +25,9 @@ agent:
     project_doc_max_bytes: 65536       # 64 KiB: the skill (up to 40 KB) with the deployment's notes; past
                                        # Codex's default 32 KiB it would cut AGENTS.md (deploy refuses that)
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 template: continual-harness@1.1
-start_from: seed_adapter               # make_seed.py writes it from ../utils/seed_adapter
+start_from: seed_adapter               # make_seed.py writes it from ../utils/benchmark/seed_adapter
 evolver:
   name: continual_harness
   params:

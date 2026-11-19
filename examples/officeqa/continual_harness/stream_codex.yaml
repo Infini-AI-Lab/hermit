@@ -8,11 +8,11 @@
 # clock and starting text (SkillOpt's initial skill as AGENTS.md) are those of ../harness2_stream/run_codex.yaml.
 # The stream's accuracy is the mean of the steps' rollout scores (steps.jsonl); no `hermit eval` follows.
 data:
-  tasks: ../utils/tasks.jsonl
-  train: stream_s0.txt                 # upstream Harness²'s seed-0 order of ../utils/splits/test.txt
+  tasks: ../utils/benchmark/tasks
+  train: stream_s0.txt                 # upstream Harness²'s seed-0 order of ../utils/benchmark/splits/test.txt
   step_size: 1                         # one question per step
   shuffle: false                       # the stream's own order
-task_info: ../utils/task-info/
+task_info: ../utils/benchmark/task-info/
 agent:
   base: codex                          # Layer 2: Codex as a Base Agent (hermit/agent/base/cli.py)
   concurrency: 1
@@ -31,7 +31,7 @@ agent:
     project_doc_max_bytes: 65536       # 64 KiB: the skill (up to 40 KB) with the deployment's notes; past
                                        # Codex's default 32 KiB it would cut AGENTS.md (deploy refuses that)
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 template: continual-harness@1.1
 start_from: seed_adapter               # make_seed.py: SkillOpt's initial skill as AGENTS.md, G / K / M empty
 evolver:

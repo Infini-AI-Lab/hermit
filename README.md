@@ -300,7 +300,7 @@ Prepare the dataset and model endpoint as described in the [OfficeQA recipe](htt
 
 ```bash
 python -m pip install -e . --group skillopt --group gepa
-python examples/officeqa/utils/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
+python examples/officeqa/utils/benchmark/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
 hermit check --config examples/officeqa/gepa/smoke.yaml
 hermit train --config examples/officeqa/gepa/smoke.yaml
 hermit eval --config examples/officeqa/gepa/smoke.yaml --adapter final

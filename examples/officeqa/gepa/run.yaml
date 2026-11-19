@@ -2,20 +2,20 @@
 # default reflection minibatch of 3, Pareto selection over the 24 validation questions, 4 epochs over the 50 training
 # questions. GLM 5.3 Flash acts.
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/train.txt
-  val: ../utils/splits/val.txt
-  test: ../utils/splits/test.txt
+  tasks: ../utils/benchmark/tasks
+  train: ../utils/benchmark/splits/train.txt
+  val: ../utils/benchmark/splits/val.txt
+  test: ../utils/benchmark/splits/test.txt
   step_size: 3
   shuffle_seed: 42
-task_info: ../utils/task-info/
+task_info: ../utils/benchmark/task-info/
 agent:
   name: ../utils/agent/agent.py:OfficeQAAgent
   concurrency: 8
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 template: prompt-only@1.0
-start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
+start_from: ../utils/benchmark/seed_adapter  # SkillOpt's initial OfficeQA skill
 evolver:
   name: gepa
 model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the agent's (agent.params.model), named so its key and
@@ -24,7 +24,7 @@ llm:                           # the optimizer: GLM 5.3 at medium effort (the pa
   model: fireworks/accounts/fireworks/models/glm-5p3     # <backend>/<model id>; the price is the backend's
   extra_body: {reasoning_effort: medium}
 environment:                         # the task sandbox: the agent's code, its data and the corpus
-  read: [../utils/agent, ../utils/data.json, ../utils/documents]
+  read: [../utils/agent, ../utils/benchmark/data.json, ../utils/benchmark/documents]
   packages: [skillopt]
 sandbox:
   enabled: true

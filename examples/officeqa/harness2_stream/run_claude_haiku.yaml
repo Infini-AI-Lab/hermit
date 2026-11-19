@@ -13,11 +13,11 @@
 # them, cap the plan's usage and the sessions at once (hermit.agent.base.login). Started by launch.sh:
 # CONFIG=run_claude_haiku.yaml.
 data:
-  tasks: ../utils/tasks.jsonl
-  train: stream_s0.txt                 # launch.sh: upstream's order of ../utils/splits/test.txt for SEED
+  tasks: ../utils/benchmark/tasks
+  train: stream_s0.txt                 # launch.sh: upstream's order of ../utils/benchmark/splits/test.txt for SEED
   step_size: 1                         # one question per step
   shuffle: false                       # the stream's own order
-task_info: ../utils/task-info
+task_info: ../utils/benchmark/task-info
 agent:
   base: claude                         # Layer 2: Claude Code as a Base Agent (hermit/agent/base/cli.py)
   concurrency: 2                       # the INV and DOM probes of a question run side by side
@@ -35,7 +35,7 @@ agent:
     web_search: false                  # set explicitly: WebSearch and WebFetch denied (they run at Anthropic)
     timeout_s: 3600                    # the paper's wall clock per execution
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 template: harness2-codex@1.1           # the same tree as the Codex columns: Claude Code takes each part in its place
 start_from: seed_adapter_codex         # H0 (launch.sh runs make_seed_codex.py)
 evolver:

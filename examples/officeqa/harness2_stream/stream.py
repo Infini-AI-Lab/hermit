@@ -2,7 +2,7 @@
 """Write the task stream for data.train: a split in upstream Harness²'s order for a seed (harness2.core.schedule
 .stream_order: the sorted ids, shuffled by Random(f"{seed}:{domain}")), one id per line. Several splits: their union.
 
-    python stream.py --seed 0 --split ../utils/splits/test.txt --out stream_s0.txt [--max 2] [--skip 10]
+    python stream.py --seed 0 --split ../utils/benchmark/splits/test.txt --out stream_s0.txt [--max 2] [--skip 10]
 """
 import argparse
 from pathlib import Path

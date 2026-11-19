@@ -21,7 +21,7 @@ with the machine's standalone Codex, and `oq-egress-login` on the `oq-sandbox` n
 and auth.openai.com). Then, from the repository root:
 
 ```bash
-python examples/officeqa/utils/prepare.py --csv ... --docs ...                     # once (../README.md)
+python examples/officeqa/utils/benchmark/prepare.py --csv ... --docs ...                     # once (../README.md)
 python examples/officeqa/ahe_adapter/make_rows.py                                  # rows/: k = 2 trial rows
 python examples/officeqa/ahe_adapter/make_seed.py                                  # seed_adapter/: H_0
 hermit check --config examples/officeqa/ahe_adapter/smoke_codex_luna.yaml

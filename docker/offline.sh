@@ -117,7 +117,7 @@ python examples/clbench_database/utils/prepare.py --clbench "$CLBENCH_DIR"
 echo "== examples/clbench_poker"
 python examples/clbench_poker/utils/prepare.py --clbench "$CLBENCH_DIR"
 echo "== examples/officeqa"
-python examples/officeqa/utils/prepare.py --csv "$OFFICEQA_DIR/officeqa_full.csv" --docs "$OFFICEQA_DIR/treasury_bulletins_parsed"
+python examples/officeqa/utils/benchmark/prepare.py --csv "$OFFICEQA_DIR/officeqa_full.csv" --docs "$OFFICEQA_DIR/treasury_bulletins_parsed"
 '
 
 ENVFILE=
