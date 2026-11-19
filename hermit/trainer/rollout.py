@@ -80,7 +80,8 @@ def run_one(task: Task | dict, adapter: Path | None, pipeline, judge, environmen
         return _failed_record(task, given, started, exc, "the pipeline failed")
     failed = (out.extra or {}).get("session_failed")
     if failed:                                           # no answer to judge; what it spent and its log still count
-        return {"id": given.get("id", task.id), "input": given, "status": "error", "error": f"the agent's session failed: {failed}",
+        return {"id": given.get("id", task.id), "input": given, "status": "error",
+                "error": f"the agent's session failed: {failed}",
                 "output": None, "judge": {"score": 0.0, "feedback": f"the agent's session failed: {failed}"},
                 "cost_usd": out.cost_usd, "wall_s": round(out.wall_s or (time.time() - started), 2),
                 "api_speed": out.api_speed, "tokens": out.tokens, "log": str(out.log) if out.log else None,
