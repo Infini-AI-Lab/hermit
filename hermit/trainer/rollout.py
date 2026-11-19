@@ -143,7 +143,7 @@ def environment_rollout(task: Task, given: dict, adapter: Path | None, pipeline,
     `_run_trial`). What every run used is the rollout's (_attempts). Returns the output, or the record of a pipeline
     that failed on its own (no environment's fault: the run's failed record, as for any task)."""
     from hermit.environment.harbor import EnvironmentUnavailable
-    from hermit.environment.harbor_errors import NO_RETRY, pipeline_cause
+    from hermit.environment.harbor_errors import INSTALL_FAILED, NO_RETRY, pipeline_cause
     retries, wait, runs = environments.infra_retries, environments.infra_wait_s, []
     stopping = getattr(environments, "stopping", None)
     while True:
@@ -164,7 +164,8 @@ def environment_rollout(task: Task, given: dict, adapter: Path | None, pipeline,
                         return _failed_record(task, given, started, exc, "the pipeline failed")
                     cause, again = read
                     final = not again
-                    out = _infra_output(task, cause, f"{type(exc).__name__}: {exc}", begun, ran=True)
+                    said = f"{type(exc).__name__}: {exc}"
+                    out = _infra_output(task, cause, said, begun, ran=INSTALL_FAILED not in said)
                 else:
                     logs = Path(out.log) if out.log and Path(out.log).is_dir() else None
                     verdict = env.verify(agent_logs=logs)

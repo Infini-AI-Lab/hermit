@@ -243,6 +243,9 @@ PIPELINE_INFRA = ((re.compile(r"\bmodel_rejected\b|chat/completions HTTP 40[1-4]
                               r"the image's own context file could not be read"), "harbor_failed", True))
 
 
+INSTALL_FAILED = "the CLI's install failed"     # before any session: nothing was spent (its cost 0, as the runner's)
+
+
 def pipeline_cause(message: str) -> tuple[str, bool] | None:
     """(the infra cause of an acting agent's failure, whether it runs again) by PIPELINE_INFRA, or None: the
     pipeline's own failure, a failed run as any."""

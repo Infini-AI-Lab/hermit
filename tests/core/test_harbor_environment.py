@@ -603,6 +603,14 @@ def test_a_session_the_provider_could_not_serve_is_infra_and_any_other_pipeline_
         out = rollout.environment_rollout(task, task.given(), None, failing, Environments(tmp_path), 0.0,
                                           pause=lambda s: None)
         assert (len(seen), out.extra["unscored"]) == (runs, cause), said
+    from hermit.environment.harbor_errors import INSTALL_FAILED
+
+    def uninstalled(task, adapter, environment=None):
+        raise RuntimeError(f"EnvironmentUnavailable: {INSTALL_FAILED}: TimeoutError")
+
+    out = rollout.environment_rollout(task, task.given(), None, uninstalled, Environments(tmp_path, infra_retries=0),
+                                      0.0, pause=lambda s: None)
+    assert out.extra["unscored"] == "harbor_failed" and out.cost_usd == 0.0     # no session ran: nothing spent
 
     def broken(task, adapter, environment=None):
         raise KeyError("a bug of the agent's own")

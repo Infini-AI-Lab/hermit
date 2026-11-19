@@ -570,7 +570,7 @@ class HarborEnvironment(Environment):
         except (RuntimeError, TimeoutError) as exc:      # the agent's setup failed: infra, as Harbor's trial grades it
             if isinstance(exc, EnvironmentUnavailable):
                 raise
-            raise EnvironmentUnavailable(f"the CLI's install failed: {exc}"[-3000:], "sandbox_failed") from None
+            raise EnvironmentUnavailable(f"{errors.INSTALL_FAILED}: {exc}"[-3000:], "sandbox_failed") from None
         return reply.get("version")
 
     def ensure(self, packages) -> None:
