@@ -61,7 +61,13 @@ class EnvironmentSpec:
                     out.append(f"the task's {phase} allows {wild}: wildcard hosts are not supported; name the hosts")
                 if missing and self.network == "allowlist":
                     out.append(f"the task's {phase} needs to reach {missing}, which environment.allowed_hosts lacks")
+        if task.get("steps"):                            # each step would start where the last one left nothing
+            out.append(f"the task has {task['steps']} steps, which run in one environment one after another: a "
+                       "multi-step task is not supported here yet")
         limit = self.resources.get("memory_mb")
+        if verifier and limit and task.get("verifier_memory_mb") and int(task["verifier_memory_mb"]) > int(limit):
+            out.append(f"the task's verifier needs {task['verifier_memory_mb']} MB of memory; "
+                       f"environment.resources.memory_mb is {limit}")
         if limit and task.get("memory_mb") and int(task["memory_mb"]) > int(limit):
             out.append(f"the task needs {task['memory_mb']} MB of memory; environment.resources.memory_mb is {limit}")
         return out

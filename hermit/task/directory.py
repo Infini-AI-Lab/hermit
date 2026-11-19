@@ -206,8 +206,12 @@ def tasks_of(tasks_dir: Path, *, rollouts: int = 1, view: Callable[[dict], dict]
                        "verifier": {k: v for k, v in verifier.items() if k in VERIFIER_KEYS}}
             if private["tests"] is None and private["step_tests"]:
                 private["tests"], private["step_tests"] = private["step_tests"], None
+            verifier_env = verifier_environment(config, step)[1]
             private["needs"] = {"network": row["network"], "allowed_hosts": allowed_hosts(config, step),
-                                "memory_mb": row.get("memory_mb"), "agent_timeout_sec": row.get("agent_timeout_sec")}
+                                "memory_mb": row.get("memory_mb"), "agent_timeout_sec": row.get("agent_timeout_sec"),
+                                "verifier_memory_mb": resources({"environment": verifier_env})["memory_mb"]
+                                if verifier_env is not None else None,
+                                "steps": row.get("steps")}
             out[row["id"]] = Task(id=row["id"], public=view(row) if view else row, private=private)
     if not out:
         raise ValueError(f"no task directories (with {TASK_FILE}) under {tasks_dir}")

@@ -285,8 +285,10 @@ task.toml asks for `environment_mode = "separate"` is refused under `mode: share
 settings come before the task's, its mode and environment resolved as Harbor resolves them, and its `tests/` are laid
 over the task's (its `test.sh` first); a reward that is not a finite number is an error; `[verifier.env]` is set for the script, with `${NAME}` and `${NAME:-default}` taken
 from the judge sandbox's environment (`environment.env`), as Harbor resolves them; the judge's deadline is at least the
-verifier's `timeout_sec` and a minute. Files a task places in the agent's
-workspace before it starts are not supported yet.
+verifier's `timeout_sec` and a minute. The workspace is the agent's own
+(`HERMIT_WORKSPACE`, its output's `extra.workspace`, else the directory it ran in). Not supported here yet: files a task
+places in the agent's workspace before it starts, and a multi-step task (its steps share one environment in order),
+which is refused.
 
 ## Benchmarks
 
