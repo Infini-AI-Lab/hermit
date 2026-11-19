@@ -58,7 +58,8 @@ READ_BY = {"optimizers": {"ahe"},                       # the AHE example's conf
            "harness2": {"continual_harness"}}           # Continual Harness deploys with the harness2_codex template
 # what every method is built on: a change here runs every group (tests/core/test_selection.py checks that every
 # framework module these import, or a method's tests import, is here too)
-SHARED = ["hermit/agent/__init__.py", "hermit/agent/base/*", "hermit/agent/environment/*", "hermit/agent/acting/*",
+SHARED = ["hermit/agent/__init__.py", "hermit/agent/base/*", "hermit/environment/*", "hermit/agent/environment/*",
+          "hermit/agent/acting/*",
           "hermit/harbor/*",
           "hermit/agent/evolver/*.py",
           "hermit/agent/evolver/methods/__init__.py",
@@ -67,7 +68,7 @@ SHARED = ["hermit/agent/__init__.py", "hermit/agent/base/*", "hermit/agent/envir
           "hermit/redact.py", "hermit/_moved.py",           # the moved modules' forwards in hermit/agent/base
           "hermit/hosts/*",
           "hermit/runtime/*", "hermit/adapter/*.py", "hermit/config.py", "hermit/defaults.yaml", "hermit/tools.py",
-          "hermit/task.py", "hermit/__init__.py", "hermit/adapter/templates/prompt_only/*",   # the toy task's
+          "hermit/task/*", "hermit/common.py", "hermit/__init__.py", "hermit/adapter/templates/prompt_only/*",   # toy
           "pyproject.toml", "conftest.py", "tests/conftest.py", "tests/fakes.py",
           "tests/toy_task.py", "tests/selection.py",
           "tests/pi_stand.py", "tests/fixtures/pi/*",                   # the Pi stand-in: the methods'

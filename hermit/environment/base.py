@@ -68,7 +68,7 @@ class Environment:
     call gives one, and a limit it cannot keep refused (Unsupported)."""
     isolation = "none"
     sandbox = None                         # the run's hermit.sandbox.Sandbox, under isolation sandbox
-    container: dict = {}                   # the container's settings (hermit.agent.environment.docker), under container
+    container: dict = {}                   # the container's settings (hermit.environment.docker), under container
 
     def __init__(self, workspace: Path | str, limits: Limits | None = None):
         self.workspace = Path(workspace)
@@ -296,7 +296,7 @@ class Sandboxed(Environment):
 
 
 class Container(Environment):
-    """A Docker container of the session's own (isolation container, hermit.agent.environment.docker): the workspace
+    """A Docker container of the session's own (isolation container, hermit.environment.docker): the workspace
     and the session's home bound into it, its network the egress proxy's. `settings` are the container settings
     (image, network, proxy, ...: docker.settings). A CLI's session runs there; other commands are not run there yet."""
     isolation = "container"

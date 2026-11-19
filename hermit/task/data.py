@@ -1,4 +1,4 @@
-"""The evolving task: data and splits, the user's pipeline (how one task is run) and judge (how it is scored).
+"""A task set's data: its rows (`tasks.jsonl`) and splits, the judge's verdict and the records a run keeps.
 
     def run(task: dict, adapter: Path | None) -> RunOutput        # pipeline; adapter=None = no adapter at all
     def score(task: dict, output: RunOutput) -> JudgeResult | dict  # judge
@@ -6,24 +6,11 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-import importlib
-import importlib.util
 import json
 from pathlib import Path
-import sys
-from typing import Any, Callable
+from typing import Callable
 
-
-@dataclass
-class RunOutput:
-    output: Any                          # what the judge scores
-    log: Path | None = None              # the host's original log (the trajectory), a file or a directory
-    cost_usd: float | None = None        # None = unknown
-    wall_s: float = 0.0
-    api_speed: dict | None = None        # for example output tokens per second
-    messages: list | None = None         # optional normalised message list of the trajectory
-    tokens: int | None = None            # input + output tokens, if known
-    extra: dict = field(default_factory=dict)
+from hermit.common import RunOutput, load_callable
 
 
 @dataclass
@@ -31,28 +18,6 @@ class JudgeResult:
     score: float
     feedback: str = ""
     extra: dict = field(default_factory=dict)
-
-
-def load_callable(spec: str, base: Path) -> Callable:
-    """'file.py:function' relative to `base`, or 'package.module:function'."""
-    module_part, _, name = spec.partition(":")
-    if not name:
-        raise ValueError(f"Expected 'file.py:function' or 'module:function', got {spec!r}")
-    if module_part.endswith(".py"):
-        path = (Path(base) / module_part).resolve()
-        mod_name = f"_task_{path.stem}_{abs(hash(path))}"
-        mod_spec = importlib.util.spec_from_file_location(mod_name, path)
-        module = importlib.util.module_from_spec(mod_spec)
-        sys.modules[mod_name] = module
-        if str(path.parent) not in sys.path:
-            sys.path.insert(0, str(path.parent))
-        mod_spec.loader.exec_module(module)
-    else:
-        module = importlib.import_module(module_part)
-    fn = getattr(module, name, None)
-    if not callable(fn):
-        raise ValueError(f"{spec} is not callable")
-    return fn
 
 
 def load_pipeline(spec: str, base: Path, params: dict | None = None) -> Callable:

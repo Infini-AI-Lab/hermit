@@ -41,7 +41,7 @@ import subprocess
 import time
 
 from hermit.agent.base.interface import LoginFailed, make
-from hermit.agent.environment import placed
+from hermit.environment import placed
 from hermit.agent.base.records import parse_log, price_usage   # noqa: F401 (re-exported)
 from hermit.agent.evolver.base import Context, Evolver, StepContext, StepResult, Usage
 

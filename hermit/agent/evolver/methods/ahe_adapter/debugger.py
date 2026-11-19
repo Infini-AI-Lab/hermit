@@ -51,7 +51,7 @@ import threading
 import time
 
 from hermit.agent.base.interface import LoginFailed, Unsupported, make
-from hermit.agent.environment import placed
+from hermit.environment import placed
 from hermit.agent.base.trajectory import CODEX_STREAM, STREAMS, log_steps
 from hermit.agent.evolver.base import Usage
 from hermit.agent.evolver.methods.ahe_adapter import trajectory as _trajectory

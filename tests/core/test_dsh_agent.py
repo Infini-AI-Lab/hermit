@@ -22,7 +22,7 @@ from hermit.agent.base import cli as base_cli
 from hermit.agent.base import trajectory
 from hermit.agent.base.interface import Unsupported, make
 from hermit.agent.base.tool import Tool
-from hermit.agent.environment import Container, Local, Sandboxed, placed
+from hermit.environment import Container, Local, Sandboxed, placed
 from hermit.agent.model.backends import bind_agent_params, registry
 
 ROOT = Path(__file__).resolve().parents[2]

@@ -4,4 +4,4 @@ from hermit._moved import forward
 __getattr__ = forward(__name__, "hermit.agent.acting", {
     "base": "hermit.agent.acting.agent", "cli": "hermit.agent.acting.workspace", "react": "hermit.agent.acting.react",
     "tools": "hermit.agent.acting.tools",
-    "container": "hermit.agent.environment.docker", "login": "hermit.agent.base.login"})
+    "container": "hermit.environment.docker", "login": "hermit.agent.base.login"})

@@ -10,7 +10,7 @@ from hermit.adapter.manifest import CARD, MANIFEST
 from hermit.config import Config
 from hermit.isolate import agent_pipeline, judge_for
 from hermit.redact import redact_path, redact_value
-from hermit.task import TaskData
+from hermit.task import Benchmark
 from hermit.trainer.budget import Budget
 from hermit.trainer.rollout import run_tasks
 from hermit.tree import ROOT_TAG, Tree
@@ -18,9 +18,7 @@ from hermit.tree import ROOT_TAG, Tree
 
 def evaluate(config: Config, adapter: str, *, log=print) -> dict:
     d = config.data
-    data = TaskData(config.path(d["data"]["tasks"]), config.path(d["data"]["train"]),
-                    config.path(d["data"]["val"]), config.path(d["data"]["test"]))
-    tests = data.rows("test")
+    tests = Benchmark.from_config(config).split("test")
     if not tests:
         raise SystemExit("eval needs data.test")
     run_name = config.run_name()
@@ -53,7 +51,7 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
         raise
     budget = Budget()
     t0 = time.time()
-    per_task: dict[str, list[float]] = {t["id"]: [] for t in tests}
+    per_task: dict[str, list[float]] = {t.id: [] for t in tests}
     errors = 0                       # runs the pipeline or judge failed on (scored 0)
     try:
         with open(out / "results.jsonl", "w") as f:

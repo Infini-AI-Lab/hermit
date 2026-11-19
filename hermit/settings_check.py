@@ -18,7 +18,7 @@ from hermit.agent.evolver.loader import find, instantiate, load_class
 from hermit.spec import check_spec
 from hermit.agent.acting.agent import load_agent
 from hermit.isolate import agent_pipeline, config_paths, host_pipeline, judge_for, validate as validate_sandboxes
-from hermit.task import TaskData, load_callable
+from hermit.task import Benchmark, load_callable
 from hermit.trainer.rollout import run_one
 from hermit.trainer.trainer import needs_errors, warnings_for
 
@@ -100,8 +100,7 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
         problems.append("task_info/README.md is missing")
     data = None
     try:
-        data = TaskData(config.path(d["data"]["tasks"]), config.path(d["data"]["train"]),
-                        config.path(d["data"]["val"]), config.path(d["data"]["test"]))
+        data = Benchmark.from_config(config)
         problems += data.overlaps()
         if not data.splits["train"]:
             problems.append("the training split is empty")

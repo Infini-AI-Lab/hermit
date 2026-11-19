@@ -55,7 +55,7 @@ import time
 
 from hermit.agent.base import login as codex_login
 from hermit.agent.base.interface import LoginFailed, make
-from hermit.agent.environment import placed
+from hermit.environment import placed
 from hermit.agent.model.backends import CLAUDE_ENV
 from hermit.agent.evolver.agent import AgentEvolver
 from hermit.agent.evolver.base import FinalResult, StepContext, StepResult, Usage
