@@ -58,7 +58,7 @@ hooks around every tool call.
   `vllm/nvidia/nvidia/nemotron-3.5-lightning`. Endpoint and key settings come from Hermit's
   [model backends](../../docs/guides/model-backends.md), just as for the other task integrations. Legacy
   `base_url`/`api_key_env` settings remain supported. Requests retry on timeouts and server errors (`max_retries`).
-- Every model call goes through the shared `direct` Base Agent and `ChatClient`, including the optional classifier.
+- Every model call goes through Layer 1's single model call (`Direct`) and `ChatClient`, including the optional classifier.
   Native model names without backend connection settings are rejected.
 - The episode fails, and never counts as secure, on any of these: a truncated response, a malformed tool call, a
   textual tool call, unfinished reasoning, or exhausting `max_iters`.

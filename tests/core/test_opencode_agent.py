@@ -463,7 +463,8 @@ def test_with_the_opencode_cli_a_session_reaches_its_model_and_its_tools(tmp_pat
     monkeypatch.setenv("PWD", str(tmp_path / "caller"))      # where OpenCode would work if it went by PWD
     work = tmp_path / "work"
     work.mkdir()
-    settings = {**mock_params(url), "web_search": False, "home": str(tmp_path / "home"), "timeout_s": 300, "effort": "high"}
+    settings = {**mock_params(url), "web_search": False, "home": str(tmp_path / "home"), "timeout_s": 300,
+                "effort": "high"}
     box = None
     if isolation == "sandbox":
         box = Sandbox(network="isolated", env_allow=[], writable=[work], role="agent",

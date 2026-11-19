@@ -107,7 +107,8 @@ overrides its hooks, never a copy: `call_model` (one request), `before_tool` (an
 cap reached, a call refused), `after_tool` (a call's result as the model reads it) and `stopped` (an end besides an
 answer). A benchmark whose own program runs some calls drives it step by step: `loop = agent.start(prompt, tools=...,
 external=[names])`, then `agent.step(loop)`; the calls of an external tool wait in `loop.pending` until the driver
-gives their results (`loop.give(call_id, content)`).
+gives their results (`agent.give(loop, call_id, content)`, which passes them through `after_tool`; `before_tool`
+runs before a call waits).
 
 ## Environments
 
@@ -121,11 +122,15 @@ environment from the call; nothing about where it runs is a setting.
 | `Container(path, limits, settings=...)` | container | A Docker container of the session's own (`hermit/agent/environment/docker.py`: image, network, proxy); a CLI's session runs there |
 
 API: `exec(command, cwd=, env=, timeout=, stdin=) → ExecResult(code, output, timed_out)` runs a command there (a
-tool of the agent's, a check), `upload(source, target)` and `download(source, target)` move files in and out of the
-workspace, `path(relative)` names a path of the workspace and refuses one outside it, and `with_limits(limits)` is a
-copy with other limits. `placed(path, sandbox)` is the environment an Evolver's own sessions work in: `Sandboxed` when
-the run's sandbox is on, `Local` otherwise. The interface follows Harbor's environments (`start`, `exec`, `upload`,
-`download`), so that an agent can work in a Harbor environment the same way.
+tool of the agent's, a check) within the environment's limits: its readable mounts in place, its `timeout_s` unless
+the call gives a timeout (the command's whole process group is killed when it runs out), and a limit it cannot keep
+refused (`Unsupported`: a `Local` one hides no path and limits no network). `upload(source, target)` and
+`download(source, target)` move files in and out of the workspace (a link is copied as the link it is),
+`path(relative)` names a path of the workspace and refuses one outside it, and `with_limits(limits)` is a copy with
+other limits. `placed(path, sandbox)` is the environment an Evolver's own sessions work in: `Sandboxed` when the run's
+sandbox is on, `Local` otherwise. The operations follow Harbor's environments (`exec`, `upload`, `download`), so that
+a later adapter can give an agent a Harbor environment the same way; that adapter is not in Hermit yet, and a
+`Container` runs a CLI's session but no other command yet (its `exec` is not implemented).
 
 ## Layer 3: Agent
 
@@ -144,16 +149,18 @@ What the Base Agent is used for. Two kinds:
   `context_tool`, `tools`, `skills`, `agents`, `hooks`). A CLI takes them all (a deployment connects each where the
   CLI has a place and names the rest in the context); `react` takes the context, the context tool and tools. A method
   says what its adapter needs the acting agent to take (`needs` in its `evolver.yaml`); a run whose agent does not
-  take it is refused before it starts, never run with the export silently dropped.
-- The **Evolver Agent** learns. Its API to the Trainer is `step(ctx)` and `finalize(ctx)`. It reads the acting
-  runs' trajectories and writes a new adapter, calling a Base Agent: `direct` for methods that decide every step in
-  their own code (GEPA, SkillOpt, ReHarness, Continual Harness), `codex`, `claude`, `pi`, `opencode`, `dsh` or
-  `hermes` for methods whose learner is an agent (Meta-Harness Adapter, the `codex`, `claude`, `pi`, `opencode`, `dsh`
-  and `hermes` Evolvers).
-  With `evolver.base: pi`, a method that decides every step in its own code calls Pi as its model
-  ([every method on Pi](../methods/agent.md#every-method-on-pi)). The run's model reaches an Evolver as
-  `ctx.agent`, a single model call (`Direct`, Layer 1) metered against the budget; `ask(ctx.agent, messages,
-  max_tokens=...)` returns the reply as the `llm` tool does.
+  take it is refused before it starts, never run with the export silently dropped. What is checked: the built-in
+  agents (Harbor's by its acting agent) and a task's own class or function that runs on this machine; a task's class
+  that runs only inside its sandbox is not imported to check it, and an agent that declares no `supports` is not
+  checked.
+- The **Evolver Agent** learns. Its API to the Trainer is `step(ctx)` and `finalize(ctx)`. It reads the acting runs'
+  trajectories and writes a new adapter: methods that decide every step in their own code (GEPA, SkillOpt, ReHarness,
+  Continual Harness) make single model calls (`Direct`, Layer 1); methods whose learner is an agent call a Base Agent,
+  `codex`, `claude`, `pi`, `opencode`, `dsh` or `hermes` (Meta-Harness Adapter, the `codex`, `claude`, `pi`,
+  `opencode`, `dsh` and `hermes` Evolvers). With `evolver.base: pi`, a method that decides every step in its own code
+  calls Pi as its model ([every method on Pi](../methods/agent.md#every-method-on-pi)). The run's model reaches an
+  Evolver as `ctx.agent`, a single model call (`Direct`, Layer 1) metered against the budget; `ask(ctx.agent,
+  messages, max_tokens=...)` returns the reply as the `llm` tool does.
 
 What is specific to a task belongs to Layer 3: its environment, rules, turns, scoring, workspace and tools. A
 benchmark that defines its own steps keeps its loop in Layer 3 unchanged and makes every model call through Layer
@@ -182,15 +189,15 @@ it. Layer 3 gathers tools from three sources and passes only the allowed ones to
 |---|---|
 | The task | OfficeQA's file tools in direct chat, CL-Bench's game actions |
 | The adapter | MWM's `wm`, lean_collab's team tools |
-| The Trainer | `check_spec`, `run_agent`, `budget`, and `llm` (the Evolver's `direct`, for programs outside the process) |
+| The Trainer | `check_spec`, `run_agent`, `budget`, and `llm` (the Evolver's model calls, `Direct`, for programs outside the process) |
 
 A tool always runs on the framework's side, with Layer 3's permissions; a declared tool runs in a sandbox of its own
 (a template's strict, a task's built from `environment`).
-Each Base Agent offers the tools to the model in its own way:
+Each Base Agent offers the tools to the model in its own way (and a single model call, `Direct`, which is no agent):
 
 | Base Agent | How the model gets the tools | Who runs a call |
 |---|---|---|
-| `direct` | Their schemas in the API request | Layer 3, which then calls `direct` again |
+| `Direct` (Layer 1, no agent) | Their schemas in the API request | Layer 3, which then calls `Direct` again |
 | `react` | Their schemas in the API request | `react`, in its loop |
 | `codex`, `claude`, `pi`, `opencode`, `dsh`, `hermes` | The framework's tool server, over MCP (streamable HTTP) | The tool server |
 | `mini-swe-agent` | One bash command, `hermit-tool <name> '<JSON arguments>'`, listed in its system message | The tool server, through its JSON entrance |
@@ -208,9 +215,9 @@ inside the agent's sandbox with the agent's permissions.
 ## Limits
 
 An environment's `limits` state what the agent may touch. Each Base Agent enforces them with the environment's
-isolation, and refuses a limit it cannot enforce (`Unsupported`) rather than ignore it. For Codex, Claude Code, Pi, mini-swe-agent, OpenCode, DeepSeek
-Harness and Hermes Agent (Pi, mini-swe-agent, OpenCode, DeepSeek Harness and Hermes Agent run in the run's sandbox or
-with no isolation, not in a container):
+isolation, and refuses a limit it cannot enforce (`Unsupported`) rather than ignore it. For Codex, Claude Code, Pi,
+mini-swe-agent, OpenCode, DeepSeek Harness and Hermes Agent (Pi, mini-swe-agent, OpenCode, DeepSeek Harness and Hermes
+Agent run in the run's sandbox or with no isolation, not in a container):
 
 | Limit | In a container | In the run's sandbox | No isolation |
 |---|---|---|---|

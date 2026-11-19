@@ -62,7 +62,7 @@ def test_what_a_pi_session_spent_is_kept_when_it_times_out_or_is_stopped(tmp_pat
     spent = Usage(model="m-1", input_tokens=900, output_tokens=40, calls=3, cost_usd=0.02)
 
     class Stopped:
-        def run(self, prompt, workspace):
+        def run(self, prompt, environment):
             return Result(reply="", usage=[spent], timed_out=ending == "timed_out",
                           extra={"cancelled": ending == "cancelled", "served": False})
     monkeypatch.setattr(channel, "make", lambda backend, settings: Stopped())

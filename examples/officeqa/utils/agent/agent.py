@@ -8,11 +8,11 @@ when its manifest declares one (ReHarness's retrieved reflections; Session.conte
 whole result is recorded in the output's extra["context_tool"]). adapter=None runs without one. The run's SkillOpt
 prediction files (conversation.json, target_*_prompt.txt) are its log.
 
-The target model (`agent.params.model`, a `<backend>/<model>` reference, see hermit.agent.model.backends; default GLM 5.3
-Flash on Fireworks, FIREWORKS_API_KEY) answers at medium reasoning effort, as the paper runs its student: SkillOpt's
-chat_target_messages is one call of the `direct` Base Agent (docs/framework/agent-layers.md); the loop is SkillOpt's. A rollout the API could not serve raises, so it is recorded as an error
-rather than a wrong answer (so does a question whose parsed pages SkillOpt cannot find under data.json's docs:
-without them the rollout is not the paper's setting).
+The target model (`agent.params.model`, a `<backend>/<model>` reference, see hermit.agent.model.backends; default GLM
+5.3 Flash on Fireworks, FIREWORKS_API_KEY) answers at medium reasoning effort, as the paper runs its student: SkillOpt's
+chat_target_messages is one Direct call (Layer 1, docs/framework/agent-layers.md); the loop is SkillOpt's. A rollout the
+API could not serve raises, so it is recorded as an error rather than a wrong answer (so does a question whose parsed
+pages SkillOpt cannot find under data.json's docs: without them the rollout is not the paper's setting).
 """
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ class _Call:
 
 
 def _base_agent():
-    """The Base Agent of every call: `direct` on the target's endpoint at the paper's reasoning effort."""
+    """The model call of every turn: Direct (Layer 1) on the target's endpoint at the paper's reasoning effort."""
     global _agent
     with _lock:
         if _agent is None:
@@ -82,7 +82,7 @@ def _base_agent():
 
 def _chat(messages, max_completion_tokens=MAX_TOKENS, retries=5, stage="rollout", reasoning_effort=None, *,
           tools=None, tool_choice=None, return_message=False, timeout=None):
-    """SkillOpt's chat_target_messages as one call of the `direct` Base Agent (Layer 2): the loop is SkillOpt's
+    """SkillOpt's chat_target_messages as one Direct call (Layer 1): the loop is SkillOpt's
     (Layer 3), which runs the tools the model asks for. Counts tokens and replies cut off at max_tokens for the
     current rollout."""
     agent = _base_agent().configured(max_tokens=min(max_completion_tokens, MAX_TOKENS), tool_choice=tool_choice)

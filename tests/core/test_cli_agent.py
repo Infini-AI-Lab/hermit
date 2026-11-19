@@ -1201,7 +1201,9 @@ def test_a_stopped_session_takes_a_descendant_in_a_session_of_its_own(tmp_path, 
     import subprocess
     import time
     if not proc_fs:
-        monkeypatch.setattr(base_cli, "Path", lambda p: Path("/no-proc") if p == "/proc/self/stat" else Path(p))
+        from hermit.agent.environment import base as environment_base       # where _parents reads /proc
+        monkeypatch.setattr(environment_base, "Path",
+                            lambda p: Path("/no-proc") if p == "/proc/self/stat" else Path(p))
     pid_file = tmp_path / "pid"
     proc = subprocess.Popen([sys.executable, "-c", "import subprocess, sys, time; p = subprocess.Popen([sys.executable, "
                              "'-c', 'import time; time.sleep(60)'], start_new_session=True); "

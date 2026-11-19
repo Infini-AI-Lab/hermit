@@ -1,5 +1,5 @@
-"""Layer 2's API (docs/framework/agent-layers.md): direct, react and the CLIs behind one `run`, limits enforced or
-refused, tools served over MCP."""
+"""Layer 2's API (docs/framework/agent-layers.md): react and the CLIs behind one `run` (and Layer 1's single model
+call, Direct), limits enforced or refused, tools served over MCP."""
 import asyncio
 import json
 from pathlib import Path
@@ -151,14 +151,16 @@ def test_a_sandboxed_cli_refuses_what_its_sandbox_cannot_keep(tmp_path):
     from hermit.sandbox import PACKAGE, Sandbox
     framework = make("codex", {"web_search": False})
     with pytest.raises(Unsupported, match="lies in what the sandbox shows"):    # the framework it shows
-        framework.run("go", environment=Sandboxed(tmp_path / "work", Limits(hidden=[PACKAGE / "config.py"]), sandbox=Sandbox(framework=True)))
+        framework.run("go", environment=Sandboxed(tmp_path / "work", Limits(hidden=[PACKAGE / "config.py"]),
+                                                  sandbox=Sandbox(framework=True)))
     install = tmp_path / "opt" / "private-cli"
     (install / "bin").mkdir(parents=True)
     (install / "bin" / "codex").write_text("#!/bin/sh\n")
     (install / "bin" / "codex").chmod(0o755)
     cli = make("codex", {"web_search": False, "bin": str(install / "bin" / "codex")})
     with pytest.raises(Unsupported, match="lies in what the sandbox shows"):    # the CLI's own installation
-        cli.run("go", environment=Sandboxed(tmp_path / "work", Limits(hidden=[install / "secret.txt"]), sandbox=Sandbox(framework=True)))
+        cli.run("go", environment=Sandboxed(tmp_path / "work", Limits(hidden=[install / "secret.txt"]),
+                                            sandbox=Sandbox(framework=True)))
 
 
 def test_an_interrupted_caller_stops_the_session(tmp_path):

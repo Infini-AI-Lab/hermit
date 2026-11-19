@@ -129,7 +129,7 @@ import urllib.parse
 
 from hermit.agent.base import login as codex_login
 from hermit.agent.environment import docker as container
-from hermit.agent.environment.base import Environment, as_environment
+from hermit.agent.environment.base import Environment, _descendants, as_environment
 from hermit.agent.base.interface import BaseAgent, Limits, Mount, Result, Unsupported
 from hermit.agent.base.records import (parse_claude, parse_codex, parse_dsh, parse_hermes, parse_mini_swe_agent,
                                        parse_opencode, parse_pi, price_usage)
@@ -493,36 +493,6 @@ def _stop(proc) -> None:
             return
         except subprocess.TimeoutExpired:
             continue
-
-
-def _descendants(pid: int) -> list[int]:
-    children: dict[int, list[int]] = {}
-    for child, parent in _parents():
-        children.setdefault(parent, []).append(child)
-    out, todo = [], [pid]
-    while todo:
-        for child in children.get(todo.pop(), []):
-            out.append(child)
-            todo.append(child)
-    return out
-
-
-def _parents() -> list[tuple[int, int]]:
-    """Every process with its parent: from /proc, else (macOS) from `ps`."""
-    if Path("/proc/self/stat").is_file():
-        pairs = []
-        for entry in Path("/proc").glob("[0-9]*/stat"):
-            try:
-                pairs.append((int(entry.parent.name), int(entry.read_text().rsplit(")", 1)[1].split()[1])))
-            except (OSError, IndexError, ValueError):
-                continue
-        return pairs
-    try:
-        out = subprocess.run(["ps", "-A", "-o", "pid=", "-o", "ppid="], capture_output=True, text=True,
-                             timeout=10).stdout
-    except (OSError, subprocess.SubprocessError):
-        return []
-    return [(int(p), int(q)) for p, q in (line.split() for line in out.splitlines() if len(line.split()) == 2)]
 
 
 class CliAgent(BaseAgent):

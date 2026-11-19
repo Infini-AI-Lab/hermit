@@ -142,7 +142,7 @@ def adapter_needs_errors(config: Config, needs: list[str]) -> list[str]:
     name = config.data["agent"]["name"]
     d = config.data
     on_host = host_pipeline(config) is not None and not (d["environment"].get("image") and d["sandbox"]["enabled"])
-    supports = supports_of(name, config.base, may_import=on_host)
+    supports = supports_of(name, config.base, d["agent"].get("params"), may_import=on_host)
     missing = [n for n in wanted if supports is not None and n not in supports]
     if not missing:
         return []
@@ -478,7 +478,7 @@ class Trainer:
                        message=self._message(None, tools), sandbox=self.sandbox, agent=agent)
 
     def _agent(self, cancel: threading.Event | None, metered: list | None = None):
-        """The run's model as the Evolver's `direct` Base Agent, metered; None without an `llm` section."""
+        """The run's model for the Evolver, one call at a time (Direct, Layer 1), metered; None without `llm`."""
         if self.llm is None:
             return None
         return evolver_agent(self.llm, self.budget, metered, cancel, self.run_dir / "tools.jsonl")

@@ -124,20 +124,24 @@ def load_agent(name: str, params: dict | None, base: Path) -> Agent:
 
 
 
-def supports_of(name: str, base: Path, *, may_import: bool) -> tuple[str, ...] | None:
+def supports_of(name: str, base: Path, params: dict | None = None, *, may_import: bool) -> tuple[str, ...] | None:
     """What the agent `agent.name` names takes of an adapter (its `supports`), without running it: a built-in's from
-    its class; a task's own class or function only when `may_import` (it runs on this machine anyway), else None."""
+    its class (Harbor's from its acting agent, read from `params` and its benchmark file); a task's own class or
+    function only when `may_import` (it runs on this machine anyway), else None."""
     factory = builtin(str(name))
     if factory is not None:
         if str(name) == "react":
             from hermit.agent.acting.react import ReactAgent
             return ReactAgent.supports
         if str(name) == "harbor":
-            from hermit.harbor.runner import HarborAgent
-            return HarborAgent.supports
+            from hermit.harbor.runner import supports_of_params
+            try:
+                return supports_of_params(params, base)
+            except (OSError, ValueError):       # an unreadable benchmark file: its own settings check reports it
+                return None
         from hermit.agent.acting.workspace import CliAgent
         return CliAgent.supports
     if not may_import:
         return None
-    target = load_callable(str(name), base)
-    return getattr(target, "supports", None)
+    supports = getattr(load_callable(str(name), base), "supports", None)
+    return tuple(supports) if isinstance(supports, (tuple, list)) else None   # a property: known only per instance

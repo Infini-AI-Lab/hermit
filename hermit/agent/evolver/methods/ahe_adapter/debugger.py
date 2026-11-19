@@ -25,17 +25,17 @@ text when every attempt failed. Here the same three phases run on Hermit's learn
    in the learning material, where START.md and the evolution query name it.
 3. `run_jobs(jobs, ctx, params, base=...)` — each attempt is one call of the Evolver's CLI Base Agent (Layer 2,
    hermit.agent.base): `make(backend, settings).run(question, environment=placed(job_dir, sandbox))`, in the run's
-   sandbox as the Evolve Agent is, with the Evolve Agent's settings (`base`: Codex's own sandbox off, the login and
-   its plan, web search, the price) and the Debugger's own model, effort, program and clock, the clock a deadline over the whole attempt (a wait
-   for the login's plan included, as upstream's subprocess timeout) that the Trainer's cancel also sets; the question
-   on stdin, a home per job (`scratch/debugger-homes/<task>/`: a call rewrites its home's config and last message)
-   and a stream per attempt (`output/debugger/<task>.<attempt>.jsonl`). The first job runs alone (warm-up), the rest
-   under `ThreadPoolExecutor(concurrency)`. The answer is the `answer.md` the agent wrote, else its last message (the
-   Base Agent's reply). An attempt fails when it was cancelled, timed out, never started (the provider or the plan could
-   not serve it), exited non-zero or left no answer; after `retries` attempts the upstream fallback text stands in
-   (`queries.fallback_response`). Results keep upstream's result keys so analysis.py's overview writer reads them
-   unchanged, and one `Usage(model)` sums the attempts' usage (tokens, cost and model calls), which the Base Agent
-   read and priced.
+   sandbox as the Evolve Agent is, with the Evolve Agent's settings (`base`: Codex's own sandbox off, the login and its
+   plan, web search, the price) and the Debugger's own model, effort, program and clock, the clock a deadline over the
+   whole attempt (a wait for the login's plan included, as upstream's subprocess timeout) that the Trainer's cancel also
+   sets; the question on stdin, a home per job (`scratch/debugger-homes/<task>/`: a call rewrites its home's config and
+   last message) and a stream per attempt (`output/debugger/<task>.<attempt>.jsonl`). The first job runs alone
+   (warm-up), the rest under `ThreadPoolExecutor(concurrency)`. The answer is the `answer.md` the agent wrote, else its
+   last message (the Base Agent's reply). An attempt fails when it was cancelled, timed out, never started (the provider
+   or the plan could not serve it), exited non-zero or left no answer; after `retries` attempts the upstream fallback
+   text stands in (`queries.fallback_response`). Results keep upstream's result keys so analysis.py's overview writer
+   reads them unchanged, and one `Usage(model)` sums the attempts' usage (tokens, cost and model calls), which the Base
+   Agent read and priced.
 
 `queries` is imported lazily (it is the module holding upstream's verbatim text); a test may pass a stand-in through
 `texts`.

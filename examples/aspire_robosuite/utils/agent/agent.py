@@ -9,7 +9,7 @@ The adapter is the shared skill library: its context (ADAPTER.md, and the skills
 library" section of the actor's instructions, the only thing that carries from one task to the next. adapter=None
 runs without one.
 
-Every model call is one call of the `direct` Base Agent (docs/framework/agent-layers.md); the loop is this file's.
+Every model call is one Direct call (Layer 1, docs/framework/agent-layers.md); the loop is this file's.
 The robot execution engine is ASPIRE's harness in its own venv (sim.py), started in this process: this actor needs
 the GPU, so its configs run it on the host (environment.runner: host), a comparison, not the method.
 

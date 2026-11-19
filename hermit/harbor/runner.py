@@ -432,8 +432,29 @@ class _TurnUnready(Exception):
         super().__init__(message)
 
 
+def supports_of_cli(cli: str | None) -> tuple[str, ...]:
+    """What a trial's agent takes of an adapter: a CLI all of it (staged as `hermit deploy` deploys it), the answer
+    agent its context, a context tool's computed for the task beforehand (staging.stage; it has no tools, skills,
+    roles or hooks), Harbor's own agents nothing (they take no adapter)."""
+    if cli is None:
+        return ()
+    return ("context", "context_tool") if cli == "answer" else ALL
+
+
+def supports_of_params(params: dict | None, base: Path) -> tuple[str, ...]:
+    """HarborAgent.supports from its params alone (its benchmark file's acting_agent under the params' own), without
+    the Harbor installation building the agent needs."""
+    given = dict(params or {})
+    if given.get("benchmark"):
+        shared = yaml.safe_load((Path(base) / Path(given["benchmark"]).expanduser()).read_text()) or {}
+        given = _merge(shared if isinstance(shared, dict) else {}, {k: v for k, v in given.items() if k != "benchmark"})
+    spec = dict(given.get("acting_agent") or {})          # as the runner merges it (a null resets it)
+    if not spec.get("name") and not spec.get("import_path") and not spec.get("cli"):
+        spec["cli"] = clis.DEFAULT_CLI
+    return supports_of_cli(clis.cli_of(spec))
+
+
 class HarborAgent(Agent):
-    supports = ALL      # the trial's CLI takes the adapter as `hermit deploy` deploys it (staging)
     """`agent.name: harbor`."""
 
     def __init__(self, params: dict | None = None, base: Path | str | None = None):
@@ -629,6 +650,10 @@ class HarborAgent(Agent):
     def cli(self) -> str | None:
         """The table's CLI the acting agent is (hermit.harbor.clis), or None for a Harbor built-in or another class."""
         return clis.cli_of(self.acting_agent)
+
+    @property
+    def supports(self) -> tuple[str, ...]:
+        return supports_of_cli(self.cli)
 
     @property
     def deploys_adapter(self) -> bool:

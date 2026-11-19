@@ -43,15 +43,16 @@ evolver:
 Use `needs` to declare required resources: `validation_data`, `environment`, or `send_material_out`. The Trainer
 checks them against the run settings before starting. `llm` says that the method calls the run's model (`ctx.agent`,
 the `llm` tool) rather than a CLI of its own, so that `evolver.base: pi` makes that model Pi. What the method's
-adapter needs the acting agent to take is listed too: `context_tool`, `tools`, `skills`, `agents`, `hooks` (MWM's
-`wm` tool needs `tools`, ASPIRE's library `context_tool`); a run whose acting agent does not take one (its
-`supports`, [Agent layers](agent-layers.md#layer-3-agent)) is refused before it starts. List only what the method
-cannot work without: an export the agent may ignore stays unlisted. Set `supports_resume = True` if the method understands the
-previous session handle; this is independent of storing files in `state/`. A param that names a model other than
-the run's `llm` (an embedding model, for one) is listed in the class's `model_params`, for example
-`model_params = ("embedding",)`: the loader binds a `<backend>/<model id>` reference there against the run's backends,
-as it binds every other model, and the Evolver receives the resolved spec (`base_url`, `model`, `api_key_env`,
-`price`).
+adapter needs the acting agent to take is listed too: `context_tool`, `tools`, `skills`, `agents`, `hooks` (MWM's `wm`
+tool needs `tools`, ASPIRE's library `context_tool`); a run whose acting agent does not take one (its `supports`,
+[Agent layers](agent-layers.md#layer-3-agent)) is refused before it starts. The check covers the built-in agents and a
+task's agent that runs on this machine; an agent that runs only in its sandbox, or declares no `supports`, is not
+checked. List only what the method cannot work without: an export the agent may ignore stays unlisted. Set
+`supports_resume = True` if the method understands the previous session handle; this is independent of storing files
+in `state/`. A param that names a model other than the run's `llm` (an embedding model, for one) is listed in the
+class's `model_params`, for example `model_params = ("embedding",)`: the loader binds a `<backend>/<model id>`
+reference there against the run's backends, as it binds every other model, and the Evolver receives the resolved spec
+(`base_url`, `model`, `api_key_env`, `price`).
 
 ## Run the interface example
 

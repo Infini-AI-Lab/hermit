@@ -192,6 +192,10 @@ class ChatEndpoint:
             return 400, json.dumps({"error": {"message": f"{type(exc).__name__}: {exc}"}}).encode(), {}
 
     def start(self) -> "ChatEndpoint":
+        """Serve; an endpoint already serving (one `cli_endpoint` started, then entered with `with`) is left as it is:
+        a second loop on the same server would outlive close() and spin on its closed socket."""
+        if getattr(self, "_thread", None) is not None:
+            return self
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True, name="hermit-chat-endpoint")
         self._thread.start()
         return self
@@ -491,22 +495,23 @@ def cli_endpoint(spec: dict, log_dir=None, *, sandbox=None) -> ChatEndpoint:
     from hermit.agent.environment import Container, Local, Sandboxed
     settings = {k: v for k, v in spec.items() if k not in ("cli", "timeout", "isolation", "container")}
     isolation = spec.get("isolation") or "sandbox"      # where each session runs: its environment, not a setting
-    place = Local
     if isolation == "sandbox":
         if sandbox is None:
             raise ValueError("llm.cli runs in a sandbox of its own, which the Trainer makes (cli_sandbox)")
         place = lambda work: Sandboxed(work, sandbox=sandbox)      # noqa: E731
         if spec["cli"] == "codex":
             settings.setdefault("codex_sandbox", "danger-full-access")   # the bubblewrap sandbox is the boundary
+    elif isolation == "container":
+        container_settings = dict(spec.get("container") or {})
+        place = lambda work: Container(work, settings=container_settings)      # noqa: E731
+    else:
+        place = Local
     if spec["cli"] == "codex":
         settings.setdefault("codex_sandbox", "read-only")
     else:
         settings.setdefault("web_search", False)
     if log_dir is not None:
         settings.setdefault("log_dir", str(log_dir))           # each call's event stream, with the run's records
-    elif isolation == "container":
-        container_settings = dict(spec.get("container") or {})
-        place = lambda work: Container(work, settings=container_settings)      # noqa: E731
     return ChatEndpoint(make(spec["cli"], settings), place=place).start()
 
 

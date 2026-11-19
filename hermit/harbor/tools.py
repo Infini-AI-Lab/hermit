@@ -9,20 +9,20 @@ call in the audit log (`tool-calls.jsonl` in the trial's job directory, which th
 names the URL in the CLI's own MCP entry. One server per trial, closed after it; a stream keeps one server for the
 stream's life and swaps the Session behind it at each step, whose adapter may have changed (`swap`).
 
-`ModelEndpoint`: the answer-only agent's model, a ChatEndpoint on 127.0.0.1 (the agent runs in Harbor's own process
-on this machine) over the `direct` Base Agent of the model's spec: a relay that sends the agent's request on with
-the backend's key, which never leaves this process; or, for a model only a CLI reaches that the
-runner serves (the benchmark file's `model: {cli: ...}`), over that CLI's sessions (cli_endpoint's Base Agent, each
-session in a sandbox of its own), each request answered here as the endpoint answers it (cli_answer), with three
-things of the relay's own: on the model's login it waits while the login's plan holds sessions back before the
-session starts, and records why (`plan`: the call's `waited`, which the trial's facts read); what a session cannot take
-(contract_problems: a figure, tool calls, another model; settings it cannot start with) is refused with the relay's own
-code (UNSUPPORTED), which the trial's facts read as the run's configuration refused; and what a call used is read from
-its reply, a failed one's error body included (a CLI session's failure reports its usage there: endpoint._no_reply).
-It counts each call from its arrival, what it used (`usage`, priced at the spec's price, an explicit price included)
-and how it was answered (`statuses`, `facts`). Closed after the trial (or the step), it gives up the calls still in
-flight (an agent Harbor stopped leaves its request running), whose tokens would otherwise be spent after the trial's
-usage was read, and waits for them up to CLOSE_WAIT_S.
+`ModelEndpoint`: the answer-only agent's model, a ChatEndpoint on 127.0.0.1 (the agent runs in Harbor's own process on
+this machine) over one model call each (Direct, Layer 1) of the model's spec: a relay that sends the agent's request on
+with the backend's key, which never leaves this process; or, for a model only a CLI reaches that the runner serves (the
+benchmark file's `model: {cli: ...}`), over that CLI's sessions (cli_endpoint's Base Agent, each session in a sandbox of
+its own), each request answered here as the endpoint answers it (cli_answer), with three things of the relay's own: on
+the model's login it waits while the login's plan holds sessions back before the session starts, and records why
+(`plan`: the call's `waited`, which the trial's facts read); what a session cannot take (contract_problems: a figure,
+tool calls, another model; settings it cannot start with) is refused with the relay's own code (UNSUPPORTED), which the
+trial's facts read as the run's configuration refused; and what a call used is read from its reply, a failed one's error
+body included (a CLI session's failure reports its usage there: endpoint._no_reply). It counts each call from its
+arrival, what it used (`usage`, priced at the spec's price, an explicit price included) and how it was answered
+(`statuses`, `facts`). Closed after the trial (or the step), it gives up the calls still in flight (an agent Harbor
+stopped leaves its request running), whose tokens would otherwise be spent after the trial's usage was read, and waits
+for them up to CLOSE_WAIT_S.
 """
 from __future__ import annotations
 
@@ -152,7 +152,7 @@ def _add(total, used: list[dict]) -> None:
 
 class ModelEndpoint:
     """The answer-only agent's model on 127.0.0.1 (the module's docstring). `spec` is a model spec (a Binding's: the
-    `direct` Base Agent relays each request to the backend, with the spec's client `timeout` and `max_retries`), or a
+    a model call (Direct) relays each request to the backend, with the spec's client `timeout` and `max_retries`), or a
     model only a CLI reaches on its login (`{cli: codex | claude, model, login, ...}`: each request one session of
     that CLI, in a sandbox of its own, hermit.isolate.cli_sandbox, as a run's `llm: {cli: ...}`; its event streams kept
     under `records`). `plan`: (the plan, whether its sessions may draw usage credits) of the login that CLI's sessions

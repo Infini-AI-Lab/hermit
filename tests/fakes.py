@@ -18,5 +18,5 @@ class FunctionModel:
 
 
 def agent_of(reply) -> Direct:
-    """The Evolver's `direct` Base Agent (ctx.agent) over a scripted reply function."""
+    """The Evolver's model call (ctx.agent, Direct) over a scripted reply function."""
     return Direct({}, FunctionModel(reply))

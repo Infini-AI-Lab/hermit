@@ -4,6 +4,7 @@ a scripted chat model; bubblewrap where a test needs the run's sandbox (skipped 
 import json
 from pathlib import Path
 import shutil
+import sys
 
 import pytest
 
@@ -80,6 +81,21 @@ def test_a_sandboxed_environment_writes_only_its_workspace(tmp_path):
     assert refused.code != 0 and not (outside / "theirs.txt").exists()
 
 
+@pytest.mark.skipif(shutil.which("bwrap") is None, reason="needs bubblewrap")
+def test_a_sandboxed_command_reads_its_mounts_read_only_within_its_clock(tmp_path):
+    from hermit.agent.environment import Mount
+    from hermit.sandbox import Sandbox
+    data, work = tmp_path / "data", tmp_path / "w"
+    data.mkdir()
+    work.mkdir()
+    (data / "fact.txt").write_text("42")
+    env = Sandboxed(work, Limits(readable=[Mount(data, Path("docs"))], timeout_s=1),
+                    sandbox=Sandbox(enabled=True, enforce="required", network="isolated"))
+    assert env.exec(["cat", "docs/fact.txt"]).output == "42"
+    assert env.exec(["sh", "-c", "echo x > docs/new.txt"]).code != 0 and not (data / "new.txt").exists()
+    assert env.exec(["sleep", "10"]).timed_out
+
+
 def test_a_cli_agent_takes_its_isolation_from_the_environment_never_from_its_settings(tmp_path):
     for key, value in (("isolation", "sandbox"), ("sandbox", object()), ("container", {"image": "x"})):
         with pytest.raises(ValueError, match=f"{key} belong to the call's environment"):
@@ -134,12 +150,64 @@ def test_a_driver_runs_the_external_calls_itself_step_by_step():
     assert [c["function"]["name"] for c in loop.pending] == ["submit"] and not loop.done
     agent.step(loop)                                              # waits for the driver
     assert len(model.requests) == 1
-    loop.give("c1", "accepted")
+    agent.give(loop, "c1", "accepted")
     agent.step(loop)
     assert loop.done and loop.result().reply == "thanks"
     assert model.requests[1]["messages"][-1] == {"role": "tool", "tool_call_id": "c1", "content": "accepted"}
     with pytest.raises(ValueError, match="no pending call"):
-        loop.give("c9", "late")
+        agent.give(loop, "c9", "late")
+
+
+def test_a_messages_calls_run_in_the_order_asked_when_one_of_them_is_external():
+    """A local call after an external one waits for its result (it may read what the external call changed), and the
+    turn's ends are judged after the last result: an external submission can end the run."""
+    from hermit.agent.base.react import React
+    from hermit.agent.base.tool import Tool
+    state = {"position": 0}
+    look = Tool("look", "Where am I?", lambda: str(state["position"]), validate=False, output_schema={}, render=str)
+
+    class Game(React):
+        def stopped(self, loop, message):
+            return any(m.get("content") == "submitted" for m in loop.messages if m["role"] == "tool")
+
+    calls = [{"id": i, "type": "function", "function": {"name": n, "arguments": "{}"}}
+             for i, n in (("m", "move"), ("l", "look"), ("s", "submit"))]
+    model = Model({"content": None, "tool_calls": calls})
+    agent = Game({}, model)
+    loop = agent.start("go", tools=[look], external=["move", "submit"])
+    agent.step(loop)
+    assert [c["id"] for c in loop.pending] == ["m"]                   # look waits behind the move
+    state["position"] = 1
+    agent.give(loop, "m", "moved")
+    assert [c["id"] for c in loop.pending] == ["s"]
+    agent.give(loop, "s", "submitted")
+    tools = [(m["tool_call_id"], m["content"]) for m in loop.messages if m["role"] == "tool"]
+    assert tools == [("m", "moved"), ("l", "1"), ("s", "submitted")]
+    assert loop.done and len(model.requests) == 1                     # no model call after the submission
+
+
+def test_an_external_call_goes_through_the_same_hooks_as_one_the_loop_runs():
+    """before_tool can answer an external call instead of letting it wait (a cap reached), and the result a driver
+    gives is cut at tool_result_chars and passed through after_tool."""
+    from hermit.agent.base.react import React
+
+    class Capped(React):
+        def before_tool(self, loop, call):
+            return "cap reached" if loop.calls_made > 1 else None
+
+        def after_tool(self, loop, call, content):
+            return f"[{content}]"
+
+    model = Model(call("submit", {"a": 1}), call("submit", {"a": 2}, "c2"), {"content": "done"})
+    agent = Capped({"tool_result_chars": 4}, model)
+    loop = agent.start("go", external=["submit"])
+    agent.step(loop)
+    agent.give(loop, "c1", "accepted-and-more")
+    agent.step(loop)                                              # the second call is capped, never pending
+    assert not loop.pending
+    agent.step(loop)
+    tools = [m["content"] for m in loop.messages if m["role"] == "tool"]
+    assert tools == ["[acce]", "cap reached"] and loop.done
 
 
 def test_a_benchmark_agent_is_a_react_subclass_with_tool_methods_and_hooks(tmp_path, monkeypatch):
@@ -226,11 +294,233 @@ def test_a_method_that_needs_tools_is_refused_an_agent_that_takes_none(tmp_path)
     assert adapter_needs_errors(sandboxed, ["tools"]) == []
 
 
-def test_every_method_needs_only_what_its_example_agents_take():
-    """The methods' declared needs against the examples that run them: no shipped config is refused."""
-    from hermit.agent.evolver.loader import find
-    expected = {"mwm": {"tools"}, "aspire": {"context_tool"}, "reharness": {"context_tool"},
-                "ahe_adapter": {"skills", "agents", "hooks"}}
-    from hermit.agent.evolver.loader import ADAPTER_NEEDS
-    for name, needs in expected.items():
-        assert set(find(name, Path.cwd()).needs) & ADAPTER_NEEDS == needs
+def _declared_supports(file: Path, name: str):
+    """A task class's or function's `supports`, read from its source without importing it (None: not declared)."""
+    import ast
+    tree = ast.parse(file.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == name:
+            for stmt in node.body:
+                if isinstance(stmt, ast.Assign) and any(getattr(t, "id", None) == "supports" for t in stmt.targets):
+                    return tuple(ast.literal_eval(stmt.value))
+            return None
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Attribute) and t.attr == "supports" and
+                                                getattr(t.value, "id", None) == name for t in node.targets):
+            return tuple(ast.literal_eval(node.value))
+    return None
+
+
+def test_no_shipped_config_runs_a_method_on_an_agent_that_lacks_what_it_needs():
+    """Every example config of a method that needs something of the acting agent names an agent that takes it."""
+    import yaml
+    from hermit.agent.acting.agent import supports_of
+    from hermit.agent.evolver.loader import ADAPTER_NEEDS, find
+    root = Path(__file__).resolve().parents[2]
+    checked = 0
+    for path in sorted((root / "examples").rglob("*.yaml")):
+        try:
+            data = yaml.safe_load(path.read_text())
+        except yaml.YAMLError:
+            continue
+        evolver = (data or {}).get("evolver") if isinstance(data, dict) else None
+        if not isinstance(evolver, dict) or not isinstance(data.get("agent"), dict):
+            continue
+        try:
+            needs = set(find(str(evolver.get("name")), path.parent).needs) & ADAPTER_NEEDS
+        except Exception:                                   # an eval-only placeholder, a custom Evolver
+            continue
+        if not needs:
+            continue
+        agent = data["agent"]
+        name = str(agent.get("name") or agent.get("base"))
+        supports = supports_of(name, path.parent, agent.get("params"), may_import=False)
+        if supports is None and ":" in name:
+            file, _, symbol = name.partition(":")
+            supports = _declared_supports((path.parent / file).resolve(), symbol)
+        assert supports is not None and needs <= set(supports), f"{path.relative_to(root)}: {name} lacks {needs}"
+        checked += 1
+    assert checked >= 10                                    # MWM, ASPIRE, ReHarness and AHE's examples
+
+
+def test_harbor_takes_what_its_acting_agent_takes(tmp_path):
+    from hermit.agent.acting.agent import supports_of
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    for acting, expected in (({"cli": "codex"}, "all"), ({"cli": "answer"}, ("context", "context_tool")),
+                             ({"name": "oracle"}, ())):
+        supports = supports_of("harbor", tmp_path, {"tasks_dir": str(tasks), "acting_agent": acting},
+                               may_import=False)
+        assert (len(supports) == 6 and "hooks" in supports) if expected == "all" else supports == expected, acting
+
+
+def test_a_download_keeps_a_link_as_the_link_it_is(tmp_path):
+    env = Local(tmp_path / "w")
+    env.workspace.mkdir()
+    (tmp_path / "secret.txt").write_text("outside")
+    (env.workspace / "link").symlink_to(tmp_path / "secret.txt")
+    out = env.download("link", tmp_path / "out" / "link")
+    assert out.is_symlink() and Path(out.readlink()) == tmp_path / "secret.txt"
+
+
+def test_a_local_command_stays_within_the_environments_limits(tmp_path):
+    from hermit.agent.environment import Mount, Unsupported
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "fact.txt").write_text("42")
+    work = tmp_path / "w"
+    work.mkdir()
+    env = Local(work, Limits(readable=[Mount(data, Path("docs"))], timeout_s=0.3))
+    assert env.exec(["cat", "docs/fact.txt"]).output == "42"            # the mount is in place
+    assert env.exec(["sleep", "5"]).timed_out                              # the limits' clock
+    for limits in (Limits(hidden=[tmp_path / "x"]), Limits(network=[]), Limits(readable=[Mount(data, Path("/abs"))])):
+        with pytest.raises(Unsupported):
+            Local(work, limits).exec(["true"])
+
+
+def test_a_timed_out_command_leaves_no_child_running(tmp_path):
+    import os
+    import time
+    env = Local(tmp_path)
+    done = env.exec(["sh", "-c", "sleep 30 & echo $! > child.pid; wait"], timeout=0.5)
+    child = int((tmp_path / "child.pid").read_text())
+    time.sleep(0.2)
+    assert done.timed_out
+    with pytest.raises(ProcessLookupError):
+        os.kill(child, 0)
+
+
+def test_a_runtime_optional_annotation_gives_its_type():
+    from typing import Optional
+    from hermit.agent.acting.tools import schema_of
+
+    def lookup(key: str, limit: int | None = None, exact: Optional[bool] = None, tags: list[str] | None = None):
+        ...
+    assert schema_of(lookup)["properties"] == {"key": {"type": "string"}, "limit": {"type": "integer"},
+                                               "exact": {"type": "boolean"}, "tags": {"type": "array", "items": {"type": "string"}}}
+
+
+def test_a_cli_endpoints_sessions_keep_their_isolation_whether_or_not_they_are_logged(tmp_path):
+    """llm: {cli: ..., isolation: container} runs each session in a container, with the run's log directory or
+    without it; isolation: sandbox in the run's sandbox."""
+    from hermit.agent.base.endpoint import cli_endpoint
+    from hermit.sandbox import Sandbox
+    container = {"image": "img:1", "network": "net", "proxy": "http://px:3128"}
+    for log_dir in (None, tmp_path / "sessions"):
+        spec = {"cli": "claude", "model": "m", "login": "claude", "isolation": "container", "container": container}
+        with cli_endpoint(spec, log_dir) as endpoint:
+            placed_in = endpoint.place(tmp_path / "w")
+            assert (placed_in.isolation, placed_in.container) == ("container", container)
+            assert not {"isolation", "container", "sandbox"} & set(endpoint.agent.settings)
+        box = Sandbox(enabled=False, role="llm")
+        with cli_endpoint({"cli": "claude", "model": "m", "login": "claude"}, log_dir, sandbox=box) as endpoint:
+            assert endpoint.place(tmp_path / "w").sandbox is box
+
+
+def test_a_sandboxed_command_is_refused_a_limit_its_sandbox_cannot_keep(tmp_path):
+    """What the run's sandbox grants (a readable path, an allowed host, a forwarded port) it shows to every command,
+    and a sandbox that fell back to running unisolated keeps no limit: such a limit is refused, never ignored."""
+    from hermit.agent.environment import Unsupported
+
+    class Box:
+        enabled, network, allow, forward, sockets, binds = True, "isolated", (), (), {}, ()
+        readable, writable = (), ()
+
+        def __init__(self, **kw):
+            self.__dict__.update(kw)
+
+        def wrap(self, command, **kw):
+            return list(command), dict(kw["env"])        # best effort without bubblewrap: the command as it is
+    work = tmp_path / "w"
+    work.mkdir()
+    data = tmp_path / "datasets"
+    for box, limits in ((Box(readable=[data]), Limits(hidden=[data / "answers.json"])),
+                        (Box(allow=["example.com"]), Limits(network=[])),
+                        (Box(forward=[8080]), Limits(network=[])),
+                        (Box(), Limits(hidden=[tmp_path / "secret"])),          # nothing shows it, but no bwrap ran
+                        (Box(), Limits(network=[]))):
+        with pytest.raises(Unsupported):
+            Sandboxed(work, limits, sandbox=box).exec(["true"])
+    assert Sandboxed(work, sandbox=Box()).exec(["true"]).code == 0          # no limit: nothing to keep
+
+
+def test_a_local_mount_replaces_an_earlier_link_and_refuses_the_workspaces_own_file(tmp_path):
+    from hermit.agent.environment import Mount, Unsupported
+    old, new, work = tmp_path / "old", tmp_path / "new", tmp_path / "w"
+    for d, text in ((old, "old"), (new, "new")):
+        d.mkdir()
+        (d / "fact.txt").write_text(text)
+    work.mkdir()
+    Local(work, Limits(readable=[Mount(old, Path("docs"))])).exec(["true"])
+    assert Local(work, Limits(readable=[Mount(new, Path("docs"))])).exec(["cat", "docs/fact.txt"]).output == "new"
+    (work / "notes").write_text("mine")
+    with pytest.raises(Unsupported, match="its own file"):
+        Local(work, Limits(readable=[Mount(new, Path("notes"))])).exec(["true"])
+
+
+def test_a_timed_out_command_leaves_no_child_even_in_a_session_of_its_own(tmp_path):
+    import os
+    import time
+    script = ("import subprocess, sys; "
+              "p = subprocess.Popen(['sleep', '30'], start_new_session=True); "
+              "open('child.pid', 'w').write(str(p.pid)); print('started', flush=True); p.wait()")
+    t = time.time()
+    done = Local(tmp_path).exec([sys.executable, "-c", script], timeout=1)
+    assert done.timed_out and time.time() - t < 25            # not the 30 s the child would hold the output open
+    time.sleep(0.2)
+    with pytest.raises(ProcessLookupError):
+        os.kill(int((tmp_path / "child.pid").read_text()), 0)
+
+
+def test_an_upload_keeps_a_link_to_a_folder_as_the_link_it_is(tmp_path):
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "big.bin").write_text("x")
+    (tmp_path / "link").symlink_to(tmp_path / "assets")
+    env = Local(tmp_path / "w")
+    env.workspace.mkdir()
+    out = env.upload(tmp_path / "link", "link")
+    assert out.is_symlink() and not (env.workspace / "assets").exists()
+
+
+def test_a_limited_network_is_refused_where_the_sandbox_has_a_proxy(tmp_path):
+    from hermit.agent.environment import Unsupported
+
+    class Box:
+        enabled, network, allow, forward, sockets, binds, readable, writable = True, "isolated", (), (), {}, (), (), ()
+        proxy_url = "http://127.0.0.1:3128"
+    with pytest.raises(Unsupported, match="proxy"):
+        Sandboxed(tmp_path, Limits(network=[]), sandbox=Box()).exec(["true"])
+
+
+def test_a_list_argument_says_what_its_items_are():
+    """A provider refuses an array schema without `items`."""
+    from typing import Optional
+    from hermit.agent.acting.tools import schema_of
+
+    def lookup(paths: list[str], ids: Optional[list[int]] = None, raw: list = (), later: "list[str] | None" = None):
+        ...
+    assert schema_of(lookup)["properties"] == {
+        "paths": {"type": "array", "items": {"type": "string"}}, "ids": {"type": "array", "items": {"type": "integer"}},
+        "raw": {"type": "array", "items": {}}, "later": {"type": "array", "items": {"type": "string"}}}
+
+
+def test_harbor_reads_its_acting_agent_as_the_runner_merges_it(tmp_path):
+    from hermit.agent.acting.agent import supports_of
+    (tmp_path / "tasks").mkdir()
+    (tmp_path / "benchmark.yaml").write_text("acting_agent: {cli: answer}\n")
+    given = {"tasks_dir": str(tmp_path / "tasks"), "benchmark": "benchmark.yaml"}
+    assert supports_of("harbor", tmp_path, given, may_import=False) == ("context", "context_tool")
+    assert "hooks" in supports_of("harbor", tmp_path, {**given, "acting_agent": None}, may_import=False)  # the default
+
+
+def test_an_endpoint_entered_after_it_was_started_serves_once_and_stops_on_close():
+    """cli_endpoint starts its endpoint and callers enter it with `with`: a second serving loop would outlive close()
+    and spin on the closed socket, slowing the whole process."""
+    import threading
+    import time
+    from hermit.agent.base.endpoint import ChatEndpoint
+    from hermit.agent.model.direct import Direct
+    before = {t for t in threading.enumerate() if t.name == "hermit-chat-endpoint"}
+    with ChatEndpoint(Direct({}, Model())).start():
+        pass
+    time.sleep(1.0)                                              # serve_forever's poll interval is 0.5 s
+    assert not {t for t in threading.enumerate() if t.name == "hermit-chat-endpoint" and t.is_alive()} - before

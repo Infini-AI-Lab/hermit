@@ -20,6 +20,8 @@ import inspect
 import json
 from pathlib import Path
 import sys
+import types
+import typing
 from typing import Callable
 
 from hermit.agent.base.tool import Tool
@@ -51,19 +53,64 @@ JSON_TYPES = {"str": "string", "int": "integer", "float": "number", "bool": "boo
 
 def schema_of(fn: Callable) -> dict:
     """The JSON Schema of a function's arguments from its signature: each parameter's annotation (str, int, float,
-    bool, list, dict, or that type or None) its type, the ones without a default required. `self` and `_task` (the
+    bool, list, dict, or that type or None) its type (a list's item type its items), the ones without a default
+    required. `self` and `_task` (the
     task row, bound by the framework) are not arguments."""
     properties, required = {}, []
     for p in inspect.signature(fn).parameters.values():
         if p.name in ("self", "_task") or p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
             continue
-        hint = p.annotation if isinstance(p.annotation, str) else getattr(p.annotation, "__name__", "")
-        hint = hint.replace(" ", "").replace("|None", "").replace("Optional[", "").rstrip("]")
-        hint = hint.split("[")[0]
-        properties[p.name] = {"type": JSON_TYPES[hint]} if hint in JSON_TYPES else {}
+        properties[p.name] = _property(p.annotation)
         if p.default is p.empty:
             required.append(p.name)
     return {"type": "object", "properties": properties, **({"required": required} if required else {})}
+
+
+def _property(annotation) -> dict:
+    """An argument's schema: its JSON type, a list's items too (a provider refuses an array without them); {} for an
+    annotation that names none of the JSON types."""
+    hint = _type_name(annotation)
+    if hint not in JSON_TYPES:
+        return {}
+    if hint != "list":
+        return {"type": JSON_TYPES[hint]}
+    item = _item(annotation)
+    return {"type": "array", "items": _property(item) if item is not None else {}}
+
+
+def _item(annotation):
+    """The item type of a list annotation (`list[str]`, `list[str] | None`, `"list[int]"`), or None."""
+    if isinstance(annotation, str):
+        text = annotation.replace("Optional[", "").replace(" ", "")
+        start = text.find("list[")
+        if start < 0:
+            return None
+        inner, depth = "", 0
+        for ch in text[start + 5:]:
+            if ch == "]" and depth == 0:
+                break
+            depth += (ch == "[") - (ch == "]")
+            inner += ch
+        return inner or None
+    origin, args = typing.get_origin(annotation), typing.get_args(annotation)
+    if origin in (typing.Union, types.UnionType):
+        rest = [a for a in args if a is not type(None)]
+        return _item(rest[0]) if len(rest) == 1 else None
+    return args[0] if origin is list and args else None
+
+
+def _type_name(annotation) -> str:
+    """The plain type an annotation names, its None dropped: `int | None`, `Optional[int]` and `"int | None"` are
+    `int`; `list[str]` is `list`."""
+    if isinstance(annotation, str):                     # a postponed annotation (from __future__ import annotations)
+        parts = [s.strip() for s in annotation.replace("Optional[", "").rstrip("]").split("|")]
+        parts = [s for s in parts if s not in ("None", "")]
+        return parts[0].split("[")[0] if len(parts) == 1 else ""
+    origin, args = typing.get_origin(annotation), typing.get_args(annotation)
+    if origin in (typing.Union, types.UnionType):
+        rest = [a for a in args if a is not type(None)]
+        return _type_name(rest[0]) if len(rest) == 1 else ""
+    return getattr(origin or annotation, "__name__", "")
 
 
 def load_tools(spec: str, base: Path) -> list[tuple[dict, Callable]]:

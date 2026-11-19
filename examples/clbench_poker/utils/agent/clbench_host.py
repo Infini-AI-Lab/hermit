@@ -10,7 +10,7 @@ Settings come from the environment the launcher prepares, or from agent.params:
                      variable are taken from it). Default: GLM 5.3 Flash on Fireworks.
   plus clbench's own: CLB_SCORING, CLB_QUERY_BUDGET, CLB_API_BASE, CLB_REASONING_EFFORT, the API key, MW_META_SQL
 
-The runner's model calls are the benchmark's own loop (Layer 3) calling the `direct` Base Agent (Layer 2) once per
+The runner's model calls are the benchmark's own loop (Layer 3) calling Direct (Layer 1, one model call) once per
 call (docs/framework/agent-layers.md): clbench's litellm is given a local endpoint (hermit.agent.base.endpoint) as its
 CLB_API_BASE, which relays each request, as clbench made it, to the endpoint it would have reached (the launcher's
 meter, or the backend's URL).

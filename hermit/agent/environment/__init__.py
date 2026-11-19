@@ -7,8 +7,8 @@
 A Base Agent (hermit.agent.base) works in the environment its call gives; the environment never imports a layer
 above it.
 """
-from hermit.agent.environment.base import (Container, Environment, ExecResult, Limits, Mount, Sandboxed, Local,
-                                           as_environment, placed)
+from hermit.agent.environment.base import (Container, Environment, ExecResult, Limits, Local, Mount, Sandboxed,
+                                           Unsupported, as_environment, placed)
 
-__all__ = ["Container", "Environment", "ExecResult", "Limits", "Mount", "Sandboxed", "Local", "as_environment",
-           "placed"]
+__all__ = ["Container", "Environment", "ExecResult", "Limits", "Local", "Mount", "Sandboxed", "Unsupported",
+           "as_environment", "placed"]
