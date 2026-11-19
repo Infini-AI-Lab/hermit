@@ -476,8 +476,9 @@ def test_cases_are_task_directories_read_back_as_the_rows_tasks_jsonl_held(tmp_p
             [json.dumps(r, sort_keys=True) for r in rows], path
         assert bench.split("train")[0].private["tests"] is None                 # judged by judge.py
     assert cases.rows(out / "tasks") == cases.read_cases(out)                   # what report.py --tasks reads
-    with pytest.raises(ValueError, match="TOML cannot hold"):
-        cases.write_cases(tmp_path / "none", [{**rows[1], "injection_task_id": None}], benchmark="agentdyn")
+    legacy = [{**rows[1], "injection_task_id": None, "injections": {}}]          # a clean case of an old tasks.jsonl
+    cases.write_cases(tmp_path / "none", legacy, benchmark="agentdyn")
+    assert cases.read_cases(tmp_path / "none") == legacy                         # null kept, not dropped
 
 
 @pytest.mark.parametrize("goals", [0, -1])
@@ -501,9 +502,9 @@ def test_full_test_keeps_search_cases_and_only_adds_test_owned_variants(tmp_path
     rows, groups = [], []
     for split in module.SPLITS:
         groups.append({"suite": "github", "user_task_id": split, "split": split})
-        members = [dict(id=f"{split}-{n}", suite="github", user_task_id=split,     # a clean case: no injection
-                        **({"injection_task_id": f"injection_task_{n}", "injections": {"vector": f"frozen-{n}"}}
-                           if n else {})) for n in range(4)]
+        members = [dict(id=f"{split}-{n}", suite="github", user_task_id=split,     # a clean case: null, {}
+                        injection_task_id=f"injection_task_{n}" if n else None,
+                        injections={"vector": f"frozen-{n}"} if n else {}) for n in range(4)]
         rows.extend(members)
         (base / f"{split}.txt").write_text("".join(r["id"] + "\n" for r in members[:3]))
     (inventory / "full/tasks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))

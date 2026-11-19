@@ -94,9 +94,9 @@ score is not a held-out score.
 
 ## Setup
 
-RoboDojo is not in Harbor's task format, as `examples/README.md` asks of a benchmark: a task is developed and scored
-on one Isaac Sim simulator per GPU, shared through a host service that keeps the development and held-out layout
-sets apart, which Harbor's one container per trial does not express. Where Isaac Sim does not install natively, the
+RoboDojo's task set is in Harbor's task format (`utils/benchmark/`), but its tasks do not run in Harbor's
+environments: a task is developed and scored on one Isaac Sim simulator per GPU, shared through a host service that
+keeps the development and held-out layout sets apart, which Harbor's one container per trial does not express. Where Isaac Sim does not install natively, the
 simulator runs in RoboDojo's own container image (below), the only Docker this example drives.
 
 1. RoboDojo, as its documentation installs it (Python 3.11, Isaac Sim 5.1, Isaac Lab 2.3; an NVIDIA GPU with 16 GB

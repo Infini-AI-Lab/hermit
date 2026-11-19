@@ -1,8 +1,8 @@
 """A protocol's frozen cases as task directories (Harbor's format), shared by AgentDyn's and AgentDojo's prepare
 scripts:
 
-    <protocol>/tasks/<id>/   instruction.md (the case in a line) and task.toml, whose [metadata] is the case's row,
-                             every field in its order (its id among them: the rows' keys are sorted)
+    <protocol>/tasks/<id>/   instruction.md (the case in a line) and task.toml, whose [metadata] `case` is the case's
+                             row as one JSON line (TOML holds no null, which a clean case's injection_task_id is)
     <protocol>/cases.txt     every case's id, in the order the rows were written (tasks.jsonl's lines before)
     <protocol>/train.txt ... the splits, and manifest.json, written by the prepare script
 
@@ -28,7 +28,7 @@ def case_row(task: dict) -> dict:
     """data.view: a case's task directory as its row (the row as it is when it is one already)."""
     if "metadata" not in task:
         return dict(task)
-    return dict(task["metadata"])
+    return json.loads(task["metadata"]["case"])
 
 
 def instruction(row: dict, benchmark: str) -> str:
@@ -47,7 +47,7 @@ def write_cases(output: Path, rows: list[dict], *, benchmark: str, sort_keys: bo
     if (output / "tasks").exists():
         shutil.rmtree(output / "tasks")
     for row in rows:
-        write_task(output / "tasks" / row["id"], instruction(row, benchmark), metadata=row,
+        write_task(output / "tasks" / row["id"], instruction(row, benchmark), metadata={"case": json.dumps(row)},
                    environment={"network_mode": "no-network"})
     (output / "cases.txt").write_text("".join(r["id"] + "\n" for r in rows))
     return hashlib.sha256("".join(json.dumps(r) + "\n" for r in rows).encode()).hexdigest()
