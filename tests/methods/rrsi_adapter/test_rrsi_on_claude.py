@@ -51,8 +51,8 @@ def test_rrsi_roles_on_claude_code_each_run_in_a_view_of_their_own(tmp_path, mon
     from hermit.agent.evolver.methods.rrsi_adapter import roles as R
     seen = []
 
-    def run(self, prompt, *, workspace=None, tools=(), limits=None, session=None, roles=()):
-        seen.append((self.settings, workspace))
+    def run(self, prompt, *, environment=None, tools=(), session=None, roles=()):
+        seen.append((self.settings, environment.workspace, environment))
         return Result(reply="ok", exit_code=0, extra={"served": True, "unavailable": False, "started": True,
                                                       "cancelled": False, "output_tail": ""})
     monkeypatch.setattr(Claude, "run", run)

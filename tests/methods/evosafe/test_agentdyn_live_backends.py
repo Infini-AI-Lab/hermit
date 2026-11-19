@@ -149,14 +149,16 @@ def test_victim_uses_direct_and_preserves_wire_request(tmp_path, monkeypatch):
     pytest.importorskip("agentdojo.agent_pipeline")
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-    from hermit.agent.base import interface
+    from hermit.agent.model import direct
     from victim import make_victim
     seen, bases = [], []
-    original = interface.make
-    def make(name, settings, model):
-        bases.append(name)
-        return original(name, settings, model)
-    monkeypatch.setattr(interface, "make", make)
+    original = direct.Direct
+
+    class Direct(original):                     # the victim's model calls: Layer 1's single call
+        def __init__(self, settings=None, model=None):
+            bases.append("direct")
+            super().__init__(settings, model)
+    monkeypatch.setattr(direct, "Direct", Direct)
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass

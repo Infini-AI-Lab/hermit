@@ -201,7 +201,7 @@ trace summary for its analyst. Harness², Continual Harness, ReHarness's Codex s
 made with this agent's deployment and session (formerly `utils/agent/codex_agent.py`, now removed). Compare rows made with one
 harness; SkillOpt's Evolver now builds its Codex trace summary from the session's event stream.
 
-Each Codex session runs in a Docker container of its own (`environment.image`, `hermit/agent/base/container.py`):
+Each Codex session runs in a Docker container of its own (`environment.image`, `hermit/agent/environment/docker.py`):
 
 - Files: only its workspace, a fresh Codex home and the corpus (read-only), with a private `/tmp`.
 - Network: the containers sit on an internal Docker network with no route out; their only way out is an HTTPS proxy

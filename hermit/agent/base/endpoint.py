@@ -1,15 +1,16 @@
-"""A `direct` Base Agent behind an OpenAI-compatible URL, for code that only takes a base URL
-(docs/framework/agent-layers.md#layer-3-agent): a benchmark's own client, in this process or another.
+"""One model call each (Direct, hermit.agent.model.direct) or a CLI Base Agent behind an OpenAI-compatible URL, for
+code that only takes a base URL (docs/framework/agent-layers.md#layer-3-agent): a benchmark's own client, in this
+process or another.
 
-    with ChatEndpoint(make("direct", {}, ChatClient(upstream, model, max_retries=0))) as endpoint:
+    with ChatEndpoint(Direct({}, ChatClient(upstream, model, max_retries=0))) as endpoint:
         client(base_url=endpoint.url)          # POST <url>/chat/completions
 
-Each request is one `direct` call. The endpoint is a relay, so that the benchmark's requests reach the model as they
-did before: every field of the request body (the model, the sampling, the tools, the provider's own fields) is sent
-on as it is, and so is its Authorization header; the reply is the upstream's response body. An upstream error comes
-back with its status, its whole body and its Retry-After; an upstream that gave no answer (no connection, a reply cut
-off) leaves the client's connection closed without one, as the upstream left the relay's; the endpoint retries
-nothing (the client does, as it did). A client that hangs up has its call given up upstream too.
+Each request is one model call (Direct). The endpoint is a relay, so that the benchmark's requests reach the model as
+they did before: every field of the request body (the model, the sampling, the tools, the provider's own fields) is sent
+on as it is, and so is its Authorization header; the reply is the upstream's response body. An upstream error comes back
+with its status, its whole body and its Retry-After; an upstream that gave no answer (no connection, a reply cut off)
+leaves the client's connection closed without one, as the upstream left the relay's; the endpoint retries nothing (the
+client does, as it did). A client that hangs up has its call given up upstream too.
 
 A request that asks for a stream (ServeLearnBench's client streams) is sent upstream whole (`stream` and
 `stream_options` dropped: the one difference from the client's own request). The status is held back while the
@@ -46,8 +47,9 @@ UNAPPLIED = ("max_tokens", "max_completion_tokens")   # a cap, no requirement on
 
 
 class ChatEndpoint:
-    def __init__(self, agent: BaseAgent, host: str = "127.0.0.1"):
+    def __init__(self, agent, host: str = "127.0.0.1", *, place=None):     # a Direct or a CLI Base Agent
         self.agent, self.host = agent, host
+        self.place = place               # a CLI agent's: its call's environment from the empty workspace (cli_answer)
         self.token = secrets.token_hex(16)
         endpoint = self
 
@@ -159,7 +161,7 @@ class ChatEndpoint:
         if isinstance(self.agent, CliAgent):
             from hermit.agent.base.interface import Unsupported
             try:
-                return cli_answer(self.agent, request, abort)
+                return cli_answer(self.agent, request, abort, place=self.place)
             except (ValueError, Unsupported) as exc:            # the session's settings: the client reads why
                 return 400, json.dumps({"error": {"message": f"{type(exc).__name__}: {exc}"}}).encode(), {}
             except Exception as exc:                            # noqa: BLE001 - the session failed to run
@@ -334,7 +336,7 @@ def _usage_of(result) -> dict:
                       "prompt_tokens_details": {"cached_tokens": u.cached_input_tokens if u else 0}}}
 
 
-def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = None):
+def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = None, *, place=None):
     """A chat-completions request answered by one session of a CLI Base Agent (`codex`, `claude`, `pi`): a model reached
     through the CLI (a subscription, or the Evolver's own agent) for code that calls a chat API (an Evolver's `llm`, an
     acting pipeline's model). The system messages are the session's instructions, the rest its prompt (split_messages),
@@ -344,7 +346,9 @@ def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = 
     (`unapplied`); what else a session cannot do is refused (contract_problems). A session that gave no reply is never
     an answer (_no_reply). The session sees no files: a caller that wants a session to read files runs one itself
     (`make(...).run`). Its event stream is kept under the agent's `log_dir` setting when there is one (the Trainer
-    gives the run's `llm_sessions/`), and is removed after the call otherwise."""
+    gives the run's `llm_sessions/`), and is removed after the call otherwise. `place` gives the session's environment
+    from its empty workspace (cli_endpoint's: the run's sandbox, or a container); without it, a Local environment
+    there."""
     import shutil
     import tempfile
     from pathlib import Path
@@ -369,7 +373,8 @@ def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = 
     own["writable"] = [*(agent.settings.get("writable") or ()), str(work)]   # a sandbox shows it no other way
     try:
         session, prompt = agent.configured(**own).instructed(system, prompt)
-        result = session.run(prompt, workspace=work)
+        from hermit.agent.environment import Local
+        result = session.run(prompt, environment=(place or Local)(work))
     finally:
         shutil.rmtree(work, ignore_errors=True)
         if scratch is not None:                                # also when the call raised
@@ -396,17 +401,17 @@ _relays_lock = threading.Lock()
 
 
 def relay(upstream: str, *, timeout: float | None = None) -> str:
-    """The base URL to give a client in place of `upstream`: a relay endpoint over the `direct` Base Agent, one per
+    """The base URL to give a client in place of `upstream`: a relay endpoint over one model call each (Direct), one per
     upstream and timeout for the process (started on first use). The relay retries nothing and, by default, waits
     as long as the upstream takes: the client's own timeout and retries hold, as they did (a client that gives up
     hangs up, and the relay gives the call up)."""
     key = f"{upstream} {timeout}"
     with _relays_lock:
         if key not in _relays:
-            from hermit.agent.base.interface import make
+            from hermit.agent.model.direct import Direct
             from hermit.agent.model.llm import ChatClient
             client = ChatClient(upstream.rstrip("/"), "relay", max_retries=0, timeout=timeout)
-            _relays[key] = ChatEndpoint(make("direct", {}, client)).start()
+            _relays[key] = ChatEndpoint(Direct({}, client)).start()
         return _relays[key].url
 
 
@@ -459,7 +464,7 @@ def cli_problems(spec: dict) -> list[str]:
                    "(a Docker container of its own, with container: {image, network, proxy}); without bubblewrap, "
                    "sandbox.enforce: best_effort runs it unconfined and records that")
     elif isolation == "container":
-        from hermit.agent.base import container
+        from hermit.agent.environment import docker as container
         try:
             container.settings(spec, "claude")
         except ValueError as e:
@@ -483,12 +488,14 @@ def cli_endpoint(spec: dict, log_dir=None, *, sandbox=None) -> ChatEndpoint:
     problems = cli_problems(spec)
     if problems:
         raise ValueError("; ".join(problems))
-    settings = {k: v for k, v in spec.items() if k not in ("cli", "timeout")}
-    isolation = settings["isolation"] = spec.get("isolation") or "sandbox"   # the Base Agent's own default is none
+    from hermit.agent.environment import Container, Local, Sandboxed
+    settings = {k: v for k, v in spec.items() if k not in ("cli", "timeout", "isolation", "container")}
+    isolation = spec.get("isolation") or "sandbox"      # where each session runs: its environment, not a setting
+    place = Local
     if isolation == "sandbox":
         if sandbox is None:
-            raise ValueError("llm.cli runs in a sandbox of its own, which the Trainer makes (settings.sandbox)")
-        settings["sandbox"] = sandbox
+            raise ValueError("llm.cli runs in a sandbox of its own, which the Trainer makes (cli_sandbox)")
+        place = lambda work: Sandboxed(work, sandbox=sandbox)      # noqa: E731
         if spec["cli"] == "codex":
             settings.setdefault("codex_sandbox", "danger-full-access")   # the bubblewrap sandbox is the boundary
     if spec["cli"] == "codex":
@@ -497,7 +504,10 @@ def cli_endpoint(spec: dict, log_dir=None, *, sandbox=None) -> ChatEndpoint:
         settings.setdefault("web_search", False)
     if log_dir is not None:
         settings.setdefault("log_dir", str(log_dir))           # each call's event stream, with the run's records
-    return ChatEndpoint(make(spec["cli"], settings)).start()
+    elif isolation == "container":
+        container_settings = dict(spec.get("container") or {})
+        place = lambda work: Container(work, settings=container_settings)      # noqa: E731
+    return ChatEndpoint(make(spec["cli"], settings), place=place).start()
 
 
 def endpoint_spec(endpoint: ChatEndpoint, spec: dict) -> dict:

@@ -1,7 +1,7 @@
 """Stand-ins for the run's model in Evolver tests."""
 from __future__ import annotations
 
-from hermit.agent.base.direct import Direct
+from hermit.agent.model.direct import Direct
 from hermit.agent.model.usage import Usage
 
 

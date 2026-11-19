@@ -394,7 +394,7 @@ def test_codex_editors_take_the_plan_settings(tmp_path, monkeypatch):
         def __init__(self, settings):
             seen.update(settings)
 
-        def run(self, mission, workspace):
+        def run(self, mission, environment):
             return Result(reply="edited", exit_code=0, extra={"served": True, "cancelled": False})
     monkeypatch.setattr(channel, "make", lambda backend, settings: Agent(settings))
     proposer = channel.FrameworkProposer(spec=ChannelSpec(kind="claude_cli", model="gpt-x", effort="high"),
@@ -421,7 +421,7 @@ def test_claude_editors_take_plan_rerun(tmp_path, monkeypatch):
         def __init__(self, settings):
             seen.update(settings)
 
-        def run(self, mission, workspace):
+        def run(self, mission, environment):
             raise KeyboardInterrupt                  # the settings are all this test needs
     monkeypatch.setattr(channel, "make", lambda backend, settings: Agent(settings))
     proposer = channel.FrameworkProposer(spec=ChannelSpec(kind="claude_cli", model="claude-x", effort="high"),
@@ -441,7 +441,7 @@ def _claude_proposer(monkeypatch, result, **params):
         def __init__(self, settings):
             pass
 
-        def run(self, mission, workspace):
+        def run(self, mission, environment):
             return result
     monkeypatch.setattr(channel, "make", lambda backend, settings: Agent(settings))
     return channel.FrameworkProposer(spec=ChannelSpec(kind="claude_cli", model="claude-x", effort="high"),

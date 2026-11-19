@@ -56,6 +56,7 @@ import time
 import uuid
 
 from hermit.agent.base.interface import LoginFailed, make
+from hermit.agent.environment import Sandboxed
 from hermit.agent.evolver.base import Context, Evolver, FinalResult, StepContext, StepResult, Usage
 
 HERE = Path(__file__).resolve().parent
@@ -248,7 +249,7 @@ class MwmEvolver(Evolver):
                                           *PI_PARAMS,
                                           "plan_dir", "plan_max_wait_s", "plan_rerun", "usage_credits")
                    if params.get(k) is not None or (k == "plan_max_wait_s" and k in params)},   # None: no limit
-                "web_search": params["web_search"], "isolation": "sandbox", "sandbox": box,
+                "web_search": params["web_search"],
                 "codex_sandbox": "danger-full-access", "shell_env": "all", "home": home,
                 "home_files": params.get("home", []), "log": log, "cancel": ctx.cancel,
                 "timeout_s": float(params.get("session_timeout_s", 1800)),
@@ -312,8 +313,8 @@ class MwmEvolver(Evolver):
             return record
         started = time.time()
         try:
-            result = make(backend, self._settings(ctx, home, log, box)).run(text, workspace=adapter,
-                                                                           tools=self._learner_tools(ctx))
+            result = make(backend, self._settings(ctx, home, log, box)).run(
+                text, environment=Sandboxed(adapter, sandbox=box), tools=self._learner_tools(ctx))
         finally:
             box.close()
         run = {"exit_code": result.exit_code, "timed_out": result.timed_out, "wall_s": round(time.time() - started, 1),

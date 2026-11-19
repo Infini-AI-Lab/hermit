@@ -1,12 +1,15 @@
 """The agent layers depend downward only (docs/framework/agent-layers.md): Layer 1 (hermit.agent.model) imports no
-other layer, Layer 2 (hermit.agent.base) imports Layer 1 only, and neither imports Layer 3 (hermit.agent.acting,
+other layer, the environments (hermit.agent.environment) import neither Layer 2 nor Layer 3, Layer 2
+(hermit.agent.base) imports Layer 1 and the environments only, and none imports Layer 3 (hermit.agent.acting,
 hermit.agent.evolver) or the framework around them."""
 import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2] / "hermit" / "agent"
-ABOVE = {"model": ("hermit.agent.base", "hermit.agent.acting", "hermit.agent.evolver", "hermit.trainer",
-                   "hermit.adapter", "hermit.tools", "hermit.task"),
+ABOVE = {"model": ("hermit.agent.base", "hermit.agent.environment", "hermit.agent.acting", "hermit.agent.evolver",
+                   "hermit.trainer", "hermit.adapter", "hermit.tools", "hermit.task"),
+         "environment": ("hermit.agent.base", "hermit.agent.acting", "hermit.agent.evolver", "hermit.trainer",
+                         "hermit.adapter", "hermit.tools", "hermit.task"),
          "base": ("hermit.agent.acting", "hermit.agent.evolver", "hermit.trainer", "hermit.adapter", "hermit.tools",
                   "hermit.task")}
 

@@ -28,7 +28,7 @@ adds only what is its own.
         collect: utils/task.py:collect       # optional: (task, workspace, log) -> facts, after the run
         context_query: question              # the task field an adapter's context tool retrieves for
         # (the CLI, Codex or Claude Code, in a Docker container of its own: the run config's environment.image and
-        #  environment.container, not these params; hermit.agent.base.container)
+        #  environment.container, not these params; hermit.agent.environment.docker)
         project_doc_max_bytes: null          # Codex's cap on AGENTS.md; null: Codex's default
         shell_env: core                      # the variables Codex's commands get: core (no keys, no PYTHONPATH) or all
         web_search: false                    # web search, set explicitly either way: Codex's hosted search (it runs
@@ -67,9 +67,9 @@ import sys
 import time
 import uuid
 
-from hermit.agent.acting.agent import Agent
-from hermit.agent.base import container
-from hermit.agent.base.interface import BaseAgent, Limits, LoginFailed, Mount, make
+from hermit.agent.acting.agent import ALL, Agent
+from hermit.agent.base.interface import BaseAgent, LoginFailed, make
+from hermit.agent.environment import Container, Environment, Limits, Mount, Local, docker as container
 from hermit.agent.base.login import LOGINS, NO_LOGIN
 from hermit.task import RunOutput, load_callable
 
@@ -279,6 +279,7 @@ def _output(last: str, task: dict, params: dict, base: Path, code: int, timed_ou
 
 
 class CliAgent(Agent):
+    supports = ALL      # a deployment connects each export where the CLI has a place, and names the rest in the context
     def run(self, task: dict, adapter: Path | None) -> RunOutput:
         return _run(task, adapter, self.params, self.base)
 
@@ -339,11 +340,19 @@ def _check(backend: str, params: dict) -> str:
     return backend
 
 
+def environment(work: Path, params: dict, limits: Limits) -> Environment:
+    """Where the session works: the task's workspace on this machine, or in a container of its own
+    (`isolation: container`, its settings `container`)."""
+    if params.get("isolation") == "container":
+        return Container(work, limits, settings=params.get("container"))
+    return Local(work, limits)
+
+
 def base_agent(backend: str, params: dict) -> BaseAgent:
     """The Base Agent (Layer 2) these params describe: the CLI and how it is run, nothing of the task."""
     from hermit.agent.base.cli import HERMES_PARAMS, PI_PARAMS
     settings = {k: params[k] for k in ("model", "binding", "login", "plan_dir", "plan_max_wait_s", "usage_credits",
-                                       "effort", "isolation", "container", "codex_sandbox", "shell_env",
+                                       "effort", "codex_sandbox", "shell_env",
                                        "project_doc_max_bytes", "args", "env", "price", *PI_PARAMS,
                                        *(p for p in HERMES_PARAMS if p != "skills_dir"),
                                        "model_class", "config", "step_limit")
@@ -410,7 +419,8 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
                     served.close()
                 raise RuntimeError(f"agent {backend} could not be served within deadline_s={budget:.0f}")
         try:
-            result = session.run(prompt, workspace=work, limits=Limits(readable=mounts, timeout_s=timeout_s),
+            result = session.run(prompt, environment=environment(work, params, Limits(readable=mounts,
+                                                                                       timeout_s=timeout_s)),
                                  tools=served.as_tools() if served else ())
         finally:
             if served is not None:

@@ -199,14 +199,14 @@ class ModelEndpoint:
                         thing.close()
                 raise
             endpoint.closing += [t for t in (box, proxy) if t is not None]
-            answer = self._cli_answer(endpoint.agent)
+            answer = self._cli_answer(endpoint.agent, endpoint.place)
         else:
-            from hermit.agent.base.interface import make
+            from hermit.agent.model.direct import Direct
             from hermit.agent.model.llm import ChatClient
             # its own retries for a provider that could not serve (the spec's max_retries, when it gives them)
             given = self.spec.get("max_retries")
             self.client = ChatClient.from_spec(self.spec, **({} if given is None else {"max_retries": int(given)}))
-            endpoint = ChatEndpoint(make("direct", {}, self.client), host=self.host).start()
+            endpoint = ChatEndpoint(Direct({}, self.client), host=self.host).start()
             relayed = endpoint.answer
             answer = lambda request, authorization, abort, note: relayed(request, authorization, abort)  # noqa: E731
 
@@ -231,7 +231,7 @@ class ModelEndpoint:
         self.endpoint = endpoint
         return self
 
-    def _cli_answer(self, agent):
+    def _cli_answer(self, agent, place=None):
         """The answer of each request to a CLI's model (hermit.agent.base.endpoint.cli_answer, as the endpoint's own
         answer gives it) with the relay's three things: the plan's wait first (`plan`; `note` records why it waited,
         `waited`, and while it waits, `waiting`; a call given up while it waits, the endpoint closing, gets no reply
@@ -317,7 +317,7 @@ class ModelEndpoint:
                                                                      f"({why}): {got}"}}).encode(), {}
             before = streams()
             try:
-                return checked(cli_answer(agent, request, abort), before)
+                return checked(cli_answer(agent, request, abort, place=place), before)
             except (ValueError, Unsupported) as exc:            # the session's settings: no session can take them
                 return refused(f"{type(exc).__name__}: {exc}")
             except Exception as exc:                            # noqa: BLE001 - the session failed to run

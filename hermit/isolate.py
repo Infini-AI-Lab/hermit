@@ -205,7 +205,7 @@ def validate(config) -> None:
                              "environment.image the image holds the agent's world")
         if env.get("resources"):
             raise ValueError("environment.resources are the bubblewrap sandbox's limits; a container "
-                             "(environment.image) keeps its own (hermit/agent/base/container.py)")
+                             "(environment.image) keeps its own (hermit/agent/environment/docker.py)")
         if env.get("gpu"):
             raise ValueError("environment.gpu shows GPUs in the bubblewrap sandbox; a container (environment.image) "
                              "has none")

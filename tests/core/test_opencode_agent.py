@@ -15,6 +15,8 @@ import threading
 
 import pytest
 
+from hermit.agent.environment import Container, placed
+
 from hermit.agent.base import cli as base_cli
 from hermit.agent.base import trajectory
 from hermit.agent.base.interface import Unsupported, make
@@ -104,7 +106,7 @@ def test_the_bindings_extra_body_is_the_models_options_and_the_effort_outranks_i
     work = fake / "work"
     work.mkdir()
     make("opencode", {**params, "web_search": False, "home": str(fake / "home"), "effort": "high"}).run(
-        "go", workspace=work)
+        "go", environment=work)
     held = json.loads(seen(fake)[0]["env"]["OPENCODE_CONFIG_CONTENT"])
     assert held["provider"]["hermit"]["models"]["m-1"]["options"] == {
         "chat_template_kwargs": {"enable_thinking": False}, "reasoningEffort": "high"}
@@ -115,7 +117,7 @@ def test_a_prompt_past_the_argument_limit_reaches_opencode_on_stdin(fake):
     work = fake / "work"
     work.mkdir()
     prompt = "x" * (base_cli.ARG_MAX + 80_000)
-    result = agent(fake).run(prompt, workspace=work)
+    result = agent(fake).run(prompt, environment=work)
     [call] = seen(fake)
     assert result.extra["served"] and call["stdin"] == prompt and prompt not in call["args"]
 
@@ -129,7 +131,7 @@ def test_opencode_runs_in_its_home_with_its_model_held_and_the_tools_offered_dir
     home, work = fake / "home", fake / "work"
     work.mkdir()
     result = agent(fake, effort="high", log=str(fake / "agent-opencode.jsonl")).run(
-        "-a prompt that starts with a dash", workspace=work, tools=[echo()])
+        "-a prompt that starts with a dash", environment=work, tools=[echo()])
     [call] = seen(fake)
     # a server of its own (never OpenCode's background service, which other sessions would share)
     assert call["args"][:7] == ["run", "--standalone", "--format", "json", "-m", "hermit/m-1", "--title"]
@@ -171,7 +173,7 @@ def test_a_provider_that_could_not_serve_is_an_outage_read_from_opencodes_own_er
     replay(monkeypatch, stream, code=1)
     work = fake / "work"
     work.mkdir()
-    result = agent(fake).run("go", workspace=work)
+    result = agent(fake).run("go", environment=work)
     assert result.exit_code == 1 and result.extra["failed"] and not result.extra["served"]
     assert result.extra["unavailable"] and not result.extra["rejected"]
     assert result.usage == [] and result.trajectory[-1].kind == "error"
@@ -184,7 +186,7 @@ def test_a_request_the_provider_refuses_is_rejected_not_an_outage(fake, monkeypa
     replay(monkeypatch, stream, code=1)
     work = fake / "work"
     work.mkdir()
-    result = agent(fake).run("go", workspace=work)
+    result = agent(fake).run("go", environment=work)
     assert result.extra["failed"] and result.extra["rejected"] and not result.extra["unavailable"]
     assert result.extra["failure"].startswith(kind)
 
@@ -205,12 +207,12 @@ def test_a_resumed_session_is_continued_by_its_id_and_counts_only_its_new_usage(
     work = fake / "work"
     work.mkdir()
     opencode = agent(fake)
-    result = opencode.run("again", workspace=work, session=SESSION)
+    result = opencode.run("again", environment=work, session=SESSION)
     args = seen(fake)[0]["args"]
     assert args[args.index("--session") + 1] == SESSION and result.session == SESSION
     [usage] = result.usage
     assert (usage.input_tokens, usage.calls) == (1000, 1)
-    opencode.run("again", workspace=work, session="../not-an-id")     # no OpenCode session id: a new session
+    opencode.run("again", environment=work, session="../not-an-id")     # no OpenCode session id: a new session
     assert "--session" not in seen(fake)[1]["args"]
 
 
@@ -240,12 +242,12 @@ def test_a_compactions_model_calls_are_counted_from_the_sessions_totals(fake, mo
     opencode = agent(fake)
     # the stream's four requests (600 + 400 cached in, 15 + 5 reasoning out each) and a compaction of 2000 + 1000
     keep_totals(fake / "home", 1, input=4400, cache_read=2600, output=90, reasoning=30)
-    [usage] = opencode.run("go", workspace=work).usage
+    [usage] = opencode.run("go", environment=work).usage
     assert (usage.input_tokens, usage.cached_input_tokens, usage.output_tokens, usage.calls) == (7000, 2600, 120, 5)
     assert usage.cost_usd == pytest.approx((4400 * 1.0 + 2600 * 0.1 + 120 * 2.0) / 1e6)
     replay(monkeypatch, "resume.jsonl")                  # one request more, and a compaction like the first
     keep_totals(fake / "home", 2, input=7000, cache_read=4000, output=135, reasoning=45)
-    [usage] = opencode.run("again", workspace=work, session=SESSION).usage
+    [usage] = opencode.run("again", environment=work, session=SESSION).usage
     assert (usage.input_tokens, usage.cached_input_tokens, usage.output_tokens, usage.calls) == (4000, 1400, 60, 2)
     monkeypatch.setattr(base_cli, "_WARNED", set())
     (fake / "home" / "data" / "opencode" / "opencode.db").unlink()
@@ -254,7 +256,7 @@ def test_a_compactions_model_calls_are_counted_from_the_sessions_totals(fake, mo
     with sqlite3.connect(fake / "home" / "data" / "opencode" / "opencode.db") as c:
         c.execute("ALTER TABLE session_v2 RENAME COLUMN tokens_input TO input")
     replay(monkeypatch, "success.jsonl")
-    [usage] = agent(fake).run("go", workspace=work).usage
+    [usage] = agent(fake).run("go", environment=work).usage
     assert (usage.input_tokens, usage.calls) == (4000, 4)
     assert "OpenCode's session database could not be read" in capsys.readouterr().err
 
@@ -265,17 +267,17 @@ def test_opencode_runs_only_a_model_reference_and_refuses_roles_web_search_a_log
     work.mkdir()
     with pytest.raises(Unsupported, match="runs a <backend>/<model> reference"):
         make("opencode", {"model": "some-model", "web_search": False, "home": str(fake / "home")}).run(
-            "go", workspace=work)
+            "go", environment=work)
     opencode = agent(fake)
     role = {"name": "reviewer", "description": "Review.", "instructions": "Check it."}
     with pytest.raises(Unsupported, match="no roles"):
-        opencode.run("go", workspace=work, roles=[role])
+        opencode.run("go", environment=work, roles=[role])
     with pytest.raises(Unsupported, match="no web search"):
-        opencode.configured(web_search=True).run("go", workspace=work)
+        opencode.configured(web_search=True).run("go", environment=work)
     with pytest.raises(Unsupported, match="login"):
-        opencode.configured(login="chatgpt").run("go", workspace=work)
+        opencode.configured(login="chatgpt").run("go", environment=work)
     with pytest.raises(Unsupported, match="takes isolation none or sandbox"):
-        opencode.configured(isolation="container").run("go", workspace=work)
+        opencode.run("go", environment=Container(work))
     assert not (fake / "seen.jsonl").exists()
     from hermit.agent.acting.workspace import _check
     with pytest.raises(ValueError, match="agent opencode takes no login"):
@@ -290,7 +292,7 @@ def test_system_instructions_are_a_file_the_inline_config_names(fake):
     opencode = agent(fake)
     own, prompt = opencode.system_settings("Be exact.", "go")
     assert own == {"append_system_prompt": "Be exact."} and prompt == "go"
-    opencode.configured(**own).run(prompt, workspace=work)
+    opencode.configured(**own).run(prompt, environment=work)
     [call] = seen(fake)
     assert call["files"]["system.md"] == "Be exact."
     assert json.loads(call["env"]["OPENCODE_CONFIG_CONTENT"])["instructions"] == [str(fake / "home" / "system.md")]
@@ -461,13 +463,13 @@ def test_with_the_opencode_cli_a_session_reaches_its_model_and_its_tools(tmp_pat
     monkeypatch.setenv("PWD", str(tmp_path / "caller"))      # where OpenCode would work if it went by PWD
     work = tmp_path / "work"
     work.mkdir()
-    settings = {**mock_params(url), "web_search": False, "home": str(tmp_path / "home"), "isolation": isolation,
-                "timeout_s": 300, "effort": "high"}
+    settings = {**mock_params(url), "web_search": False, "home": str(tmp_path / "home"), "timeout_s": 300, "effort": "high"}
+    box = None
     if isolation == "sandbox":
-        settings["sandbox"] = Sandbox(network="isolated", env_allow=[], writable=[work], role="agent",
-                                      record_dir=tmp_path / "records")
+        box = Sandbox(network="isolated", env_allow=[], writable=[work], role="agent",
+                      record_dir=tmp_path / "records")
     try:
-        result = make("opencode", settings).run("Do the task.", workspace=work, tools=[echo()])
+        result = make("opencode", settings).run("Do the task.", environment=placed(work, box), tools=[echo()])
     finally:
         server.shutdown()
     assert result.exit_code == 0 and result.extra["served"] and result.reply == "the answer"
@@ -549,9 +551,9 @@ def test_with_the_opencode_cli_a_compactions_model_calls_are_counted(tmp_path, m
     params["provider"]["models"]["m-1"]["limit"] = {"context": 8000, "output": 100}
     opencode = make("opencode", {**params, "web_search": False, "home": str(tmp_path / "home"), "timeout_s": 300})
     try:
-        first = opencode.run("Read a.txt, then answer.", workspace=work)
+        first = opencode.run("Read a.txt, then answer.", environment=work)
         before = len(requests)
-        second = opencode.run("Again.", workspace=work, session=first.session)
+        second = opencode.run("Again.", environment=work, session=first.session)
     finally:
         server.shutdown()
     assert first.reply == "the answer" and sum(map(compacting, (r["body"] for r in requests[:before]))) == 1

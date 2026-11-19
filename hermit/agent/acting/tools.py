@@ -27,16 +27,43 @@ from hermit.agent.base.tool import Tool
 MARK = "__harness_tool__"
 
 
-def tool(description: str, parameters: dict | None = None, *, name: str | None = None) -> Callable:
-    """Mark a function as a task tool. `parameters` is the JSON Schema of its arguments (an object)."""
-    schema = parameters or {"type": "object", "properties": {}}
-    if schema.get("type") != "object":
+def tool(description: str | Callable | None = None, parameters: dict | None = None, *,
+         name: str | None = None) -> Callable:
+    """Mark a function (or an agent's method: hermit.agent.acting.react.ReactAgent) as a task tool. `description`
+    defaults to its docstring; `parameters` is the JSON Schema of its arguments (an object), by default read from its
+    signature (`schema_of`). `@tool` alone marks it with both defaults."""
+    if callable(description):                     # @tool, without arguments
+        return tool()(description)
+    if parameters is not None and parameters.get("type") != "object":
         raise ValueError("A tool's parameters schema must be an object")
 
     def mark(fn):
-        setattr(fn, MARK, {"name": name or fn.__name__, "description": description, "parameters": schema})
+        text = description or (inspect.getdoc(fn) or "").split("\n\n")[0].strip() or fn.__name__
+        setattr(fn, MARK, {"name": name or fn.__name__, "description": text,
+                           "parameters": parameters or schema_of(fn)})
         return fn
     return mark
+
+
+JSON_TYPES = {"str": "string", "int": "integer", "float": "number", "bool": "boolean", "list": "array",
+              "dict": "object"}
+
+
+def schema_of(fn: Callable) -> dict:
+    """The JSON Schema of a function's arguments from its signature: each parameter's annotation (str, int, float,
+    bool, list, dict, or that type or None) its type, the ones without a default required. `self` and `_task` (the
+    task row, bound by the framework) are not arguments."""
+    properties, required = {}, []
+    for p in inspect.signature(fn).parameters.values():
+        if p.name in ("self", "_task") or p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
+            continue
+        hint = p.annotation if isinstance(p.annotation, str) else getattr(p.annotation, "__name__", "")
+        hint = hint.replace(" ", "").replace("|None", "").replace("Optional[", "").rstrip("]")
+        hint = hint.split("[")[0]
+        properties[p.name] = {"type": JSON_TYPES[hint]} if hint in JSON_TYPES else {}
+        if p.default is p.empty:
+            required.append(p.name)
+    return {"type": "object", "properties": properties, **({"required": required} if required else {})}
 
 
 def load_tools(spec: str, base: Path) -> list[tuple[dict, Callable]]:

@@ -130,8 +130,8 @@ def failed_usage(error: ChatHTTPError, model: str) -> Usage | None:
 
 
 def evolver_agent(client, budget, metered: list | None = None, cancel=None, log_path: Path | None = None):
-    """The Evolver's `direct` Base Agent (`ctx.agent`): the run's model, metered."""
-    from hermit.agent.base.direct import Direct
+    """The run's model for the Evolver (`ctx.agent`): one model call at a time (hermit.agent.model.direct), metered."""
+    from hermit.agent.model.direct import Direct
     return Direct({}, MeteredModel(client, budget, metered, cancel, log_path))
 
 

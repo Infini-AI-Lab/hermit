@@ -513,7 +513,7 @@ def test_an_attempt_reads_the_base_agents_result(tmp_path, monkeypatch, fields, 
         def __init__(self, settings):
             made.append(settings)
 
-        def run(self, prompt, *, workspace):
+        def run(self, prompt, *, environment):
             return Result(reply=fields.get("reply", ""), exit_code=fields["exit_code"],
                           timed_out=fields.get("timed_out", False), extra=fields["extra"],
                           usage=[Usage("m", input_tokens=5, calls=1)])
@@ -541,7 +541,7 @@ def test_an_attempts_clock_covers_the_wait_before_the_cli_runs(tmp_path, monkeyp
         def __init__(self, settings):
             self.cancel = settings["cancel"]
 
-        def run(self, prompt, *, workspace):
+        def run(self, prompt, *, environment):
             if order == "trainer":
                 trainer.set()
             self.cancel.wait(30)                       # the plan's wait: it ends when the cancel is set

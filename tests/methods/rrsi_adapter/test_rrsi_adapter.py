@@ -174,8 +174,9 @@ class Role(CodexSession):
         super().__init__(settings)
         self.reply, self.extra, self.usage = reply, extra, list(usage)
 
-    def run(self, prompt, *, workspace=None, tools=(), limits=None, session=None, roles=()):
-        ROLE_CALLS.append({"settings": self.settings, "workspace": workspace, "limits": limits, "prompt": prompt})
+    def run(self, prompt, *, environment=None, tools=(), session=None, roles=()):
+        ROLE_CALLS.append({"settings": self.settings, "workspace": environment.workspace, "limits": environment.limits,
+                           "environment": environment, "prompt": prompt})
         text = self.reply(instructions(self.settings, prompt), prompt)
         return Result(reply=text, exit_code=0, usage=list(self.usage),
                       extra=dict(self.extra if self.extra is not None else SERVED))
@@ -212,8 +213,9 @@ class Proposer(BaseAgent):
         super().__init__(settings)
         self.script = script
 
-    def run(self, prompt, *, workspace=None, tools=(), limits=None, session=None, roles=()):
-        self.script.sessions.append({"settings": self.settings, "workspace": workspace, "limits": limits,
+    def run(self, prompt, *, environment=None, tools=(), session=None, roles=()):
+        self.script.sessions.append({"settings": self.settings, "workspace": environment.workspace,
+                                     "limits": environment.limits, "environment": environment,
                                      "tools": [t.name if hasattr(t, "name") else t for t in tools]})
         return self.script.run(prompt, session, Path(self.settings["log"]))
 

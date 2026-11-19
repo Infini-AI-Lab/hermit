@@ -175,7 +175,7 @@ import weakref
 
 import yaml
 
-from hermit.agent.acting.agent import Agent
+from hermit.agent.acting.agent import ALL, Agent
 from hermit.agent.base import login as subscription
 from hermit.agent.base.interface import LoginFailed
 from hermit.harbor import clis
@@ -433,6 +433,7 @@ class _TurnUnready(Exception):
 
 
 class HarborAgent(Agent):
+    supports = ALL      # the trial's CLI takes the adapter as `hermit deploy` deploys it (staging)
     """`agent.name: harbor`."""
 
     def __init__(self, params: dict | None = None, base: Path | str | None = None):

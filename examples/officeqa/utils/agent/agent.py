@@ -69,13 +69,13 @@ def _base_agent():
     global _agent
     with _lock:
         if _agent is None:
-            from hermit.agent.base.interface import make
+            from hermit.agent.model.direct import Direct
             from hermit.agent.model.llm import ChatClient
             # One request as SkillOpt's own client sent it: its tools as they are, a tool_choice only when it gives
             # one, and its retries of a request the endpoint did not serve: 5 attempts, waiting 4 s, 8 s, 16 s, 32 s
             # (doubling, at most 60 s).
             spec = {**_binding.spec(), "extra_body": {"reasoning_effort": EFFORT}}
-            _agent = make("direct", {"tool_choice": None},
+            _agent = Direct({"tool_choice": None},
                           ChatClient.from_spec(spec, max_retries=4, retry_wait=4.0, retry_wait_max=60.0))
         return _agent
 
@@ -146,6 +146,7 @@ def _messages(pred_dir: Path) -> list[dict]:
 
 class OfficeQAAgent(Agent):
     """SkillOpt's own rollout with the adapter's context as the skill. `agent.name: ../utils/agent/agent.py:OfficeQAAgent`."""
+    supports = ("context", "context_tool")    # SkillOpt's skill slot
 
     def run(self, task: dict, adapter: Path | None) -> RunOutput:
         _setup(self.params)

@@ -38,7 +38,8 @@ import threading
 import time
 
 from hermit.agent.base import login as codex_login
-from hermit.agent.base.interface import Limits, LoginFailed, Result, make
+from hermit.agent.base.interface import LoginFailed, Result, make
+from hermit.agent.environment import placed
 from hermit.agent.evolver.base import Usage
 
 ROLE_MODULES = ("rrsi.analyst", "rrsi.digester", "rrsi.critic")
@@ -208,11 +209,10 @@ class Roles:
         box = None
         if self.ctx.sandbox is not None and getattr(self.ctx.sandbox, "enabled", False):
             box = self.ctx.sandbox.view(readable=[Path(cwd)] if Path(cwd) != work else [], writable=[call])
-            settings["sandbox"] = box                       # before `instructed`: its configured copy keeps it
         started = time.time()
         try:
             agent, text = make(self.backend, settings).instructed(system, prompt)
-            result = agent.run(text, workspace=cwd, limits=Limits())
+            result = agent.run(text, environment=placed(cwd, box if box is not None else self.ctx.sandbox))
         finally:
             if box is not None:
                 box.close()

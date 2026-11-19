@@ -113,6 +113,7 @@ def wm_text(result) -> str:
 class ServeLearnBenchAgent(Agent):
     """The benchmark's own agent loop with the adapter plugged in: its context on the system prompt, its tools
     beside the environment's, served through Session. `agent.name: ../utils/agent/agent.py:ServeLearnBenchAgent`."""
+    supports = ("context", "context_tool", "tools")    # extra_system and tools
 
     def run(self, task: dict, adapter: Path | None) -> RunOutput:
         from servelearnbench import agent, llm, scoring

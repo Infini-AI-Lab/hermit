@@ -125,7 +125,29 @@ def needs_errors(config: Config, needs: list[str], supports_resume: bool) -> lis
                    "evolver_access.send_material_out: true to allow it")
     if d["evolver"]["resume"] and not supports_resume:
         out.append("evolver.resume is true but this Evolver does not support resume")
+    out += adapter_needs_errors(config, needs)
     return out
+
+
+def adapter_needs_errors(config: Config, needs: list[str]) -> list[str]:
+    """What the Evolver needs its adapter to give the acting agent (tools, skills, hooks, ...) that the agent does not
+    take (its `supports`): such a run is refused, never run with the export silently dropped. An agent whose class
+    would run only inside its sandbox, or that declares nothing, is not checked here."""
+    from hermit.agent.evolver.loader import ADAPTER_NEEDS
+    from hermit.isolate import host_pipeline
+    wanted = [n for n in needs if n in ADAPTER_NEEDS]
+    if not wanted:
+        return []
+    from hermit.agent.acting.agent import supports_of
+    name = config.data["agent"]["name"]
+    d = config.data
+    on_host = host_pipeline(config) is not None and not (d["environment"].get("image") and d["sandbox"]["enabled"])
+    supports = supports_of(name, config.base, may_import=on_host)
+    missing = [n for n in wanted if supports is not None and n not in supports]
+    if not missing:
+        return []
+    return [f"the Evolver needs its adapter to give the acting agent {', '.join(missing)}, which agent {name} does "
+            f"not take (it takes {', '.join(supports)})"]
 
 
 def _task_tool_decls(config: Config) -> list[dict]:

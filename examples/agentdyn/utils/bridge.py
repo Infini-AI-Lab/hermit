@@ -497,3 +497,6 @@ def run(task: dict, adapter: Path | None, *, params: dict, base: Path) -> RunOut
                 remove_container(name)
                 if registration is not None:
                     registration.unlink(missing_ok=True)
+
+
+run.supports = ("context",)   # the defense bundle is the adapter's files, which the episode reads (EvoSafe, SHE)

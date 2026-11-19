@@ -9,7 +9,8 @@ import json
 import re
 
 from hermit.agent.base.cli import PI_PARAMS
-from hermit.agent.base.interface import Limits, LoginFailed, make
+from hermit.agent.base.interface import LoginFailed, make
+from hermit.agent.environment import Limits, placed
 from .experience import role_tools
 
 # The Layer 1/2 settings a configuration may give the role CLI; the rest are set per call below.
@@ -70,8 +71,7 @@ def call_role(ctx, messages, schema, name, backend):
         if settings.get(key) is None and params.get(f"{backend}_{key}") is not None:
             settings[key] = params[f"{backend}_{key}"]
     settings.setdefault("timeout_s", 600 if backend == "codex" else 1200)
-    settings["isolation"] = "sandbox" if ctx.sandbox is not None else "none"     # the run's sandbox, when it is on
-    settings.update(sandbox=ctx.sandbox, cancel=ctx.cancel, web_search=False, stdin=True,
+    settings.update(cancel=ctx.cancel, web_search=False, stdin=True,
                     log=ctx.workspace.output / f"{backend}-{name}-events.jsonl")
     system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
     user = "\n\n".join(m["content"] for m in messages if m["role"] != "system")
@@ -101,8 +101,10 @@ def call_role(ctx, messages, schema, name, backend):
         settings.setdefault("codex_sandbox", "read-only")
         prompt = instructions + json.dumps(messages, ensure_ascii=False)
     (root / "prompt.txt").write_text(prompt)
-    result = make(backend, settings).run(prompt, workspace=root, tools=tools,
-                                       limits=Limits(timeout_s=settings["timeout_s"]), session=None)
+    # the run's sandbox, when it is on
+    result = make(backend, settings).run(prompt, environment=placed(root, ctx.sandbox,
+                                                                    Limits(timeout_s=settings["timeout_s"])),
+                                         tools=tools, session=None)
     (ctx.workspace.output / f"{backend}-{name}-trajectory.json").write_text(
         json.dumps([asdict(step) for step in result.trajectory], indent=2))
     if result.extra.get("login_failed"):

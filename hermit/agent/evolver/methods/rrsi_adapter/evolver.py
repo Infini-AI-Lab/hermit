@@ -54,7 +54,8 @@ import sys
 import time
 
 from hermit.agent.base import login as codex_login
-from hermit.agent.base.interface import Limits, LoginFailed, make
+from hermit.agent.base.interface import LoginFailed, make
+from hermit.agent.environment import placed
 from hermit.agent.model.backends import CLAUDE_ENV
 from hermit.agent.evolver.agent import AgentEvolver
 from hermit.agent.evolver.base import FinalResult, StepContext, StepResult, Usage
@@ -1034,7 +1035,6 @@ class RRSIAdapterEvolver(AgentEvolver):
         # learning material, the state, the history, the working copy, the other variants and rounds): the run's
         # evolver sandbox with this view. With the run's sandbox off it runs as every learner of such a run does.
         ws = ctx.workspace
-        limits = Limits()
         box = ctx.sandbox.view(readable=[ws.task_info], writable=[work]) \
             if ctx.sandbox is not None and getattr(ctx.sandbox, "enabled", False) else ctx.sandbox
         view = box if box is not ctx.sandbox else None
@@ -1051,10 +1051,9 @@ class RRSIAdapterEvolver(AgentEvolver):
             _unlink_links(home)
             kept = log if attempt == 0 else log.with_name(f"{log.stem}.retry{attempt}{log.suffix}")
             kept.parent.mkdir(parents=True, exist_ok=True)
-            agent = make(backend, {**self.settings(ctx, backend), "home": home, "log": kept,
-                                   **({"sandbox": box} if box is not None else {})})
+            agent = make(backend, {**self.settings(ctx, backend), "home": home, "log": kept})
             try:
-                result = agent.run(prompt, workspace=work, tools=tools, limits=limits, session=session)
+                result = agent.run(prompt, environment=placed(work, box), tools=tools, session=session)
             finally:
                 if box is not ctx.sandbox and box is not None:
                     box.close()

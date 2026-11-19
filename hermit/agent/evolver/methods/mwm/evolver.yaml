@@ -1,7 +1,7 @@
 description: The MetaWorld Model learner (MWM V2 default, docket on, hypothesis off). One CLI session per block
   with the native contract, agenda, skills, patterns and maintenance; reads the task's evidence store at /evidence.
 class: evolver.py:MwmEvolver
-needs: [environment]
+needs: [environment, tools]      # tools: the host consults the world model through its wm tool
 params:
   backend: codex              # the learner's CLI, codex, claude or pi (a model reference binds it, as for those Evolvers)
   model: null                 # the learner model; null: the CLI's default

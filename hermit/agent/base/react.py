@@ -2,74 +2,184 @@
 the tools, runs the calls the model asks for, gives it the results, and repeats until the model answers without a
 tool call.
 
+    result = make("react", settings, model).run(messages, environment=env, tools=[...])
+
+    loop = agent.start(messages, environment=env, tools=[...], external=["submit"])   # driven step by step:
+    while not loop.done:                          # a benchmark's own loop that runs some calls itself
+        agent.step(loop)
+        for call in loop.pending:                 # calls of `external` tools wait for their results
+            loop.give(call["id"], run_it_myself(call))
+    result = loop.result()
+
 Settings: `max_turns` (model calls, default 24), `max_output_tokens` (stop after this many output tokens in total),
 `max_tokens` (per reply, default 16384), `temperature`, `tool_result_chars` (a tool result's text is cut there,
-default 24000). The model is as for `direct`.
+default 24000). The model is as for Direct (hermit.agent.model.direct): a model reference, or a chat client.
+
+A subclass changes the loop through its hooks, never by copying it: `call_model` (one request), `before_tool` (an
+answer instead of running a call: a cap reached, a call refused), `after_tool` (a call's result as the model reads
+it), `stopped` (an end besides an answer). The environment, when the call gives one, is the tools' to use
+(`loop.environment`): the loop itself reads, writes and runs nothing but the tools it is given.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import json
 import time
 from typing import Any, Sequence
 
-from hermit.agent.base.direct import client_of, message_steps
-from hermit.agent.base.interface import BaseAgent, Limits, Result, Unsupported, as_messages
+from hermit.agent.base.interface import BaseAgent, Result, Unsupported, as_environment, as_messages
 from hermit.agent.base.tool import Tool
 from hermit.agent.base.trajectory import Step
+from hermit.agent.model.direct import client_of
+
+
+def message_steps(message: dict, calls: bool = True) -> list[Step]:
+    """One assistant message as steps: its reasoning, its text and (with `calls`) its tool calls."""
+    steps = []
+    if str(message.get("reasoning_content") or "").strip():
+        steps.append(Step("reasoning", str(message["reasoning_content"])))
+    if str(message.get("content") or "").strip():
+        steps.append(Step("message", str(message["content"])))
+    for call in (message.get("tool_calls") or []) if calls else []:
+        fn = call.get("function") or {}
+        steps.append(Step("tool_call", json.dumps({"tool": fn.get("name"), "arguments": fn.get("arguments")},
+                                                  ensure_ascii=False)))
+    return steps
+
+
+@dataclass
+class Loop:
+    """One run of the loop, so far: what `step` advances and `result` reads."""
+    messages: list[dict]
+    tools: dict[str, Tool]
+    specs: list[dict]
+    client: Any
+    environment: Any = None
+    external: frozenset = frozenset()       # tool names the driver runs: their calls wait in `pending`
+    steps: list[Step] = field(default_factory=list)
+    usages: list = field(default_factory=list)
+    pending: list[dict] = field(default_factory=list)
+    answer: str = ""
+    finish: str | None = None
+    turns: int = 0
+    calls_made: int = 0
+    model_s: float = 0.0
+    done: bool = False
+    extra: dict = field(default_factory=dict)   # a subclass's own records of the run
+
+    def give(self, call_id: str, content: str) -> None:
+        """The result of a pending call (an `external` tool's), which the driver ran: the model reads it next step."""
+        for i, call in enumerate(self.pending):
+            if call.get("id") == call_id:
+                fn = call.get("function") or {}
+                self.messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
+                self.steps.append(Step("tool_call", json.dumps({"tool": fn.get("name"), "arguments":
+                                                                fn.get("arguments") or "{}"}, ensure_ascii=False),
+                                       output=content))
+                del self.pending[i]
+                return
+        raise ValueError(f"no pending call {call_id!r}")
+
+    def result(self) -> Result:
+        return Result(reply=self.answer, trajectory=self.steps, usage=[_total(self.client, self.usages)],
+                      session=self.messages, finish_reason=self.finish,
+                      extra={"turns": self.turns, "tool_calls": self.calls_made, "model_s": self.model_s,
+                             **self.extra})
 
 
 class React(BaseAgent):
     name = "react"
 
-    def run(self, prompt, *, workspace=None, tools: Sequence[Tool] = (), limits: Limits | None = None,
-            session: Any = None, roles: Sequence[dict] = ()) -> Result:
-        if workspace is not None:
-            raise Unsupported("react has no workspace: give it tools")
+    def run(self, prompt, *, environment=None, tools: Sequence[Tool] = (), session: Any = None,
+            roles: Sequence[dict] = ()) -> Result:
+        loop = self.start(prompt, environment=environment, tools=tools, session=session, roles=roles)
+        while not loop.done:
+            self.step(loop)
+        return loop.result()
+
+    def start(self, prompt, *, environment=None, tools: Sequence[Tool] = (), session: Any = None,
+              roles: Sequence[dict] = (), external: Sequence[str] = ()) -> Loop:
+        """A run of the loop, not yet stepped. Calls of `external` tools are offered to the model but not run: they
+        wait in `loop.pending` for the driver's `loop.give`."""
         if roles:
             raise Unsupported("react has no sub-agents")
-        if limits is not None and limits.timeout_s:
+        env = as_environment(environment)
+        if env is not None and env.limits.timeout_s:
             raise Unsupported("react cannot stop a model call at a time limit: limit it by max_turns")
-        s = self.settings
-        client = client_of(self.model)            # a model spec: a fresh client per run
         by_name: dict[str, Tool] = {}
         for t in tools:                           # the first of a name answers, as the task's tools come first
             by_name.setdefault(t.name, t)
-        specs = [t.openai_spec() for t in tools]
-        max_turns, max_output = int(s.get("max_turns", 24)), int(s.get("max_output_tokens", 0)) or None
+        return Loop(messages=[*(session or []), *as_messages(prompt)], tools=by_name,
+                    specs=[t.openai_spec() for t in tools], client=client_of(self.model),   # a spec: a fresh client
+                    environment=env, external=frozenset(external))
+
+    def step(self, loop: Loop) -> Loop:
+        """One model call and the calls it asks for. Ends the loop on an answer without a call, at `max_turns`, at
+        `max_output_tokens`, or when `stopped` says so; waits (returns with `loop.pending`) on a call of an external
+        tool."""
+        if loop.done or loop.pending:
+            return loop
+        s = self.settings
+        if loop.turns >= int(s.get("max_turns", 24)):
+            loop.done = True
+            return loop
+        t = time.time()
+        message, usage = self.call_model(loop, loop.messages, loop.specs)
+        loop.model_s += time.time() - t
+        loop.usages.append(usage)
+        loop.turns += 1
+        loop.finish = message.get("finish_reason")
+        loop.messages.append({k: v for k, v in message.items() if k in ("role", "content", "tool_calls")})
+        loop.steps += message_steps(message, calls=False)
+        calls = message.get("tool_calls") or []
+        if not calls:
+            loop.answer = message.get("content") or ""
+            loop.done = True
+            return loop
         result_chars = int(s.get("tool_result_chars", 24000))
-        chat_kwargs = {"max_tokens": int(s.get("max_tokens", 16384)),
-                       **({"temperature": s["temperature"]} if s.get("temperature") is not None else {})}
-        messages = [*(session or []), *as_messages(prompt)]
-        steps: list[Step] = []
-        usages = []                               # this run's own calls (a client may be shared)
-        model_s, answer, turns, calls_made, finish = 0.0, "", 0, 0, None
-        for _ in range(max_turns):
-            t = time.time()
-            message, usage = client.chat(messages, **({"tools": specs, "tool_choice": "auto"} if specs else {}),
-                                          **chat_kwargs)
-            model_s += time.time() - t
-            usages.append(usage)
-            turns += 1
-            finish = message.get("finish_reason")
-            messages.append({k: v for k, v in message.items() if k in ("role", "content", "tool_calls")})
-            steps += message_steps(message, calls=False)
-            calls = message.get("tool_calls") or []
-            if not calls:
-                answer = message.get("content") or ""
-                break
-            for call in calls:
-                calls_made += 1
-                fn = call.get("function") or {}
-                name, arguments = fn.get("name", ""), fn.get("arguments") or "{}"
-                tool = by_name.get(name)
+        for call in calls:
+            loop.calls_made += 1
+            fn = call.get("function") or {}
+            name, arguments = fn.get("name", ""), fn.get("arguments") or "{}"
+            if name in loop.external:
+                loop.pending.append(call)
+                continue
+            content = self.before_tool(loop, call)
+            if content is None:
+                tool = loop.tools.get(name)
                 content = tool.answer(arguments, result_chars) if tool is not None else f"Error: unknown tool {name}"
-                messages.append({"role": "tool", "tool_call_id": call.get("id"), "content": content})
-                steps.append(Step("tool_call", json.dumps({"tool": name, "arguments": arguments}, ensure_ascii=False),
-                                  output=content))
-            if max_output and sum(u.output_tokens for u in usages) >= max_output:
-                break
-        return Result(reply=answer, trajectory=steps, usage=[_total(client, usages)], session=messages,
-                      finish_reason=finish, extra={"turns": turns, "tool_calls": calls_made, "model_s": model_s})
+                content = self.after_tool(loop, call, content)
+            loop.messages.append({"role": "tool", "tool_call_id": call.get("id"), "content": content})
+            loop.steps.append(Step("tool_call", json.dumps({"tool": name, "arguments": arguments}, ensure_ascii=False),
+                                   output=content))
+        max_output = int(s.get("max_output_tokens", 0)) or None
+        if max_output and sum(u.output_tokens for u in loop.usages) >= max_output:
+            loop.done = True
+        elif self.stopped(loop, message):
+            loop.done = True
+        elif loop.turns >= int(s.get("max_turns", 24)) and not loop.pending:
+            loop.done = True
+        return loop
+
+    # ---------- the hooks a subclass overrides ----------
+    def call_model(self, loop: Loop, messages: list[dict], specs: list[dict]) -> tuple[dict, Any]:
+        """One request: (the model's message, its usage)."""
+        s = self.settings
+        kwargs = {"max_tokens": int(s.get("max_tokens", 16384)),
+                  **({"temperature": s["temperature"]} if s.get("temperature") is not None else {})}
+        return loop.client.chat(messages, **({"tools": specs, "tool_choice": "auto"} if specs else {}), **kwargs)
+
+    def before_tool(self, loop: Loop, call: dict) -> str | None:
+        """What the model reads for `call` instead of running it (a cap reached, a call refused), or None: run it."""
+        return None
+
+    def after_tool(self, loop: Loop, call: dict, content: str) -> str:
+        """A call's result as the model reads it."""
+        return content
+
+    def stopped(self, loop: Loop, message: dict) -> bool:
+        """Whether the run ends after this message's calls, besides an answer, max_turns and max_output_tokens."""
+        return False
 
 
 def _total(client, usages: list):
