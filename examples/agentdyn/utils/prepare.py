@@ -4,11 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 import random
-import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-
-from examples.agentdyn.utils.bridge import benchmark_settings, case_fields, validate_case
+from bridge import benchmark_settings, case_fields, validate_case
 
 
 def read_logs(directory, suite):

@@ -5,14 +5,18 @@ uses explicit no-op eligibility decisions; model outcomes are deliberately varie
 No model, network, external source checkout or Docker is used in these checks.
 """
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
-from examples.agentdojo.utils.prepare_benchmark import SUITES, digest, read_collection, select
 from hermit.config import Config
 
 ROOT = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(ROOT / 'examples/agentdojo/utils'))
+from prepare_benchmark import SUITES, digest, read_collection, select
 
 
 def inventory():
@@ -123,3 +127,25 @@ def test_experiment_cli_loads_the_shared_supervisor_from_another_directory(tmp_p
     result = subprocess.run([sys.executable, str(ROOT / 'examples/agentdojo/utils/experiment.py'), '--help'],
                             cwd=tmp_path, capture_output=True, text=True, check=True)
     assert '--config' in result.stdout and '--no-sandbox' in result.stdout
+
+
+@pytest.mark.parametrize('path', sorted((ROOT / 'examples/agentdojo').glob('*/run*.yaml')),
+                         ids=lambda path: f'{path.parent.name}/{path.name}')
+def test_every_recipe_names_agentdojo_for_the_experiment_supervisors_provenance(path):
+    """run_experiment.py records the benchmark and its revision from agent.params.benchmark; the task entry point
+    passes agentdojo to the replay alone."""
+    assert Config.load(path)['agent']['params']['benchmark'] == 'agentdojo'
+
+
+def test_the_entry_points_load_agentdyns_runtime_beside_an_installed_examples_package(tmp_path):
+    """A regular package named `examples`, which some distributions install, wins over the repository's examples/
+    folder: the entry points and AgentDyn's preparation import the shared runtime by file name."""
+    (tmp_path / 'examples').mkdir()
+    (tmp_path / 'examples/__init__.py').write_text('')
+    code = ("import runpy\n"
+            "for name in ('agentdojo/utils/task.py', 'agentdojo/utils/judge.py', 'agentdojo/utils/prepare.py',\n"
+            "             'agentdojo/utils/prepare_benchmark.py', 'agentdyn/utils/prepare.py'):\n"
+            "    runpy.run_path('examples/' + name)\n")
+    env = {**os.environ, 'PYTHONPATH': os.pathsep.join([str(tmp_path), str(ROOT)])}
+    result = subprocess.run([sys.executable, '-c', code], cwd=ROOT, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

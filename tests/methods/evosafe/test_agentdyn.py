@@ -376,6 +376,10 @@ def build(): return Defense()
 def test_native_three_suite_initialization():
     pytest.importorskip("agentdojo.task_suite")
     from agentdojo.task_suite import get_suite
+    try:
+        get_suite("v1.2.2", "shopping")
+    except KeyError:
+        pytest.skip("upstream AgentDojo installed, not AgentDyn")
     spec = importlib.util.spec_from_file_location("prepare_expanded", ROOT / "examples/agentdyn/utils/prepare_expanded.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

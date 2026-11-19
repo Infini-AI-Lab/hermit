@@ -2,9 +2,9 @@
 from pathlib import Path
 import sys
 
-# Function loaders and standalone preparation need not start at the repository root.
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from examples.agentdyn.utils import bridge as replay
+# AgentDyn's runtime, imported by file name as AgentDyn's own modules import each other.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "agentdyn/utils"))
+import bridge as replay
 
 
 def run(task, adapter, *, params, base):

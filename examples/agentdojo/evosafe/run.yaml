@@ -18,6 +18,7 @@ agent:
     benchmark_version: v1.2.2
     max_iters: 15
     logs: runs/episodes
+    benchmark: agentdojo               # the experiment supervisor's provenance reads it
 judge:
   path: ../utils/judge.py
 evolver:

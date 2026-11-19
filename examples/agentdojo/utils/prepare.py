@@ -1,12 +1,19 @@
 """Import frozen AgentDojo cases; keep every variant of a user task in one split."""
 import argparse
+import importlib.util
 import json
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from examples.agentdyn.utils.bridge import BENCHMARKS
-from examples.agentdyn.utils.prepare import prepare as prepare_replay, read_logs
+REPLAY = Path(__file__).resolve().parents[2] / "agentdyn/utils"
+sys.path[:0] = [str(REPLAY), str(REPLAY.parents[2])]     # AgentDyn's runtime; hermit from this checkout
+from bridge import BENCHMARKS
+
+# AgentDyn's prepare.py, by its path: this file has the same name.
+_spec = importlib.util.spec_from_file_location("agentdyn_prepare", REPLAY / "prepare.py")
+_replay = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_replay)
+prepare_replay, read_logs = _replay.prepare, _replay.read_logs
 
 
 def prepare(cases, output, seed=0):

@@ -12,9 +12,10 @@ from pathlib import Path
 import random
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from examples.agentdyn.utils.bridge import AGENTDOJO_REVISION, case_fields, validate_case
-from examples.agentdyn.utils.prepare_expanded import audit_native
+sys.path[:0] = [str(Path(__file__).resolve().parents[2] / 'agentdyn/utils'),     # AgentDyn's runtime
+                 str(Path(__file__).resolve().parents[3])]                       # hermit from this checkout
+from bridge import AGENTDOJO_REVISION, case_fields, validate_case
+from prepare_expanded import audit_native
 
 SUITES = ('banking', 'slack', 'travel', 'workspace')
 VERSION = 'v1.2.2'

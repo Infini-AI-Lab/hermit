@@ -187,10 +187,13 @@ def make_victim(params: dict, base: Path, on_call=None):
                 protocol_error = 'missing_structured_tool_calls'
             output = None
             if not protocol_error:
-                output = _openai_to_assistant_message(message)
+                try:
+                    output = _openai_to_assistant_message(message)
+                except ValueError:   # official AgentDojo parses the arguments with json.loads
+                    protocol_error = 'malformed_tool_call_arguments'
                 # Upstream silently drops malformed tool calls. Reject those episodes
                 # instead of mistaking a parser failure for a secure final response.
-                if len(output.get("tool_calls") or []) != len(message.tool_calls or []):
+                if output is not None and len(output.get("tool_calls") or []) != len(message.tool_calls or []):
                     protocol_error = 'malformed_tool_call_arguments'
             # The call's event is written once its response has been validated.
             if on_call is not None:

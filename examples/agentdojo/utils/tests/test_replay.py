@@ -5,6 +5,7 @@ calls used by banking UserTask1/InjectionTask0 at upstream revision 089ed468.
 The real supervisor, victim client, native tools/judges and (when present) Docker
 hooks execute. No provider, credentials or downloaded benchmark data are needed.
 """
+import importlib.util
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -15,13 +16,19 @@ import threading
 
 import pytest
 
-from examples.agentdojo.utils.prepare import prepare
-from examples.agentdyn.utils.bridge import AGENTDOJO_REVISION, validate_case
 from hermit.agent.acting import load_agent
 from hermit.task import load_callable
 
 ROOT = Path(__file__).resolve().parents[4]
 UTILS = ROOT / 'examples/agentdojo/utils'
+sys.path.insert(0, str(ROOT / 'examples/agentdyn/utils'))
+from bridge import AGENTDOJO_REVISION, validate_case
+
+# AgentDojo's prepare.py by its path: AgentDyn's tests import AgentDyn's own as `prepare`.
+_spec = importlib.util.spec_from_file_location('agentdojo_prepare', UTILS / 'prepare.py')
+_prepare = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_prepare)
+prepare = _prepare.prepare
 
 
 def test_preparation_keeps_variants_together_and_discards_old_answers(tmp_path):
