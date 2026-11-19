@@ -547,7 +547,9 @@ class SandboxedAgent:
         is never run with less (hermit.trainer.rollout asks before each call)."""
         return self.spec.problems_for(needs, verifier=self.verifies)
 
-    def __call__(self, task: dict, adapter: Path | None) -> RunOutput:
+    def __call__(self, task: dict, adapter: Path | None, needs: dict | None = None) -> RunOutput:
+        """`needs`: what the task asks of its environment (its private half's; hermit.trainer.rollout passes it), of
+        which its agent's timeout bounds the call."""
         self._recheck()
         work = self.work_root / f"{_safe(task.get('id', 'task'))}-{uuid.uuid4().hex[:8]}"
         home = work / "home"
@@ -580,7 +582,8 @@ class SandboxedAgent:
         try:
             try:
                 payload = _run_worker(self.sandbox, job, work, home=home, readable=[adapter] if adapter else [],
-                                      env=env, keep=keep, forward=self.forward, timeout=_deadline(self.timeout, task),
+                                      env=env, keep=keep, forward=self.forward,
+                                      timeout=_deadline(self.timeout, needs or task),
                                       binds=binds)
             finally:
                 if self.chatgpt:
@@ -830,7 +833,12 @@ class SandboxedJudge:
                                    "[verifier] environment_mode); set judge.mode: separate")
             logs = place / "verifier"
             logs.mkdir()
-            binds = [*binds, Bind(Path(private["tests"]), TESTS), Bind(logs, LOGS, True)]
+            tests = Path(private["tests"])
+            if private.get("step_tests"):                # a step's own tests laid over the task's, as Harbor does
+                tests = place / "tests"
+                shutil.copytree(private["tests"], tests, symlinks=True)
+                shutil.copytree(private["step_tests"], tests, symlinks=True, dirs_exist_ok=True)
+            binds = [*binds, Bind(tests, TESTS), Bind(logs, LOGS, True)]
             env[SANDBOX_ENV], keep = "1", [SANDBOX_ENV]
         try:
             payload = _run_worker(self.box, job, place, home=home, readable=[*self.readable, *log_copy],

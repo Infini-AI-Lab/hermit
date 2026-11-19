@@ -282,7 +282,8 @@ judge:
 and writes `reward.txt` (one number) or `reward.json` (named numbers: `reward` is the score, else their mean). Beyond
 Harbor, `feedback.txt` there is the feedback a learning method reads (else the script's output's tail). A task whose
 task.toml asks for `environment_mode = "separate"` is refused under `mode: shared`. A step's own `[steps.verifier]`
-settings come before the task's; `[verifier.env]` is set for the script, with `${NAME}` and `${NAME:-default}` taken
+settings come before the task's, its mode and environment resolved as Harbor resolves them, and its `tests/` are laid
+over the task's (its `test.sh` first); a reward that is not a finite number is an error; `[verifier.env]` is set for the script, with `${NAME}` and `${NAME:-default}` taken
 from the judge sandbox's environment (`environment.env`), as Harbor resolves them; the judge's deadline is at least the
 verifier's `timeout_sec` and a minute. Files a task places in the agent's
 workspace before it starts are not supported yet.

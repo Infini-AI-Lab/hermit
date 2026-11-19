@@ -68,6 +68,8 @@ def read_reward(logs: Path, output_tail: str = "") -> JudgeResult:
         score = rewards.get("reward", sum(rewards.values()) / len(rewards))
     elif (logs / "reward.txt").is_file():
         score = float((logs / "reward.txt").read_text().strip())
+        if not math.isfinite(score):                      # as Harbor: a NaN or infinite reward is no reward
+            raise ValueError(f"reward.txt holds no finite number: {score}")
     else:
         raise RuntimeError(f"the verifier wrote no reward ({LOGS}/reward.txt or reward.json): "
                            f"{output_tail[-FEEDBACK_CHARS:]}")

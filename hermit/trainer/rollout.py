@@ -27,10 +27,11 @@ def run_one(task: Task | dict, adapter: Path | None, pipeline, judge) -> dict:
     started = time.time()
     try:
         refuses = getattr(pipeline, "refuses", None)     # a sandboxed agent: what the task asks that the run lacks
-        problems = refuses(task.private.get("needs") or {}) if refuses else []
+        needs = task.private.get("needs") or {}
+        problems = refuses(needs) if refuses else []
         if problems:
             raise ValueError(f"task {task.id!r} cannot run in this run's environment: {'; '.join(problems)}")
-        out = pipeline(dict(given), adapter)
+        out = pipeline(dict(given), adapter, needs=needs) if refuses else pipeline(dict(given), adapter)
         if not isinstance(out, RunOutput):
             raise TypeError(f"the pipeline returned {type(out).__name__}, not RunOutput")
     except Exception as exc:

@@ -52,11 +52,12 @@ def test_a_directory_of_tasks_is_a_task_set_with_the_tests_kept_private(tmp_path
     assert (given["cpus"], given["memory_mb"], given["agent_timeout_sec"]) == (1, 512, 60)
     assert not any("tests" in str(v) for v in given.values())       # nothing of the tests reaches the agent
     assert task.private["tests"] == str((tmp_path / "tasks" / "write-42" / "tests").resolve())
-    assert task.private["verifier"] == {"timeout_sec": 30, "env": {}}
+    assert task.private["verifier"] == {"timeout_sec": 30, "environment_mode": "shared", "env": {}}
     assert task.private["needs"] == {"network": {"agent": "no-network", "verifier": "no-network"},
-                                     "allowed_hosts": {"agent": [], "verifier": []}, "memory_mb": 512}
+                                     "allowed_hosts": {"agent": [], "verifier": []}, "memory_mb": 512,
+                                     "agent_timeout_sec": 60}
     assert task.row()["_private"]["tests"] == task.private["tests"]  # what the judge is called with
-    assert bench.tasks["flow:two"].private["tests"].endswith("flow/steps/two/tests")
+    assert bench.tasks["flow:two"].private["step_tests"].endswith("flow/steps/two/tests")   # over the task's
     assert [t.id for t in bench.split("train")] == ["write-42", "flow:one"]
     assert sorted(tasks_of(tmp_path / "tasks", rollouts=2)) == ["flow:one#1", "flow:one#2", "flow:two#1",
                                                                 "flow:two#2", "write-42#1", "write-42#2"]
@@ -79,6 +80,10 @@ def test_a_reward_is_read_as_harbor_writes_it(tmp_path):
     (tmp_path / "reward.json").write_text(json.dumps({"reward": 1, "f1": 1, "answered": True}))
     assert read_reward(tmp_path).score == 1.0                     # a boolean beside them, as Harbor takes it
     (tmp_path / "reward.json").write_text(json.dumps({"a": "yes"}))
+    (tmp_path / "nan").mkdir()
+    (tmp_path / "nan" / "reward.txt").write_text("nan\n")
+    with pytest.raises(ValueError, match="finite"):
+        read_reward(tmp_path / "nan")
     with pytest.raises(ValueError, match="named finite numbers"):
         read_reward(tmp_path)
     with pytest.raises(RuntimeError, match="wrote no reward"):
@@ -219,10 +224,40 @@ def test_the_run_refuses_a_task_its_environment_cannot_give_before_the_agent_sta
         def refuses(self, needs):
             return ["the task's agent needs network public"] if needs.get("network") else []
 
-        def __call__(self, given, adapter):
-            calls.append(given)
+        def __call__(self, given, adapter, needs=None):
+            calls.append((given, needs))
             return RunOutput(output="x")
     task = Task(id="t", public={"id": "t", "q": 1}, private={"needs": {"network": {"agent": "public"}}})
     record = run_one(task, None, Agent(), lambda row, out: 1.0)
     assert record["status"] == "error" and "cannot run in this run's environment" in record["error"] and not calls
     assert run_one(Task.from_row({"id": "r"}), None, Agent(), lambda row, out: 1.0)["status"] == "ok"
+    assert calls == [({"id": "r"}, {})]                                     # handed its needs (none)
+
+
+def test_a_steps_verifier_as_harbor_resolves_it(tmp_path):
+    from hermit.task.directory import network_modes, verifier_environment
+    config = {"environment": {"network_mode": "no-network"},
+              "verifier": {"environment_mode": "shared", "environment": {"network_mode": "public"}},
+              "steps": [{"name": "own", "verifier": {"environment": {}}},
+                        {"name": "back", "verifier": {"environment_mode": "shared"}}, {"name": "plain"}]}
+    assert verifier_environment(config, "own") == ("separate", {})            # a step's environment, even empty
+    assert verifier_environment(config, "back") == ("shared", None)
+    assert verifier_environment(config, "plain") == ("shared", None)          # the task's explicit mode
+    assert network_modes(config, "back")["verifier"] == "no-network"          # shared: the agent's environment
+    task_level = {"environment": {"network_mode": "no-network"},
+                  "verifier": {"environment": {"network_mode": "public"}}}
+    assert verifier_environment(task_level) == ("separate", {"network_mode": "public"})
+    assert network_modes(task_level)["verifier"] == "public"
+    d = a_task(tmp_path / "tasks", "flow", steps=True)                        # task tests/test.sh, steps' own tests/
+    (d / "steps" / "one" / "tests" / "expected.txt").write_text("41")
+    tasks = tasks_of(tmp_path / "tasks")
+    one = tasks["flow:one"].private
+    assert one["tests"].endswith("flow/tests") and one["step_tests"].endswith("flow/steps/one/tests")
+
+
+def test_a_viewed_tasks_agent_timeout_still_bounds_its_call(tmp_path):
+    a_task(tmp_path / "tasks", "t")                                            # [agent] timeout_sec = 60
+    (tmp_path / "s.txt").write_text("t\n")
+    task = Benchmark.load(tmp_path / "tasks", tmp_path / "s.txt", view=lambda row: {"id": row["id"]}).tasks["t"]
+    assert task.given() == {"id": "t"} and task.private["needs"]["agent_timeout_sec"] == 60
+    assert _deadline(None, task.private["needs"]) == 120

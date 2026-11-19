@@ -55,6 +55,30 @@ def _baseline(env) -> str:
     return "public"
 
 
+def _step(config: dict, step: str | None) -> dict:
+    return (next((s for s in config.get("steps") or [] if str(s.get("name")) == str(step)), None) or {}) if step \
+        else {}
+
+
+def verifier_environment(config: dict, step: str | None = None) -> tuple[str, dict | None]:
+    """(mode, the verifier's own environment or None) as Harbor resolves them (harbor/models/task/verifier_mode.py):
+    a level's explicit environment_mode, else `separate` when it defines an environment; the step's level before the
+    task's; `shared` when neither says. Separate: the step's environment, else the task verifier's, else [environment]
+    again; shared: none (the verifier runs in the agent's environment)."""
+    def level(verifier: dict):
+        if verifier.get("environment_mode"):
+            return str(verifier["environment_mode"])
+        return "separate" if verifier.get("environment") is not None else None
+    step_v, task_v = (_step(config, step).get("verifier") or {}), (config.get("verifier") or {})
+    mode = (level(step_v) if step else None) or level(task_v) or "shared"
+    if mode != "separate":
+        return mode, None
+    for env in (step_v.get("environment") if step else None, task_v.get("environment")):
+        if env is not None:
+            return mode, env
+    return mode, dict(config.get("environment") or {})
+
+
 def network_modes(config: dict, step: str | None = None) -> dict[str, str]:
     """{"agent": mode, "verifier": mode} of a task (or of its step `step`), as Harbor resolves them
     (harbor/trial/network_policy.py): a phase's own `network_mode` ([agent], [verifier], a step's first), else the
@@ -65,10 +89,9 @@ def network_modes(config: dict, step: str | None = None) -> dict[str, str]:
     def explicit(role: str):
         return ((step_cfg.get(role) or {}).get("network_mode")) or ((config.get(role) or {}).get("network_mode"))
     base = _baseline(config.get("environment"))
-    verifier_env = ((step_cfg.get("verifier") or {}).get("environment")
-                    or (config.get("verifier") or {}).get("environment"))
+    verifier_env = verifier_environment(config, step)[1]
     return {"agent": str(explicit("agent") or base),
-            "verifier": str(explicit("verifier") or (_baseline(verifier_env) if verifier_env else base))}
+            "verifier": str(explicit("verifier") or (_baseline(verifier_env) if verifier_env is not None else base))}
 
 
 def allowed_hosts(config: dict, step: str | None = None) -> dict[str, list[str]]:
@@ -84,9 +107,8 @@ def allowed_hosts(config: dict, step: str | None = None) -> dict[str, list[str]]
                 return list(section.get("allowed_hosts") or [])
         return None
     base = list((config.get("environment") or {}).get("allowed_hosts") or [])
-    verifier_env = ((step_cfg.get("verifier") or {}).get("environment")
-                    or (config.get("verifier") or {}).get("environment"))
-    verifier_base = list((verifier_env or {}).get("allowed_hosts") or []) if verifier_env else base
+    verifier_env = verifier_environment(config, step)[1]
+    verifier_base = list(verifier_env.get("allowed_hosts") or []) if verifier_env is not None else base
     agent, verifier = own("agent"), own("verifier")
     return {"agent": base if agent is None else agent, "verifier": verifier_base if verifier is None else verifier}
 
@@ -162,29 +184,30 @@ VERIFIER_TIMEOUT_SEC = 600.0                                     # Harbor's defa
 def tasks_of(tasks_dir: Path, *, rollouts: int = 1, view: Callable[[dict], dict] | None = None) -> dict[str, Task]:
     """Every task under `tasks_dir` (one directory is a set of one), by id: each row's public half (or `view(row)`:
     the row the task set's agents and learners read, `data.view`), and its private half naming its directory, its
-    tests (a step's own tests where it has them, else the task's), its verifier's settings, and `needs`: what it asks
-    of its environment (network modes, allowlist hosts, memory), checked before each call."""
+    tests (the task's, and a step's own laid over them), its verifier's settings, and `needs`: what it asks of its
+    environment (network modes, allowlist hosts, memory, its agent's timeout), applied to each call."""
     out: dict[str, Task] = {}
     for task_dir in task_dirs(tasks_dir):
         for row in rows_of(task_dir, rollouts=rollouts):
             if row["id"] in out:
                 raise ValueError(f"two tasks under {tasks_dir} have the id {row['id']!r}")
             step = row.get("step")
-            tests = task_dir / "steps" / step / "tests" if step and (task_dir / "steps" / step / "tests").is_dir() \
-                else task_dir / "tests"
+            # The tests as Harbor shows them: the task's, a step's own laid over them (its test.sh first)
+            tests, step_tests = task_dir / "tests", (task_dir / "steps" / step / "tests") if step else None
             config = task_config(task_dir)
-            step_cfg = next((s for s in config.get("steps") or [] if str(s.get("name")) == str(step)), {}) \
-                if step else {}
+            step_cfg = _step(config, step)
             verifier = {**(config.get("verifier") or {}), **(step_cfg.get("verifier") or {})}   # a step's own first
             verifier.setdefault("timeout_sec", VERIFIER_TIMEOUT_SEC)
-            if verifier.get("environment") and not verifier.get("environment_mode"):
-                verifier["environment_mode"] = "separate"   # an environment of its own implies it (Harbor)
+            verifier["environment_mode"] = verifier_environment(config, step)[0]
             verifier["env"] = {**((config.get("verifier") or {}).get("env") or {}),
                                **((step_cfg.get("verifier") or {}).get("env") or {})}
             private = {"task_dir": str(task_dir.resolve()), "tests": str(tests.resolve()) if tests.is_dir() else None,
+                       "step_tests": str(step_tests.resolve()) if step_tests and step_tests.is_dir() else None,
                        "verifier": {k: v for k, v in verifier.items() if k in VERIFIER_KEYS}}
+            if private["tests"] is None and private["step_tests"]:
+                private["tests"], private["step_tests"] = private["step_tests"], None
             private["needs"] = {"network": row["network"], "allowed_hosts": allowed_hosts(config, step),
-                                "memory_mb": row.get("memory_mb")}
+                                "memory_mb": row.get("memory_mb"), "agent_timeout_sec": row.get("agent_timeout_sec")}
             out[row["id"]] = Task(id=row["id"], public=view(row) if view else row, private=private)
     if not out:
         raise ValueError(f"no task directories (with {TASK_FILE}) under {tasks_dir}")
