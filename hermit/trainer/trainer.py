@@ -147,7 +147,7 @@ def adapter_needs_errors(config: Config, needs: list[str]) -> list[str]:
     if not missing:
         return []
     return [f"the Evolver needs its adapter to give the acting agent {', '.join(missing)}, which agent {name} does "
-            f"not take (it takes {', '.join(supports)})"]
+            f"not take (it takes {', '.join(supports) or 'no adapter export'})"]
 
 
 def _task_tool_decls(config: Config) -> list[dict]:

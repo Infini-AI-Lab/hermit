@@ -69,13 +69,13 @@ before the offline runs; running it again re-syncs the clbench venv, so not whil
 hermit runs every agent, learner and adapter tool in a bubblewrap sandbox of its own (`hermit/sandbox.py`): user,
 mount, PID and network namespaces, a fresh `/proc` and `/dev`, a positive allowlist of paths. Docker allows an
 unprivileged process to make namespaces only with `--cap-add SYS_ADMIN`, `--security-opt seccomp=unconfined` and
-`--security-opt apparmor=unconfined`, the list of `hermit/agent/base/container.py`, which runs Codex's bubblewrap the same way. One
+`--security-opt apparmor=unconfined`, the list of `hermit/agent/environment/docker.py`, which runs Codex's bubblewrap the same way. One
 more is needed for hermit's `--proc /proc`: `--security-opt systempaths=unconfined` lifts the masks Docker lays over
 `/proc` (`/proc/kcore`, `/proc/keys`, ...), without which a fresh `/proc` cannot be mounted in a namespace
-(`bwrap: Can't mount proc on /newroot/proc: Operation not permitted`); `container.py` gives it to Claude Code's
+(`bwrap: Can't mount proc on /newroot/proc: Operation not permitted`); `docker.py` gives it to Claude Code's
 containers too, whose own sandbox mounts one. The container's user is unprivileged, so what
 the masks hid stays root's (`/proc/kcore` is mode 0400, `/proc/sys` is read-only to it). `NET_RAW`, `MKNOD` and
-`AUDIT_WRITE` are dropped as `hermit/agent/base/container.py` drops them, and `label=disable` keeps an SELinux host from refusing
+`AUDIT_WRITE` are dropped as `hermit/agent/environment/docker.py` drops them, and `label=disable` keeps an SELinux host from refusing
 the bind mounts. The containers are not privileged, have no Docker socket and are not on the host network.
 `prepare` gets none of the sandbox additions.
 

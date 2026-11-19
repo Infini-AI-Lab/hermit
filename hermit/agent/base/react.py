@@ -82,7 +82,7 @@ class Loop:
                                output=content))
 
     def result(self) -> Result:
-        return Result(reply=self.answer, trajectory=self.steps, usage=[_total(self.client, self.usages)],
+        return Result(reply=self.answer, trajectory=self.steps, usage=[total(self.client, self.usages)],
                       session=self.messages, finish_reason=self.finish,
                       extra={"turns": self.turns, "tool_calls": self.calls_made, "model_s": self.model_s,
                              **self.extra})
@@ -207,7 +207,7 @@ class React(BaseAgent):
         return False
 
 
-def _total(client, usages: list):
+def total(client, usages: list):
     """The usage of this run: the sum of its calls' usage."""
     from hermit.agent.model.usage import Usage
     costs = [u.cost_usd for u in usages]

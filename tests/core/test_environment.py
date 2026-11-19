@@ -524,3 +524,61 @@ def test_an_endpoint_entered_after_it_was_started_serves_once_and_stops_on_close
         pass
     time.sleep(1.0)                                              # serve_forever's poll interval is 0.5 s
     assert not {t for t in threading.enumerate() if t.name == "hermit-chat-endpoint" and t.is_alive()} - before
+
+
+def test_a_react_subclass_counts_its_own_model_calls_and_shapes_the_follow_up_answer(tmp_path, monkeypatch):
+    """What a subclass's call_model spends on another client is the run's, and answer() shapes the answer tag's
+    follow-up too; the tag is looked for in the model's reply, not in what answer() made of it."""
+    from hermit.agent.acting.react import ReactAgent
+    from hermit.agent.model import llm
+    own = Model()                                                 # the params' client: the follow-up only
+    other = Model({"content": "<answer>7</answer>"}, {"content": "no tag"})
+    monkeypatch.setattr(llm.ChatClient, "from_spec", classmethod(lambda cls, spec, **kw: own))
+
+    class Routed(ReactAgent):
+        def call_model(self, loop, messages, specs):
+            return other.chat(messages)
+
+        def answer(self, result, task):
+            return result.reply.removeprefix("<answer>").removesuffix("</answer>")
+
+    params = {"model": {"base_url": "http://x.invalid/v1", "model": "m"}, "logs": "logs", "answer_tag": "answer"}
+    out = Routed(params, tmp_path).run({"id": "t1", "question": "q"}, None)
+    assert out.output == "7" and len(own.requests) == 0           # the reply had the tag: no follow-up
+    assert out.tokens == 5 and out.api_speed["model_calls"] == 1  # the other client's call counted
+    own.replies = [{"content": "<answer>8</answer>"}]
+    out = Routed(params, tmp_path).run({"id": "t2", "question": "q"}, None)
+    assert out.output == "8" and len(own.requests) == 1           # no tag: one follow-up, through answer()
+    assert out.tokens == 10 and out.api_speed["model_calls"] == 2
+
+
+def test_a_folder_upload_never_writes_through_a_link_in_the_workspace(tmp_path):
+    host = tmp_path / "host"
+    host.mkdir()
+    (host / "host.txt").write_text("original")
+    env = Local(tmp_path / "w")
+    (env.workspace / "out").mkdir(parents=True)
+    (env.workspace / "out" / "link").symlink_to(host)             # a link the agent left, to a folder outside
+    (env.workspace / "out" / "file").symlink_to(host / "host.txt")
+    src = tmp_path / "src"
+    (src / "link").mkdir(parents=True)
+    (src / "link" / "host.txt").write_text("uploaded")
+    (src / "file").write_text("uploaded")
+    env.upload(src, "out")
+    assert (host / "host.txt").read_text() == "original"
+    assert (env.workspace / "out" / "link" / "host.txt").read_text() == "uploaded"
+    assert not (env.workspace / "out" / "link").is_symlink() and not (env.workspace / "out" / "file").is_symlink()
+
+
+@pytest.mark.skipif(shutil.which("bwrap") is None, reason="needs bubblewrap")
+def test_a_sandboxed_command_can_start_in_a_folder_only_the_sandbox_shows(tmp_path):
+    from hermit.agent.environment import Mount
+    from hermit.sandbox import Sandbox
+    data, work = tmp_path / "data", tmp_path / "w"
+    data.mkdir()
+    work.mkdir()
+    (data / "fact.txt").write_text("42")
+    env = Sandboxed(work, Limits(readable=[Mount(data, Path("docs"))]),
+                    sandbox=Sandbox(enabled=True, enforce="required", network="isolated"))
+    assert not (work / "docs").exists()                           # bound inside only
+    assert env.exec(["cat", "fact.txt"], cwd="docs").output == "42"

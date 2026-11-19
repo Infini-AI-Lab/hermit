@@ -96,7 +96,7 @@ Settings (given once; `configured(...)` for a call's own):
   hermit's plugin turns off; default true). Hermes takes no roles, has no web search, takes a prompt of one
   argument (ARG_MAX bytes) at most and runs under isolation none or sandbox.
 
-The isolation is the call's environment's (hermit.agent.environment), never a setting: none (a Workspace: the CLI on
+The isolation is the call's environment's (hermit.agent.environment), never a setting: none (Local: the CLI on
 this machine), sandbox (Sandboxed: inside the run's hermit.sandbox.Sandbox) or container (Container: a Docker container
 of its own, its settings image, network, proxy: hermit.agent.environment.docker, where the CLI's own sandbox holds the
 session's commands: Codex's `codex_sandbox`, Claude Code's CLAUDE_SANDBOX). Limits are the environment's, enforced by

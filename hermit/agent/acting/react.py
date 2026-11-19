@@ -30,6 +30,7 @@ one task, and Layer 2 runs the loop.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 from pathlib import Path
 import tempfile
@@ -39,7 +40,7 @@ from typing import Callable
 from hermit.adapter.session import Session
 from hermit.agent.acting.agent import Agent
 from hermit.agent.acting.tools import MARK, as_tools, load_tools, tool   # noqa: F401 (tool: for subclasses)
-from hermit.agent.base.react import React
+from hermit.agent.base.react import React, total as usage_total
 from hermit.agent.base.tool import Tool
 from hermit.agent.model.direct import Direct
 from hermit.agent.model.llm import ChatClient
@@ -204,21 +205,24 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, agent: Reac
     started = time.time()
     loop_agent = agent._loop_agent = _Loop(settings, client, agent)
     result = loop_agent.run(messages, environment=agent.environment, tools=tools)
-    messages, answer, turns = result.session, agent.answer(result, task), result.extra["turns"]
-    if tag and f"<{tag}>".upper() not in answer.upper():
+    messages, turns, usages = result.session, result.extra["turns"], list(result.usage)
+    if tag and f"<{tag}>".upper() not in (result.reply or "").upper():   # the tag in the model's reply, not answer()'s
         follow = Direct({"max_tokens": int(params.get("max_tokens", 16384)),
                          "temperature": params.get("temperature")}, client)
         reply = follow.run(f"Stop using tools. Give your final answer now inside <{tag}>...</{tag}>.", session=messages)
-        answer = reply.reply
-        messages = reply.session[:-1] + [{"role": "assistant", "content": answer}]
+        messages = reply.session[:-1] + [{"role": "assistant", "content": reply.reply}]
+        result = dataclasses.replace(result, reply=reply.reply, session=messages)
+        usages += reply.usage
         turns += 1
+    answer = agent.answer(result, task)
 
     logs = Path(base) / params.get("logs", ".logs")
     logs.mkdir(parents=True, exist_ok=True)
     log = Path(tempfile.mkstemp(prefix=f"{task.get('id', 'task')}-", suffix=".json", dir=logs)[1])
     log.write_text(json.dumps({"task": task.get("id"), "model": model["model"], "adapter": str(adapter) if adapter else None,
                                "messages": messages}, ensure_ascii=False, indent=1))
-    total, model_s = client.total, result.extra["model_s"]
+    # What this run's calls used, as call_model reported it (a subclass may call another client) and the follow-up's
+    total, model_s = usage_total(client, usages), result.extra["model_s"]
     extra = {"turns": turns, "tool_calls": result.extra["tool_calls"]}
     if session is not None and session.last_context is not None:
         extra["context_tool"] = session.last_context         # what the adapter's context tool rendered for this task

@@ -96,12 +96,27 @@ class Environment:
     def upload(self, source: Path | str, target: str | Path) -> Path:
         """Copy a file or a folder of this machine into the workspace, at `target` (relative to it). A link is copied
         as the link it is."""
-        dest, source = self.path(target), Path(source)
+        source = Path(source)
+        if not source.is_dir() or source.is_symlink():
+            return self._put(source, target)
+        dest = self.path(target, follow=False)
+        for folder, dirs, files in os.walk(source):             # links are entries, never followed
+            rel = Path(folder).relative_to(source)
+            where = self.path(Path(target) / rel, follow=False)
+            if where.is_symlink():                              # a link the workspace has there: replaced, not entered
+                where.unlink()
+            where.mkdir(parents=True, exist_ok=True)
+            for name in [*files, *(d for d in dirs if (Path(folder) / d).is_symlink())]:
+                self._put(Path(folder) / name, Path(target) / rel / name)
+        return dest
+
+    def _put(self, source: Path, target: str | Path) -> Path:
+        """One file or link at `target`: a link already there is replaced, never written through."""
+        dest = self.path(target, follow=False)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        if source.is_dir() and not source.is_symlink():
-            shutil.copytree(source, dest, symlinks=True, dirs_exist_ok=True)
-        else:
-            shutil.copy2(source, dest, follow_symlinks=False)
+        if dest.is_symlink():
+            dest.unlink()
+        shutil.copy2(source, dest, follow_symlinks=False)
         return dest
 
     def download(self, source: str | Path, target: Path | str) -> Path:
@@ -273,8 +288,8 @@ class Sandboxed(Environment):
                 box.abandon(wrapped)
             raise Unsupported("the run's sandbox did not isolate the command (no bubblewrap): it cannot hide paths "
                               "or limit the network")
-        try:
-            return self._run(wrapped, cwd=where, env=full_env, timeout=timeout, stdin=stdin)
+        try:                                                    # `where` may exist only inside (a mount's target)
+            return self._run(wrapped, cwd=root, env=full_env, timeout=timeout, stdin=stdin)
         finally:
             if hasattr(self.sandbox, "abandon"):
                 self.sandbox.abandon(wrapped)

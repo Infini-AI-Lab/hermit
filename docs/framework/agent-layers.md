@@ -327,8 +327,8 @@ Configurations that name an agent, an Evolver or a template (`agent.name: codex`
 |---|---|
 | `agent.run(prompt, workspace=path, limits=Limits(...))` | `agent.run(prompt, environment=Local(path, Limits(...)))` (a path alone is a `Local`) |
 | `isolation`, `sandbox`, `container` in a Base Agent's settings | the environment: `Sandboxed(path, sandbox=box)`, `Container(path, settings={...})`; given as settings, refused |
-| `make("direct", settings, model)`, `hermit.agent.base.direct` | `Direct(settings, model)`, `hermit.agent.model.direct` (Layer 1); `make("direct")` is refused |
-| `hermit.agent.base.container` | `hermit.agent.environment.docker` |
+| `make("direct", settings, model)`, `hermit.agent.base.direct` | `Direct(settings, model)`, `hermit.agent.model.direct` (Layer 1); `make("direct")` is refused; the old module path forwards for one release |
+| `hermit.agent.base.container` | `hermit.agent.environment.docker` (the old path forwards for one release) |
 | `Mount`, `Limits` from `hermit.agent.base.interface` | `hermit.agent.environment` (still importable from the interface) |
 | a benchmark's own copy of the tool loop | a `ReactAgent` subclass with `@tool` methods and hooks |
 | `@tool(description, parameters)` | also `@tool` alone: the description from the docstring, the schema from the signature |
