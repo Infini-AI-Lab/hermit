@@ -189,9 +189,9 @@ class Recorded(Environment):
         rel = PurePosixPath(str(relative))
         return rel if rel.is_absolute() else self.workspace / rel
 
-    def exec(self, command, *, cwd=None, env=None, timeout=None, stdin=None):
+    def exec(self, command, *, cwd=None, env=None, timeout=None, stdin=None, by_fd=None):
         self.calls.append({"command": list(command), "cwd": cwd, "env": dict(env or {}), "timeout": timeout,
-                           "stdin": stdin})
+                           "stdin": stdin, "by_fd": dict(by_fd or {})})
         return self.answer(list(command))
 
     def upload(self, source, target):
@@ -277,7 +277,8 @@ def test_claude_codes_token_reaches_a_remote_session_on_a_descriptor(tmp_path, m
     result = agent.run("hi", environment=env)
     assert result.reply == "done"
     session = next(c for c in env.calls if session_of(c["command"]))
-    assert "unset CLAUDE_CODE_OAUTH_TOKEN" in session["command"][2] and session["command"][4] == "claude"
+    assert session["by_fd"] == {login.TOKEN_ENV: "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR"}   # the environment's move
+    assert session["command"][4] == "claude"
     assert session["env"][login.TOKEN_ENV] == "the-token" and session["env"]["IS_SANDBOX"] == "1"
     assert session["stdin"] == "hi"
 
@@ -460,21 +461,32 @@ def test_a_real_harbor_environment_runs_the_agents_commands_and_harbors_verifier
     (task / "tests" / "test.sh").write_text(
         '#!/bin/bash\nrunning() { for p in /proc/[0-9]*; do tr "\\0" " " < $p/cmdline 2>/dev/null; echo; done | '
         'grep -q "^sleep $1"; }\n'
-        'if [ "$(cat /app/answer.txt 2>/dev/null)" = 42 ] && ! running 777 && running 888; then '
+        'echo "grader key: $GRADER_API_KEY"\n'
+        'if [ "$(cat /app/answer.txt 2>/dev/null)" = 42 ] && ! running 777 && ! running 666 && running 888; then '
         'echo 1 > /logs/verifier/reward.txt; else echo 0 > /logs/verifier/reward.txt; fi\n')
     environments = HarborEnvironments({"tasks_dir": str(tmp_path / "tasks"), "jobs_dir": str(tmp_path / "jobs"),
-                                       "disk_gate_gb": 0, "tmp_gate_gb": 0}, base=tmp_path)
+                                       "disk_gate_gb": 0, "tmp_gate_gb": 0,
+                                       "verifier": {"env": {"GRADER_API_KEY": "grader-literal-credential"}}},
+                       base=tmp_path)
     rewards = []
     for script in ("mkdir -p /app && echo 42 > /app/answer.txt && (nohup sleep 888 >/dev/null 2>&1 &)", "true"):
         with environments.session(task) as env:
             assert env.instruction == "Write 42 to /app/answer.txt.\n"          # Harbor's, byte for byte
             assert env.exec(["sh", "-c", "test -e /tests/test.sh"]).code != 0     # no tests while the agent works
             assert env.exec(["sh", "-c", script], timeout=60).code == 0
+            # the agent's variables reach the container only: a DOCKER_HOST of its own leaves this machine's compose
+            # client as it was (the next command still runs), and a secret on a descriptor is in no environment there
+            said = env.exec(["sh", "-c", 'echo "host=$DOCKER_HOST"; cat <&"$SECRET_FD"; echo; '
+                             'grep -l s3cr3t-value /proc/[0-9]*/environ 2>/dev/null | wc -l'],
+                            env={"DOCKER_HOST": "tcp://127.0.0.1:9", "SECRET": "s3cr3t-value"},
+                            by_fd={"SECRET": "SECRET_FD"}, timeout=60)
+            assert said.output.split() == ["host=tcp://127.0.0.1:9", "s3cr3t-value", "0"], said.output
+            assert env.exec(["true"], timeout=60).code == 0
             ended = []
 
             def still_running():
-                try:
-                    env.exec(["sleep", "777"], timeout=100)
+                try:   # one marked, one below it with a cleared environment (no mark): both ended
+                    env.exec(["bash", "-c", "env -i /bin/sleep 666 & sleep 777"], timeout=100)
                 except RuntimeError as exc:                                   # ended by the verifier's start
                     ended.append(str(exc))
 
@@ -482,10 +494,15 @@ def test_a_real_harbor_environment_runs_the_agents_commands_and_harbors_verifier
             late.start()                                                         # still running at the verifier
             import time
             time.sleep(3)
-            rewards.append(env.verify()["reward"])
+            verdict = env.verify()
+            rewards.append(verdict["reward"])
+            # Harbor's scrub of the verifier's credential: neither the feedback nor the trial's files hold it
+            assert "grader-literal-credential" not in verdict["feedback"] and "grader key" in verdict["feedback"]
             late.join(timeout=30)
             assert ended and "the verifier started" in ended[0]
     assert rewards == [1.0, 0.0]
+    kept = [p for p in (tmp_path / "jobs").rglob("*") if p.is_file() and not p.is_symlink()]
+    assert not [p for p in kept if b"grader-literal-credential" in p.read_bytes()]
 
 
 def test_a_react_agent_works_in_the_tasks_environment_its_tools_run_there(tmp_path, monkeypatch):
@@ -690,10 +707,34 @@ def test_codexs_lost_sign_in_and_refused_configuration_are_read_from_its_notices
                                                                     "gpt-x does not exist"}}) + "\n"
     params = {"backend": "codex", "web_search": False, "bin": "codex", "workspaces": str(tmp_path / "ws"),
               "retries": 1}
-    for stream, raised, match in ((lost, LoginFailed, "401"), (model, RuntimeError, "model_rejected")):
-        env = Recorded(tmp_path, lambda c, stream=stream: ExecResult(1, stream) if session_of(c) else ExecResult(0, ""))
-        with pytest.raises(raised, match=match):
-            CliAgent(params, tmp_path).run({"id": "t", "instruction": "x"}, None, environment=env)
+    agent = CliAgent(params, tmp_path)
+    answer = lambda stream: (lambda c: ExecResult(1, stream) if session_of(c) else ExecResult(0, ""))
+    with pytest.raises(LoginFailed, match="401"):                               # a lost sign-in ends the run
+        agent.run({"id": "t", "instruction": "x"}, None, environment=Recorded(tmp_path, answer(lost)))
+    out = agent.run({"id": "t", "instruction": "x"}, None, environment=Recorded(tmp_path, answer(model)))
+    assert out.extra["infra"] == "model_rejected" and out.extra["infra_final"] is True   # never run again
+    billed = json.dumps({"type": "turn.failed", "error": {"message": "unexpected status 402 Payment Required: "
+                                                                     "insufficient credits"}}) + "\n"
+    with pytest.raises(LoginFailed, match="usage_limit"):                       # nothing later can be served
+        agent.run({"id": "t", "instruction": "x"}, None, environment=Recorded(tmp_path, answer(billed)))
+    long = json.dumps({"type": "turn.failed", "error": {"message": "unexpected status 400 Bad Request: the prompt "
+                                                                   "is too long"}}) + "\n"
+    out = agent.run({"id": "t", "instruction": "x"}, None, environment=Recorded(tmp_path, answer(long)))
+    assert "infra" not in out.extra                                             # the input's: the agent's result
+
+
+def test_a_refusal_is_the_agents_unless_the_configuration_or_the_bill_refused_it():
+    """The runner's session_verdict for every CLI: an oversized prompt and the model's own refusal are the agent's
+    result; a configuration refused before any token, model_rejected; a bill or a spent quota, usage_limit (a halt)."""
+    from hermit.agent.base.codex_stream import session_verdict
+    base = {"served": False, "rejected": True}
+    assert session_verdict({**base, "failure": "API Error: 400 prompt is too long"}, 0) is None
+    assert session_verdict({**base, "failure": "API Error: 404 model not found", "model_refusal": True}, 0) is None
+    assert session_verdict({**base, "failure": "API Error: 404 model not found"}, 0) == "model_rejected"
+    assert session_verdict({**base, "failure": "API Error: 404 model not found"}, 12) is None    # it had served
+    assert session_verdict({**base, "failure": "API Error: 402 credit balance is too low"}, 0) == "usage_limit"
+    assert session_verdict({"served": False, "unavailable": True, "failure": "429 insufficient_quota"}, 0) == \
+        "usage_limit"
 
 
 def test_the_session_takes_harbors_instruction_and_the_tasks_budget_and_counts_every_attempt(tmp_path, monkeypatch):
@@ -794,13 +835,25 @@ def test_the_rollouts_status_is_the_runners_and_a_login_plan_is_waited_for_befor
     from hermit.task import Task
     from hermit.trainer import rollout
     task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
+    import contextlib
     environments = Environments(tmp_path)
-    environments.before_start = lambda: environments.events.append(("plan",))
+
+    @contextlib.contextmanager
+    def admission():
+        environments.events.append(("plan",))
+        yield
+        environments.events.append(("plan done",))
+
+    environments.admission = admission
+    admitted = []
     for extra, status in (({"exit_code": 1}, "agent_error"), ({"timed_out": True}, "timeout"), ({}, "ok")):
-        out = rollout.environment_rollout(task, task.given(), None, lambda t, a, environment=None, extra=extra:
-                                          RunOutput(output="x", extra=dict(extra)), environments, 0.0)
-        assert out.extra["status"] == status
-    assert environments.events[0] == ("plan",) and environments.events[1][0] == "start"
+        def pipeline(t, a, environment=None, extra=extra):
+            admitted.append(environment.plan_admitted)
+            return RunOutput(output="x", extra=dict(extra))
+        out = rollout.environment_rollout(task, task.given(), None, pipeline, environments, 0.0)
+        assert out.extra["status"] == status and out.extra["verifier_reward_raw"] == 1.0
+    assert environments.events[:2] == [("plan",), ("start", "demo")] and environments.events[4] == ("plan done",)
+    assert admitted == [True] * 3                   # the CLI in it takes no wait or slot of its own
 
 
 def test_a_run_that_ends_stops_the_pause_before_a_run_again(tmp_path):
@@ -828,7 +881,7 @@ def test_the_harbor_task_directories_are_run_secrets_and_a_login_reaches_its_hos
     secrets, _ = isolate._secrets(config)
     assert (tmp_path / "tasks").resolve() in secrets
     environments = isolate.task_environments(config)
-    assert "chatgpt.com" in environments.allowed_hosts and environments.before_start is not None
+    assert "chatgpt.com" in environments.allowed_hosts and environments.admission is not None
 
 
 def test_the_worker_of_a_task_in_its_own_environment_has_that_environments_budget(tmp_path, monkeypatch):
@@ -855,7 +908,9 @@ def test_a_request_to_a_driver_that_reads_nothing_times_out(tmp_path):
         with pytest.raises(TimeoutError):
             driver.request("exec", 0.5, command="x" * (4 << 20))
         assert time.time() - started < 5
-        driver.close(1)
+        started = time.time()
+        assert driver.close(1) is False                         # its writer stuck: killed, not waited on
+        assert time.time() - started < 30
     finally:
         harbor_mod.DRIVER = original
 
@@ -879,3 +934,152 @@ def test_the_agents_logs_are_copied_for_the_verifier_never_through_a_link_left_t
     space["safe_copy"](logs, shared)
     assert victim.read_text() == "precious" and (shared / "agent-codex.jsonl").read_text() == "stream"
     assert not (shared / "agent-codex.jsonl").is_symlink()
+
+
+def test_an_admitted_session_takes_no_slot_and_a_refused_one_holds_the_plan_and_comes_back(tmp_path, monkeypatch):
+    from hermit.agent.base import cli, login
+    from hermit.agent.base.interface import Result
+    from hermit.agent.model.usage import Usage
+    monkeypatch.setattr(login, "slot", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no slot inside")))
+    monkeypatch.setattr(login, "wait", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no wait inside")))
+    held = []
+    monkeypatch.setattr(login, "hold", lambda plan, until=None, **k: held.append(until))
+    monkeypatch.setattr(cli.CliAgent, "_session", lambda self, prompt, **k: Result(
+        reply="", usage=[Usage(model="m", input_tokens=5, calls=1)],
+        extra={"served": False, "refused": True, "held_until": 123.0}))
+    env = Recorded(tmp_path)
+    env.plan_admitted = True
+    out = cli.Codex({"web_search": False, "login": "chatgpt", "model": "m",
+                     "plan_dir": str(tmp_path / "plan")}).run("x", environment=env)
+    assert out.extra["refused"] and held == [123.0]
+
+
+def test_a_session_the_plan_refused_and_then_ran_counts_both_sessions_usage(tmp_path, monkeypatch):
+    from hermit.agent.base import cli, login
+    from hermit.agent.base.interface import Result
+    from hermit.agent.model.usage import Usage
+    import contextlib
+    monkeypatch.setattr(login, "wait", lambda *a, **k: "")
+    monkeypatch.setattr(login, "slot", lambda *a, **k: contextlib.nullcontext(True))
+    monkeypatch.setattr(login, "held", lambda *a, **k: "")
+    monkeypatch.setattr(login, "hold", lambda *a, **k: None)
+    runs = iter([False, True])
+    monkeypatch.setattr(cli.CliAgent, "_session", lambda self, prompt, **k: (lambda served: Result(
+        reply="ok" if served else "", usage=[Usage(model="m", input_tokens=10, cost_usd=0.01, calls=1)],
+        extra={"served": served, "refused": not served}))(next(runs)))
+    out = cli.Codex({"web_search": False, "login": "chatgpt", "model": "m",
+                     "plan_dir": str(tmp_path / "plan")}).run("x", environment=tmp_path)
+    assert out.reply == "ok" and sum(u.input_tokens for u in out.usage) == 20
+
+
+def test_a_provider_retry_reuses_the_images_own_context_and_a_failed_attempt_keeps_its_usage(tmp_path, monkeypatch):
+    from hermit.agent.acting import workspace
+    reads = []
+
+    class Env(Recorded):
+        def download(self, source, target):
+            reads.append(source)
+            Path(target).write_text("IMAGE TEXT")
+            return Path(target)
+
+    work = tmp_path / "work"
+    work.mkdir()
+    env, cache = Env(tmp_path), {}
+    for _ in range(3):                                          # three attempts in one environment
+        (work / "CLAUDE.md").write_text("ADAPTER")
+        workspace._upload_staging(env, work, "claude", {"adapter_id": "a"}, {}, cache)
+        assert env.uploads["/app/CLAUDE.md"] == "ADAPTER\n\nIMAGE TEXT"
+    assert reads == ["CLAUDE.md"]                               # read once, never the merge back
+    from hermit.agent.acting.workspace import CliAgent
+    from hermit.agent.base import cli
+    from hermit.agent.base.interface import Result
+    from hermit.agent.model.usage import Usage
+    monkeypatch.setenv("HERMIT_HOMES", str(tmp_path / "homes"))
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    monkeypatch.setattr(cli.Codex, "run", lambda self, prompt, **k: Result(
+        reply="", usage=[Usage(model="m", input_tokens=10, output_tokens=2, cost_usd=0.01, calls=1)],
+        exit_code=0, extra={"served": False, "unavailable": True, "started": True, "failed": False,
+                            "output_tail": "503"}))
+    out = CliAgent({"backend": "codex", "web_search": False, "bin": "codex", "workspaces": str(tmp_path / "ws"),
+                    "retries": 2}, tmp_path).run({"id": "t", "instruction": "x"}, None, environment=Recorded(tmp_path))
+    assert out.extra["infra"] == "model_provider_failed" and out.extra["infra_final"] is True
+    assert out.tokens == 24 and out.cost_usd == pytest.approx(0.02)          # both attempts' spend, kept
+
+
+def test_harbor_settings_override_on_the_command_line_and_eval_rows_keep_the_outcome(tmp_path):
+    from hermit.config import Config
+    examples = Path(__file__).resolve().parents[2] / "examples"
+    config = Config.load(examples / "terminal_bench_2_0" / "baseline" / "codex.yaml",
+                         ["environment.harbor.infra_retries=0", "environment.harbor.agent_timeout_sec=900",
+                          "environment.harbor.disk_gate_gb=0"])
+    harbor = config.data["environment"]["harbor"]
+    assert (harbor["infra_retries"], harbor["agent_timeout_sec"], harbor["disk_gate_gb"]) == (0, 900, 0)
+    from hermit.harbor.report import kind
+    assert kind({"status": "judge_error", "outcome": {"status": "infra"}}) == "infra"
+
+
+def test_a_host_pipelines_answer_and_react_agents_keep_the_tasks_budget(tmp_path, monkeypatch):
+    """With the pipeline on the host (no worker deadline), the task's agent budget still ends the model's call."""
+    from hermit.agent.acting import answer as answer_mod
+    from hermit.agent.model.llm import ChatAborted
+
+    class Slow:
+        model = "m"
+
+        def chat(self, messages, abort=None, **kwargs):
+            if abort is None or not abort.wait(10):
+                raise AssertionError("never given up")
+            raise ChatAborted("given up")
+
+    monkeypatch.setattr(answer_mod.ChatClient, "from_spec", staticmethod(lambda spec: Slow()))
+    env = Recorded(tmp_path)
+    env.limits = Limits(timeout_s=0.3)
+    env.instruction = "Q?"
+    out = answer_mod.AnswerAgent({"model": {"base_url": "https://x", "model": "m"}, "logs": str(tmp_path / "l")},
+                                 tmp_path).run({"id": "q"}, None, environment=env)
+    assert out.extra["timed_out"] is True and env.uploads == {}             # no answer written past the budget
+
+
+def test_a_rotated_sign_in_comes_back_though_the_sessions_exec_failed(tmp_path, monkeypatch):
+    from hermit.agent.base import login
+    from hermit.agent.base.interface import make
+    monkeypatch.setenv("HERMIT_HOMES", str(tmp_path / "homes"))
+    seen = []
+    monkeypatch.setattr(login, "prepare", lambda root, home: (Path(home) / login.FILE).write_text('{"old": 1}'))
+    monkeypatch.setattr(login, "keep_refreshed", lambda root, home: seen.append(("keep", (Path(home) / login.FILE)
+                                                                                .read_text())))
+    monkeypatch.setattr(login, "note_usage", lambda *a, **k: None)
+
+    class Env(Recorded):
+        def exec(self, command, **kw):
+            if session_of(list(command)):
+                raise RuntimeError("EnvironmentUnavailable: the transport broke")
+            return super().exec(command, **kw)
+
+        def download(self, source, target):
+            if source.endswith(login.FILE):
+                seen.append("download")
+                Path(target).write_text('{"rotated": 1}')
+                return Path(target)
+            raise FileNotFoundError(source)
+
+    env = Env(tmp_path)
+    env.plan_admitted = True
+    with pytest.raises(RuntimeError, match="transport"):
+        make("codex", {"web_search": False, "login": "chatgpt", "model": "m", "bin": "codex",
+                       "plan_dir": str(tmp_path / "plan"), "login_root": str(tmp_path / "root")}).run(
+            "x", environment=env)
+    assert seen == ["download", ("keep", '{"rotated": 1}')]        # brought back before the removal
+
+
+def test_an_environment_failing_under_the_agent_or_this_machine_is_infra(harbor, monkeypatch):
+    environments, root, _ = harbor
+    with environments.session(environments.task_dir({"harbor_task": "demo"})) as env:
+        with pytest.raises(EnvironmentUnavailable):           # a copy Docker failed: the environment's, not a 0
+            env.download("/no/such/file", root.parent / "x")
+    monkeypatch.setattr(harbor_mod, "_Driver", lambda *a, **k: (_ for _ in ()).throw(OSError(24, "Too many files")))
+    with pytest.raises(EnvironmentUnavailable) as raised:
+        environments.open(environments.task_dir({"harbor_task": "demo"})).start()
+    assert raised.value.cause == "host_failed"
+    from hermit.environment.harbor_errors import NO_RETRY
+    assert "host_failed" in NO_RETRY

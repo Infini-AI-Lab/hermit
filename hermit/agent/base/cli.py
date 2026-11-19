@@ -792,11 +792,14 @@ class CliAgent(BaseAgent):
         if login == "claude" and not os.environ.get(codex_login.TOKEN_ENV):
             return self._not_run("login", None)
         plan, cancel = codex_login.plan_dir(s.get("plan_dir"), login), s.get("cancel")
+        if getattr(env, "plan_admitted", False):
+            return self._admitted_session(prompt, env, plan, tools=tools, session=session, roles=roles)
         max_s = s.get("plan_max_wait_s", codex_login.MAX_WAIT_S)
         deadline = None if max_s is None else time.time() + float(max_s)    # over every wait of this session
         if s.get("deadline") is not None:
             deadline = float(s["deadline"]) if deadline is None else min(deadline, float(s["deadline"]))
         say = lambda m: print(f"hermit {self.name}: {m}", file=sys.stderr, flush=True)
+        spent: list = []                    # the usage of sessions the plan refused, which a run again adds to
         while True:
             credits = codex_login.opted_in(s.get("usage_credits"))
             waited = codex_login.wait(plan, cancel, say, None if deadline is None else max(0.0, deadline - time.time()),
@@ -830,12 +833,28 @@ class CliAgent(BaseAgent):
                 if not done:     # never ran: no answer; every session waits for the window (the refusal's reset)
                     codex_login.hold(plan, until=result.extra.get("held_until") or None, cancel=cancel,
                                      max_s=None if deadline is None else max(0.0, deadline - time.time()))
-            if done:
-                return result
-            if str(s.get("plan_rerun", True)).strip().lower() in ("false", "0", "no", "off"):
-                say("a session was refused for the plan's usage limit; it is returned (plan_rerun: false)")
-                return result
+            if done or str(s.get("plan_rerun", True)).strip().lower() in ("false", "0", "no", "off"):
+                if not done:
+                    say("a session was refused for the plan's usage limit; it is returned (plan_rerun: false)")
+                return dataclasses.replace(result, usage=[*spent, *(result.usage or [])]) if spent else result
+            spent += list(result.usage or [])
             say("a session was refused for the plan's usage limit; it runs again once the plan allows")
+
+    def _admitted_session(self, prompt, env: Environment, plan, *, tools, session, roles) -> Result:
+        """A session on a login whose plan the run already admitted (it waited and took a slot around the task's
+        environment, as the Harbor runner held a trial's: `plan_admitted`): no wait or slot of its own. What it says of
+        the plan is noted; one the plan refused holds the plan for the window and is returned (the run runs the task
+        again once the plan allows), never waited for inside the environment."""
+        result = self._session(prompt, environment=env, tools=tools, session=session, roles=roles)
+        report = result.extra.pop("plan_report", None)
+        if report is not None:
+            codex_login.note_usage(plan, None, report)
+        refused = not result.extra.get("served") and result.extra.get("refused") and \
+            not result.extra.get("login_failed")
+        if refused:
+            codex_login.hold(plan, until=result.extra.get("held_until") or None, cancel=self.settings.get("cancel"),
+                             max_s=0.0)
+        return result
 
     def _within(self, limits: Limits | None):
         """`limits` with its timeout cut to what is left before the `deadline` setting (as given without one);
@@ -1142,8 +1161,9 @@ class CliAgent(BaseAgent):
             missing = set(by_fd) - set(env)
             if missing:
                 raise ValueError(f"by_fd names variables the session does not pass: {sorted(missing)}")
-            # the installs' places on PATH (nvm's, ~/.local/bin), then each secret into a pipe, out of the environment
-            command = ["bash", "-c", REMOTE_PATH + container._by_fd(by_fd) + 'exec "$@"', "bash", *command]
+            # the installs' places on PATH (nvm's, ~/.local/bin); each by_fd secret the environment moves into a pipe
+            # before anything that outlives the move starts (its exec's by_fd)
+            command = ["bash", "-c", REMOTE_PATH + 'exec "$@"', "bash", *command]
             self._remote_program(environment)
             environment.exec(["rm", "-rf", str(remote_home)], cwd="/", timeout=120)
             environment.upload(home, str(remote_home))
@@ -1152,19 +1172,21 @@ class CliAgent(BaseAgent):
                 return self._not_run("deadline", None)
             started = time.time()
             done = environment.exec(command, cwd=str(workspace), env=env, timeout=timeout,
-                                    stdin=prompt if self.on_stdin() else None)
+                                    stdin=prompt if self.on_stdin() else None, **({"by_fd": by_fd} if by_fd else {}))
             wall_s = time.time() - started
             code, timed_out, raw = done.code, done.timed_out, done.output
             stream.write_text(raw, encoding="utf-8")
             with contextlib.suppress(Exception):         # a session that wrote none: the stream's last message
                 environment.download(str(remote_home / "last_message.txt"), last_file)
-            if s.get("login") == "chatgpt":              # the refreshed sign-in and the plan's usage reports back here
+        finally:
+            self._remote_home = None
+            if s.get("login") == "chatgpt" and copied:
+                # the refreshed sign-in and the plan's usage reports back here, however the session's exec ended (a
+                # session that rotated its token before its exec failed), before the sign-in leaves the environment
                 with contextlib.suppress(Exception):
                     environment.download(str(remote_home / codex_login.FILE), home / codex_login.FILE)
                 with contextlib.suppress(Exception):
                     environment.download(str(remote_home / "sessions"), home / "sessions")
-        finally:
-            self._remote_home = None
             # every sign-in file the home took (the login's, or the user's own CLI home's) out of the environment,
             # from a directory the session cannot have removed, before its verifier runs; a removal not confirmed
             # fails the call (no verifier then reads them)
@@ -1295,7 +1317,9 @@ class Codex(CliAgent):
             rejected = codex_stream.codex_rejected(raw)
             said.update(login_failed=codex_stream.codex_signin_lost(raw),
                         unavailable=codex_stream.codex_unavailable(raw), refused=codex_stream.codex_refused(raw),
-                        rejected=bool(rejected and codex_stream.CONFIG_REFUSED.search(rejected)))
+                        rejected=bool(rejected))
+            if rejected:                                 # what session_verdict reads: Codex's own failure
+                said["failure"] = rejected[-600:]
         return said
 
 

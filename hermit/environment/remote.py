@@ -117,14 +117,16 @@ class EnvironmentServer:
         env = self.environment
         return {"workspace": str(env.workspace), "timeout_s": env.limits.timeout_s, "isolation": env.isolation,
                 "installs": hasattr(env, "install"), "instruction": getattr(env, "instruction", None),
-                "network_public": getattr(env, "network_public", True)}
+                "network_public": getattr(env, "network_public", True),
+                "plan_admitted": bool(getattr(env, "plan_admitted", False))}
 
     def spec(self) -> dict:
         return {"url": self.url, **self.info()}
 
     def exec(self, request: dict) -> dict:
+        extra = {"by_fd": request["by_fd"]} if request.get("by_fd") else {}
         result = self.environment.exec(request["command"], cwd=request.get("cwd"), env=request.get("env"),
-                                       timeout=request.get("timeout"), stdin=request.get("stdin"))
+                                       timeout=request.get("timeout"), stdin=request.get("stdin"), **extra)
         return {"code": result.code, "output": result.output, "timed_out": result.timed_out}
 
     def upload(self, body: bytes, target: str) -> dict:
@@ -144,20 +146,22 @@ class ProxyEnvironment(Environment):
     isolation = "remote"
 
     def __init__(self, url: str, workspace: str, limits: Limits | None = None, *, installs: bool = False,
-                 instruction: str | None = None, network_public: bool = True):
+                 instruction: str | None = None, network_public: bool = True, plan_admitted: bool = False):
         super().__init__(PurePosixPath("/"), limits)
         self.workspace = PurePosixPath(workspace)
         self.url = url.rstrip("/")
         self.installs = installs
         self.instruction = instruction                   # the task's instruction as its environment gives it
         self.network_public = network_public             # whether the agent's phase reaches the public network
+        self.plan_admitted = plan_admitted               # the run holds the login's plan admission for this task
 
     @classmethod
     def from_spec(cls, spec: dict) -> "ProxyEnvironment":
         timeout = spec.get("timeout_s")
         return cls(spec["url"], spec.get("workspace") or "/", Limits(timeout_s=float(timeout) if timeout else None),
                    installs=bool(spec.get("installs")), instruction=spec.get("instruction"),
-                   network_public=spec.get("network_public", True) is not False)
+                   network_public=spec.get("network_public", True) is not False,
+                   plan_admitted=bool(spec.get("plan_admitted")))
 
     def __repr__(self) -> str:
         return f"ProxyEnvironment(workspace={str(self.workspace)!r})"
@@ -192,11 +196,11 @@ class ProxyEnvironment(Environment):
                 parts.append(part)
         return PurePosixPath(self.workspace, *parts)
 
-    def exec(self, command, *, cwd=None, env=None, timeout=None, stdin=None) -> ExecResult:
+    def exec(self, command, *, cwd=None, env=None, timeout=None, stdin=None, by_fd=None) -> ExecResult:
         timeout = timeout if timeout is not None else self.limits.timeout_s
         body = json.dumps({"command": command if isinstance(command, str) else [str(c) for c in command],
                            "cwd": str(cwd) if cwd is not None else None, "env": env, "timeout": timeout,
-                           "stdin": stdin}).encode()
+                           "stdin": stdin, "by_fd": by_fd or None}).encode()
         reply = self._post("exec", body, timeout=None if timeout is None else float(timeout) + 600)
         return ExecResult(code=int(reply["code"]), output=str(reply.get("output") or ""),
                           timed_out=bool(reply.get("timed_out")))

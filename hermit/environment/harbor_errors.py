@@ -82,7 +82,8 @@ HALTING = {"ApiUsageLimitError", "AgentAuthenticationError"}       # nothing aft
 # the causes of an infra rollout that run no better again (the runner's NO_RETRY): a disk gate that waited its time out,
 # a request the provider refused for the run's configuration (its key, permission, model or bill: no input to the
 # session changes it)
-NO_RETRY = ("disk", "model_rejected")
+NO_RETRY = ("disk", "model_rejected", "host_failed")   # and this machine's own failure, which the runner never ran
+                                                      # again (an OSError starting the environment's driver)
 INFRA_RETRIES = 2                                                # environment.harbor.infra_retries' default
 INFRA_WAIT_S = 300.0                                             # infra_wait_s'
 # An exception Harbor does not list whose message shows the host failing, not the agent: the agent's setup could not

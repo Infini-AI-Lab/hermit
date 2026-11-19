@@ -24,11 +24,13 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   `hermit/harbor/errors.py`): it runs again in a fresh environment (`environment.harbor.infra_retries`, default 2,
   after `infra_wait_s`, never for `disk` or `model_rejected`), and one that stays infra is `unscored`, which the judge
   refuses (a failed run, never the agent's 0). A session in a task's environment is not resumed (refused: its home
-  there is made anew for each call). The CLI agent's usage now counts every attempt it ran (a provider it ran again
-  on, as the runner counted a trial's runs). Not carried over: the session-level causes the runner read from a CLI's
-  stream inside the container (a plan's usage limit, a lost sign-in, a refused configuration: the acting agent reports
-  those itself), multi-step tasks (streams), the adapter's tools in a task's environment, the `<cli>_bin` mount (a config mounts a
-  binary through `environment.harbor.environment.mounts` and names it as `agent.<cli>.bin`), Harbor's own agents
+  there is made anew for each call). Eval rows of such a task keep its `outcome` (the runner's status); a setting
+  of `environment.harbor` is overridden on the command line by its path. The CLI agent's usage now counts every
+  attempt it ran (a provider it ran again on, as the runner counted a trial's runs). What the runner read of a
+  session (a lost sign-in or a bill refused: the run ends; a configuration refused: `model_rejected`; the plan's
+  refusal: run again once it allows) is read the same way (`hermit/agent/base/codex_stream.py`, ported). Not carried
+  over: multi-step tasks (streams), the adapter's tools in a task's environment, the `<cli>_bin` mount (a config
+  mounts a binary through `environment.harbor.environment.mounts` and names it as `agent.<cli>.bin`), Harbor's own agents
   (`acting_agent: {name}`), the Pi, OpenCode, dsh and mini-swe-agent CLIs in a task's environment, and the curated
   trial log (the trial's directory under `jobs_dir` is kept as Harbor writes it). Every example config moved.
 

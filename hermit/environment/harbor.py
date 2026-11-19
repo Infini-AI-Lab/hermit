@@ -179,7 +179,8 @@ class HarborEnvironments:
         self._root: Path | None = None
         self.live: set = set()                  # the environments started and not stopped: stopped at exit
         self.stopping = threading.Event()       # set once the run ends (a lost sign-in): no gate or pause waits on
-        self.before_start = None                # a wait before each environment starts (the agent's login's plan)
+        self.admission = None                   # the agent's login's plan admission around each environment (a
+                                                # context manager factory: hermit.isolate._plan_admission)
         self._lock = threading.Lock()
         atexit.register(self.stop_all)
 
@@ -415,9 +416,17 @@ class _Driver:
         return reply
 
     def close(self, timeout: float) -> bool:
-        """Close its stdin (it stops its trial and exits); True when it exited by itself, else it is killed."""
+        """Close its stdin (it stops its trial and exits); True when it exited by itself, else it is killed. A writer
+        still blocked on a driver that stopped reading holds the stream: the driver is killed first, never waited on
+        through a close that would block on the writer's lock."""
         self.outbox.put(None)
         self.writer.join(timeout=5)
+        if self.writer.is_alive():
+            self._kill()
+            self.writer.join(timeout=10)
+            self.reader.join(timeout=5)
+            self.log.close()
+            return False
         with contextlib.suppress(OSError):
             self.proc.stdin.close()
         try:
@@ -425,17 +434,20 @@ class _Driver:
             done = True
         except subprocess.TimeoutExpired:
             done = False
-            for sig in (15, 9):
-                with contextlib.suppress(ProcessLookupError, PermissionError):
-                    os.killpg(self.proc.pid, sig)
-                try:
-                    self.proc.wait(timeout=20)
-                    break
-                except subprocess.TimeoutExpired:
-                    continue
+            self._kill()
         self.reader.join(timeout=5)
         self.log.close()
         return done
+
+    def _kill(self) -> None:
+        for sig in (15, 9):
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(self.proc.pid, sig)
+            try:
+                self.proc.wait(timeout=20)
+                return
+            except subprocess.TimeoutExpired:
+                continue
 
 
 class HarborEnvironment(Environment):
@@ -455,6 +467,7 @@ class HarborEnvironment(Environment):
         self.started: dict = {}
         self.instruction: str | None = None
         self.network_public = True
+        self.plan_admitted = False      # the run holds the agent's login's plan admission around this environment
         self.setup_budget_s = SETUP_ALLOWANCE_S
         self.admitted: list = []
         self.verified: dict | None = None
@@ -469,13 +482,17 @@ class HarborEnvironment(Environment):
             raise ValueError(f"no Harbor task directory {self.task_dir}")
         if not owner.wait_for_disk(self.task_dir, self.admitted):
             raise EnvironmentUnavailable(f"{owner.disk_held(self.task_dir)}: no environment started", "disk")
-        self.trials_dir.mkdir(parents=True, exist_ok=True)
         with owner._lock:
             owner.live.add(self)
-        tmp = owner.jobs_dir / "tmp"
-        tmp.mkdir(parents=True, exist_ok=True)
-        env = {**os.environ, "TMPDIR": str(tmp)}
-        self.driver = _Driver(owner.python, self.trials_dir / "driver.log", env)
+        try:                                             # this machine's failing: infra, never run again (host_failed)
+            self.trials_dir.mkdir(parents=True, exist_ok=True)
+            tmp = owner.jobs_dir / "tmp"
+            tmp.mkdir(parents=True, exist_ok=True)
+            env = {**os.environ, "TMPDIR": str(tmp)}
+            self.driver = _Driver(owner.python, self.trials_dir / "driver.log", env)
+        except OSError as exc:
+            raise EnvironmentUnavailable(f"this machine could not start the environment's driver: "
+                                         f"{type(exc).__name__}: {exc}", "host_failed") from None
         try:
             started = self.driver.request(**owner.start_request(self.task_dir, self.trials_dir, self.name),
                                           timeout=float(owner.settings.get("start_timeout_s") or START_TIMEOUT_S))
@@ -538,27 +555,42 @@ class HarborEnvironment(Environment):
                 parts.append(part)
         return PurePosixPath(self.workspace, *parts)
 
-    def exec(self, command, *, cwd=None, env=None, timeout=None, stdin=None, user=None) -> ExecResult:
+    def exec(self, command, *, cwd=None, env=None, timeout=None, stdin=None, user=None, by_fd=None) -> ExecResult:
+        """A command in the task's main container (Environment.exec). `by_fd` ({a variable of `env`: the variable that
+        names its descriptor}): each such secret reaches the command on a descriptor instead, out of every process's
+        environment there (the driver's container_prologue)."""
         if self.limits.readable or self.limits.hidden or self.limits.network is not None:
             raise Unsupported("a Harbor environment is the task's own: it takes no readable mounts, hidden paths or "
                               "network limits of Hermit's (the task's task.toml says what it reaches)")
         line = command if isinstance(command, str) else shlex.join([str(c) for c in command])
         timeout = timeout if timeout is not None else self.limits.timeout_s
-        reply = self._live().request("exec", None if timeout is None else float(timeout) + 300, command=line,
-                                     cwd=str(self.path(cwd or "")),
-                                     env={str(k): str(v) for k, v in (env or {}).items()},
-                                     timeout_sec=timeout, stdin=stdin, user=user)
+        reply = self._operate("exec", None if timeout is None else float(timeout) + 300, command=line,
+                              cwd=str(self.path(cwd or "")), env={str(k): str(v) for k, v in (env or {}).items()},
+                              timeout_sec=timeout, stdin=stdin, user=user, by_fd=dict(by_fd or {}))
         return ExecResult(code=int(reply.get("code", -1)), output=str(reply.get("output") or ""),
                           timed_out=bool(reply.get("timed_out")))
 
+    def _operate(self, op: str, timeout, **fields) -> dict:
+        """One of the agent's operations: a failure the environment's (its driver's, Docker's) is EnvironmentUnavailable
+        (infra), as the Harbor runner took a trial's environment failing under its agent."""
+        try:
+            return self._live().request(op, timeout, **fields)
+        except EnvironmentUnavailable:
+            raise
+        except (RuntimeError, TimeoutError) as exc:
+            if getattr(exc, "kind", None) == "AgentPhaseOver":
+                raise
+            raise EnvironmentUnavailable(f"{op} failed in the task's environment: {exc}"[-3000:],
+                                         errors.start_cause(getattr(exc, "kind", None), str(exc))) from None
+
     def upload(self, source, target) -> PurePosixPath:
         dest = self.path(target)
-        self._live().request("upload", 1800, source=str(Path(source).absolute()), target=str(dest))
+        self._operate("upload", 1800, source=str(Path(source).absolute()), target=str(dest))
         return dest
 
     def download(self, source, target) -> Path:
         target = Path(target)
-        self._live().request("download", 1800, source=str(self.path(source)), target=str(target.absolute()))
+        self._operate("download", 1800, source=str(self.path(source)), target=str(target.absolute()))
         return target
 
     def install(self, cli: str, version: str | None = None) -> str | None:

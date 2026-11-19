@@ -34,9 +34,10 @@ import tempfile
 import time
 
 from hermit.agent.acting.agent import Agent
+from hermit.agent.acting.react import Bounded
 from hermit.agent.base.react import total as usage_total
 from hermit.agent.model.direct import Direct
-from hermit.agent.model.llm import ChatClient
+from hermit.agent.model.llm import ChatAborted, ChatClient
 from hermit.common import RunOutput
 
 INPUT_FIELDS = ("prompt", "question", "instruction", "input")
@@ -69,10 +70,22 @@ class AnswerAgent(Agent):
         messages = ([{"role": "system", "content": system}] if system.strip() else []) + \
             [{"role": "user", "content": content}]
         client = ChatClient.from_spec(model)
-        reply = Direct({"max_tokens": int(p.get("max_tokens") or 16384)}, client).run(messages)
+        budget = getattr(getattr(environment, "limits", None), "timeout_s", None) if environment is not None else None
+        caller = Bounded(client, budget) if budget else client    # the task's agent budget bounds the call, as
+        timed_out = False                                         # Harbor's agent timeout cancelled the runner's
+        try:
+            reply = Direct({"max_tokens": int(p.get("max_tokens") or 16384)}, caller).run(messages)
+        except ChatAborted:
+            if not (budget and caller.expired):
+                raise
+            from hermit.agent.model.direct import Reply
+            reply, timed_out = Reply(reply=""), True
+        finally:
+            if budget:
+                caller.close()
         answer = self.answer(reply.reply)
         answer_file = None if "answer_file" in p and p["answer_file"] is None else p.get("answer_file") or ANSWER_FILE
-        if environment is not None and answer_file:
+        if environment is not None and answer_file and not timed_out:
             text = str(p.get("answer_format") or "{answer}").replace("{answer}", answer)
             with tempfile.TemporaryDirectory(prefix="hermit-answer-") as tmp:
                 local = Path(tmp) / "answer.txt"
@@ -85,7 +98,7 @@ class AnswerAgent(Agent):
                                    "attachments": named, "reply": reply.reply, "answer": answer},
                                   ensure_ascii=False, indent=1))
         usage = usage_total(client, reply.usage)
-        extra = {"attachments": named}
+        extra = {"attachments": named, **({"timed_out": True} if timed_out else {})}
         if record is not None:
             extra["context_tool"] = record
         return RunOutput(output={"answer": answer, "reply": reply.reply}, log=log, cost_usd=usage.cost_usd,

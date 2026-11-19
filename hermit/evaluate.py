@@ -64,6 +64,10 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
                     errors += rec["status"] != "ok"
                     row = {"repeat": r, **{k: rec[k] for k in ("id", "status", "error", "output", "judge",
                                                                "cost_usd", "wall_s", "api_speed", "tokens", "log")}}
+                    extra = rec.get("pipeline_extra") or {}
+                    if "verified" in extra:  # a task in its own environment: the rollout's outcome, as the runner's was
+                        row["outcome"] = {k: extra.get(k) for k in ("status", "failure_cause", "timed_out",
+                                                                    "exit_code", "unscored", "verifier_reward_raw")}
                     f.write(json.dumps(redact_value(row), default=str) + "\n")     # no model key is kept
     finally:
         close()

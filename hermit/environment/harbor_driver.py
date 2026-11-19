@@ -63,6 +63,7 @@ from harbor.trial.trial import Trial
 TRIAL_FIELDS = ("verifier_timeout_multiplier", "environment_build_timeout_multiplier", "agent_timeout_multiplier",
                 "agent_setup_timeout_multiplier", "timeout_multiplier")
 AGENT_FIELDS = ("override_timeout_sec", "override_setup_timeout_sec", "max_timeout_sec", "extra_allowed_hosts")
+WORKDIR_MARK = "hermit-workdir:"         # the line the working directory's probe prints it on (shell noise aside)
 KILL_GRACE_S = 10                       # `timeout -k`: after the TERM, the KILL
 BACKSTOP_S = 60                         # Harbor's own exec timeout past the command's, should `timeout` not end it
 MARK = "HERMIT_AGENT_EXEC"              # each agent command's variable: what kills it, and whatever it started, when
@@ -82,10 +83,45 @@ APT_REPAIR = ("if grep -qs 'VERSION_CODENAME=bullseye' /etc/os-release && comman
 
 
 def kill_marked(mark: str) -> str:
-    """A shell line (run as root) that kills every process whose environment holds `MARK=<mark...>`: an agent's
-    commands and whatever they started, found through /proc."""
-    return (f"for p in /proc/[0-9]*; do tr '\\0' '\\n' < $p/environ 2>/dev/null | grep -q '^{MARK}={mark}' && "
-            "kill -9 ${p#/proc/} 2>/dev/null; done; true")
+    """A shell line (run as root) that kills every process whose environment holds `MARK=<mark...>` (an agent's
+    commands) and every process below those, whatever environment it was started with (one that cleared its
+    variables loses the mark, never its parent): found through /proc, no `ps` needed."""
+    return ("roots=''; for p in /proc/[0-9]*; do "
+            f"tr '\\0' '\\n' < $p/environ 2>/dev/null | grep -q '^{MARK}={mark}' && roots=\"$roots ${{p#/proc/}}\"; "
+            "done; all=$roots; todo=$roots; while [ -n \"$todo\" ]; do next=''; for p in /proc/[0-9]*; do "
+            "s=$(cat $p/stat 2>/dev/null) || continue; s=${s##*) }; set -- $s; for q in $todo; do "
+            "[ \"$2\" = \"$q\" ] && next=\"$next ${p#/proc/}\"; done; done; all=\"$all $next\"; todo=$next; done; "
+            "[ -n \"$all\" ] && kill -9 $all 2>/dev/null; true")
+
+
+ENV_PREFIX = "HERMIT_ENV_"
+NAME = __import__("re").compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+
+
+def container_prologue(values: dict, by_fd: dict) -> tuple[str, dict]:
+    """(the shell lines that set a command's variables in the container, the variables that carry their values
+    there): each value travels under a name of this driver's (HERMIT_ENV_<n>), the lines export it under its own name
+    (or, for a secret `by_fd` names, move it into a pipe on a descriptor of its own, its variable naming the
+    descriptor, as hermit.environment.docker's by_fd) and unset the carrier, before the command is exec'd: no process
+    that outlives the lines (`timeout`, the CLI) holds a by_fd secret in its environment."""
+    lines, carried, fd = [], {}, 3
+    for i, (name, value) in enumerate(values.items()):
+        if not NAME.match(name):
+            raise ValueError(f"not a variable name: {name!r}")
+        carrier = f"{ENV_PREFIX}{i}"
+        carried[carrier] = value
+        if name in by_fd:
+            if not NAME.match(str(by_fd[name])):
+                raise ValueError(f"not a variable name: {by_fd[name]!r}")
+            lines.append(f"exec {fd}<<HERMIT_FD\n${{{carrier}}}\nHERMIT_FD\n{by_fd[name]}={fd}; export {by_fd[name]}")
+            fd += 1
+        else:
+            lines.append(f'export {name}="${{{carrier}}}"')
+        lines.append(f"unset {carrier}")
+    missing = set(by_fd) - set(values)
+    if missing:
+        raise ValueError(f"by_fd names variables the command is not given: {sorted(missing)}")
+    return "".join(line + "\n" for line in lines), carried
 
 
 def safe_copy(source: Path, target: Path) -> None:
@@ -128,6 +164,8 @@ class Driver:
         self.mark = uuid.uuid4().hex                   # this environment's agent commands' mark (MARK)
         self.agent_ops: set = set()                    # the agent's operations in flight (drained before verify)
         self.running: set = set()                      # the marks of the agent commands still running
+        self.agent_allowed = asyncio.Event()           # cleared while an install runs under the setup network
+        self.agent_allowed.set()
         self.repaired = False
         self.lock = asyncio.Lock()                     # one request that changes the trial's phase at a time
 
@@ -169,8 +207,12 @@ class Driver:
             trial.agent_environment, baseline_policy=plan.agent_env_baseline, phase_policy=plan.agent_phase))
         self.agent_phase = stack
         trial.result.agent_execution = TimingInfo(started_at=datetime.now(timezone.utc))
-        found = await trial.agent_environment.exec("pwd")
-        workdir = (found.stdout or "").strip().splitlines()[-1] if (found.stdout or "").strip() else "/"
+        found = await trial.agent_environment.exec(f"printf '{WORKDIR_MARK}%s\\n' \"$PWD\"")
+        marked = [line[len(WORKDIR_MARK):] for line in ((found.stdout or "") + (found.stderr or "")).splitlines()
+                  if line.startswith(WORKDIR_MARK)]
+        if found.return_code != 0 or not marked or not marked[-1].startswith("/"):
+            raise RuntimeError(f"the environment's working directory could not be read: {found.stdout!r}"[:500])
+        workdir = marked[-1]
         return {"workdir": workdir, "user": self.user, "agent_timeout_sec": trial.agent_timeout_sec,
                 "setup_timeout_sec": trial.agent_setup_timeout_sec,
                 "trial_dir": str(trial.paths.trial_dir), "os": str(trial.task.config.environment.os.value),
@@ -229,8 +271,22 @@ class Driver:
             if mode == VerifierEnvironmentMode.SHARED:
                 await trial._stop_agent_environment()
         result = trial.result.verifier_result
+        if exception is not None:                        # scrubbed with the trial's files, before Hermit reads them
+            said = trial.paths.trial_dir / "hermit-verify-exception.txt"
+            said.write_text(exception["message"])
+        self._scrub()
+        if exception is not None:
+            exception["message"] = said.read_text()
+            said.unlink()
         return {"rewards": dict(result.rewards) if result is not None and result.rewards else None,
                 "exception": exception, "verifier_dir": str(trial.paths.verifier_dir), "verifier_mode": mode.value}
+
+    def _scrub(self) -> None:
+        """Harbor's scrub of the trial's files (a credential the verifier's env names), as its trial runs it."""
+        try:
+            self.trial._scrub_jobs_dir()
+        except Exception as exc:                         # noqa: BLE001 - logged; the files stay as they are
+            log(f"scrub: {type(exc).__name__}: {exc}")
 
     async def stop(self, req: dict | None = None) -> dict:
         if self.stopped or self.trial is None:
@@ -245,6 +301,7 @@ class Driver:
         try:
             await trial._finalize()                      # the environment down, result.json written
         finally:
+            self._scrub()
             trial._close_logger_handler()
         return {"result": str(trial.paths.result_path)}
 
@@ -260,6 +317,7 @@ class Driver:
         command = str(req["command"])
         timeout = req.get("timeout_sec")
         user = req.get("user", None)
+        await self.agent_allowed.wait()                  # never while an install opens the setup network
         staged = None
         if req.get("stdin") is not None:
             staged = f"/tmp/hermit-stdin-{uuid.uuid4().hex}"
@@ -280,12 +338,15 @@ class Driver:
                 outer = timeout + KILL_GRACE_S + BACKSTOP_S
             else:
                 outer = timeout
+                command = f"bash -c {shlex.quote(command)}"
+        else:
+            command = f"bash -c {shlex.quote(command)}"
         started = time.time()
         mark = f"{self.mark}-{uuid.uuid4().hex[:8]}"
         self.running.add(mark)
         try:
             result = await self._exec(command, cwd=req.get("cwd"), env={**(req.get("env") or {}), MARK: mark},
-                                      timeout=outer, user=user)
+                                      by_fd=req.get("by_fd") or {}, timeout=outer, user=user)
             code = result.return_code
             output = (result.stdout or "") + (result.stderr or "")
         except Exception as exc:                        # Harbor's own client timeout (no `timeout` in the image)
@@ -303,28 +364,46 @@ class Driver:
                 await env.exec(kill_marked(mark), user="root")
         return {"code": -1 if timed_out else code, "output": output, "timed_out": timed_out}
 
-    async def _exec(self, command: str, *, cwd, env: dict, timeout, user):
+    async def _exec(self, command: str, *, cwd, env: dict, by_fd: dict, timeout, user):
+        """`command` (a shell line that execs the command: `timeout ...` or `bash -c ...`) in the main container,
+        its variables delivered there and nowhere on this machine (container_prologue): no variable the request names
+        touches this process's environment or the compose client's own (PATH, DOCKER_HOST stay this machine's), and
+        none is on a command line."""
         environment = self.env
         try:
-            from harbor.environments.docker.docker import DockerEnvironment
+            from harbor.environments.docker.docker import (DockerEnvironment,
+                                                           _sanitize_docker_compose_project_name)
         except ImportError:                              # noqa: BLE001
-            DockerEnvironment = ()
-        if env and isinstance(environment, DockerEnvironment) and not environment._is_windows_container:
-            # DockerEnvironment._compose_exec, with each variable passed by name: its value is in the compose
-            # client's environment (os.environ, which _run_docker_compose_command hands it), not on its command line
-            merged = environment._merge_env(env) or {}
-            os.environ.update({str(k): str(v) for k, v in merged.items()})
+            DockerEnvironment, _sanitize_docker_compose_project_name = (), None
+        values = {str(k): str(v) for k, v in ((environment._merge_env(env) or {}) if env else {}).items()}
+        prologue, carried = container_prologue(values, by_fd)
+        line = prologue + "exec " + command
+        if isinstance(environment, DockerEnvironment) and not environment._is_windows_container:
+            # DockerEnvironment._compose_exec and _run_docker_compose_command, with the request's variables under
+            # names of this driver's own (HERMIT_ENV_<n>), passed by name to `docker compose exec` from a private
+            # copy of the client's environment
             workdir = cwd or environment.task_env_config.workdir
             argv = ["exec", *(["-w", str(workdir)] if workdir else [])]
-            for name in merged:
-                argv += ["-e", str(name)]
+            for name in carried:
+                argv += ["-e", name]
             resolved = environment._resolve_user(user)
             if resolved is not None:
                 argv += ["-u", str(resolved)]
-            argv += ["main", *environment._platform.exec_shell_args(command)]
-            return await environment._run_docker_compose_command(argv, check=False, timeout_sec=timeout,
-                                                                 on_output=environment._output_callback())
-        return await environment.exec(command, cwd=cwd, env=env or None, timeout_sec=timeout, user=user)
+            argv += ["main", *environment._platform.exec_shell_args(line)]
+            runtime = type(environment).runtime()
+            full = [*runtime.compose, "--project-name", _sanitize_docker_compose_project_name(environment.session_id)]
+            if runtime.supports_compose_project_directory:
+                full += ["--project-directory", str(environment.environment_dir.resolve().absolute())]
+            for path in environment._docker_compose_paths:
+                full += ["-f", str(path.resolve().absolute())]
+            client = {**environment._compose_env_vars(include_os_env=True), **carried}
+            process = await asyncio.create_subprocess_exec(
+                *full, *argv, env=client, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=str(environment.environment_dir.resolve().absolute()) if environment.environment_dir.is_dir()
+                else None)
+            return await DockerEnvironment._collect_buffered_output(process, timeout_sec=timeout)
+        return await environment.exec(line, cwd=cwd, env=carried or None, timeout_sec=timeout, user=user)
 
     async def _own(self, target: str) -> None:
         """What was uploaded, the agent user's (an upload lands as root's)."""
@@ -363,13 +442,19 @@ class Driver:
         phase's (a task whose agent may not reach the network still installs its CLI), then back."""
         plan, env = self.plan, self.env
         switch = plan is not None and self.agent_phase is not None and plan.agent_phase != plan.agent_env_baseline
-        if switch:
+        if switch:                     # no agent command runs under the wider policy: new ones wait, running ones end
+            self.agent_allowed.clear()
+            while self.running:
+                await asyncio.sleep(0.2)
             await env.set_network_policy(plan.agent_env_baseline)
         try:
             yield
         finally:
             if switch:
-                await env.set_network_policy(plan.agent_phase)
+                try:
+                    await env.set_network_policy(plan.agent_phase)
+                finally:
+                    self.agent_allowed.set()
 
     def _installer(self, name: str, version=None):
         logs = self.trial.paths.trial_dir / "install" / name

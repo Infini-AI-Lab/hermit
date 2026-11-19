@@ -101,7 +101,7 @@ pass@1 counts it as a failure, as the paper does, and so does `hermit eval`'s `m
 `python -m hermit.harbor.report` leaves it out of its pass@1 and counts it (`infra`): report that pass@1 for each eval,
 and give that count beside each number. And one whose agent ran out of its hour or ended in an error while the tests
 passed: the iteration's pass@1 counts it as a failure, as the paper's counts a timed-out trial (§4.1), and `hermit eval`
-scores it by the tests' reward, as Harbor does; count those in the eval's `results.jsonl` (an `output.status` of
+scores it by the tests' reward, as Harbor does; count those in the eval's `results.jsonl` (an `outcome.status` of
 `timeout` or `agent_error` with a `judge.score` of 1) and give that count too.
 
 The learners run on the same plan as the acting agent: on the smoke's two tasks, one step's Debugger and Evolve

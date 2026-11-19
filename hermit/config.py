@@ -44,6 +44,8 @@ def _merge(base: dict, extra: dict, prefix: str = "") -> dict:
 
 
 FREE = ("params", "llm", "backends", "container", "resources",   # sections whose keys the framework does not know
+        "harbor",                                                # (environment.harbor: Harbor's, checked by
+                                                                 # hermit.environment.harbor, overridable one by one)
         "model", *("codex", "claude", "pi", "mini-swe-agent", "opencode", "dsh", "hermes", "react",
                    "direct"))                                    # a layer's (agent-layers.md)
 BASES = {"codex": "codex", "claude": "claude-code", "claude-code": "claude-code", "pi": "pi",
