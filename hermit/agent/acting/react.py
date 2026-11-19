@@ -57,6 +57,8 @@ class Bounded:
     def __init__(self, client, budget_s: float):
         import threading
         self.client, self.abort = client, threading.Event()
+        self.deadline = time.monotonic() + float(budget_s)
+        self.abandoned = 0                # calls given up in flight: sent, maybe billed, their usage never reported
         self.timer = threading.Timer(float(budget_s), self.abort.set)
         self.timer.daemon = True
         self.timer.start()
@@ -69,7 +71,21 @@ class Bounded:
         if self.abort.is_set():
             from hermit.agent.model.llm import ChatAborted
             raise ChatAborted("the task's agent budget is spent")
-        return self.client.chat(messages, abort=self.abort, **kwargs)
+        from hermit.agent.model.llm import ChatAborted
+        try:
+            return self.client.chat(messages, abort=self.abort, **kwargs)
+        except ChatAborted:
+            self.abandoned += 1
+            raise
+
+    def unreported(self) -> list:
+        """The usage of the calls given up in flight: counted, their cost not known."""
+        from hermit.agent.model.usage import Usage
+        return [Usage(model=str(getattr(self.client, "model", "") or ""), calls=self.abandoned,
+                      unreported_calls=self.abandoned, cost_usd=None)] if self.abandoned else []
+
+    def remaining(self) -> float:
+        return max(0.0, self.deadline - time.monotonic())
 
     def close(self) -> None:
         self.timer.cancel()
@@ -259,21 +275,30 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, agent: Reac
         if bounded is None or not bounded.expired:
             raise
         timed_out = True                                     # the call in flight given up: what ran before is kept
-    finally:
-        if bounded is not None:
-            bounded.close()
     result = loop.result()
     if timed_out:
         result = dataclasses.replace(result, timed_out=True)
     messages, turns, usages = result.session, result.extra["turns"], list(result.usage)
-    if tag and not timed_out and f"<{tag}>".upper() not in (result.reply or "").upper():   # the model's reply's tag
-        follow = Direct({"max_tokens": int(params.get("max_tokens", 16384)),
-                         "temperature": params.get("temperature")}, client)
-        reply = follow.run(f"Stop using tools. Give your final answer now inside <{tag}>...</{tag}>.", session=messages)
-        messages = reply.session[:-1] + [{"role": "assistant", "content": reply.reply}]
-        result = dataclasses.replace(result, reply=reply.reply, session=messages)
-        usages += reply.usage
-        turns += 1
+    try:
+        if tag and not timed_out and f"<{tag}>".upper() not in (result.reply or "").upper():   # the reply's tag
+            follow = Direct({"max_tokens": int(params.get("max_tokens", 16384)),
+                             "temperature": params.get("temperature")}, bounded or client)
+            try:
+                reply = follow.run(f"Stop using tools. Give your final answer now inside <{tag}>...</{tag}>.",
+                                   session=messages)
+                messages = reply.session[:-1] + [{"role": "assistant", "content": reply.reply}]
+                result = dataclasses.replace(result, reply=reply.reply, session=messages)
+                usages += reply.usage
+                turns += 1
+            except ChatAborted:
+                if bounded is None or not bounded.expired:
+                    raise
+                result = dataclasses.replace(result, timed_out=True)
+    finally:
+        if bounded is not None:
+            bounded.close()
+    if bounded is not None:           # a request given up in flight may have been billed: its cost is not known
+        usages += bounded.unreported()
     answer = agent.answer(result, task)
 
     logs = Path(base) / params.get("logs", ".logs")

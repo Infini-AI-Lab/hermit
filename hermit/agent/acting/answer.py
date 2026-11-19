@@ -75,6 +75,12 @@ class AnswerAgent(Agent):
         try:
             system = session.context(query=question, task=task) if session is not None else ""
             record = session.last_context if session is not None else None
+        except Exception as exc:          # the adapter's own (its context tool): the agent's result, scored 0
+            message = f"{type(exc).__name__}: {exc}"[-2000:]
+            return RunOutput(output=None, cost_usd=0.0, tokens=0, wall_s=round(time.time() - started, 1),
+                             api_speed={"model_calls": 0},
+                             extra={"adapter_failed": "adapter_failed", "exception_message": message,
+                                    "session_failed": message[-600:]})
         finally:
             if session is not None:
                 session.close()
@@ -94,14 +100,26 @@ class AnswerAgent(Agent):
         except ChatHTTPError as exc:
             reply, timed_out = self._refused(exc), False
         answer = self.answer(reply.reply)
-        timed_out = timed_out or bool(budget and caller.expired)
         answer_file = None if "answer_file" in p and p["answer_file"] is None else p.get("answer_file") or ANSWER_FILE
+        timed_out = timed_out or bool(budget and caller.expired)
         if environment is not None and answer_file and not timed_out:
             text = str(p.get("answer_format") or "{answer}").replace("{answer}", answer)
             with tempfile.TemporaryDirectory(prefix="hermit-answer-") as tmp:
                 local = Path(tmp) / "answer.txt"
                 local.write_text(text, encoding="utf-8")
-                environment.upload(local, str(answer_file))
+                if not budget:
+                    environment.upload(local, str(answer_file))
+                else:                     # delivered whole within the budget, or not at all: put beside, then moved
+                    part = f"{answer_file}.hermit-part"
+                    environment.upload(local, part)
+                    left = caller.remaining()
+                    done = environment.exec(["mv", "-f", part, str(answer_file)], timeout=left) if left > 0 else None
+                    if done is None or done.timed_out:   # the budget spent first: no answer delivered
+                        environment.exec(["rm", "-f", part, *([] if done is None else [str(answer_file)])], timeout=30)
+                        timed_out = True
+                    elif done.code != 0:
+                        raise RuntimeError(f"the task's environment did not provide {answer_file} for the answer: "
+                                           f"{done.output[-300:]}")
         logs = self.log_dir()
         fd, name = tempfile.mkstemp(prefix=f"{task.get('id', 'task')}-", suffix=".json", dir=logs)
         log = Path(name)
@@ -110,7 +128,7 @@ class AnswerAgent(Agent):
             f.write(json.dumps({"task": task.get("id"), "model": model["model"], "messages": shown,
                                 "attachments": named, "reply": reply.reply, "answer": answer},
                                ensure_ascii=False, indent=1))
-        usage = usage_total(client, reply.usage)
+        usage = usage_total(client, [*reply.usage, *(caller.unreported() if budget else [])])
         extra = {"attachments": named, **({"timed_out": True} if timed_out else {})}
         if record is not None:
             extra["context_tool"] = record
@@ -128,8 +146,8 @@ class AnswerAgent(Agent):
                 found = environment.exec(["cat", str(path)], timeout=60)
                 if found.code == 0:
                     return found.output.strip()
-                if time.time() >= deadline:
-                    raise RuntimeError(f"the task's environment has no {path} (waited "
+                if time.time() >= deadline:      # the environment's: infra, run again (the runner's launch_failed)
+                    raise RuntimeError(f"the task's environment did not provide {path} (waited "
                                        f"{self.params.get('wait_s') or DEFAULT_WAIT_S} s)")
                 time.sleep(POLL_S)
         if getattr(environment, "instruction", None) is not None:
@@ -147,7 +165,8 @@ class AnswerAgent(Agent):
         listing = environment.exec(["sh", "-c", "for f in " + " ".join(globs) + "; do [ -f \"$f\" ] && echo \"$f\"; "
                                     "done; true"], timeout=60)
         if listing.code != 0:
-            raise RuntimeError(f"the attachments could not be listed: {listing.output[-500:]}")
+            raise RuntimeError(f"the task's environment did not provide its attachments' listing: "
+                               f"{listing.output[-500:]}")
         urls, named = [], []
         found = list(dict.fromkeys(line for line in listing.output.splitlines() if line.strip()))   # each image once
         for path in found:

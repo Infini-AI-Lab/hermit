@@ -86,6 +86,7 @@ BACKENDS = ("codex", "claude", "pi", "mini-swe-agent", "opencode", "dsh", "herme
 DEPLOYS = ("host",)
 ISOLATIONS = ("none", "container")
 INPUT_FIELDS = ("question", "prompt", "instruction", "input", "query")
+REMOTE_CODEX_DOC_BYTES = 262144           # Codex's project_doc_max_bytes in a task's own environment (the runner's)
 MODEL_REJECTED = "model_rejected"         # the provider refused the configuration (hermit.environment.harbor_errors)
 MEMORY = Path("memory") / "NOTES.md"     # an adapter's notes the agent keeps across tasks (continual-harness)
 MEMORY_NOTE = ("`{path}` is your memory across questions: read it first, and record under a `## <topic>` "
@@ -430,13 +431,15 @@ def _upload_staging(environment: Environment, work: Path, backend: str, deployed
 
 
 IMAGE_CONTEXT_UNREAD = "the image's own context file could not be read"
+BROKEN = "the environment is broken"        # the driver's word for an environment left under a wider network policy
 IMAGE_MARK = "hermit-image-context:"        # what precedes the file's text in the reading command's output
 
 
 def _ensure_python3(environment: Environment) -> bool:
     """python3 where the session runs, for the adapter's hooks (rendered for `python3`): installed by the environment's
-    own installer when it has one and Python is missing, as the Harbor runner did before a session with hooks. False,
-    never an exception: the session then runs with hooks that may fail open."""
+    own installer when it has one and Python is missing, as the Harbor runner did before a session with hooks. False
+    when it could not be had (the session then runs with hooks that may fail open); raised only when the environment
+    is broken (left under its setup's network policy), where no agent command runs on."""
     if environment.exec(["sh", "-c", "command -v python3"], timeout=60).code == 0:
         return True
     ensure = getattr(environment, "ensure", None)
@@ -445,6 +448,8 @@ def _ensure_python3(environment: Environment) -> bool:
     try:
         ensure(["python3"])
     except Exception as exc:                             # noqa: BLE001 - as the runner: warn, run on
+        if BROKEN in str(exc):                           # but never on in an environment left under the setup's policy
+            raise
         print(f"WARNING: python3 for the adapter's hooks could not be installed: {exc}", file=sys.stderr, flush=True)
         return False
     return environment.exec(["sh", "-c", "command -v python3"], timeout=60).code == 0
@@ -553,6 +558,10 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
         if unsupported or params.get("isolation") == "container":
             raise Unsupported(f"agent {backend} in a remote environment (a task's Harbor environment) takes none of "
                               f"{', '.join(unsupported) or 'isolation: container'}: the environment is the task's own")
+    if remote and backend == "codex" and not params.get("project_doc_max_bytes"):
+        # the Harbor runner's cap on AGENTS.md for Codex in a task's container (hermit.harbor.clis: 256 KiB), for the
+        # deployment's check and the session's own setting alike
+        params = {**params, "project_doc_max_bytes": REMOTE_CODEX_DOC_BYTES}
     if params.get("config"):                        # mini-swe-agent's config file, beside the run config
         params = {**params, "config": str(Path(base) / os.path.expanduser(str(params["config"])))}
     agent = base_agent(backend, params)
@@ -697,8 +706,12 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
             pass
     elif memory is not None and memory.parent.is_dir():                # the notes the session left
         shutil.copytree(memory.parent, log / "memory", dirs_exist_ok=True)
+    hooks_missing = None
     if remote and deployed.get("hooks"):
-        _collect_hooks(given, log)
+        try:                                         # an audit that cannot be read leaves the session as it ended
+            _collect_hooks(given, log)
+        except Exception as exc:                     # noqa: BLE001 - recorded, the verifier decides the rest
+            hooks_missing = f"{type(exc).__name__}: {exc}"[-500:]
     # A session the CLI itself reports as failed has no answer to read or to judge (trainer.rollout: an error record).
     failed = result.extra.get("failed")
     output = None if failed else _output(last, task, params, base, code, timed_out, timeout_s)
@@ -720,6 +733,8 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
              "mounts": result.extra.get("mounts") or {}}       # a task's data in the workspace: bound or linked
     if failed:
         extra["session_failed"] = str(result.extra.get("failure") or f"the CLI exited {code} without a result")
+    if hooks_missing:
+        extra["hooks_audit_missing"] = hooks_missing
     if context_tool is not None:
         extra["context_tool"] = context_tool
     if facts:

@@ -32,7 +32,7 @@ guarantee that their consumer supports arbitrary fields.
 | `data.shuffle` | boolean / true | Shuffle training order; set false for ordered streams |
 | `data.shuffle_seed` | integer / 0 | Training shuffle seed; does not seed every model or method |
 | `task_info` | directory / null | Learner-facing task description; provide `README.md` |
-| `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `hermes`, `harbor` (a benchmark's task set in Harbor's format, see [Benchmarks](../framework/task.md#benchmarks)), an Agent class, or a `file.py:function` / `module:function` |
+| `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `hermes`, `answer` (one model call, its answer written where the task's verifier reads it), an Agent class, or a `file.py:function` / `module:function`; a benchmark's task set in Harbor's environments is `environment.harbor` ([Benchmarks](../framework/task.md#benchmarks)), any of these agents working there |
 | `agent.concurrency` | integer / 4 | Maximum concurrent rollout/evaluation task executions; use a positive value |
 | `agent.timeout_min` | number / null | A sandboxed task call (its worker) running longer is stopped and recorded as an error; null: no limit |
 | `agent.params` | mapping / {} | Passed to Agent constructors; plain functions receive it when they declare a `params` argument |
@@ -145,6 +145,7 @@ Checkpoint frequency controls tags; completed steps still have records and accep
 
 | Field | Type / default | Meaning |
 |---|---|---|
+| `environment.harbor` | mapping / path / null | A task set in Harbor's environments: each task's own, verified by Harbor's verifier; its settings, or the benchmark file that holds them (`benchmark:`); each setting overridable by its path ([Benchmarks](../framework/task.md#benchmarks)) |
 | `environment.runner` | string / `sandbox` | `sandbox`: the acting agent runs in the task sandbox; `host`: in the Trainer's process (a task whose code isolates what it runs) |
 | `environment.read` | list / [] | Task paths shown read-only to the acting agent; never the data, the judge, its tests or the runs |
 | `environment.write` | list / [] | Paths it may write besides its own work directory |

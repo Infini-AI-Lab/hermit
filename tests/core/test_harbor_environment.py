@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path, PurePosixPath
+import shlex
 import shutil
 import subprocess
 import sys
@@ -192,6 +193,8 @@ class Recorded(Environment):
     def exec(self, command, *, cwd=None, env=None, timeout=None, stdin=None, by_fd=None):
         self.calls.append({"command": list(command), "cwd": cwd, "env": dict(env or {}), "timeout": timeout,
                            "stdin": stdin, "by_fd": dict(by_fd or {})})
+        if list(command[:2]) == ["mv", "-f"] and command[2] in self.uploads:      # an upload put in place
+            self.uploads[command[3]] = self.uploads.pop(command[2])
         return self.answer(list(command))
 
     def upload(self, source, target):
@@ -936,25 +939,140 @@ def test_a_request_to_a_driver_that_reads_nothing_times_out(tmp_path):
         harbor_mod.DRIVER = original
 
 
-def test_the_agents_logs_are_copied_for_the_verifier_never_through_a_link_left_there(tmp_path):
-    """The driver's safe_copy (loaded alone: the driver imports harbor, which this interpreter has not): a link the
-    agent put in /logs/agent, a folder it shares with this machine, is replaced, not written through."""
+def _driver_function(name: str, **space):
+    """One function of the driver, loaded alone (the driver imports harbor, which this interpreter has not)."""
     import ast
-    import shutil as shutil_mod
     source = (Path(harbor_mod.__file__).with_name("harbor_driver.py")).read_text()
-    node = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == "safe_copy")
-    space = {"os": os, "shutil": shutil_mod, "Path": Path}
-    exec(compile(ast.Module([node], []), "safe_copy", "exec"), space)
-    victim = tmp_path / "host-file"
+    node = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == name)
+    exec(compile(ast.Module([node], []), name, "exec"), space)
+    return space[name]
+
+
+def test_the_agents_logs_are_copied_for_the_verifier_never_through_a_link_left_there(tmp_path):
+    """safe_copy: a link the agent put in /logs/agent, a folder it shares with this machine, is replaced, never written
+    through, and so is one it puts there while the copy runs (a background process of the agent's): a file where the
+    copy is writing, a folder the copy is in swapped for a link to this machine's files."""
+    import contextlib
+    import shutil as shutil_mod
+    import uuid
+    victim, host_dir = tmp_path / "host-file", tmp_path / "host-dir"
     victim.write_text("precious")
+    host_dir.mkdir()
     logs, shared = tmp_path / "logs", tmp_path / "agent-dir"
-    logs.mkdir()
+    (logs / "sub").mkdir(parents=True)
+    (logs / "linked").mkdir()
     shared.mkdir()
     (logs / "agent-codex.jsonl").write_text("stream")
-    (shared / "agent-codex.jsonl").symlink_to(victim)
-    space["safe_copy"](logs, shared)
-    assert victim.read_text() == "precious" and (shared / "agent-codex.jsonl").read_text() == "stream"
+    (logs / "sub" / "a.txt").write_text("a")
+    (logs / "linked" / "b.txt").write_text("b")
+    (shared / "agent-codex.jsonl").symlink_to(victim)                     # there before the copy
+    (shared / "linked").symlink_to(host_dir)
+    (shared / "sub").mkdir()
+
+    class Racing:                                     # shutil, but the agent moves while a file is being written
+        def __getattr__(self, name):
+            return getattr(shutil_mod, name)
+
+        @staticmethod
+        def copyfileobj(given, out):
+            if given.name.endswith("a.txt"):
+                (shared / "sub").rename(shared / "moved")                 # the folder the copy writes in, swapped
+                (shared / "sub").symlink_to(host_dir)
+                (shared / "moved" / "a.txt").symlink_to(victim)           # and a link where its file goes
+            shutil_mod.copyfileobj(given, out)
+
+    copy = _driver_function("safe_copy", os=os, shutil=Racing(), Path=Path, contextlib=contextlib, uuid=uuid)
+    copy(logs, shared)
+    assert victim.read_text() == "precious" and list(host_dir.iterdir()) == []     # nothing of this machine's touched
+    assert (shared / "agent-codex.jsonl").read_text() == "stream"
     assert not (shared / "agent-codex.jsonl").is_symlink()
+    assert (shared / "linked" / "b.txt").read_text() == "b" and not (shared / "linked").is_symlink()
+    assert (shared / "moved" / "a.txt").read_text() == "a"                # written where the copy held the folder
+    assert not (shared / "moved" / "a.txt").is_symlink()
+
+
+def _own_pid_namespace() -> bool:
+    try:
+        return subprocess.run(["unshare", "--user", "--map-root-user", "--pid", "--fork", "--mount-proc", "true"],
+                              capture_output=True, timeout=30).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+@pytest.mark.skipif(not _own_pid_namespace(), reason="needs unshare (a PID namespace of its own, as a container's)")
+def test_an_agent_commands_processes_are_confirmed_ended():
+    """kill_marked ends the marked command and what it started, and says so by its exit (0: none left), in a PID
+    namespace of its own as in the task's container."""
+    kill = _driver_function("kill_marked", MARK="HERMIT_AGENT_EXEC")
+    inner = ('HERMIT_AGENT_EXEC=m1-x sh -c "sleep 60 & sleep 60" & sleep 0.5; '
+             f"sh -c {shlex.quote(kill('m1-x'))}; echo killed=$?; wait $!; echo status=$?")
+    done = subprocess.run(["unshare", "--user", "--map-root-user", "--pid", "--fork", "--mount-proc", "sh", "-c",
+                           inner], capture_output=True, text=True, timeout=60)
+    assert "killed=0" in done.stdout and "status=137" in done.stdout, done.stdout + done.stderr
+
+
+HARBOR_PYTHON = HARBOR_VENV.with_name("python")
+DRIVER_FILE = Path(harbor_mod.__file__).with_name("harbor_driver.py")
+
+
+@pytest.mark.skipif(not HARBOR_PYTHON.exists(), reason="needs Harbor's venv (~/.cache/hermit/harbor-venv)")
+def test_the_driver_never_verifies_or_runs_on_without_its_guarantees(tmp_path):
+    """In the driver (Harbor's interpreter): a kill not confirmed stops the verifier (raised, kept, tried again), and an
+    agent phase whose network policy could not be restored takes no further agent command or install."""
+    script = tmp_path / "probe.py"
+    script.write_text(textwrap.dedent(f"""
+        import asyncio, importlib.util, sys
+        from types import SimpleNamespace
+        spec = importlib.util.spec_from_file_location("drv", {str(DRIVER_FILE)!r})
+        drv = importlib.util.module_from_spec(spec); spec.loader.exec_module(drv)
+
+        class Env:
+            def __init__(self, ok): self.ok, self.cwds, self.policies = ok, [], []
+            async def exec(self, command, cwd=None, user=None, **kw):
+                self.cwds.append(cwd)
+                if self.ok is None: raise RuntimeError("docker exec failed")
+                return SimpleNamespace(return_code=0 if self.ok else 1, stdout="", stderr="")
+            async def set_network_policy(self, policy):
+                self.policies.append(policy)
+                if policy == "agent": raise RuntimeError("iptables failed")
+
+        async def main():
+            out = []
+            for ok in (None, False):
+                d = drv.Driver(sys.stdout)
+                env = Env(ok)
+                d.trial = SimpleNamespace(agent_environment=env)
+                d.running.add("m1")
+                try:
+                    await d._drain(); out.append("drained")
+                except RuntimeError as exc:
+                    out.append("raised" if "could not be ended" in str(exc) else str(exc))
+                out.append(sorted(d.unkilled)); out.append(env.cwds[-1])
+                env.ok = True
+                await d._drain(); out.append(sorted(d.unkilled))
+            d = drv.Driver(sys.stdout)
+            env = Env(True)
+            d.trial = SimpleNamespace(agent_environment=env)
+            d.agent_phase = object()
+            d.plan = SimpleNamespace(agent_phase="agent", agent_env_baseline="public")
+            try:
+                async with d._setup_phase():
+                    pass
+            except RuntimeError:
+                pass
+            out.append(bool(d.broken)); out.append(d.agent_allowed.is_set())
+            for call in (d.exec({{"command": "true"}}), d.install({{"name": "codex"}})):
+                try:
+                    await call; out.append("ran")
+                except RuntimeError as exc:
+                    out.append("refused" if "broken" in str(exc) else str(exc))
+            print("RESULT", out)
+        asyncio.run(main())
+    """))
+    done = subprocess.run([str(HARBOR_PYTHON), "-I", str(script)], capture_output=True, text=True, timeout=120)
+    line = next((x for x in done.stdout.splitlines() if x.startswith("RESULT")), done.stdout + done.stderr)
+    assert line == "RESULT " + str(["raised", ["m1"], "/", [], "raised", ["m1"], "/", [],
+                                    True, True, "refused", "refused"]), line
 
 
 def test_an_admitted_session_takes_no_slot_and_a_refused_one_holds_the_plan_and_comes_back(tmp_path, monkeypatch):
@@ -1027,7 +1145,7 @@ def test_harbor_settings_override_on_the_command_line_and_eval_rows_keep_the_out
     assert kind({"status": "judge_error", "outcome": {"status": "infra"}}) == "infra"
 
 
-def test_a_host_pipelines_answer_and_react_agents_keep_the_tasks_budget(tmp_path, monkeypatch):
+def test_a_host_pipelines_answer_agent_keeps_the_tasks_budget(tmp_path, monkeypatch):
     """With the pipeline on the host (no worker deadline), the task's agent budget still ends the model's call."""
     from hermit.agent.acting import answer as answer_mod
     from hermit.agent.model.llm import ChatAborted
@@ -1356,3 +1474,189 @@ def test_rrsi_sees_a_harbor_rollouts_failure_and_a_cli_model_is_refused_for_harb
             "agent": {"params": {"model": {"cli": "codex", "model": "m", "login": "chatgpt"}}}}
     with pytest.raises(ValueError, match="a model a CLI reaches"):
         isolate.task_environments(SimpleNamespace(data=data, base=tmp_path))
+
+
+def test_a_run_that_ended_while_the_disk_gate_held_a_task_starts_nothing(harbor, monkeypatch):
+    """The run stopped (another task's lost sign-in) while this task waited at the disk gate, or between its gates:
+    no driver, no container; the rollout ends as the stopped run's (LoginFailed), not as an infra failure."""
+    environments, _, calls = harbor
+
+    def gate(where, gate_gb, wait, **kw):
+        calls["gate"].append(str(where))
+        environments.stopping.set()                     # the stop arrives while it waits; room is found anyway
+        return True
+
+    monkeypatch.setattr(harbor_mod.docker, "wait_for_disk", gate)
+    with pytest.raises(EnvironmentUnavailable, match="run ended") as raised:
+        environments.open(environments.task_dir({"harbor_task": "demo"})).start()
+    assert raised.value.cause == "stopped" and calls["gate"] == ["/tmp"]          # the second gate never entered
+    assert not (environments.jobs_dir).exists() or not any(environments.jobs_dir.rglob("requests.jsonl"))
+    assert not environments.live
+
+
+def test_the_sandbox_proxy_refuses_limits_it_cannot_keep(tmp_path):
+    from hermit.environment import Local
+    from hermit.environment.remote import EnvironmentServer, ProxyEnvironment
+    work = tmp_path / "work"
+    work.mkdir()
+    server = EnvironmentServer(Local(work, Limits(timeout_s=30))).start()
+    try:
+        proxy = ProxyEnvironment.from_spec(server.spec())
+        assert proxy.exec(["true"]).code == 0
+        for limits in (Limits(network=[]), Limits(hidden=[tmp_path / "secret"])):
+            with pytest.raises(Unsupported, match="refused, never ignored"):
+                proxy.with_limits(limits).exec(["curl", "https://example.com"])
+    finally:
+        server.close()
+
+
+def _prompt_adapter(tmp_path, text):
+    a = tmp_path / "adapter"
+    (a / ".hermit").mkdir(parents=True)
+    (a / ".hermit" / "adapter.yaml").write_text("template: {id: big, version: '1'}\n"
+                                                "structure: {learnable: [ADAPTER.md]}\n")
+    (a / "exports.yaml").write_text("{context: ADAPTER.md}\n")
+    (a / "ADAPTER.md").write_text(text)
+    return a
+
+
+def test_codex_in_a_tasks_environment_keeps_the_runners_256k_instruction_allowance(tmp_path, monkeypatch):
+    """A 35,000-byte prompt-only adapter (the template allows 40,000) runs as it ran in the Harbor runner, whose Codex
+    took project_doc_max_bytes = 262144: deployed, checked against that cap, and the session's config says it."""
+    from hermit.agent.acting.workspace import CliAgent
+    monkeypatch.setenv("HERMIT_HOMES", str(tmp_path / "homes"))
+    env = Recorded(tmp_path, lambda c: ExecResult(0, CODEX_STREAM) if session_of(c) else
+                   ExecResult(1, "") if c[:2] == ["test", "-e"] else ExecResult(0, ""))
+    adapter = _prompt_adapter(tmp_path, "Be careful.\n" * 2917)               # 35,004 bytes
+    out = CliAgent({"backend": "codex", "web_search": False, "bin": "codex", "workspaces": str(tmp_path / "ws")},
+                   tmp_path).run({"id": "t", "instruction": "do it"}, adapter, environment=env)
+    assert out.output == "fixed it" and "adapter_failed" not in out.extra
+    assert len(env.uploads["/app/AGENTS.md"].encode()) > 32768
+    assert "project_doc_max_bytes = 262144" in env.uploads["/installed-agent/hermit-home"]["config.toml"]
+
+
+def test_a_hook_audit_that_cannot_be_read_keeps_the_finished_session_and_its_usage(tmp_path, monkeypatch):
+    from hermit.agent.acting import workspace
+    from hermit.agent.acting.workspace import CliAgent
+    monkeypatch.setenv("HERMIT_HOMES", str(tmp_path / "homes"))
+    real = workspace._deploy
+    monkeypatch.setattr(workspace, "_deploy", lambda *a, **k: ({**real(*a, **k)[0], "hooks": True}, None))
+    monkeypatch.setattr(workspace, "_ensure_python3", lambda env: True)
+    monkeypatch.setattr(workspace, "_collect_hooks", lambda env, log: (_ for _ in ()).throw(
+        RuntimeError("docker cp failed")))
+    env = Recorded(tmp_path, lambda c: ExecResult(0, CODEX_STREAM) if session_of(c) else ExecResult(0, ""))
+    out = CliAgent({"backend": "codex", "web_search": False, "bin": "codex", "workspaces": str(tmp_path / "ws")},
+                   tmp_path).run({"id": "t", "instruction": "do it"}, None, environment=env)
+    assert out.output == "fixed it" and out.tokens == 15 and "docker cp failed" in out.extra["hooks_audit_missing"]
+    assert "infra" not in out.extra                                              # the verifier decides the rest
+
+
+def test_the_benchmark_file_form_takes_nested_overrides_and_a_remote_cli_is_not_the_hosts(tmp_path, monkeypatch):
+    from hermit.agent.base import login
+    from hermit.config import Config
+    import yaml
+    folder = Path(__file__).resolve().parents[2] / "examples" / "terminal_bench_2_0" / "baseline"
+    run = yaml.safe_load((folder / "codex.yaml").read_text())
+    run["data"] = {k: str((folder / v).resolve()) for k, v in run["data"].items()}
+    run["task_info"] = str((folder / run["task_info"]).resolve())
+    benchmark = str((folder / "../utils/benchmark.yaml").resolve())
+    run["environment"] = {"harbor": benchmark}                                   # the file alone
+    (tmp_path / "run.yaml").write_text(yaml.safe_dump(run))
+    config = Config.load(tmp_path / "run.yaml", ["environment.harbor.infra_retries=0"])
+    assert config.data["environment"]["harbor"] == {"benchmark": benchmark, "infra_retries": 0}
+    data = {"environment": {"harbor": {"benchmark": "b.yaml"}},
+            "agent": {"params": {"login": "claude", "bin": "/opt/hermit-claude/claude"}}}
+    ((who, _, program, contained, _),) = login.logins_of(data)
+    assert who == "agent" and program == "/opt/hermit-claude/claude" and contained is True
+    monkeypatch.setenv(login.TOKEN_ENV, "t")
+    assert login.problems_of("claude", program, contained) == []                  # not looked for on this machine
+
+
+def test_the_answer_agent_scores_its_adapters_failure_retries_its_environments_and_delivers_in_time(tmp_path,
+                                                                                                    monkeypatch):
+    import time
+    from hermit.agent.acting import answer as answer_mod
+    from hermit.agent.model.usage import Usage
+    from hermit.environment.harbor_errors import pipeline_cause
+
+    class Model:
+        model = "m"
+
+        def chat(self, messages, abort=None, **kwargs):
+            return {"role": "assistant", "content": "<answer>B</answer>"}, Usage(model="m", calls=1, cost_usd=0.01)
+
+    monkeypatch.setattr(answer_mod.ChatClient, "from_spec", staticmethod(lambda spec: Model()))
+    params = {"model": {"base_url": "https://x", "model": "m"}, "logs": str(tmp_path / "l")}
+
+    class Failing:
+        last_context = None
+
+        def context(self, **kw):
+            raise ValueError("the context tool broke")
+
+        def close(self):
+            pass
+
+    agent = answer_mod.AnswerAgent(params, tmp_path)
+    monkeypatch.setattr(agent, "session", lambda adapter: Failing())
+    env = Recorded(tmp_path)
+    env.instruction = "Which?"
+    out = agent.run({"id": "q"}, tmp_path, environment=env)
+    assert out.extra["adapter_failed"] == "adapter_failed" and out.output is None      # the agent's result: scored 0
+    gone = Recorded(tmp_path, lambda c: ExecResult(1, "no such file"))
+    with pytest.raises(RuntimeError) as raised:
+        answer_mod.AnswerAgent({**params, "instruction_file": "/app/q.txt", "wait_s": 0.01}, tmp_path).run(
+            {"id": "q"}, None, environment=gone)
+    assert pipeline_cause(f"RuntimeError: {raised.value}") == ("harbor_failed", True)  # run again, a fresh one
+
+    class Late(Recorded):                           # the answer's upload outlasts the budget
+        def upload(self, source, target):
+            time.sleep(0.4)
+            return super().upload(source, target)
+
+    late = Late(tmp_path)
+    late.limits, late.instruction = Limits(timeout_s=0.2), "Which?"
+    out = answer_mod.AnswerAgent(params, tmp_path).run({"id": "q"}, None, environment=late)
+    assert out.extra["timed_out"] is True and "/app/answer.txt" not in late.uploads
+    on_time = Recorded(tmp_path)
+    on_time.instruction = "Which?"
+    answer_mod.AnswerAgent(params, tmp_path).run({"id": "q"}, None, environment=on_time)
+    assert on_time.uploads == {"/app/answer.txt": "<answer>B</answer>"}                  # moved into place
+
+
+def test_react_keeps_the_budget_through_the_answer_tag_follow_up_and_counts_an_abandoned_call(tmp_path, monkeypatch):
+    from hermit.agent.acting.react import ReactAgent
+    from hermit.agent.model import llm
+    from hermit.agent.model.llm import ChatAborted
+    from hermit.agent.model.usage import Usage
+    calls = []
+
+    class Model:
+        model = "m"
+
+        def chat(self, messages, abort=None, **kwargs):
+            calls.append(abort)
+            if len(calls) == 1:                         # an answer without the tag: the follow-up is asked
+                return {"role": "assistant", "content": "B"}, Usage(model="m", input_tokens=10, calls=1, cost_usd=0.1)
+            if abort is None or not abort.wait(10):
+                raise AssertionError("the follow-up was not bounded by the task's budget")
+            raise ChatAborted("given up")
+
+    monkeypatch.setattr(llm.ChatClient, "from_spec", staticmethod(lambda spec: Model()))
+    env = Recorded(tmp_path)
+    env.limits = Limits(timeout_s=0.3)
+    out = ReactAgent({"model": {"base_url": "https://x", "model": "m"}, "logs": str(tmp_path / "l"),
+                      "answer_tag": "FINAL"}, tmp_path).run({"id": "t", "instruction": "go"}, None, environment=env)
+    assert len(calls) == 2 and out.extra["timed_out"] is True
+    assert out.cost_usd is None and out.api_speed["model_calls"] == 2 and out.tokens == 10   # its cost not known
+
+
+def test_python3_for_hooks_never_runs_on_in_an_environment_left_under_the_setups_policy(tmp_path):
+    from hermit.agent.acting import workspace
+
+    class Broken(Recorded):
+        def ensure(self, packages):
+            raise RuntimeError("the environment is broken: the agent phase's network policy could not be restored")
+
+    with pytest.raises(RuntimeError, match="broken"):
+        workspace._ensure_python3(Broken(tmp_path, lambda c: ExecResult(1, "")))     # python3 missing

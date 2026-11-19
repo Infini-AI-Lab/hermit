@@ -220,6 +220,8 @@ def environment_rollout(task: Task, given: dict, adapter: Path | None, pipeline,
                             out = _infra_output(task, out.extra["infra"], str(out.extra.get("exception_message")),
                                                 begun, ran=True, spent=out)
         except EnvironmentUnavailable as exc:
+            if exc.cause == "stopped":                   # the run ended (another task's lost sign-in)
+                raise LoginFailed(str(exc)) from None
             out = _infra_output(task, exc.cause, str(exc), begun, ran=False)
         except ValueError as exc:                        # no task directory: the task set's, not the environment's
             return _failed_record(task, given, started, exc, "the task's environment could not be given")

@@ -91,7 +91,11 @@ def kill_marked(mark: str) -> str:
             "done; all=$roots; todo=$roots; while [ -n \"$todo\" ]; do next=''; for p in /proc/[0-9]*; do "
             "s=$(cat $p/stat 2>/dev/null) || continue; s=${s##*) }; set -- $s; for q in $todo; do "
             "[ \"$2\" = \"$q\" ] && next=\"$next ${p#/proc/}\"; done; done; all=\"$all $next\"; todo=$next; done; "
-            "[ -n \"$all\" ] && kill -9 $all 2>/dev/null; true")
+            "[ -n \"$all\" ] && kill -9 $all 2>/dev/null; "
+            # confirmed: none of them left but as a zombie, within 5 s; else exit 1 (the caller's failure)
+            "n=0; while [ $n -lt 25 ]; do left=; for q in $all; do "
+            "grep -qs '^State:[[:space:]]*[^Z]' /proc/$q/status && left=1; done; [ -z \"$left\" ] && exit 0; "
+            "sleep 0.2; n=$((n+1)); done; exit 1")
 
 
 ENV_PREFIX = "HERMIT_ENV_"
@@ -125,22 +129,55 @@ def container_prologue(values: dict, by_fd: dict) -> tuple[str, dict]:
 
 
 def safe_copy(source: Path, target: Path) -> None:
-    """`source`'s files under `target`, never through a link already there (the agent's environment may have put one
-    in a folder it shares with this machine, /logs/agent): an entry in the way is removed first, a link copied as the
-    link it is."""
-    for folder, dirs, files in os.walk(source):
-        rel = Path(folder).relative_to(source)
-        where = target / rel
-        if where.is_symlink() or (where.exists() and not where.is_dir()):
-            where.unlink()
-        where.mkdir(parents=True, exist_ok=True)
-        for name in [*files, *(d for d in dirs if (Path(folder) / d).is_symlink())]:
-            dest = where / name
-            if dest.is_symlink() or (dest.exists() and not dest.is_dir()):
-                dest.unlink()
-            elif dest.is_dir():
-                shutil.rmtree(dest)
-            shutil.copy2(Path(folder) / name, dest, follow_symlinks=False)
+    """`source`'s files under `target`, never through a link there, however the agent's environment changes the folder
+    it shares with this machine (/logs/agent) meanwhile: every step goes through a directory descriptor opened without
+    following a link (O_NOFOLLOW), an entry where a folder goes is moved aside for one of this process's own, and a
+    file is written to a fresh name in its folder (O_EXCL) and renamed over the entry there, which replaces a link
+    instead of writing through it. `target` itself is this machine's (the trial's folder, the mount's root)."""
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+
+    def aside(parent: int, name: str) -> None:            # an entry in the way, never followed: renamed away
+        with contextlib.suppress(FileNotFoundError):
+            os.rename(name, f".hermit-gone-{uuid.uuid4().hex}", src_dir_fd=parent, dst_dir_fd=parent)
+
+    def folder_in(parent: int, name: str) -> int:
+        try:
+            return os.open(name, flags, dir_fd=parent)
+        except OSError:                                  # a link, a file, nothing: a folder of this process's own
+            aside(parent, name)
+            os.mkdir(name, 0o755, dir_fd=parent)
+            return os.open(name, flags, dir_fd=parent)   # replaced meanwhile: raised, nothing followed
+
+    def put(parent: int, name: str, path: Path) -> None:
+        temp = f".hermit-{uuid.uuid4().hex}"
+        if path.is_symlink():                            # a link is copied as the link it is
+            os.symlink(os.readlink(path), temp, dir_fd=parent)
+        else:
+            fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=parent)
+            with os.fdopen(fd, "wb") as out, open(path, "rb") as given:
+                shutil.copyfileobj(given, out)
+        try:
+            os.rename(temp, name, src_dir_fd=parent, dst_dir_fd=parent)
+        except OSError:                                  # a folder in the way
+            aside(parent, name)
+            os.rename(temp, name, src_dir_fd=parent, dst_dir_fd=parent)
+
+    target.mkdir(parents=True, exist_ok=True)
+    root = os.open(str(target), flags)
+    try:
+        for folder, dirs, files in os.walk(source):
+            rel = Path(folder).relative_to(source)
+            fds = [root]
+            try:
+                for part in rel.parts:
+                    fds.append(folder_in(fds[-1], part))
+                for name in [*files, *(d for d in dirs if (Path(folder) / d).is_symlink())]:
+                    put(fds[-1], name, Path(folder) / name)
+            finally:
+                for fd in fds[1:]:
+                    os.close(fd)
+    finally:
+        os.close(root)
 
 
 def log(message: str) -> None:
@@ -164,6 +201,8 @@ class Driver:
         self.mark = uuid.uuid4().hex                   # this environment's agent commands' mark (MARK)
         self.agent_ops: set = set()                    # the agent's operations in flight (drained before verify)
         self.running: set = set()                      # the marks of the agent commands still running
+        self.unkilled: set = set()                     # marks whose processes were not confirmed ended
+        self.broken: str | None = None                 # the agent phase's network policy could not be restored
         self.agent_allowed = asyncio.Event()           # cleared while an install runs under the setup network
         self.agent_allowed.set()
         self.repaired = False
@@ -226,14 +265,26 @@ class Driver:
         processes of each command still running killed in the environment (MARK), so that no command of the agent's
         runs on while the task's tests are there. What a command that already ended left running (a server the task
         asked for) stays, as Harbor's own agents leave it."""
-        marks = list(self.running)
+        marks = [*self.running, *self.unkilled]
         for task in list(self.agent_ops):
             task.cancel()
         if self.agent_ops:
             await asyncio.gather(*self.agent_ops, return_exceptions=True)
-        for mark in marks:
-            with contextlib.suppress(Exception):
-                await self.env.exec(kill_marked(mark), user="root")
+        for mark in marks:                               # confirmed, or no verifier: the environment's failure
+            await self._kill(mark)
+
+    async def _kill(self, mark: str) -> None:
+        """Every process of the agent command `mark` ended, confirmed (kill_marked's exit), from `/`; one not
+        confirmed is kept (`unkilled`, tried again before the verifier) and raised."""
+        try:
+            done = await self.env.exec(kill_marked(mark), cwd="/", user="root")
+            ok = done.return_code == 0
+        except Exception as exc:                         # noqa: BLE001 - as unconfirmed
+            ok, done = False, exc
+        if not ok:
+            self.unkilled.add(mark)
+            raise RuntimeError(f"an agent command's processes could not be ended ({mark}): {str(done)[-300:]}")
+        self.unkilled.discard(mark)
 
     async def _end_agent_phase(self) -> None:
         if self.agent_phase is not None:
@@ -320,6 +371,8 @@ class Driver:
         mark = f"{self.mark}-{uuid.uuid4().hex[:8]}"
         while True:                     # admitted and counted at once: an install waits for every admitted command
             await self.agent_allowed.wait()
+            if self.broken:
+                raise RuntimeError(f"the environment is broken: {self.broken}")
             if self.agent_allowed.is_set():
                 self.running.add(mark)
                 break
@@ -369,8 +422,8 @@ class Driver:
                     await env.exec(f"rm -f {shlex.quote(staged)}", user="root")
         timed_out = bool(timeout) and (code in (124, 137, -1) and time.time() - started >= timeout - 1)
         if timed_out:                                    # nothing it started outlives its time, `timeout` or not
-            with contextlib.suppress(Exception):
-                await env.exec(kill_marked(mark), user="root")
+            with contextlib.suppress(Exception):         # unconfirmed: kept, and ended before the verifier
+                await self._kill(mark)
         return {"code": -1 if timed_out else code, "output": output, "timed_out": timed_out}
 
     async def _exec(self, command: str, *, cwd, env: dict, by_fd: dict, timeout, user):
@@ -462,7 +515,12 @@ class Driver:
             try:
                 yield
             finally:
-                await env.set_network_policy(plan.agent_phase)
+                try:
+                    await env.set_network_policy(plan.agent_phase)
+                except BaseException as exc:
+                    # never back to agent commands under the setup's wider policy: the environment is done for
+                    self.broken = f"the agent phase's network policy could not be restored: {exc}"
+                    raise
         finally:
             self.agent_allowed.set()
 
@@ -472,6 +530,8 @@ class Driver:
         return AgentFactory.create_agent_from_name(AgentName(name), logs_dir=logs, version=version)
 
     async def install(self, req: dict) -> dict:
+        if self.broken:
+            raise RuntimeError(f"the environment is broken: {self.broken}")
         trial = self.trial
         agent = self._installer(str(req["agent"]), req.get("version"))
         async with self._setup_phase():
@@ -482,6 +542,8 @@ class Driver:
 
     async def ensure(self, req: dict) -> dict:
         """System packages (python3 for an adapter's hooks) with Harbor's own installer, as the runner ensured them."""
+        if self.broken:
+            raise RuntimeError(f"the environment is broken: {self.broken}")
         agent = self._installer("codex")
         async with self._setup_phase():
             await self._repair()
@@ -499,6 +561,8 @@ class Driver:
             elif op in ("exec", "upload", "download"):
                 if self.verified or self.stopped:
                     raise RuntimeError("the agent's phase is over: the task was verified or stopped")
+                if self.broken:
+                    raise RuntimeError(f"the environment is broken: {self.broken}")
                 task = asyncio.current_task()
                 self.agent_ops.add(task)
                 try:

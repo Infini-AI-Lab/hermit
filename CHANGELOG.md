@@ -31,7 +31,10 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   An acting agent's model a CLI reaches (`agent.params.model: {cli: ...}`) is refused for a task in Harbor's
   environments (its plan's wait would fall inside the task's time). What the runner read of a
   session (a lost sign-in or a bill refused: the run ends; a configuration refused: `model_rejected`; the plan's
-  refusal: run again once it allows) is read the same way (`hermit/agent/base/codex_stream.py`, ported). Not carried
+  refusal: run again once it allows) is read the same way (`hermit/agent/base/codex_stream.py`, ported). Codex there
+  keeps the runner's `project_doc_max_bytes` of 262144 unless the config sets one. A hook audit that cannot be read
+  back leaves the session's result and usage (`hooks_audit_missing`). The sandbox's proxy of a task's environment
+  refuses Hermit's network, hidden-path and mount limits (the task's own say what it reaches). Not carried
   over: multi-step tasks (streams), the adapter's tools in a task's environment, the `<cli>_bin` mount (a config
   mounts a binary through `environment.harbor.environment.mounts` and names it as `agent.<cli>.bin`), Harbor's own agents
   (`acting_agent: {name}`), the Pi, OpenCode, dsh and mini-swe-agent CLIs in a task's environment, and the curated

@@ -394,7 +394,8 @@ reports, come back first); a removal that fails fails the call. A session is not
 the agent's commands still running are ended (what an ended one left running, a server the task asked for, stays). The
 acting agent deploys the adapter as `hermit deploy` lays it out for a session there (its hooks run from `hermit/<id>/`
 relative to the workspace with `python3`, installed when missing; a context file the image already has kept after
-Hermit's text, the whole within Codex's cap) and uploads it into the workspace; the adapter's notes and the hooks' audit
+Hermit's text, the whole within Codex's cap, 262144 bytes there as the runner's unless `project_doc_max_bytes` says)
+and uploads it into the workspace; the adapter's notes and the hooks' audit
 and state (`hook-calls.jsonl`, `hook-state/`) come back into the log. The answer-only agent (`agent.name: answer`,
 `hermit/agent/acting/answer.py`) makes one model call (the adapter's context its system message, Harbor's instruction
 the question) and writes the answer where the verifier reads it (`answer_file`, `/app/answer.txt` unless null;
@@ -402,7 +403,8 @@ the question) and writes the answer where the verifier reads it (`answer_file`, 
 
 Not supported in a Harbor environment yet, and refused rather than dropped: the adapter's tools (the framework's tool
 server runs on this machine), the agent's `mounts`, `prepare` and `collect`, readable mounts, hidden paths or a
-network limit of Hermit's (the task's task.toml says what its environment reaches), and a multi-step task
+network limit of Hermit's (the task's task.toml says what its environment reaches; refused through the sandbox's proxy
+of the environment too), and a multi-step task
 (`[[steps]]`, which needs one environment across the Trainer's steps).
 
 | `environment.harbor` | Meaning |

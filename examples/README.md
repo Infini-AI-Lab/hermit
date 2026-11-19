@@ -146,9 +146,10 @@ table. An AHE run also sends back its best iteration's in-sample pass@1, numbers
 | | the empty skill | `hermit eval --config skillopt/run_<p>.yaml --adapter root`, after SkillOpt's training | 127 | |
 | | SkillOpt | `hermit train --config skillopt/run_<p>.yaml`, then `hermit eval ... --adapter final` | at most 408 (more if resumed mid-step), then 127 | |
 
-`<p>` is `codex` or `claude`, and a config is `examples/<folder>/...`. The trials are counted once each; a session on
-a login runs again when the plan refused it or the provider could not serve it (the CLI agent's `retries`), and a
-row's tokens are all its runs'. Before a long
+`<p>` is `codex` or `claude`, and a config is `examples/<folder>/...`. The trials are counted once each; a task runs
+again in a fresh environment when the provider could not serve its session (`environment.harbor.busy_retries`, 3, the
+n-th after n x `busy_wait_s`, 120 s, not counted in `infra_retries`) or its login's plan refused it (once the plan
+allows, not counted), and a row's tokens are all its runs'. Before a long
 training, its method's `smoke_<p>.yaml` checks the task set, the CLI in the containers and the method's learners
 together. SWE-bench Verified trains nothing and has no smoke config: its baseline config runs its 2 smoke tasks apart
 from the baseline's run and trials, as the methods' smokes run apart from theirs, with

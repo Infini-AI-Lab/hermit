@@ -584,12 +584,14 @@ def _hold(plan: Path | str | None = None, until: float | None = None, why: str =
 def logins_of(data: dict, evolver_params: dict | None = None) -> list[tuple[str, str, str | None, bool, str | None]]:
     """Every subscription a run signs in to, from the normalized config: (who, login, the CLI's program if named,
     whether its sessions run in a container, with the image's CLI: the acting agent's with environment.image and the
-    sandbox on, a model's through a CLI with isolation: container; never the learner's or its roles' (RRSI's, on the
-    learner's CLI), which run in the evolver sandbox on this machine's CLI; the Codex login's shared copy if named,
-    `login_root`). The program and the copy are the ones the sessions use: `bin`, or Harness²'s `claude_bin`."""
+    sandbox on or in a task's own environment (environment.harbor: its `bin` is a path there), a model's through a CLI
+    with isolation: container; never the learner's or its roles' (RRSI's, on the learner's CLI), which run in the
+    evolver sandbox on this machine's CLI; the Codex login's shared copy if named, `login_root`). The program and the
+    copy are the ones the sessions use: `bin`, or Harness²'s `claude_bin`."""
     params = (data.get("agent") or {}).get("params") or {}
-    image = bool((data.get("environment") or {}).get("image")) and \
-        bool((data.get("sandbox") or {}).get("enabled", True))          # agent_pipeline's container (ContainerAgent)
+    image = (bool((data.get("environment") or {}).get("image")) and
+             bool((data.get("sandbox") or {}).get("enabled", True))) or \
+        bool((data.get("environment") or {}).get("harbor"))   # agent_pipeline's container, or a task's own environment
     learner = evolver_params or {}
     roles = learner.get("roles") if isinstance(learner.get("roles"), dict) else {}
     out = []

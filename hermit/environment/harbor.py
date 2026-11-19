@@ -256,6 +256,8 @@ class HarborEnvironments:
         if not docker.wait_for_disk(HOST_TMP, self._gate("tmp_gate_gb", TMP_GATE_GB), wait_s, cancel=cancel,
                                     log=self.log):
             return False
+        if cancel.is_set():                              # the run ended between the gates
+            return False
         image = docker.task_image(task_dir)
         return docker.wait_for_disk(self.docker_root(), self._gate("disk_gate_gb", DISK_GATE_GB), wait_s,
                                     image=image, image_gb=self.image_gb(image) if image else 0.0, pulls=self.pulls,
@@ -488,7 +490,16 @@ class HarborEnvironment(Environment):
         owner = self.owner
         if not self.task_dir.is_dir():
             raise ValueError(f"no Harbor task directory {self.task_dir}")
-        if not owner.wait_for_disk(self.task_dir, self.admitted):
+        if owner.stopping.is_set():
+            raise EnvironmentUnavailable("the run ended: no environment started", "stopped")
+        held = not owner.wait_for_disk(self.task_dir, self.admitted)
+        if owner.stopping.is_set():                      # the run ended while it waited: nothing started, room back
+            for key in self.admitted:
+                owner.pulls.done(key)
+            self.admitted = []
+            raise EnvironmentUnavailable("the run ended while the disk gate held the task: no environment started",
+                                         "stopped")
+        if held:
             raise EnvironmentUnavailable(f"{owner.disk_held(self.task_dir)}: no environment started", "disk")
         with owner._lock:
             owner.live.add(self)

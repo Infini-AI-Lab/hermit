@@ -1138,7 +1138,9 @@ class CliAgent(BaseAgent):
         if s.get("log"):
             stream = Path(s["log"])
         elif fresh:
-            stream = Path(tempfile.mkstemp(prefix=f"agent-{self.backend}-", suffix=".jsonl")[1])
+            fd, name = tempfile.mkstemp(prefix=f"agent-{self.backend}-", suffix=".jsonl")
+            os.close(fd)                                 # only its name: the stream is written below
+            stream = Path(name)
         else:
             stream = home / f"agent-{self.backend}.jsonl"
         _session_output(stream, (home,))

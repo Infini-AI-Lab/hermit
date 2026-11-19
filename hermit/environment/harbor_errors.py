@@ -243,7 +243,8 @@ PIPELINE_INFRA = ((re.compile(r"\bmodel_rejected\b|chat/completions HTTP 40[1-4]
                   (re.compile(r"chat/completions HTTP (?:408|409|429|5\d\d)\b|chat/completions failed: "),
                    "model_provider_failed", True),
                   (re.compile(r"\bEnvironmentUnavailable\b|the Harbor driver|the environment is not started|"
-                              r"the image's own context file could not be read"), "harbor_failed", True))
+                              r"the image's own context file could not be read|the environment is broken|"
+                              r"the task's environment did not provide"), "harbor_failed", True))
 
 
 INSTALL_FAILED = "the CLI's install failed"     # before any session: nothing was spent (its cost 0, as the runner's)

@@ -197,6 +197,9 @@ class ProxyEnvironment(Environment):
         return PurePosixPath(self.workspace, *parts)
 
     def exec(self, command, *, cwd=None, env=None, timeout=None, stdin=None, by_fd=None) -> ExecResult:
+        if self.limits.readable or self.limits.hidden or self.limits.network is not None:
+            raise Unsupported("a task's own environment takes no readable mounts, hidden paths or network limits of "
+                              "Hermit's (its task.toml says what it reaches): refused, never ignored")
         timeout = timeout if timeout is not None else self.limits.timeout_s
         body = json.dumps({"command": command if isinstance(command, str) else [str(c) for c in command],
                            "cwd": str(cwd) if cwd is not None else None, "env": env, "timeout": timeout,
