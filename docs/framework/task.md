@@ -323,10 +323,18 @@ end (a timeout, a CLI that exited with an error: Harbor verifies all of them), a
 verifier's verdict is the output's `extra["verified"]`, which the judge reads: the reward is the score (`reward_key`,
 else the one reward, else their mean), `passed` says whether it reached `pass_reward`, the feedback is the verifier's
 `feedback.txt` (Hermit's, beyond Harbor) or its output's tail. A verifier that left no reward, or ran out of its time
-on the agent's solution, scores 0, as Harbor grades it; an environment that could not be given, or failed under the
-verifier, is not the agent's result: the run records a failed run (no score, `hermit eval` counts it among its
-`errors`), and `python -m hermit.harbor.report <eval dir>` gives pass@1 over the runs that are the agent's result
-([Evaluation](../guides/evaluation.md)). AlgoTune's judge (`examples/algotune/utils/judge.py`) reads the same verdict
+on the agent's solution, scores 0, as Harbor grades it. A rollout that is not the agent's result (`infra`, read as
+Hermit's Harbor runner read a trial: `hermit/environment/harbor_errors.py`, ported from its `errors.py`) is never the
+agent's 0: an environment that did not start (its pull or build, Docker, the healthcheck: `sandbox_failed`; the driver:
+`harbor_failed`, `harbor_timeout`), one that failed under the verifier, a verifier that left neither an exception nor a
+reward, or ran no test (its tools never arrived, the host's disk full: `verifier_failed`), a session that never
+started or that the provider could not serve (`session_failed`, `model_provider_failed`). It runs again, the whole task
+in a fresh environment, up to `infra_retries` times (default 2), each after `infra_wait_s` (300 s), unless its cause
+runs no better again (a disk gate that waited its time out, `disk`; `model_rejected`); every run's usage is the
+rollout's (`extra.attempts`). One that stays infra is marked `unscored` and the judge refuses to score it: the run
+records a failed run (status `judge_error`, score 0, its usage and log kept), which a learner sees as one and `hermit
+eval` counts among its `errors` and as 0 in its `mean_score`; `python -m hermit.harbor.report <eval dir>` gives pass@1
+over the runs that are the agent's result ([Evaluation](../guides/evaluation.md)). AlgoTune's judge (`examples/algotune/utils/judge.py`) reads the same verdict
 and scores its speedup.
 
 **The environment.** Harbor runs in its own venv (Python 3.13, `harbor` 0.25.0, `~/.cache/hermit/harbor-venv`), so
@@ -385,6 +393,7 @@ network limit of Hermit's (the task's task.toml says what its environment reache
 | `docker_cleanup`, `rmi_threshold_gb`, `disk_gate_gb`, `disk_gate_wait_s`, `tmp_gate_gb`, `image_sizes` | the warm start: `images_keep`, `rmi_task_image` or `rmi_over_gb`; the gates; the images' compressed sizes |
 | `jobs_dir`, `harbor` | where each environment's trial goes; Harbor's command, beside which (or beside the file a link to it names) is the python the driver runs under |
 | `start_timeout_s`, `verify_timeout_s` | how long Hermit waits for the driver's start and its verifier |
+| `infra_retries`, `infra_wait_s` | how many times a rollout that is not the agent's result runs again in a fresh environment (default 2), each after how long (300 s); never one whose cause runs no better again (`disk`, `model_rejected`) |
 | `verifier_timeout`, `pass_reward`, `reward_key` | a verifier that ran out of its time: `agent` (scored 0) or `infra`; the reward that passes (1.0; null: a scale); the reward's key |
 
 A task row (`tasks.jsonl`, written by `python -m hermit.harbor.dataset index <tasks dir> --out tasks.jsonl

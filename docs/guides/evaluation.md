@@ -51,10 +51,12 @@ Results are written under `<output_dir>/<run_name>/eval/<selector>/`. Re-evaluat
 The `solved_once` threshold is fixed at 1.0. For a 0–100 score or a non-success metric, it is not a meaningful
 solved rate; use the benchmark's own definition and raw scores. It is also distinct from mean per-attempt accuracy.
 
-On a task set in Harbor's environments, a run that is not the agent's result (`infra`: the task's environment could
-not be given, as when the disk gate waited its time out or the image did not pull, or it failed under the verifier)
-gets no score: its record has status `error` or `judge_error`, its cost and log kept, and it counts in `errors` and as
-0 in `mean_score`. A benchmark's own figure leaves such runs out: `python -m hermit.harbor.report
+On a task set in Harbor's environments, a run that is not the agent's result (`infra`: the task's environment did not
+start, failed under the verifier or its verifier ran no test, the session never started) runs again in a fresh
+environment (`environment.harbor.infra_retries`, default 2, each after `infra_wait_s`, default 300 s), unless its cause
+runs no better again: a disk gate that waited its time out, a provider's refusal of the run's configuration
+(`model_rejected`). One that ends `infra` all the same gets no score: the judge refuses it, so its record has status
+`judge_error`, its cost and log kept, and it counts in `errors` and as 0 in `mean_score`. A benchmark's own figure leaves such runs out: `python -m hermit.harbor.report
 <output_dir>/<run_name>/eval/<selector>` reads the eval's `results.jsonl` and gives, over all repeats and for each,
 the trials scored, infra and otherwise failed, pass@1 over the scored ones (the judge's `passed`), their mean score
 and `mean_score` ([Benchmarks](../framework/task.md#benchmarks)). A lost sign-in, or an API account's usage limit,

@@ -4,7 +4,9 @@ agent is handed the task's public half, the verifier reads the whole task, and n
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import dataclasses
 from dataclasses import asdict
+import sys
 from pathlib import Path
 import threading
 import time
@@ -45,7 +47,10 @@ def run_one(task: Task | dict, adapter: Path | None, pipeline, judge, environmen
     environment is started first (it may wait for the disk gate), the agent is handed it (`pipeline(given, adapter,
     environment=env)`), the environment's own verifier runs on the agent's work, whatever the session's end, and its
     verdict is the output's `extra["verified"]`, which the judge reads (hermit.task.verify.environment); then the
-    environment is stopped. An environment that cannot be given is a failed run (not the agent's result)."""
+    environment is stopped. A rollout that is not the agent's result (infra: the environment did not start, failed
+    under the verifier, the session never started: hermit.environment.harbor_errors) runs again in a fresh environment
+    (environment_rollout); one that stays so is marked `unscored`, and the judge refuses to score it: a failed run
+    (judge_error), as Hermit's Harbor runner recorded one."""
     task = as_task(task)
     verify = judge if getattr(judge, "takes_task", False) else judge_verifier(judge)
     given = task.given()                                 # what the agent is handed, and what the record shows
@@ -56,21 +61,8 @@ def run_one(task: Task | dict, adapter: Path | None, pipeline, judge, environmen
         exc = ValueError(f"task {task.id!r} cannot run in this run's environment: {'; '.join(problems)}")
         return _failed_record(task, given, started, exc, "the pipeline failed")
     if environments is not None:
-        from hermit.environment.harbor import EnvironmentUnavailable
-        try:
-            with environments.session(environments.task_dir(task), task.id) as env:
-                try:
-                    out = _given(pipeline, given, adapter, env, task.private.get("needs") or {})
-                except Exception as exc:
-                    why = login_failure(exc)
-                    if why is not None:
-                        raise LoginFailed(why) from None
-                    return _failed_record(task, given, started, exc, "the pipeline failed")
-                logs = Path(out.log) if out.log and Path(out.log).is_dir() else None
-                out.extra = {**(out.extra or {}), "verified": env.verify(agent_logs=logs)}
-        except (EnvironmentUnavailable, ValueError) as exc:
-            return _failed_record(task, given, started, exc, "the task's environment could not be given")
-        return _judged(task, given, out, verify, started)
+        out = environment_rollout(task, given, adapter, pipeline, environments, started)
+        return out if isinstance(out, dict) else _judged(task, given, out, verify, started)
     try:
         out = _given(pipeline, given, adapter, None, task.private.get("needs") or {})
     except Exception as exc:
@@ -87,6 +79,91 @@ def run_one(task: Task | dict, adapter: Path | None, pipeline, judge, environmen
                 "api_speed": out.api_speed, "tokens": out.tokens, "log": str(out.log) if out.log else None,
                 "messages": out.messages, "pipeline_extra": out.extra}
     return _judged(task, given, out, verify, started)
+
+
+def _infra_output(task: Task, cause: str, message: str, started: float, *, ran: bool) -> RunOutput:
+    """A rollout that ended infra before its environment's verdict (the environment did not start, the session never
+    did): no verdict but this one, which the judge refuses (hermit.task.verify.environment). Nothing ran when its
+    environment never came up (its cost 0); a session that may have run leaves its cost unknown."""
+    verdict = {"status": "infra", "failure_cause": cause, "reward": None, "rewards": None, "passed": None,
+               "exception": {"type": None, "message": message[-2000:]}, "exception_message": message[-2000:],
+               "feedback": ""}
+    return RunOutput(output={"harbor_task": task.public.get("harbor_task"), "reward": None, "status": "infra",
+                             "failure_cause": cause},
+                     cost_usd=None if ran else 0.0, tokens=None if ran else 0, wall_s=round(time.time() - started, 1),
+                     api_speed={"model_calls": None if ran else 0, "status": "infra"},
+                     extra={"status": "infra", "failure_cause": cause, "exception_message": message[-2000:],
+                            "verified": verdict, "unscored": cause})
+
+
+def _attempts(runs: list[RunOutput]) -> RunOutput:
+    """A rollout's output when it ran more than once (Hermit's Harbor runner's `_attempts`): its last run's, carrying
+    what every run used (one that ended infra may have spent tokens before it ended): the tokens the runs reported
+    (unknown only when none did), their model calls and their cost (unknown when any run's is), and each run's own in
+    `extra.attempts` (its usage alone, and its infra cause, `unscored`, None for a run that is the agent's result).
+    One run alone is returned as it is, with no `extra.attempts`."""
+    last = runs[-1]
+    if len(runs) == 1:
+        return last
+    tokens = [r.tokens for r in runs if r.tokens is not None]
+    costs = [r.cost_usd for r in runs]
+    calls = sum(int((r.api_speed or {}).get("model_calls") or 0) for r in runs)
+    each = [{"tokens": r.tokens, "cost_usd": r.cost_usd, "model_calls": (r.api_speed or {}).get("model_calls"),
+             "unscored": (r.extra or {}).get("unscored")} for r in runs]
+    return dataclasses.replace(last, tokens=sum(tokens) if tokens else None,
+                               cost_usd=None if None in costs else sum(costs),
+                               api_speed={**(last.api_speed or {}), "model_calls": calls},
+                               extra={**(last.extra or {}), "attempts": each})
+
+
+def _sleep(seconds: float) -> None:
+    """The pause before a rollout runs again (a test's stand-in replaces it)."""
+    time.sleep(seconds)
+
+
+def environment_rollout(task: Task, given: dict, adapter: Path | None, pipeline, environments, started: float,
+                        *, pause=None):
+    """One task in its own environment, run again while it ends infra (not the agent's result: `unscored`), up to
+    `environments.infra_retries` times, each in a fresh environment after `infra_wait_s`, unless its cause runs no
+    better again (NO_RETRY: the disk gate, model_rejected), as Hermit's Harbor runner ran a trial again (its
+    `_run_trial`). What every run used is the rollout's (_attempts). Returns the output, or the record of a pipeline
+    that failed on its own (no environment's fault: the run's failed record, as for any task)."""
+    from hermit.environment.harbor import EnvironmentUnavailable
+    from hermit.environment.harbor_errors import NO_RETRY, pipeline_cause
+    retries, wait, runs = environments.infra_retries, environments.infra_wait_s, []
+    while True:
+        begun = time.time()
+        try:
+            with environments.session(environments.task_dir(task), task.id) as env:
+                try:
+                    out = _given(pipeline, given, adapter, env, task.private.get("needs") or {})
+                except Exception as exc:
+                    why = login_failure(exc)
+                    if why is not None:
+                        raise LoginFailed(why) from None
+                    cause = pipeline_cause(f"{type(exc).__name__}: {exc}")
+                    if cause is None:
+                        return _failed_record(task, given, started, exc, "the pipeline failed")
+                    out = _infra_output(task, cause, f"{type(exc).__name__}: {exc}", begun, ran=True)
+                else:
+                    logs = Path(out.log) if out.log and Path(out.log).is_dir() else None
+                    verdict = env.verify(agent_logs=logs)
+                    out.extra = {**(out.extra or {}), "verified": verdict}
+                    if verdict["status"] == "infra":
+                        out.extra["unscored"] = verdict["failure_cause"] or "infra"
+        except EnvironmentUnavailable as exc:
+            out = _infra_output(task, exc.cause, str(exc), begun, ran=False)
+        except ValueError as exc:                        # no task directory: the task set's, not the environment's
+            return _failed_record(task, given, started, exc, "the task's environment could not be given")
+        runs.append(out)
+        cause = out.extra.get("unscored")
+        if cause is None or cause in NO_RETRY or len(runs) > retries:
+            return _attempts(runs)
+        message = str(out.extra.get("exception_message") or (out.extra.get("verified") or {}).get("exception_message")
+                      or "")
+        print(f"hermit {task.id}: not the agent's result ({cause}: {message[:300]}); again in {wait:.0f} s "
+              f"({len(runs)}/{retries})", file=sys.stderr, flush=True)
+        (pause or _sleep)(wait)
 
 
 def _judged(task: Task, given: dict, out: RunOutput, verify, started: float) -> dict:

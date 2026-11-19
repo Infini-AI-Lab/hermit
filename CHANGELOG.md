@@ -19,9 +19,13 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   under Harbor's venv): the run starts it behind the disk gate, hands it to the agent (`run(task, adapter,
   environment=...)`), runs Harbor's verifier and stops it; `hermit/harbor/docker.py` moved unchanged to
   `hermit/environment/harbor_docker.py`. Codex and Claude Code run in it through its `exec` (isolation `remote`); in
-  the task sandbox the agent reaches it through a server of its operations (`hermit/environment/remote.py`). Not
-  carried over: infra retries and the runner's finer failure causes (an environment that fails is a failed run),
-  multi-step tasks (streams), the adapter's tools in a task's environment, the `<cli>_bin` mount (a config mounts a
+  the task sandbox the agent reaches it through a server of its operations (`hermit/environment/remote.py`). A rollout
+  that is not the agent's result keeps the runner's semantics (`hermit/environment/harbor_errors.py`, ported from
+  `hermit/harbor/errors.py`): it runs again in a fresh environment (`environment.harbor.infra_retries`, default 2,
+  after `infra_wait_s`, never for `disk` or `model_rejected`), and one that stays infra is `unscored`, which the judge
+  refuses (a failed run, never the agent's 0). Not carried over: the session-level causes the runner read from a CLI's
+  stream inside the container (a plan's usage limit, a lost sign-in, a refused configuration: the acting agent reports
+  those itself), multi-step tasks (streams), the adapter's tools in a task's environment, the `<cli>_bin` mount (a config mounts a
   binary through `environment.harbor.environment.mounts` and names it as `agent.<cli>.bin`), Harbor's own agents
   (`acting_agent: {name}`), the Pi, OpenCode, dsh and mini-swe-agent CLIs in a task's environment, and the curated
   trial log (the trial's directory under `jobs_dir` is kept as Harbor writes it). Every example config moved.

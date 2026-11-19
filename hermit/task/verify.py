@@ -18,8 +18,10 @@ verifier in that environment, after the agent, by the run (hermit.trainer.rollou
 that reads that verdict (`judge: {path: hermit.task.verify, name: environment}`): the reward is the score, whatever the
 session's end (its timeout, a CLI that exited with an error: Harbor verifies all of them, and its own job mean scores
 them), 0 when the verifier left none (`verifier_failed`) or ran out of its time on the agent's solution
-(`solution_timed_out`); an environment that failed (`infra`) is not the agent's result: no score (Unscored), so the run
-records a failed run. `passed` says whether the reward reached the task set's pass reward.
+(`solution_timed_out`); a rollout that stayed infra after the run's runs again (its environment failed, its verifier
+ran no test, its session never started: `unscored`) is not the agent's result: no score (Unscored), so the run records
+a failed run (judge_error), as Hermit's Harbor runner's judge refused one. `passed` says whether the reward reached
+the task set's pass reward.
 """
 from __future__ import annotations
 
@@ -145,9 +147,11 @@ def environment(task: dict, output: RunOutput) -> JudgeResult:
                            "set in its own environments (environment.harbor)")
     status, cause = verdict.get("status") or "infra", verdict.get("failure_cause")
     exception = verdict.get("exception") or {}
-    if status == "infra":
-        raise Unscored(f"the task's environment failed ({cause or 'infra'}: {exception.get('type') or ''} "
-                       f"{str(exception.get('message') or '')[:600]}): it has no score")
+    why = (output.extra or {}).get("unscored")
+    if status == "infra" or why:
+        said = str(verdict.get("exception_message") or exception.get("message") or "")[:600]
+        raise Unscored(f"the rollout is not the agent's result ({why or cause or 'infra'}"
+                       f"{': ' + said if said else ''}): it has no score")
     reward = verdict.get("reward")
     passed = verdict.get("passed")
     extra = output.extra or {}

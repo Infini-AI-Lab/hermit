@@ -132,9 +132,10 @@ def test_an_environment_starts_behind_the_disk_gate_serves_the_agent_verifies_an
 def test_an_environment_that_does_not_start_is_unavailable_and_taken_down(harbor, monkeypatch):
     environments, _, calls = harbor
     monkeypatch.setenv("FAKE_START", "fail")
-    with pytest.raises(EnvironmentUnavailable, match="did not start.*did not pull"):
+    with pytest.raises(EnvironmentUnavailable, match="did not start.*did not pull") as raised:
         with environments.session(environments.task_dir({"harbor_task": "demo"})):
             pass
+    assert raised.value.cause == "sandbox_failed"                          # infra: run again
     assert calls["cleanup"] == [("rmi_task_image", "demo")] and not environments.live
 
 
@@ -142,14 +143,15 @@ def test_a_disk_gate_that_waits_its_time_out_starts_nothing(harbor, monkeypatch)
     environments, _, calls = harbor
     monkeypatch.setattr(harbor_mod.docker, "wait_for_disk", lambda *a, **k: False)
     monkeypatch.setattr(harbor_mod.docker, "free_gb", lambda root: 0.5)
-    with pytest.raises(EnvironmentUnavailable, match="/tmp stayed under 1 GB free: no environment started"):
+    with pytest.raises(EnvironmentUnavailable, match="/tmp stayed under 1 GB free: no environment started") as raised:
         environments.open(environments.task_dir({"harbor_task": "demo"})).start()
+    assert raised.value.cause == "disk"                                    # one that runs no better again
 
 
 @pytest.mark.parametrize("raised, status, cause", [
     ("VerifierTimeoutError", "timeout", "solution_timed_out"),       # Harbor's grading: the agent's solution, 0
     ("RewardFileNotFoundError", "agent_error", "verifier_failed"),   # no reward: 0, as Harbor grades it
-    ("EnvironmentStartTimeoutError", "infra", "verifier_failed"),    # not the agent's result
+    ("EnvironmentStartTimeoutError", "infra", "sandbox_failed"),     # not the agent's result
 ])
 def test_a_verifier_that_fails_is_read_as_harbor_grades_it(harbor, monkeypatch, raised, status, cause):
     environments, _, _ = harbor
@@ -342,10 +344,16 @@ def test_the_environment_server_gives_the_agent_exec_upload_and_download_but_nev
 
 
 class Environments:
-    """The run's task environments, the test's: each task's environment records what happened to it."""
+    """The run's task environments, the test's: each task's environment records what happened to it. `fails` names
+    what each start (in turn) does: None starts, a cause raises EnvironmentUnavailable with it (the last one repeats);
+    `verdicts` the verifier's verdict of each run in turn (the last one repeats)."""
+    infra_wait_s = 7.0
 
-    def __init__(self, tmp: Path, fail_start: bool = False):
-        self.tmp, self.fail_start, self.events = tmp, fail_start, []
+    def __init__(self, tmp: Path, fails=(None,), verdicts=None, infra_retries: int = 2):
+        self.tmp, self.fails, self.events, self.infra_retries = tmp, list(fails), [], infra_retries
+        self.verdicts = list(verdicts or [{"reward": 1.0, "rewards": {"reward": 1.0}, "status": "ok",
+                                           "passed": True, "feedback": ""}])
+        self.starts = 0
 
     def task_dir(self, task):
         return self.tmp / str(task.public["harbor_task"])
@@ -357,12 +365,15 @@ class Environments:
         class Env(Recorded):
             def verify(self, agent_logs=None):
                 outer.events.append(("verify", agent_logs))
-                return {"reward": 1.0, "rewards": {"reward": 1.0}, "status": "ok", "passed": True, "feedback": ""}
+                done = sum(event[0] == "verify" for event in outer.events)
+                return dict(outer.verdicts[min(done, len(outer.verdicts)) - 1])
 
         @contextlib.contextmanager
         def cm():
-            if outer.fail_start:
-                raise EnvironmentUnavailable("the image did not pull")
+            fail = outer.fails[min(outer.starts, len(outer.fails) - 1)]
+            outer.starts += 1
+            if fail is not None:
+                raise EnvironmentUnavailable(f"the image did not pull ({fail})", fail)
             outer.events.append(("start", Path(task_dir).name))
             try:
                 yield Env(outer.tmp)
@@ -388,8 +399,7 @@ def test_the_run_hands_the_agent_the_tasks_environment_and_judges_its_verifiers_
     assert given == [({"id": "demo#1", "harbor_task": "demo"}, PurePosixPath("/app"))]   # the public half only
     assert environments.events == [("start", "demo"), ("verify", logs), ("stop", "demo")]
     assert record["status"] == "ok" and record["judge"]["score"] == 1.0 and record["judge"]["feedback"] == "passed"
-    failed = run_one(task, None, pipeline, judge, Environments(tmp_path, fail_start=True))
-    assert failed["status"] == "error" and "could not be given" in failed["judge"]["feedback"]
+    assert "attempts" not in record["pipeline_extra"]                      # one run: no attempts recorded
 
 
 def test_the_environment_judge_scores_the_reward_and_refuses_an_environment_that_failed():
@@ -475,3 +485,111 @@ def test_a_react_agent_works_in_the_tasks_environment_its_tools_run_there(tmp_pa
     out = Terminal({"model": {"base_url": "https://x", "model": "m"}, "logs": str(tmp_path / "logs")},
                    tmp_path).run({"id": "t", "instruction": "list the files"}, None, environment=env)
     assert out.output == "listed" and env.calls[0]["command"] == ["bash", "-c", "ls"]
+
+
+def _infra_run(tmp_path, environments, pauses, monkeypatch):
+    """A task run through run_one with the test's environments, its pauses recorded instead of slept."""
+    from hermit.task import Task
+    from hermit.task.verify import environment as judge
+    from hermit.trainer import rollout
+    calls = []
+
+    def pipeline(task, adapter, environment=None):
+        calls.append(task["id"])
+        return RunOutput(output="done", cost_usd=0.01, tokens=10, api_speed={"model_calls": 1})
+
+    monkeypatch.setattr(rollout, "_sleep", pauses.append)
+    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
+    return rollout.run_one(task, None, pipeline, judge, environments), calls
+
+
+def test_an_environment_that_fails_to_start_once_runs_again_and_is_scored(tmp_path, monkeypatch):
+    """The old runner's infra semantics: a rollout that is not the agent's result runs again in a fresh environment,
+    after infra_wait_s; the run that works is the one scored, and its record carries every run (attempts)."""
+    environments, pauses = Environments(tmp_path, fails=["sandbox_failed", None]), []
+    record, calls = _infra_run(tmp_path, environments, pauses, monkeypatch)
+    assert pauses == [7.0] and calls == ["demo#1"] and environments.starts == 2
+    assert record["status"] == "ok" and record["judge"]["score"] == 1.0
+    attempts = record["pipeline_extra"]["attempts"]
+    assert [a["unscored"] for a in attempts] == ["sandbox_failed", None]
+    assert attempts[0]["cost_usd"] == 0.0 and record["cost_usd"] == 0.01     # the environment that never came up: 0
+
+
+def test_a_rollout_that_stays_infra_is_not_scored_as_the_agents_zero(tmp_path, monkeypatch):
+    """Retried infra_retries times; then the judge refuses to score it (Unscored): a failed run, judge_error, which
+    `hermit eval` counts among its errors and the report as infra, never a verdict of the agent's 0."""
+    from hermit.harbor.report import kind
+    infra = {"reward": None, "rewards": None, "status": "infra", "failure_cause": "verifier_failed", "passed": None,
+             "exception_message": "the verifier's tools never arrived", "feedback": ""}
+    environments, pauses = Environments(tmp_path, verdicts=[infra]), []
+    record, calls = _infra_run(tmp_path, environments, pauses, monkeypatch)
+    assert calls == ["demo#1"] * 3 and pauses == [7.0, 7.0]                 # 1 + infra_retries runs
+    assert record["status"] == "judge_error" and "Unscored" in record["error"]
+    assert "not the agent's result (verifier_failed" in record["judge"]["feedback"]
+    assert record["pipeline_extra"]["unscored"] == "verifier_failed" and len(record["pipeline_extra"]["attempts"]) == 3
+    assert record["cost_usd"] == pytest.approx(0.03) and record["tokens"] == 30   # every run's usage is the rollout's
+    assert kind(record) == "infra"
+    never = Environments(tmp_path, fails=["harbor_failed"])
+    record, calls = _infra_run(tmp_path, never, [], monkeypatch)
+    assert calls == [] and never.starts == 3 and record["status"] == "judge_error"
+    assert record["output"]["status"] == "infra" and kind(record) == "infra" and record["cost_usd"] == 0.0
+
+
+def test_a_cause_that_runs_no_better_again_is_not_run_again(tmp_path, monkeypatch):
+    for cause in ("disk", "model_rejected"):                                # NO_RETRY, the runner's
+        environments, pauses = Environments(tmp_path, fails=[cause, None]), []
+        record, calls = _infra_run(tmp_path, environments, pauses, monkeypatch)
+        assert environments.starts == 1 and pauses == [] and calls == []
+        assert record["status"] == "judge_error" and f"({cause}" in record["judge"]["feedback"]
+
+
+def test_a_session_the_provider_could_not_serve_is_infra_and_any_other_pipeline_failure_the_pipelines(tmp_path):
+    from hermit.task import Task
+    from hermit.task.verify import environment as judge
+    from hermit.trainer import rollout
+    seen = []
+
+    def pipeline(task, adapter, environment=None):
+        seen.append(1)
+        raise RuntimeError("agent codex could not be served after 3 attempts: 503")
+
+    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
+    out = rollout.environment_rollout(task, task.given(), None, pipeline, Environments(tmp_path), 0.0,
+                                      pause=lambda s: None)
+    assert len(seen) == 3 and out.extra["unscored"] == "model_provider_failed" and out.cost_usd is None
+
+    def broken(task, adapter, environment=None):
+        raise KeyError("a bug of the agent's own")
+
+    record = rollout.run_one(task, None, broken, judge, Environments(tmp_path))
+    assert record["status"] == "error" and "the pipeline failed" in record["judge"]["feedback"]
+
+
+@pytest.mark.parametrize("verified, status, cause", [
+    ({"rewards": {"reward": 0.0}, "exception": None, "stdout": "failed to download https://github.com/astral-sh/uv/"
+      "releases/download/x\nuvx: command not found"}, "infra", "verifier_failed"),    # its tools never arrived
+    ({"rewards": {"reward": 0.0}, "exception": None, "stdout": "1 failed"}, "ok", None),   # the agent's 0
+    ({"rewards": None, "exception": None}, "infra", "verifier_failed"),                  # no exception and no reward
+    ({"rewards": None, "exception": {"type": "RuntimeError", "message": "Docker compose command failed for "
+                                     "environment x"}}, "infra", "sandbox_failed"),     # the host's (HOST_FAILURE)
+    ({"rewards": None, "exception": {"type": "HarborDriverError", "message": "gone"}}, "infra", "harbor_failed"),
+])
+def test_the_verifiers_answer_is_classified_as_the_runner_classified_a_trial(harbor, tmp_path, verified, status,
+                                                                             cause):
+    environments, _, _ = harbor
+    logs = tmp_path / "verifier"
+    logs.mkdir()
+    if "stdout" in verified:
+        (logs / "test-stdout.txt").write_text(verified.pop("stdout"))
+    verdict = environments.verdict({**verified, "verifier_dir": str(logs)})
+    assert (verdict["status"], verdict["failure_cause"]) == (status, cause)
+
+
+def test_infra_retries_and_infra_wait_s_are_read_and_checked(tmp_path):
+    (tmp_path / "tasks").mkdir()
+    base = {"tasks_dir": "tasks", "harbor": sys.executable}
+    environments = HarborEnvironments(base, base=tmp_path)
+    assert (environments.infra_retries, environments.infra_wait_s) == (2, 300.0)       # the runner's defaults
+    assert HarborEnvironments({**base, "infra_retries": 0, "infra_wait_s": 1}, base=tmp_path).infra_retries == 0
+    with pytest.raises(ValueError, match="infra_retries"):
+        HarborEnvironments({**base, "infra_retries": -1}, base=tmp_path)

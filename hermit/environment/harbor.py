@@ -40,6 +40,9 @@ Settings (a run config's `environment.harbor`, merged over the benchmark file it
   verifier_timeout  agent (a verifier that ran out of its time scores the agent's solution: Harbor's grading) or
                     infra (not the agent's result)
   pass_reward, reward_key   the reward that is a pass (1.0; null: a scale), the verifier's reward key (reward)
+  infra_retries, infra_wait_s   a rollout that is not the agent's result (infra: hermit.environment.harbor_errors) runs
+                    again in a fresh environment this many times at most (default 2), each after this long (default
+                    300 s), unless its cause runs no better again (NO_RETRY: the disk gate, model_rejected)
 
 An environment runs the task's commands where Harbor runs them (isolation `remote`): `exec` runs a command in the
 task's main container as the task's agent user, from its working directory (the workspace), a variable passed by name
@@ -66,6 +69,7 @@ import uuid
 import yaml
 
 from hermit.environment import harbor_docker as docker
+from hermit.environment import harbor_errors as errors
 from hermit.environment.base import Environment, ExecResult, Limits, Unsupported
 
 HARBOR = "~/.cache/hermit/harbor-venv/bin/harbor"
@@ -83,14 +87,20 @@ MULTIPLIERS = ("verifier_timeout_multiplier", "environment_build_timeout_multipl
 SETTINGS = (*MULTIPLIERS, "benchmark", "tasks_dir", "environment", "verifier", "agent_timeout_sec",
             "setup_timeout_sec", "allowed_hosts", "docker_cleanup", "rmi_threshold_gb", "disk_gate_gb",
             "disk_gate_wait_s", "tmp_gate_gb", "image_sizes", "jobs_dir", "harbor", "start_timeout_s",
-            "verify_timeout_s", "verifier_timeout", "pass_reward", "reward_key", "dataset")
+            "verify_timeout_s", "verifier_timeout", "pass_reward", "reward_key", "infra_retries", "infra_wait_s",
+            "dataset")
 VERIFIER_TIMEOUTS = ("agent", "infra")
 FEEDBACK_CHARS = 4000
 
 
 class EnvironmentUnavailable(RuntimeError):
     """The task's environment could not be given (the disk gate waited its time out, the image did not pull or build,
-    the driver died): not the agent's result."""
+    the driver died): not the agent's result. `cause` is its infra cause (hermit.environment.harbor_errors: disk,
+    sandbox_failed, harbor_failed, harbor_timeout)."""
+
+    def __init__(self, message: str, cause: str = "harbor_failed"):
+        super().__init__(message)
+        self.cause = cause
 
 
 def _merge(base: dict, over: dict) -> dict:
@@ -156,6 +166,8 @@ class HarborEnvironments:
         self.pass_reward = PASS_REWARD if "pass_reward" not in s else \
             (None if s["pass_reward"] is None else float(s["pass_reward"]))
         self.reward_key = str(s.get("reward_key") or "reward")
+        self.infra_retries = self._count("infra_retries", errors.INFRA_RETRIES, int)
+        self.infra_wait_s = self._count("infra_wait_s", errors.INFRA_WAIT_S, float)
         sizes = json.loads(self.path(s["image_sizes"]).read_text()) if s.get("image_sizes") else {}
         self.image_sizes = {k: v for k, v in sizes.items() if not str(k).startswith("_")}
         self.pulls = docker.Pulls()
@@ -174,6 +186,16 @@ class HarborEnvironments:
         for env in left:
             with contextlib.suppress(Exception):
                 env.stop()
+
+    def _count(self, key: str, default, kind):
+        value = self.settings.get(key)
+        try:
+            value = default if value is None else kind(value)
+        except (TypeError, ValueError):
+            value = -1
+        if value < 0:
+            raise ValueError(f"environment.harbor.{key} is a number, at least 0, not {self.settings.get(key)!r}")
+        return value
 
     def path(self, value) -> Path:
         p = Path(os.path.expandvars(str(value))).expanduser()
@@ -284,11 +306,13 @@ class HarborEnvironments:
             env.stop()
 
     def verdict(self, verified: dict) -> dict:
-        """What a verifier's answer is for a judge: the reward (`reward_key`, else the one reward, else their
-        mean), the rewards, the feedback (feedback.txt, else the verifier's output's tail), and a status: ok, or for
-        a verifier that left no reward `verifier_failed` (scored 0, as Harbor grades it), for one that ran out of
-        its time `solution_timed_out` (scored 0; `infra` with verifier_timeout: infra), and `infra` for anything
-        else (the environment failed: not the agent's result)."""
+        """What a verifier's answer is for a judge, as Hermit's Harbor runner read a trial (hermit.environment.
+        harbor_errors): the reward (`reward_key`, else the one reward, else their mean), the rewards, the feedback
+        (feedback.txt, else the verifier's output's tail), a status and its cause: ok; `timeout` for a verifier that
+        ran out of its time on the agent's solution (solution_timed_out, scored 0; infra with verifier_timeout: infra);
+        `agent_error` for one that left no reward Harbor could read (verifier_failed, scored 0, as Harbor grades it);
+        `infra` for an environment that failed under the verifier, a verifier that ran no test (its tools never arrived,
+        the host's disk full) or no exception and no reward: not the agent's result."""
         rewards = verified.get("rewards") or None
         exception = verified.get("exception") or None
         reward = None
@@ -297,26 +321,23 @@ class HarborEnvironments:
             if reward is None:
                 reward = next(iter(rewards.values())) if len(rewards) == 1 else sum(rewards.values()) / len(rewards)
             reward = float(reward)
-        status, cause = "ok", None
-        if exception is not None and reward is None:
-            kind = exception.get("type") or ""
-            if kind == "VerifierTimeoutError":
-                status, cause = ("infra", "verifier_failed") if self.verifier_timeout == "infra" else \
-                    ("timeout", "solution_timed_out")
-            elif kind in ("RewardFileNotFoundError", "RewardFileEmptyError", "VerifierOutputParseError"):
-                status, cause = "agent_error", "verifier_failed"
-            else:
-                status, cause = "infra", "verifier_failed"
-        logs = Path(verified.get("verifier_dir") or "")
+        # Harbor's trial as the runner read its result.json: the reward under its key, the exception Harbor recorded
+        result = {"verifier_result": {"rewards": {self.reward_key: reward} if reward is not None else {}},
+                  "exception_info": {"exception_type": exception.get("type"), "exception_message":
+                                     exception.get("message") or ""} if exception else None}
+        read = errors.classify(result, reward_key=self.reward_key)
+        read = errors.verifier_timeout_verdict(read, self.verifier_timeout)
+        logs = Path(verified.get("verifier_dir") or "") if verified.get("verifier_dir") else None
+        read = errors.verifier_verdict(read, logs)
         feedback = ""
         for name in ("feedback.txt", "test-stdout.txt"):
-            path = logs / name
-            if verified.get("verifier_dir") and path.is_file() and not path.is_symlink():
-                feedback = path.read_text(encoding="utf-8", errors="replace")[-FEEDBACK_CHARS:]
+            if logs is not None and (logs / name).is_file() and not (logs / name).is_symlink():
+                feedback = (logs / name).read_text(encoding="utf-8", errors="replace")[-FEEDBACK_CHARS:]
                 break
         passed = None if self.pass_reward is None else (reward is not None and reward >= self.pass_reward)
-        return {"reward": reward, "rewards": rewards, "status": status, "failure_cause": cause, "passed": passed,
-                "exception": exception, "feedback": feedback, "verifier_dir": verified.get("verifier_dir"),
+        return {"reward": reward, "rewards": rewards, "status": read["status"], "failure_cause": read["failure_cause"],
+                "passed": passed, "exception": exception, "exception_message": read["exception_message"],
+                "feedback": feedback, "verifier_dir": verified.get("verifier_dir"),
                 "trial_dir": verified.get("trial_dir")}
 
 
@@ -353,7 +374,7 @@ class _Driver:
         box: queue.Queue = queue.Queue()
         with self.lock:
             if self.dead:
-                raise EnvironmentUnavailable(self.dead)
+                raise EnvironmentUnavailable(self.dead, "harbor_failed")
             self.next_id += 1
             rid = self.next_id
             self.waiting[rid] = box
@@ -362,7 +383,7 @@ class _Driver:
                 self.proc.stdin.flush()
             except (BrokenPipeError, OSError) as exc:
                 self.waiting.pop(rid, None)
-                raise EnvironmentUnavailable(f"the Harbor driver is gone: {exc}") from None
+                raise EnvironmentUnavailable(f"the Harbor driver is gone: {exc}", "harbor_failed") from None
         try:
             reply = box.get(timeout=timeout)
         except queue.Empty:
@@ -423,7 +444,7 @@ class HarborEnvironment(Environment):
         if not self.task_dir.is_dir():
             raise ValueError(f"no Harbor task directory {self.task_dir}")
         if not owner.wait_for_disk(self.task_dir, self.admitted):
-            raise EnvironmentUnavailable(f"{owner.disk_held(self.task_dir)}: no environment started")
+            raise EnvironmentUnavailable(f"{owner.disk_held(self.task_dir)}: no environment started", "disk")
         self.trials_dir.mkdir(parents=True, exist_ok=True)
         with owner._lock:
             owner.live.add(self)
@@ -435,7 +456,9 @@ class HarborEnvironment(Environment):
             started = self.driver.request(**owner.start_request(self.task_dir, self.trials_dir, self.name),
                                           timeout=float(owner.settings.get("start_timeout_s") or START_TIMEOUT_S))
         except (RuntimeError, TimeoutError) as exc:
-            raise EnvironmentUnavailable(f"the task's environment did not start: {exc}"[-3000:]) from None
+            kind = "TimeoutError" if isinstance(exc, TimeoutError) else getattr(exc, "kind", None)
+            raise EnvironmentUnavailable(f"the task's environment did not start: {exc}"[-3000:],
+                                         errors.start_cause(kind, str(exc))) from None
         self.started = started
         self.workspace = PurePosixPath(started.get("workdir") or "/")
         budget = started.get("agent_timeout_sec")
@@ -528,9 +551,9 @@ class HarborEnvironment(Environment):
         try:
             verified = driver.request("verify", float(self.owner.settings.get("verify_timeout_s") or VERIFY_TIMEOUT_S),
                                       agent_logs=str(Path(agent_logs).absolute()) if agent_logs else None)
-        except (RuntimeError, TimeoutError) as exc:
-            verified = {"rewards": None, "exception": {"type": getattr(exc, "kind", None) or type(exc).__name__,
-                                                       "message": str(exc)[-3000:]}}
+        except (RuntimeError, TimeoutError) as exc:      # the driver's or this side's, not Harbor's verifier's
+            said = f"{getattr(exc, 'kind', None) or type(exc).__name__}: {exc}"[-3000:]
+            verified = {"rewards": None, "exception": {"type": errors.DRIVER_ERROR, "message": said}}
         verified["trial_dir"] = self.started.get("trial_dir")
         self.verified = self.owner.verdict(verified)
         return self.verified

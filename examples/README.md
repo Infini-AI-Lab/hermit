@@ -106,8 +106,11 @@ and that no hard budget is set, as it does for every config here (their budgets 
 also reports that its splits share their two rows, which is what a smoke runs on; of a SkillOpt config it warns that
 the validation data is given to the Evolver, whose gate runs it (a row holds no answer: its task's tests keep that).
 
-A run that is not the agent's result (its environment could not be given, or failed under the verifier) is a failed
-run, counted among `hermit eval`'s `errors` and as 0 in its `mean_score`, and `python -m hermit.harbor.report <eval
+A run that is not the agent's result (infra: its environment did not start or failed under the verifier, its verifier
+ran no test, its session never started) runs again in a fresh environment, twice at most and five minutes apart
+(`environment.harbor.infra_retries`, `infra_wait_s`), unless it is one that does not run again (a disk gate that waited
+its time out, a provider's refusal of the run's configuration); one still infra is a failed run, counted among `hermit
+eval`'s `errors` and as 0 in its `mean_score`, and `python -m hermit.harbor.report <eval
 folder>` gives the eval's pass@1 over the runs that are the agent's result, with the infra ones counted apart. Run
 again, `hermit train` resumes after its last finished step and `hermit eval` runs all of its tasks again. A lost
 sign-in ends the run (`LoginFailed`): sign in again and run the command again. A plan's usage limit ends nothing on
