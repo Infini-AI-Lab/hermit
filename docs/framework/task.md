@@ -262,7 +262,9 @@ Each task's row (its public half, what the agent is handed) holds the instructio
 `harbor_task`, the directory's name; where its directory and tests are is its private half, which only the judge
 reads. `data.view: <file.py>:<function>` turns each row into the row the task set's agents and learners read instead
 (a benchmark moved from a `tasks.jsonl` to task directories keeps its prompts and its learning material so); what a
-task asks of its environment is checked either way. Splits name the directories (`<task>`, `<task>:<step>` for a multi-step task's steps, `<task>#<k>` with
+task asks of its environment is checked either way. A benchmark's `prepare.py` writes each task with
+`hermit.task.directory.write_task(<dir>, instruction, metadata={...}, environment={"network_mode": ...})`, whose
+`[metadata]` reads back as given, every value in its order (TOML has no null: None is refused). Splits name the directories (`<task>`, `<task>:<step>` for a multi-step task's steps, `<task>#<k>` with
 `data.rollouts: k`). The run's `environment` must give each task what it asks: a task whose agent needs the public
 network (what a task that says nothing asks, Harbor's default) or more memory than `environment.resources.memory_mb`
 is refused, never run with less; so is an allowlist task whose `allowed_hosts` the run's allowlist lacks, and, with

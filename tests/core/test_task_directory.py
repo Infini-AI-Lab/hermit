@@ -67,6 +67,23 @@ def test_a_directory_of_tasks_is_a_task_set_with_the_tests_kept_private(tmp_path
         tasks_of(tmp_path / "tasks" / "notes")
 
 
+def test_a_task_written_by_write_task_reads_back_as_written(tmp_path):
+    """write_task's task.toml holds every value tomllib reads back the same, in its order (a benchmark's rows ride in
+    [metadata], data.view turns them back); a value TOML cannot hold is refused."""
+    from hermit.task.directory import write_task
+    meta = {"zeta": 1, "alpha": "a \"q\"\\ \u2019\x7f\t\x00", "seeds": [1, 2], "on": False, "rate": 0.1,
+            "big": 1e100, "nested": {"vector b": "x\ny", "a": [{"k": 1}]}, "empty": [], "neg": -3}
+    write_task(tmp_path / "t", "Line one\r\nline two", metadata=meta, environment={"network_mode": "no-network"})
+    given = tasks_of(tmp_path / "t")["t"].given()
+    assert given["metadata"] == meta and list(given["metadata"]) == list(meta)
+    assert list(given["metadata"]["nested"]) == ["vector b", "a"]
+    assert given["instruction"] == "Line one\r\nline two" and given["network"]["agent"] == "no-network"
+    with pytest.raises(ValueError, match="none_here"):
+        write_task(tmp_path / "u", "x", metadata={"none_here": None})
+    with pytest.raises(ValueError, match="trimmed"):
+        write_task(tmp_path / "v", "x\n")
+
+
 def test_a_reward_is_read_as_harbor_writes_it(tmp_path):
     (tmp_path / "reward.txt").write_text("0.5\n")
     assert read_reward(tmp_path, "the script said hi").score == 0.5

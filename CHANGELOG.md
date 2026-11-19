@@ -36,6 +36,11 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   `prepare.py`, `judge.py`, `task-info/`, splits, `data.json` and seed adapter): run `prepare.py` again. The agents read
   each task as the row they always read, so prompts are unchanged.
 
+- More task sets are task directories in Harbor's format, under each example's `utils/benchmark/` with its
+  `prepare.py`, `judge.py`, `task-info/` and splits; their configs read each task through `data.view` as the row they
+  always read, so prompts, records and learning material are unchanged (`hermit.task.directory.write_task` writes
+  one). `examples/claude_subscription/`: its nine tasks, judge, splits and task-info moved to `utils/benchmark/`.
+
 - Tasks and environments are packages of their own beside the agents: `hermit/environment/` (moved from
   `hermit/agent/environment/`, which forwards for one release) and `hermit/task/` (from `hermit/task.py`: `Task` with
   a public half the agent is handed and a private half only the judge reads, `Benchmark`, the verifier). `RunOutput`
