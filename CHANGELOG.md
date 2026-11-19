@@ -46,6 +46,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   directories.
   `examples/servelearnbench/`: run `utils/benchmark/prepare.py` again (`windows.py` and `windows.json` moved there
   too).
+  `examples/clbench_database/` and `examples/clbench_poker/`: run `utils/benchmark/prepare.py` again (`task-info/`
+  moved there too).
 
 - Tasks and environments are packages of their own beside the agents: `hermit/environment/` (moved from
   `hermit/agent/environment/`, which forwards for one release) and `hermit/task/` (from `hermit/task.py`: `Task` with

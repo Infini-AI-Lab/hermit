@@ -1,19 +1,27 @@
 #!/usr/bin/env python3
-"""Write tasks.jsonl and one ordered split per order for the CL-Bench poker venue.
+"""Write the tasks (task directories in Harbor's format, tasks/<id>/) and one ordered split per order for the CL-Bench
+poker venue.
 
     python prepare.py [--orders 0 1 2 3 4] [--step-size 5] [--clbench ~/code/clbench]
 
-A task is one hand the HOST plays: {id, order, hand_num, block}. Natively a hand the opponent ends before the host
-acts is settled by the task inside the previous hand's last step; it never reaches the host and does not count
-toward a learning block (the poker system learns every `learn_every` hands it observed). Which hands those are is
-fixed by the deal (each hand restores its pre-generated RNG state before the opponent's first action), so they are
-found here by replaying the stream through the task's own resume path, without a host. `block` is the MWM block
-(index among the host's hands // step_size + 1); the run must use the same data.step_size and data.shuffle: false.
+A task is one hand the HOST plays: {id, order, hand_num, block}, its fields but the id under task.toml's
+[metadata] (utils/agent/poker_fields.py reads it back as that row; the stream's state is the host's, in the agent's
+own loop, and the judge reads the hand's result from the agent's output, so a task has no tests/).
+
+Natively a hand the opponent ends before the host acts is settled by the task inside the previous hand's last step;
+it never reaches the host and does not count toward a learning block (the poker system learns every `learn_every`
+hands it observed). Which hands those are is fixed by the deal (each hand restores its pre-generated RNG state
+before the opponent's first action), so they are found here by replaying the stream through the task's own resume
+path, without a host. `block` is the MWM block (index among the host's hands // step_size + 1); the run must use the
+same data.step_size and data.shuffle: false.
 """
 import argparse
 import json
 from pathlib import Path
+import shutil
 import subprocess
+
+from hermit.task.directory import write_task as write_task_dir
 
 HERE = Path(__file__).resolve().parent
 
@@ -40,6 +48,14 @@ print(json.dumps(out))
 """
 
 
+def write_task(tasks: Path, row: dict) -> Path:
+    """One hand as a task directory: its fields but the id under [metadata], in the row's order; no network."""
+    instruction = (f"Play hand {row['hand_num']} of CL-Bench's exploitable-poker stream (order {row['order']}) as "
+                   "the host.")
+    return write_task_dir(tasks / row["id"], instruction, metadata={k: v for k, v in row.items() if k != "id"},
+                          environment={"network_mode": "no-network"})
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--orders", type=int, nargs="+", default=[0, 1, 2, 3, 4])
@@ -62,7 +78,10 @@ def main():
             ids.append(tid)
         (HERE / "splits" / f"order{order}.txt").write_text("\n".join(ids) + "\n")
         print(f"order {order}: the host plays {len(hands)} of {streams[str(order)]['total']} hands")
-    (HERE / "tasks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    if (HERE / "tasks").exists():                    # this script's own output: rewritten whole
+        shutil.rmtree(HERE / "tasks")
+    for row in rows:
+        write_task(HERE / "tasks", row)
 
 
 if __name__ == "__main__":

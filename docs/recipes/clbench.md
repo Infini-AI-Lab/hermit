@@ -25,7 +25,7 @@ export MW_RUNS="$PWD/.demo/clbench-runs"
 
 The CL-Bench host environment also uses the benchmark checkout's `.venv/bin/python`. For database, the launcher
 checks that the benchmark prompt contains the accuracy-scoring contract (`SCORING_UNLIMITED`). Inspect
-`examples/clbench_database/utils/task-info/` and the task runners before starting; a vanilla checkout missing that
+`examples/clbench_database/utils/benchmark/task-info/` and the task runners before starting; a vanilla checkout missing that
 contract is insufficient.
 
 ## Prepare and launch
@@ -33,18 +33,20 @@ contract is insufficient.
 From the framework repository root:
 
 ```bash
-python examples/clbench_database/utils/prepare.py --clbench "$MWM_CLBENCH"
+python examples/clbench_database/utils/benchmark/prepare.py --clbench "$MWM_CLBENCH"
 MW_TAG=mwm-db WM_PORT=3401 MW_ORDERS="0" examples/clbench_database/mwm/launch.sh
 ```
 
 For poker, use its own run tag and free port pair:
 
 ```bash
-python examples/clbench_poker/utils/prepare.py --clbench "$MWM_CLBENCH"
+python examples/clbench_poker/utils/benchmark/prepare.py --clbench "$MWM_CLBENCH"
 MW_TAG=mwm-poker WM_PORT=3411 MW_ORDERS="0" examples/clbench_poker/mwm/launch.sh
 ```
 
-These commands make real model calls. Begin with one order. `MW_ORDERS="0 1 2 3 4"` selects all five.
+`prepare.py` writes each question (hand) as a task directory in Harbor's format under `utils/benchmark/tasks/`, with
+the splits beside it; each config reads a task back as the row it always was (`data.view`), so the host and the
+learning material are unchanged. These commands make real model calls. Begin with one order. `MW_ORDERS="0 1 2 3 4"` selects all five.
 `MW_TRAIN_SPLIT` can select a prepared prefix split for a smoke run; a prefix is not the full experiment.
 The launcher uses `WM_PORT` and `WM_PORT+1` for host and learner wire meters.
 

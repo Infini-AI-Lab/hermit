@@ -3,16 +3,17 @@
 # `launch.sh`, which sets the per-order paths. The venue metric (bb/hand over all 120 hands) is in
 # <task workdir>/outcomes.jsonl.
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/order0.txt         # launch.sh: order<i>.txt
+  tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/poker_fields.py:poker_task   # each task as the row it always was
+  train: ../utils/benchmark/splits/order0.txt         # launch.sh: order<i>.txt
   step_size: 5                                               # = learn_every (prepare.py --step-size 5)
   shuffle: false
-task_info: ../utils/task-info
+task_info: ../utils/benchmark/task-info
 agent:
   name: ../utils/agent/agent.py:CLBenchPokerAgent
   concurrency: 1
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 template: mwm
 evolver:
   name: mwm
@@ -25,7 +26,7 @@ evolver_access:
   environment: []                  # launch.sh: [<task workdir>/evidence]
   tools: []                        # the poker venue declares no channel
 environment:                         # the task sandbox: the host runner, clbench's checkout and venv
-  read: [../utils/agent, ../utils/task-info/mwm, $MWM_CLBENCH]
+  read: [../utils/agent, ../utils/benchmark/task-info/mwm, $MWM_CLBENCH]
   write: [$MWM_TASK_WORKDIR]       # the run's task directory: evidence, host records
   env: ["MWM_*", "CLB_*", "MW_*", "LITELLM_*"]   # the launcher's settings (launch.sh)
                                    # + the host's litellm key variable (launch.sh): the benchmark's own loop calls

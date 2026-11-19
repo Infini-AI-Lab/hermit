@@ -37,7 +37,7 @@ HOST_MODEL=${MW_HOST_MODEL:-$MODEL}
 EVOLVER_MODEL=${MW_EVOLVER_MODEL:-$MODEL}
 EFFORT=${MW_EFFORT:-high}
 META_PORT=$((WM_PORT+1))
-TASKDIR=$FRAMEWORK/examples/clbench_poker/utils
+TASKDIR=$FRAMEWORK/examples/clbench_poker/utils/benchmark
 export PYTHONPATH=$FRAMEWORK${PYTHONPATH:+:$PYTHONPATH}
 
 # The two models resolved on their backends (the shell form of hermit.agent.model.backends: HOST_* and EVOLVER_*).
@@ -71,7 +71,7 @@ export LITELLM_DROP_PARAMS=${LITELLM_DROP_PARAMS:-True} LITELLM_LOCAL_MODEL_COST
 export MWM_CLBENCH=$CLBENCH MWM_METAWORLD=$METAWORLD
 
 command -v codex >/dev/null || { echo "REFUSING: codex CLI not on PATH"; exit 1; }
-[ -f "$TASKDIR/tasks.jsonl" ] || { echo "REFUSING: run $TASKDIR/prepare.py first"; exit 1; }
+[ -d "$TASKDIR/tasks" ] || { echo "REFUSING: run $TASKDIR/prepare.py first"; exit 1; }
 
 # The meters this launch starts stop within a second or two of the processes that use them ending (#82): its own and
 # those of any launch that reuses one. Each launch on a port lists its processes in the port's users file, emptied
@@ -132,7 +132,7 @@ for i in ${MW_ORDERS:-0}; do
   mkdir -p "$WD/evidence"
   : > "$WD/current_db"
   # The store's README exists before the bootstrap session, as natively (the wrapper wrote it before block 0).
-  "$PY" -m hermit.agent.evolver.methods.mwm.evidence.readme --evidence "$WD/evidence" --from "$HERE/../utils/task-info/mwm/contract/env_evidence.md"
+  "$PY" -m hermit.agent.evolver.methods.mwm.evidence.readme --evidence "$WD/evidence" --from "$HERE/../utils/benchmark/task-info/mwm/contract/env_evidence.md"
   # The learner's model through its meter: the backend copied to the metered URL, the Evolver bound to it (the
   # Trainer derives codex's provider settings from the binding and passes its key variable into the learner's
   # sandbox, the meter's port forwarded).
