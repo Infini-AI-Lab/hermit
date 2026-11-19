@@ -55,7 +55,9 @@ def test_a_directory_of_tasks_is_a_task_set_with_the_tests_kept_private(tmp_path
     assert task.private["verifier"] == {"timeout_sec": 30, "environment_mode": "shared", "env": {}}
     assert task.private["needs"] == {"network": {"agent": "no-network", "verifier": "no-network"},
                                      "allowed_hosts": {"agent": [], "verifier": []}, "memory_mb": 512,
-                                     "agent_timeout_sec": 60}
+                                     "agent_timeout_sec": 60, "verifier_memory_mb": None, "steps": None}
+    flow = bench.tasks["flow:one"].private["needs"]
+    assert flow["steps"] == 2 and "multi-step" in " ".join(EnvironmentSpec().problems_for(flow))
     assert task.row()["_private"]["tests"] == task.private["tests"]  # what the judge is called with
     assert bench.tasks["flow:two"].private["step_tests"].endswith("flow/steps/two/tests")   # over the task's
     assert [t.id for t in bench.split("train")] == ["write-42", "flow:one"]
@@ -110,7 +112,7 @@ from hermit.task import RunOutput
 def run(task, adapter):
     work = os.getcwd()
     Path(work, "answer.txt").write_text("42" if "42" in task["instruction"] else "0")
-    return RunOutput(output="done", extra={"workspace": work, "sees_tests": os.path.exists("/tests"),
+    return RunOutput(output="done", extra={"sees_tests": os.path.exists("/tests"),
                                            "fields": sorted(task)})
 """
 
@@ -177,7 +179,7 @@ def test_a_step_keeps_its_own_verifier_settings_and_a_task_asks_for_what_it_need
     assert resolve_env(env)["KEY"] == "k"
     with pytest.raises(RuntimeError, match="HERMIT_T_MISSING"):
         resolve_env({"X": "${HERMIT_T_MISSING}"})
-    needs = tasks["flow:one"].private["needs"]
+    needs = {**tasks["flow:one"].private["needs"], "steps": None}           # its hosts, apart from its steps
     assert needs["allowed_hosts"] == {"agent": ["data.example.com"], "verifier": ["data.example.com"]}
     other = EnvironmentSpec(network="allowlist", allowed_hosts=("api.example.com",))
     assert "data.example.com" in " ".join(other.problems_for(needs))
@@ -261,3 +263,12 @@ def test_a_viewed_tasks_agent_timeout_still_bounds_its_call(tmp_path):
     task = Benchmark.load(tmp_path / "tasks", tmp_path / "s.txt", view=lambda row: {"id": row["id"]}).tasks["t"]
     assert task.given() == {"id": "t"} and task.private["needs"]["agent_timeout_sec"] == 60
     assert _deadline(None, task.private["needs"]) == 120
+
+
+def test_a_separate_verifiers_own_memory_is_checked(tmp_path):
+    a_task(tmp_path / "tasks", "big", toml_extra='[verifier.environment]\nmemory_mb = 8192\n')
+    needs = tasks_of(tmp_path / "tasks")["big"].private["needs"]
+    assert needs["verifier_memory_mb"] == 8192
+    small = EnvironmentSpec(resources={"memory_mb": 1024})
+    assert small.problems_for(needs) == []                                   # judged on the host: not asked
+    assert "verifier needs 8192 MB" in " ".join(small.problems_for(needs, verifier=True))

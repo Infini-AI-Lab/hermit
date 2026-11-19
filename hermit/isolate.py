@@ -827,6 +827,8 @@ class SandboxedJudge:
         home.mkdir(parents=True)
         record = output_record(out)
         record["extra"] = {k: v for k, v in (record.get("extra") or {}).items() if k != "sandbox_work"}
+        if self.script and not record["extra"].get("workspace"):
+            record["extra"]["workspace"] = str(work)     # where the agent worked: the verifier's workspace
         job = {"kind": "judge", "spec": self.spec, "base": str(self.base), "task": task, "output": record}
         # Shared: the agent's work as the agent saw it, its per-call `.logs` at the names the agent wrote them under.
         binds = _log_binds(work, self.agent.logs, [work, place], existing=True,
