@@ -8,6 +8,7 @@
 # GEPA and SkillOpt runs (gepa/run_codex_flash.yaml, skillopt/run_codex_flash.yaml).
 data:
   tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/officeqa_fields.py:officeqa_task   # each task as the row SkillOpt's loader gives
   train: ../utils/benchmark/splits/train.txt
   test: ../utils/benchmark/splits/test.txt
   step_size: 3                         # the Refiner's window: three questions' trajectories per step

@@ -6,12 +6,15 @@
 
 `data.tasks` is a `tasks.jsonl` (one row per task, every field public) or a directory of task directories in
 Harbor's format (hermit.task.directory: each task's instruction and settings public, its tests private);
-`data.rollouts: k` makes k rows of each directory task (`<task>#1..k`).
+`data.rollouts: k` makes k rows of each directory task (`<task>#1..k`); `data.view: <file.py>:<function>` turns a
+directory task's row into the row the task set's agents and learners read (what its tasks.jsonl held, say).
 """
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
+from hermit.common import load_callable
 from hermit.task.data import TaskData, read_ids
 from hermit.task.directory import tasks_of
 from hermit.task.task import Task
@@ -30,18 +33,19 @@ class Benchmark:
 
     @classmethod
     def load(cls, tasks: Path, train: Path | None = None, val: Path | None = None, test: Path | None = None, *,
-             rollouts: int = 1) -> "Benchmark":
+             rollouts: int = 1, view: Callable[[dict], dict] | None = None) -> "Benchmark":
         splits = {"train": read_ids(train), "val": read_ids(val), "test": read_ids(test)}
         if Path(tasks).is_dir():
-            return cls(tasks_of(Path(tasks), rollouts=int(rollouts)), splits)
+            return cls(tasks_of(Path(tasks), rollouts=int(rollouts), view=view), splits)
         data = TaskData(tasks, None, None, None)
         return cls({tid: Task.from_row(row) for tid, row in data.tasks.items()}, splits)
 
     @classmethod
     def from_config(cls, config) -> "Benchmark":
         d = config.data["data"]
+        view = load_callable(str(d["view"]), config.base) if d.get("view") else None
         return cls.load(config.path(d["tasks"]), config.path(d.get("train")), config.path(d.get("val")),
-                        config.path(d.get("test")), rollouts=int(d.get("rollouts") or 1))
+                        config.path(d.get("test")), rollouts=int(d.get("rollouts") or 1), view=view)
 
     def split(self, name: str) -> list[Task]:
         return [self.tasks[i] for i in self.splits[name]]

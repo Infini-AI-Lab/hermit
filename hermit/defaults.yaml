@@ -5,6 +5,7 @@ data:
   val: null
   test: null
   rollouts: 1                 # data.tasks a directory of tasks (Harbor's format): k rows of each, <task>#1..k
+  view: null                  # a directory's rows as its agents and learners read them: <file.py>:<function>
   step_size: 8
   shuffle: true               # false: every epoch takes the train split in file order (an ordered stream)
   shuffle_seed: 0

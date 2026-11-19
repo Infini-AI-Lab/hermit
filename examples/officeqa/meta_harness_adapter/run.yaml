@@ -7,6 +7,7 @@
 # GLM 5.3 Flash acts and proposes, at medium effort.
 data:
   tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/officeqa_fields.py:officeqa_task   # each task as the row SkillOpt's loader gives
   train: ../utils/benchmark/splits/train.txt     # the search set
   test: ../utils/benchmark/splits/test.txt
   step_size: 50                        # the whole search set per step: each step evaluates one candidate

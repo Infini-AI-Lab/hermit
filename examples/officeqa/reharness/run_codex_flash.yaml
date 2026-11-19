@@ -10,6 +10,7 @@
 # report the mean, as the row's GEPA and SkillOpt numbers are. Started by launch.sh.
 data:
   tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/officeqa_fields.py:officeqa_task   # each task as the row SkillOpt's loader gives
   train: ../utils/benchmark/splits/train.txt     # the 50 training questions, the stream
   test: ../utils/benchmark/splits/test.txt       # the 172 test questions, evaluated once with the frozen bank
   step_size: 1                         # one question per step: one ReHarness instance (read, revise, write)

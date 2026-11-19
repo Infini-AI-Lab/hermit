@@ -53,6 +53,8 @@ def test_a_directory_of_tasks_is_a_task_set_with_the_tests_kept_private(tmp_path
     assert not any("tests" in str(v) for v in given.values())       # nothing of the tests reaches the agent
     assert task.private["tests"] == str((tmp_path / "tasks" / "write-42" / "tests").resolve())
     assert task.private["verifier"] == {"timeout_sec": 30, "env": {}}
+    assert task.private["needs"] == {"network": {"agent": "no-network", "verifier": "no-network"},
+                                     "allowed_hosts": {"agent": [], "verifier": []}, "memory_mb": 512}
     assert task.row()["_private"]["tests"] == task.private["tests"]  # what the judge is called with
     assert bench.tasks["flow:two"].private["tests"].endswith("flow/steps/two/tests")
     assert [t.id for t in bench.split("train")] == ["write-42", "flow:one"]
@@ -170,12 +172,15 @@ def test_a_step_keeps_its_own_verifier_settings_and_a_task_asks_for_what_it_need
     assert resolve_env(env)["KEY"] == "k"
     with pytest.raises(RuntimeError, match="HERMIT_T_MISSING"):
         resolve_env({"X": "${HERMIT_T_MISSING}"})
-    given = tasks["flow:one"].given()
-    assert given["allowed_hosts"] == ["data.example.com"]
+    needs = tasks["flow:one"].private["needs"]
+    assert needs["allowed_hosts"] == {"agent": ["data.example.com"], "verifier": ["data.example.com"]}
     other = EnvironmentSpec(network="allowlist", allowed_hosts=("api.example.com",))
-    assert "data.example.com" in " ".join(other.problems_for(given))
-    assert EnvironmentSpec(network="allowlist", allowed_hosts=("data.example.com",)).problems_for(given) == []
-    loud = {**given, "network": {"agent": "no-network", "verifier": "public"}}
+    assert "data.example.com" in " ".join(other.problems_for(needs))
+    assert EnvironmentSpec(network="allowlist", allowed_hosts=("data.example.com",)).problems_for(needs) == []
+    wild = {**needs, "allowed_hosts": {"agent": ["*.example.com"]}}
+    assert "wildcard" in " ".join(EnvironmentSpec(network="allowlist", allowed_hosts=("*.example.com",))
+                                  .problems_for(wild))
+    loud = {**needs, "network": {"agent": "no-network", "verifier": "public"}}
     assert EnvironmentSpec().problems_for(loud) == []                       # judged on the host: the agent's only
     assert "verifier needs network public" in " ".join(EnvironmentSpec().problems_for(loud, verifier=True))
 
@@ -185,3 +190,39 @@ def test_a_task_directorys_own_agent_timeout_bounds_a_call():
     assert _deadline(90.0, {"agent_timeout_sec": 60}) == 90.0              # the run's when stricter
     assert _deadline(600.0, {"agent_timeout_sec": 60}) == 120
     assert _deadline(600.0, {"id": "row"}) == 600.0 and _deadline(None, {}) is None
+
+
+def test_harbors_defaults_and_phase_allowlists_and_a_view_of_the_rows(tmp_path):
+    d = a_task(tmp_path / "tasks", "own", toml_extra='[verifier.environment]\ncpus = 1\n'
+               '[agent]\nnetwork_mode = "allowlist"\nallowed_hosts = ["data.example.com"]\n')
+    text = (d / "task.toml").read_text().replace("[verifier]\ntimeout_sec = 30\n", "[verifier]\n")
+    (d / "task.toml").write_text(text.replace("[agent]\ntimeout_sec = 60\n", ""))
+    task = tasks_of(tmp_path / "tasks")["own"]
+    assert task.private["verifier"]["timeout_sec"] == 600.0                  # Harbor's default
+    assert task.private["verifier"]["environment_mode"] == "separate"        # implied by its own environment
+    assert task.private["needs"]["allowed_hosts"]["agent"] == ["data.example.com"]
+    assert "data.example.com" in " ".join(EnvironmentSpec(network="allowlist").problems_for(task.private["needs"]))
+    (tmp_path / "split.txt").write_text("own\n")
+    view = Benchmark.load(tmp_path / "tasks", tmp_path / "split.txt",
+                          view=lambda row: {"id": row["id"], "question": row["instruction"]})
+    viewed = view.tasks["own"]
+    assert viewed.given() == {"id": "own", "question": "Write 42 to answer.txt."}
+    assert viewed.private["needs"] == task.private["needs"]                  # still checked, though not shown
+
+
+def test_the_run_refuses_a_task_its_environment_cannot_give_before_the_agent_starts():
+    from hermit.task import Task
+    from hermit.trainer.rollout import run_one
+    calls = []
+
+    class Agent:
+        def refuses(self, needs):
+            return ["the task's agent needs network public"] if needs.get("network") else []
+
+        def __call__(self, given, adapter):
+            calls.append(given)
+            return RunOutput(output="x")
+    task = Task(id="t", public={"id": "t", "q": 1}, private={"needs": {"network": {"agent": "public"}}})
+    record = run_one(task, None, Agent(), lambda row, out: 1.0)
+    assert record["status"] == "error" and "cannot run in this run's environment" in record["error"] and not calls
+    assert run_one(Task.from_row({"id": "r"}), None, Agent(), lambda row, out: 1.0)["status"] == "ok"

@@ -16,6 +16,7 @@ verifier reads.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 import tomllib
 
 from hermit.task.task import Task
@@ -68,6 +69,26 @@ def network_modes(config: dict, step: str | None = None) -> dict[str, str]:
                     or (config.get("verifier") or {}).get("environment"))
     return {"agent": str(explicit("agent") or base),
             "verifier": str(explicit("verifier") or (_baseline(verifier_env) if verifier_env else base))}
+
+
+def allowed_hosts(config: dict, step: str | None = None) -> dict[str, list[str]]:
+    """{"agent": hosts, "verifier": hosts}: the hosts each phase's allowlist names, resolved as network_modes resolves
+    the modes (a phase's own policy, a step's first, else the baseline: the verifier's own environment's when it has
+    one, else [environment]'s)."""
+    step_cfg = next((s for s in config.get("steps") or [] if str(s.get("name")) == str(step)), None) if step else None
+    step_cfg = step_cfg or {}
+
+    def own(role: str):
+        for section in (step_cfg.get(role) or {}, config.get(role) or {}):
+            if section.get("network_mode"):
+                return list(section.get("allowed_hosts") or [])
+        return None
+    base = list((config.get("environment") or {}).get("allowed_hosts") or [])
+    verifier_env = ((step_cfg.get("verifier") or {}).get("environment")
+                    or (config.get("verifier") or {}).get("environment"))
+    verifier_base = list((verifier_env or {}).get("allowed_hosts") or []) if verifier_env else base
+    agent, verifier = own("agent"), own("verifier")
+    return {"agent": base if agent is None else agent, "verifier": verifier_base if verifier is None else verifier}
 
 
 def _size_mb(value) -> int | None:
@@ -135,11 +156,14 @@ def rows_of(task_dir: Path, *, rollouts: int = 1) -> list[dict]:
 
 
 VERIFIER_KEYS = ("environment_mode", "timeout_sec", "env")    # what the judge reads of [verifier]
+VERIFIER_TIMEOUT_SEC = 600.0                                     # Harbor's default [verifier] timeout_sec
 
 
-def tasks_of(tasks_dir: Path, *, rollouts: int = 1) -> dict[str, Task]:
-    """Every task under `tasks_dir` (one directory is a set of one), by id: each row's public half, and its private
-    half naming its directory and its tests (a step's own tests where it has them, else the task's)."""
+def tasks_of(tasks_dir: Path, *, rollouts: int = 1, view: Callable[[dict], dict] | None = None) -> dict[str, Task]:
+    """Every task under `tasks_dir` (one directory is a set of one), by id: each row's public half (or `view(row)`:
+    the row the task set's agents and learners read, `data.view`), and its private half naming its directory, its
+    tests (a step's own tests where it has them, else the task's), its verifier's settings, and `needs`: what it asks
+    of its environment (network modes, allowlist hosts, memory), checked before each call."""
     out: dict[str, Task] = {}
     for task_dir in task_dirs(tasks_dir):
         for row in rows_of(task_dir, rollouts=rollouts):
@@ -152,14 +176,16 @@ def tasks_of(tasks_dir: Path, *, rollouts: int = 1) -> dict[str, Task]:
             step_cfg = next((s for s in config.get("steps") or [] if str(s.get("name")) == str(step)), {}) \
                 if step else {}
             verifier = {**(config.get("verifier") or {}), **(step_cfg.get("verifier") or {})}   # a step's own first
+            verifier.setdefault("timeout_sec", VERIFIER_TIMEOUT_SEC)
+            if verifier.get("environment") and not verifier.get("environment_mode"):
+                verifier["environment_mode"] = "separate"   # an environment of its own implies it (Harbor)
             verifier["env"] = {**((config.get("verifier") or {}).get("env") or {}),
                                **((step_cfg.get("verifier") or {}).get("env") or {})}
             private = {"task_dir": str(task_dir.resolve()), "tests": str(tests.resolve()) if tests.is_dir() else None,
                        "verifier": {k: v for k, v in verifier.items() if k in VERIFIER_KEYS}}
-            hosts = list((config.get("environment") or {}).get("allowed_hosts") or [])
-            if hosts:                                    # what an allowlist task needs to reach
-                row = {**row, "allowed_hosts": hosts}
-            out[row["id"]] = Task(id=row["id"], public=row, private=private)
+            private["needs"] = {"network": row["network"], "allowed_hosts": allowed_hosts(config, step),
+                                "memory_mb": row.get("memory_mb")}
+            out[row["id"]] = Task(id=row["id"], public=view(row) if view else row, private=private)
     if not out:
         raise ValueError(f"no task directories (with {TASK_FILE}) under {tasks_dir}")
     return out

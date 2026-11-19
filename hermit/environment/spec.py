@@ -52,9 +52,14 @@ class EnvironmentSpec:
             if asked in NETWORK_ORDER and NETWORK_ORDER[asked] > NETWORK_ORDER.get(self.network, 0):
                 out.append(f"the task's {phase} needs network {asked}; the run's environment.network is "
                            f"{self.network}")
-            elif asked == "allowlist" and self.network == "allowlist":
-                missing = [h for h in task.get("allowed_hosts") or [] if h not in self.allowed_hosts]
-                if missing:
+            elif asked == "allowlist":
+                hosts = task.get("allowed_hosts") or {}
+                hosts = list(hosts.get(phase) or []) if isinstance(hosts, Mapping) else list(hosts)
+                wild = [h for h in hosts if "*" in h]
+                missing = [h for h in hosts if h not in self.allowed_hosts and h not in wild]
+                if wild and self.network == "allowlist":     # its proxy matches a host as written
+                    out.append(f"the task's {phase} allows {wild}: wildcard hosts are not supported; name the hosts")
+                if missing and self.network == "allowlist":
                     out.append(f"the task's {phase} needs to reach {missing}, which environment.allowed_hosts lacks")
         limit = self.resources.get("memory_mb")
         if limit and task.get("memory_mb") and int(task["memory_mb"]) > int(limit):

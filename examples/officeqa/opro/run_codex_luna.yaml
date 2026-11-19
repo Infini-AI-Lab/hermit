@@ -4,6 +4,7 @@
 # (`llm: {cli: codex}`). The image and the egress proxy: the recipe's "The Flash row with GPT-5.6-Luna".
 data:
   tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/officeqa_fields.py:officeqa_task   # each task as the row SkillOpt's loader gives
   train: ../utils/benchmark/splits/train.txt
   val: ../utils/benchmark/splits/val.txt
   test: ../utils/benchmark/splits/test.txt
@@ -35,7 +36,7 @@ start_from: ../utils/benchmark/seed_adapter     # SkillOpt's initial OfficeQA sk
 evolver:
   name: opro
   params:
-    question_field: instruction      # the problem as the authors show it: the question alone
+    question_field: question         # the problem as the authors show it: the question alone
     n_candidates: 4
     select: validation               # the best validation mean of the top 3 on training
     top_k: 3

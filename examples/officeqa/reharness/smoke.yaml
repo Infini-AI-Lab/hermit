@@ -2,6 +2,7 @@
 # one pass. Started by launch.sh, which puts the embedding model behind a loopback relay for the adapter's reader.
 data:
   tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/officeqa_fields.py:officeqa_task   # each task as the row SkillOpt's loader gives
   train: ../utils/benchmark/splits/smoke_train.txt
   test: ../utils/benchmark/splits/smoke_test.txt
   step_size: 1                 # one question per step: one ReHarness instance (read, revise, write)

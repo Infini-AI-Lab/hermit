@@ -64,9 +64,9 @@ seed_adapter/             SkillOpt's initial OfficeQA skill as a prompt-only@1.0
 documents                 a link to the corpus: what the agent's sandbox shows (`environment.read`); `.private/` is not
 ```
 
-The configs read `data.tasks: ../utils/benchmark/tasks`; the agents read each task as the row SkillOpt's loader gives
-(`utils/agent/officeqa_fields.py`: the instruction as `question`, the metadata beside it), so prompts are the same as
-when the task set was one `tasks.jsonl`. Prepared before this layout? Run `prepare.py` again: the files moved from
+The configs read `data.tasks: ../utils/benchmark/tasks` with `data.view: ../utils/agent/officeqa_fields.py:officeqa_task`:
+every task is the row SkillOpt's loader gives (the instruction as `question`, the metadata beside it), so the agents'
+prompts, the run records and what a learning method reads are the same as when the task set was one `tasks.jsonl`. Prepared before this layout? Run `prepare.py` again: the files moved from
 `utils/` to `utils/benchmark/`.
 
 The split comes from SkillOpt's repository at a pinned commit unless `--split-dir` names a local copy of its

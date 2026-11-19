@@ -10,6 +10,7 @@
 # as the luna learner's is (docs/guides/claude-subscription.md; the recipe's "The Flash row with Claude Haiku 5.5").
 data:
   tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/officeqa_fields.py:officeqa_task   # each task as the row SkillOpt's loader gives
   train: ../utils/benchmark/splits/train.txt
   val: ../utils/benchmark/splits/val.txt
   test: ../utils/benchmark/splits/test.txt

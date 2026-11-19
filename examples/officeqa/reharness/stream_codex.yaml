@@ -12,6 +12,7 @@
 # loopback relay for the adapter's reader.
 data:
   tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/officeqa_fields.py:officeqa_task   # each task as the row SkillOpt's loader gives
   train: stream_s0.txt                 # upstream Harness²'s seed-0 order of ../utils/benchmark/splits/test.txt
   step_size: 1                         # one question per step: one ReHarness instance (read, revise, write)
   shuffle: false                       # the stream's own order

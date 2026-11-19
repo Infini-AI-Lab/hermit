@@ -10,6 +10,7 @@
 # README table: Codex 0.134.0, GLM 5.3 learns, three passes). The recipe's Flash row.
 data:
   tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/officeqa_fields.py:officeqa_task   # each task as the row SkillOpt's loader gives
   train: ../utils/benchmark/splits/train.txt
   val: ../utils/benchmark/splits/val.txt
   test: ../utils/benchmark/splits/test.txt

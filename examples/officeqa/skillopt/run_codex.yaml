@@ -7,6 +7,7 @@
 # SKILL.md, 180 s sessions), which this replaces.
 data:
   tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/officeqa_fields.py:officeqa_task   # each task as the row SkillOpt's loader gives
   train: ../utils/benchmark/splits/train.txt
   val: ../utils/benchmark/splits/val.txt
   test: ../utils/benchmark/splits/test.txt

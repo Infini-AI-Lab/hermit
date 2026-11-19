@@ -14,6 +14,7 @@
 # CONFIG=run_claude_haiku.yaml.
 data:
   tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/officeqa_fields.py:officeqa_task   # each task as the row SkillOpt's loader gives
   train: stream_s0.txt                 # launch.sh: upstream's order of ../utils/benchmark/splits/test.txt for SEED
   step_size: 1                         # one question per step
   shuffle: false                       # the stream's own order

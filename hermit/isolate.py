@@ -542,10 +542,12 @@ class SandboxedAgent:
         # What the config declares (not the CLI's installation), searched again for run records before calls.
         self._recheck = Recheck([*self.spec.read, *self.spec.write])
 
+    def refuses(self, needs: dict) -> list[str]:
+        """What a task asks of its environment (a task directory's `needs`) that this run's does not give: such a task
+        is never run with less (hermit.trainer.rollout asks before each call)."""
+        return self.spec.problems_for(needs, verifier=self.verifies)
+
     def __call__(self, task: dict, adapter: Path | None) -> RunOutput:
-        problems = self.spec.problems_for(task, verifier=self.verifies)   # a task directory asks: never less
-        if problems:
-            raise ValueError(f"task {task.get('id')!r} cannot run in this run's environment: {'; '.join(problems)}")
         self._recheck()
         work = self.work_root / f"{_safe(task.get('id', 'task'))}-{uuid.uuid4().hex[:8]}"
         home = work / "home"

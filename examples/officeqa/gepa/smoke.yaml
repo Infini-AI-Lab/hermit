@@ -1,6 +1,7 @@
 # Smoke: 4 training questions in 2 steps, 2 validation questions, 4 test questions.
 data:
   tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/officeqa_fields.py:officeqa_task   # each task as the row SkillOpt's loader gives
   train: ../utils/benchmark/splits/smoke_train.txt
   val: ../utils/benchmark/splits/smoke_val.txt
   test: ../utils/benchmark/splits/smoke_test.txt
