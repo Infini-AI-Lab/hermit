@@ -135,7 +135,7 @@ the Base Agent's setting (`hermit/agent/base/cli.py`).
 | `trainer.budget.tokens` | number / null | Token budget |
 | `trainer.budget.hours` | number / null | Training wall-time budget |
 | `trainer.call_timeout_min` | number / 60 | Per-call timeout in minutes |
-| `eval.repeats` | integer / 1 | Attempts per test task; use a positive value |
+| `eval.repeats` | integer / 1 | Attempts per test task (a Harbor task indexed with k rollouts is k tasks); use a positive value |
 
 Use at least one finite budget for a real experiment. Limits are observed at call/rollout boundaries; concurrent
 work can overshoot. Separate `check` probes and `eval` calls are outside the training budget.

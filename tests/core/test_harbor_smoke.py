@@ -116,13 +116,14 @@ def test_multi_step_task_runs_as_one_stream(tasks):
     root, rows = tasks
     agent = _agent(root, "echo step >> /app/log.txt", "jobs-stream", stream={"idle_s": 600, "start_timeout_s": 600})
     results = [agent.run(rows[f"counter:s{i}"], None) for i in (1, 2, 3)]
+    name = f"counter__s1__{agent.run_id}"                                  # the stream is this runner's own
     for i, out in enumerate(results, start=1):
         assert out.output["status"] == "ok" and out.output["reward"] == 1.0, (i, out.extra)
-        assert out.output["step"] == f"s{i}" and out.output["trial"] == "counter__s1"
+        assert out.output["step"] == f"s{i}" and out.output["trial"] == name
         assert (Path(out.log) / "verifier" / "test-stdout.txt").read_text().strip() == f"PASS {i}"
-    stream_dir = root / "jobs-stream" / "streams" / "counter__s1"
-    result = json.loads((stream_dir / "trials" / "counter__s1" / "result.json").read_text())
+    stream_dir = root / "jobs-stream" / "streams" / name
+    result = json.loads((stream_dir / "trials" / name / "result.json").read_text())
     assert [s["step_name"] for s in result["step_results"]] == ["s1", "s2", "s3"]
     assert result["verifier_result"]["rewards"]["reward"] == 1.0           # the mean over the steps
     containers = subprocess.run(["docker", "ps", "-a", "--format", "{{.Names}}"], capture_output=True, text=True).stdout
-    assert "counter__s1" not in containers                                   # the stream's environment is down
+    assert name not in containers                                            # the stream's environment is down

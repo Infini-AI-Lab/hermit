@@ -39,16 +39,18 @@ SERVER_NAME = re.compile(r"[A-Za-z0-9_-]{1,32}")   # what dsh takes as an MCP se
 
 
 def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path | None = None,
-            context: str | None = None) -> dict:
+            context: str | None = None, serve_tools: bool = True) -> dict:
     """`context`: the adapter's context for one task, which the harness computed, in place of the one rendered
-    here; an adapter whose context is per task deploys only so."""
+    here; an adapter whose context is per task deploys only so. `serve_tools`: false when the caller serves the
+    adapter's tools to the session itself (a container session, which cannot start a server on this machine): the
+    patch layer then holds no server row for them."""
     adapter, output = adapter.resolve(), output.resolve()
     refused = not_portable(load_manifest(adapter), "A DeepSeek Harness workspace")   # before anything is written
     if refused and context is None:
         raise ValueError(refused)
     previous = check_workspace(adapter, output, "dsh")
     manifest = load_manifest(adapter)
-    has_tools = bool(agent_tools(manifest))     # the context tool is the harness's, not served
+    has_tools = bool(agent_tools(manifest)) and serve_tools     # the context tool is the harness's, not served
     if has_tools and not SERVER_NAME.fullmatch(server_name(manifest)):
         raise ValueError(f"dsh takes an MCP server name of 32 characters at most ([A-Za-z0-9_-]), not "
                          f"{server_name(manifest)!r} (the adapter's id)")

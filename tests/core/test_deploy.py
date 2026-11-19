@@ -92,6 +92,24 @@ def test_dsh_gets_the_tools_and_skills_as_rows_of_the_workspaces_patch_layer(tmp
     assert not (tmp_path / "b" / "AGENTS.md").exists()
 
 
+def test_pi_and_dsh_serve_no_tools_when_the_caller_serves_them(tmp_path):
+    """`serve_tools=False` (a caller that serves the adapter's tools to the session itself, as a Harbor trial's runner
+    does from this machine) leaves the tools out of the workspace, as for the other hosts: Pi's .pi/mcp.json names no
+    server, dsh's patch layer holds no server row; the rest of the deployment is the same (the context, the skills,
+    dsh's skill row)."""
+    result = pi_prepare(LEAN, tmp_path / "p", sys.executable, serve_tools=False)
+    assert json.loads((tmp_path / "p" / ".pi" / "mcp.json").read_text()) == {"mcpServers": {}}
+    assert "hermit:lean-collab:start" in (tmp_path / "p" / "AGENTS.md").read_text()
+    assert (tmp_path / "p" / ".pi" / "skills" / "good-map" / "SKILL.md").exists()
+    assert result["context_injected_via"] == "AGENTS.md"
+    result = dsh_prepare(LEAN, tmp_path / "d", sys.executable, serve_tools=False)
+    layer = json.loads((tmp_path / "d" / ".dsh" / "hermit.patch.yml").read_text())
+    assert not [r for r in layer if "insert" in r]                     # no server row
+    assert {"id": "skill-filesystem", "config": {"customSkillDirs": [".dsh/skills"]}} in layer
+    assert result["server_name"] is None and result["patch"] == str(tmp_path / "d" / ".dsh" / "hermit.patch.yml")
+    assert "hermit:lean-collab:start" in (tmp_path / "d" / "AGENTS.md").read_text()
+
+
 def test_dsh_refuses_an_agents_md_dsh_would_cut_and_a_server_name_it_would_refuse(tmp_path):
     """dsh's 65,536 bytes are the instructions as the model is given them, in dsh's frame (304 bytes around one
     AGENTS.md; a `</system-reminder>` in the text one byte longer): an AGENTS.md up to the difference is deployed, one

@@ -1,0 +1,37 @@
+# LAB-Bench FigQA, the baseline: Claude Code with Claude Haiku 5.5 and no adapter, on the 127 test questions of
+# SkillOpt's split (the questions the method's adapter is tested on), once each, each question's own 300 s, no web
+# search; its 181 questions with `data.test=../utils/splits/all.txt` (below). Claude Code runs Claude Haiku 5.5 at
+# medium effort on a Claude subscription (`claude setup-token`, the token exported as CLAUDE_CODE_OAUTH_TOKEN; no API
+# key), in each task's container.
+#
+#   hermit eval --config examples/labbench/baseline/claude.yaml --adapter none
+#   hermit eval --config examples/labbench/baseline/claude.yaml --adapter none \
+#       data.test=../utils/splits/all.txt trainer.run_name=claude-baseline-all
+#
+# The accuracy is the pass_at_1 of `python -m hermit.harbor.report` on the eval's folder
+# (runs/claude-baseline/eval/none/ beside this file), over the trials that are the agent's result; the summary's
+# mean_score counts an infra trial as 0.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke.txt     # placeholder, as template and evolver are: hermit eval reads it, trains nothing
+  test: ../utils/splits/test.txt       # 127 questions (SkillOpt's split: 2:1:7, seed 42)
+agent:
+  name: harbor
+  concurrency: 8
+  params:
+    benchmark: ../utils/benchmark.yaml
+    acting_agent: {cli: claude}        # Claude Code in the task's container, installed there by Harbor
+    model: claude-haiku-5-5            # a Claude Code model name, on the subscription
+    login: claude                      # the subscription's plan, shared with Hermit's other sessions on it
+    effort: medium
+    jobs_dir: ~/.cache/hermit/harbor/jobs/labbench-claude  # the Claude Code configs' trials
+judge:
+  path: hermit.harbor.judge            # the verifier's reward
+template: prompt-only@1.0              # placeholder (see data.train)
+task_info: ../utils/task-info          # what hermit check asks of a training config
+evolver: {name: eval-only}             # placeholder: no Evolver of this name, so hermit train refuses this config
+trainer:
+  run_name: claude-baseline
+  output_dir: runs
+eval:
+  repeats: 1
