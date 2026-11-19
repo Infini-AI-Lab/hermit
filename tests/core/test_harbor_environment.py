@@ -525,6 +525,29 @@ def test_a_real_harbor_environment_runs_the_agents_commands_and_harbors_verifier
     kept = [p for p in (tmp_path / "jobs").rglob("*") if p.is_file() and not p.is_symlink()]
     assert not [p for p in kept if b"grader-literal-credential" in p.read_bytes()]
     assert not [p for p in kept if AGENT_KEY.encode() in p.read_bytes()]          # nor stays in the trial's files
+    # a task whose agent user is not root: what Hermit provisions is that user's (its uid:gid, as the runner's
+    # _owner); what the agent's process asks for through the sandbox's proxy (as_agent) has that user's permissions
+    user_task = tmp_path / "tasks" / "as-nobody"
+    shutil.copytree(task, user_task)
+    (user_task / "task.toml").write_text(f'[agent]\ntimeout_sec = 120\nuser = "nobody"\n[verifier]\ntimeout_sec = 120\n'
+                                         f'[environment]\ndocker_image = "{image}"\n')
+    local = tmp_path / "x.txt"
+    local.write_text("mine")
+    with environments.session(user_task) as env:
+        assert env.exec(["id", "-u"]).output.strip() == "65534"
+        env.upload(local, "/opt/hermit-home/x.txt")                              # Hermit's own: given to the user
+        assert env.exec(["stat", "-c", "%u", "/opt/hermit-home/x.txt"]).output.strip() == "65534"
+        env.download("/etc/shadow", tmp_path / "shadow-root")                    # Hermit's own: root's reach
+        with pytest.raises(PermissionError):
+            env.download("/etc/shadow", tmp_path / "shadow", as_agent=True)
+        with pytest.raises(PermissionError):
+            env.upload(local, "/etc/hermit-x.txt", as_agent=True)
+        assert env.exec(["sh", "-c", "test -e /etc/hermit-x.txt"]).code != 0
+        env.upload(local, "/tmp/agent-own/x.txt", as_agent=True)
+        assert env.exec(["stat", "-c", "%u", "/tmp/agent-own/x.txt"]).output.strip() == "65534"
+        env.download("/tmp/agent-own", tmp_path / "back", as_agent=True)
+        assert (tmp_path / "back" / "x.txt").read_text() == "mine"
+        assert not (tmp_path / "shadow").exists()
     # Harbor's own agent timeout ends the phase: the command still running is ended (AgentPhaseOver), and the trial
     # runs on to its verifier, its verdict the agent's timeout
     timed = HarborEnvironments({"tasks_dir": str(tmp_path / "tasks"), "jobs_dir": str(tmp_path / "jobs2"),
@@ -1055,6 +1078,8 @@ def test_the_bridge_relays_only_in_its_phase_and_ends_its_commands_before_it_ret
             async def exec(self, command, cwd=None, user=None, **kw):
                 if command.startswith("printf"):
                     return SimpleNamespace(return_code=0, stdout="hermit-workdir:/app\\n", stderr="")
+                if "hermit-owner:" in command:
+                    return SimpleNamespace(return_code=0, stdout="hermit-owner:0:0\\n", stderr="")
                 self.kills.append(command)
                 return SimpleNamespace(return_code=0 if self.ok else 1, stdout="", stderr="")
 
@@ -1862,3 +1887,48 @@ def test_the_answer_agent_reads_patterns_and_token_limits_as_the_runner(tmp_path
     assert "max_tokens" not in sent[0]                           # none given: none sent (the runner's)
     agent = answer_mod.AnswerAgent({**params, "answer_pattern": r"yes(?:=(\w+))?"}, tmp_path)
     assert agent.answer("yes") == "yes" and agent.answer("yes=B") == "B"
+
+
+def test_a_dead_driver_wakes_every_request_at_once(tmp_path):
+    """The reader publishes the death under the lock a request registers under: no request waits its watchdog."""
+    import contextlib
+    import threading
+    import time
+    from hermit.environment.harbor import _Driver
+    script = tmp_path / "dies.py"
+    script.write_text("import sys, time\nsys.stdin.readline()\ntime.sleep(0.2)\n")
+    original = harbor_mod.DRIVER
+    harbor_mod.DRIVER = script
+    try:
+        driver = _Driver(sys.executable, tmp_path / "driver.log", dict(os.environ))
+        ends = []
+
+        def ask():
+            started = time.time()
+            with contextlib.suppress(EnvironmentUnavailable, RuntimeError):
+                driver.request("exec", 30, command="x")
+            ends.append(time.time() - started)
+
+        threads = [threading.Thread(target=ask) for _ in range(20)]
+        for t in threads:
+            t.start()
+            time.sleep(0.02)
+        for t in threads:
+            t.join(timeout=40)
+        assert len(ends) == 20 and max(ends) < 10
+        driver.close(5)
+    finally:
+        harbor_mod.DRIVER = original
+
+
+def test_the_sandbox_proxy_and_the_cli_agent_refuse_limits_given_with_the_environment(tmp_path):
+    from hermit.agent.acting.workspace import CliAgent
+    from hermit.environment import Local
+    from hermit.environment.remote import EnvironmentServer
+    with pytest.raises(Unsupported, match="never dropped"):
+        EnvironmentServer(Local(tmp_path, Limits(timeout_s=30, network=[])))
+    env = Recorded(tmp_path)
+    env.limits = Limits(timeout_s=600, network=[])
+    with pytest.raises(Unsupported, match="network limit"):
+        CliAgent({"backend": "codex", "web_search": False, "bin": "codex", "workspaces": str(tmp_path / "ws")},
+                 tmp_path).run({"id": "t", "instruction": "x"}, None, environment=env)

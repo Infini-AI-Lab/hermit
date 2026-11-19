@@ -12,6 +12,7 @@ and the host need not see each other's paths. One server is started for one call
 """
 from __future__ import annotations
 
+import inspect
 import io
 import json
 import os
@@ -47,6 +48,10 @@ class EnvironmentServer:
     """The agent's operations on `environment`, over HTTP on the loopback (module docstring)."""
 
     def __init__(self, environment: Environment, host: str = "127.0.0.1"):
+        limits = environment.limits
+        if limits.readable or limits.hidden or limits.network is not None:
+            raise Unsupported("the sandbox's proxy carries an environment's time limit only: readable mounts, hidden "
+                              "paths or a network limit of Hermit's are refused, never dropped")
         self.environment = environment
         self.token = secrets.token_hex(16)
         server = self
@@ -130,15 +135,20 @@ class EnvironmentServer:
                                        timeout=request.get("timeout"), stdin=request.get("stdin"), **extra)
         return {"code": result.code, "output": result.output, "timed_out": result.timed_out}
 
+    def _as_agent(self) -> dict:
+        """A transfer the agent's process asks for: with the environment's agent user's own permissions where the
+        environment tells them apart from its provisioning (a task's Harbor environment)."""
+        return {"as_agent": True} if "as_agent" in inspect.signature(self.environment.upload).parameters else {}
+
     def upload(self, body: bytes, target: str) -> dict:
         with tempfile.TemporaryDirectory(prefix="hermit-upload-") as tmp:
-            self.environment.upload(_untar(body, Path(tmp)), target)
+            self.environment.upload(_untar(body, Path(tmp)), target, **self._as_agent())
         return {"target": str(self.environment.path(target))}
 
     def download(self, source: str) -> bytes:
         with tempfile.TemporaryDirectory(prefix="hermit-download-") as tmp:
             local = Path(tmp) / PAYLOAD
-            self.environment.download(source, local)
+            self.environment.download(source, local, **self._as_agent())
             return _tar(local)
 
 

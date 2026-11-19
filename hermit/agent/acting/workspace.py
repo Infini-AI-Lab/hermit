@@ -66,6 +66,7 @@ supported there (refused).
 """
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import json
 import os
@@ -573,6 +574,10 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
                           f"(a task's Harbor environment), not {given!r}")
     if remote:
         unsupported = [k for k in ("mounts", "prepare", "collect") if params.get(k)]
+        lim = given.limits
+        if lim.readable or lim.hidden or lim.network is not None:
+            raise Unsupported(f"agent {backend} in a remote environment takes no readable mounts, hidden paths or "
+                              "network limit of Hermit's (the task's own say what its environment reaches)")
         if unsupported or params.get("isolation") == "container":
             raise Unsupported(f"agent {backend} in a remote environment (a task's Harbor environment) takes none of "
                               f"{', '.join(unsupported) or 'isolation: container'}: the environment is the task's own")
@@ -664,7 +669,8 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
                 raise RuntimeError(f"agent {backend} could not be served within deadline_s={budget:.0f}")
         if remote:
             own = given.limits.timeout_s
-            place = given.with_limits(Limits(timeout_s=min(timeout_s, float(own)) if own else timeout_s))
+            place = given.with_limits(dataclasses.replace(given.limits, timeout_s=min(timeout_s, float(own))
+                                                          if own else timeout_s))   # its other limits kept
         else:
             place = environment(work, params, Limits(readable=mounts, timeout_s=timeout_s))
         try:

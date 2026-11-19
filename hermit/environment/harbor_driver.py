@@ -25,8 +25,10 @@ Requests, one JSON object a line: {"id": n, "op": <op>, ...}; each is answered, 
     exec      {command, cwd, env, timeout_sec, stdin, user, by_fd} -> {code, output, timed_out}: `command` (a shell
               line) in the main container, as the task's agent user unless `user` names another; with a timeout, under
               `timeout` there, and `stdin` given through a file; only during the agent phase
-    upload    {source, target}: a file or a folder of this machine to `target` (owned by the agent user when the task
-              names one); download {source, target}: the other way
+    upload    {source, target, as_agent}: a file or a folder of this machine to `target`, given to the agent user
+              when it is not root (Hermit's provisioning); `as_agent` (the agent's process asked, through the
+              sandbox's proxy): written with that user's own permissions; download {source, target, as_agent}: the
+              other way, `as_agent` read with that user's permissions
     done      {agent_logs} -> {rewards, exception, verifier_dir, verifier_mode, trial_dir}: the agent phase ends (its
               commands still running ended, `agent_logs`, a folder of this machine, copied scrubbed into the trial's
               agent logs, /logs/agent, which a verifier may read), and the trial runs on to its end
@@ -67,6 +69,7 @@ UNSUPPORTED = ("does not support", "cannot forward HTTP MCP")   # Harbor's capab
 TRIAL_FIELDS = ("verifier_timeout_multiplier", "environment_build_timeout_multiplier", "agent_timeout_multiplier",
                 "agent_setup_timeout_multiplier", "timeout_multiplier")
 AGENT_FIELDS = ("override_timeout_sec", "override_setup_timeout_sec", "max_timeout_sec", "extra_allowed_hosts")
+OWNER_MARK = "hermit-owner:"             # the agent user's uid:gid line (the runner's OWNER_LINE)
 WORKDIR_MARK = "hermit-workdir:"         # the line the working directory's probe prints it on (shell noise aside)
 KILL_GRACE_S = 10                       # `timeout -k`: after the TERM, the KILL
 BACKSTOP_S = 60                         # Harbor's own exec timeout past the command's, should `timeout` not end it
@@ -298,6 +301,7 @@ class Driver:
         self.env = None                                # the environment, while the agent phase is on
         self.in_phase = False
         self.user = None
+        self.owner: str | None = None                  # the agent user's uid:gid when not root (the runner's _owner)
         self.has_timeout: bool | None = None
         self.mark = uuid.uuid4().hex                   # this environment's agent commands' mark (MARK)
         self.agent_ops: set = set()                    # the agent's operations in flight
@@ -376,6 +380,12 @@ class Driver:
                   if line.startswith(WORKDIR_MARK)]
         if found.return_code != 0 or not marked or not marked[-1].startswith("/"):
             raise HarborDriverError(f"the environment's working directory could not be read: {found.stdout!r}"[:500])
+        said = await environment.exec(f'echo "{OWNER_MARK}$(id -u):$(id -g)"')   # the user the agent runs as
+        owner = [line[len(OWNER_MARK):].strip() for line in ((said.stdout or "") + (said.stderr or "")).splitlines()
+                 if line.startswith(OWNER_MARK)]
+        if said.return_code != 0 or not owner or not __import__("re").fullmatch(r"\d+:\d+", owner[-1]):
+            raise HarborDriverError(f"the task's agent user has no uid:gid here: {said.stdout!r}"[:500])
+        self.owner = None if owner[-1].split(":")[0] == "0" else owner[-1]
         plan = trial._network_plan(None)
         self.in_phase = True
         self.phase_started.set_result({
@@ -561,12 +571,23 @@ class Driver:
         return await environment.exec(line, cwd=cwd, env=carried or None, timeout_sec=timeout, user=user)
 
     async def _own(self, target: str) -> None:
-        """What was uploaded, the agent user's (an upload lands as root's)."""
-        if self.user not in (None, "root", 0, "0"):
-            await self.env.exec(f"chown -R {shlex.quote(str(self.user))} {shlex.quote(target)}", user="root")
+        """What Hermit provisioned (an upload lands as root's), the agent user's: its uid:gid as the environment says it
+        (an image's own USER too), the chown confirmed (the runner's _owner and its chown)."""
+        if self.owner is not None:
+            done = await self.env.exec(f"chown -R {shlex.quote(self.owner)} {shlex.quote(target)}", user="root")
+            if done.return_code != 0:
+                raise RuntimeError(f"{target} could not be given to the agent user {self.owner}: "
+                                   f"{(done.stdout or '')[-300:]}")
+
+    async def _root(self, command: str) -> None:
+        done = await self.env.exec(command, user="root")
+        if done.return_code != 0:
+            raise RuntimeError(f"{command[:120]}: {(done.stdout or '')[-300:]}")
 
     async def upload(self, req: dict) -> dict:
         source, target = Path(req["source"]), str(req["target"])
+        if req.get("as_agent") and self.owner is not None:
+            return await self._upload_as_agent(source, target)
         parent = str(Path(target).parent)
         await self.env.exec(f"mkdir -p {shlex.quote(parent)}", user="root")
         if source.is_dir() and not source.is_symlink():
@@ -576,13 +597,74 @@ class Driver:
         await self._own(target)
         return {}
 
+    async def _upload_as_agent(self, source: Path, target: str) -> dict:
+        """An upload the agent's process asked for (the sandbox's proxy), with the agent user's own permissions: the
+        files copied as root into a folder of their own, given to that user, and copied into place as that user;
+        only folders missing on the way are made (by root, under a real folder) and given to it, so nothing there
+        already is reached past its permissions."""
+        stage = f"/tmp/hermit-xfer-{uuid.uuid4().hex}"
+        payload = f"{stage}/payload"
+        is_dir = source.is_dir() and not source.is_symlink()
+        q, owner = shlex.quote, shlex.quote(self.owner)
+        try:
+            await self._root(f"mkdir -m 700 {q(stage)}")
+            if is_dir:
+                await self.env.upload_dir(source, payload)
+            else:
+                await self.env.upload_file(source, payload)
+            await self._root(f"chown -R {owner} {q(stage)}")
+            first = target if is_dir else str(Path(target).parent)
+            await self._root(f'missing=; p={q(first)}; while [ ! -e "$p" ] && [ ! -L "$p" ]; do '
+                             f'missing="$p $missing"; p=$(dirname "$p"); done; for c in $missing; do '
+                             f'[ -L "$(dirname "$c")" ] && exit 3; mkdir "$c" && chown {owner} "$c" || exit 1; done')
+            copy = f"cp -Rp {q(payload)}/. {q(target)}/" if is_dir else f"cp -p {q(payload)} {q(target)}"
+            done = await self.env.exec(copy)             # the agent user's (the environment's default user)
+            if done.return_code != 0:
+                raise Failed("PermissionError", f"the agent user may not write {target}: "
+                                                f"{(done.stdout or '')[-300:]}")
+        finally:
+            with contextlib.suppress(Exception):
+                await self.env.exec(f"rm -rf {q(stage)}", user="root")
+        return {}
+
     async def download(self, req: dict) -> dict:
         source, target = str(req["source"]), Path(req["target"])
+        if req.get("as_agent") and self.owner is not None:
+            return await self._download_as_agent(source, target)
         target.parent.mkdir(parents=True, exist_ok=True)
         if await self.env.is_dir(source, user="root"):
             await self.env.download_dir(source, target)
         else:
             await self.env.download_file(source, target)
+        return {}
+
+    async def _download_as_agent(self, source: str, target: Path) -> dict:
+        """A download the agent's process asked for, read with the agent user's own permissions: a tar of it made as
+        that user in the environment (tar's own exit decides), unpacked here as data (no link out, no device, no
+        absolute path)."""
+        import base64
+        import tarfile
+        parent, name = str(Path(source).parent), Path(source).name
+        done = await self.env.exec(
+            f'out=$(mktemp) && cd {shlex.quote(parent)} && tar -cf "$out" -- {shlex.quote(name)} && base64 "$out"; '
+            'rc=$?; rm -f "$out"; exit $rc')
+        if done.return_code != 0:
+            raise Failed("PermissionError", f"the agent user may not read {source}: "
+                                            f"{(done.stderr or done.stdout or '')[-300:]}")
+        with tempfile.TemporaryDirectory(prefix="hermit-down-") as tmp:
+            archive = Path(tmp) / "a.tar"
+            archive.write_bytes(base64.b64decode("".join((done.stdout or "").split())))
+            with tarfile.open(archive) as tar:
+                tar.extractall(Path(tmp) / "x", filter="data")
+            got = Path(tmp) / "x" / name
+            if got.is_dir() and not got.is_symlink():
+                target.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(got, target, symlinks=True, dirs_exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if target.is_symlink() or target.exists():
+                    target.unlink()
+                shutil.move(str(got), str(target))
         return {}
 
     async def _kill(self, mark: str) -> None:
