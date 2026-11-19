@@ -1,11 +1,25 @@
-"""File mailbox shared by the Codex hooks and a task-owned simulated user."""
+"""Conversation API backed by either a legacy mailbox or a host-owned bridge."""
 
 from __future__ import annotations
+
 import json
 import os
-from pathlib import Path
 import threading
 import time
+from pathlib import Path
+from typing import Protocol
+
+
+class ConversationTransport(Protocol):
+    """Host-owned transport used when the mailbox must stay outside the Actor's view."""
+
+    def send(self, record: dict) -> None: ...
+
+    async def asend(self, record: dict) -> None: ...
+
+    def read(self, since: int) -> tuple[int, list[dict]]: ...
+
+    def close(self) -> None: ...
 
 
 class ConversationClosed(RuntimeError):
@@ -17,8 +31,11 @@ class Conversation:
 
     capabilities = frozenset({"turns", "insert", "interrupt", "progress"})
 
-    def __init__(self, mail: Path, start, alive, stop):
-        self.mail, self._start, self._alive, self._stop = mail, start, alive, stop
+    def __init__(self, mail: Path | None, start, alive, stop, *, transport: ConversationTransport | None = None):
+        if mail is None and transport is None:
+            raise ValueError("Conversation needs a mailbox path or a transport")
+        self.mail, self._transport = mail, transport
+        self._start, self._alive, self._stop = start, alive, stop
         self.transcript: list[dict] = []
         self.closed = False
         self._started = False
@@ -26,13 +43,15 @@ class Conversation:
         self._events: list[dict] = []
         self._replies: list[dict] = []
         self._n = 0
+        self._transport_seq = 0
         self._lock = threading.Lock()
-        for name in ("to-agent", "to-user", "taken"):
-            (mail / name).mkdir(parents=True, exist_ok=True)
-            os.chmod(
-                mail / name, 0o777
-            )  # the container's user is not this process's user
-        os.chmod(mail, 0o777)
+        if self.mail is not None:
+            for name in ("to-agent", "to-user", "taken"):
+                (self.mail / name).mkdir(parents=True, exist_ok=True)
+                os.chmod(
+                    self.mail / name, 0o777
+                )  # the container's user is not this process's user
+            os.chmod(self.mail, 0o777)
 
     # ----- to the agent -----------------------------------------------------------------------------------------------
     def _drop(self, kind: str, **fields) -> dict:
@@ -44,6 +63,10 @@ class Conversation:
                 "t": round(time.time(), 3),
                 **fields,
             }
+            if self._transport is not None:
+                self._transport.send(record)
+                self.transcript.append({"from": "user", **record})
+                return record
             name = f"{time.time():017.6f}-{kind}.json"
             tmp = self.mail / "to-agent" / ("." + name)
             tmp.write_text(json.dumps(record))
@@ -88,13 +111,54 @@ class Conversation:
             self._drop("end")
         self.closed = True
 
+    async def end_async(self) -> None:
+        """End from the Harbor event loop without synchronously waiting on that same loop."""
+        with self._lock:
+            if self.closed:
+                return
+            record = None
+            if self._started:
+                self._n += 1
+                record = {
+                    "id": f"u{self._n}",
+                    "kind": "end",
+                    "t": round(time.time(), 3),
+                }
+            self.closed = True
+        if record is None:
+            return
+        if self._transport is not None:
+            asend = getattr(self._transport, "asend", None)
+            if callable(asend):
+                await asend(record)
+            else:
+                self._transport.send(record)
+            self.transcript.append({"from": "user", **record})
+            return
+        name = f"{time.time():017.6f}-end.json"
+        tmp = self.mail / "to-agent" / ("." + name)
+        tmp.write_text(json.dumps(record))
+        os.chmod(tmp, 0o666)
+        os.replace(tmp, self.mail / "to-agent" / name)
+        self.transcript.append({"from": "user", **record})
+
     def close(self) -> None:
         """End the conversation and synchronously stop the Actor before capture."""
         self.end()
         self._stop()
+        if self._transport is not None:
+            self._transport.close()
 
     # ----- from the agent ---------------------------------------------------------------------------------------------
     def _read(self) -> None:
+        if self._transport is not None:
+            self._transport_seq, events = self._transport.read(self._transport_seq)
+            for event in events:
+                self.transcript.append({"from": "agent", **event})
+                (self._replies if event.get("kind") == "reply" else self._events).append(
+                    event
+                )
+            return
         for path in sorted((self.mail / "to-user").glob("[!.]*.json")):
             if path.name in self._seen:
                 continue

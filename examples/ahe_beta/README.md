@@ -7,6 +7,9 @@ than AHE's original experiments, which evolved a complete NexAU Harness.
 
 The first integration targets **Harbor 0.25.0, Codex 0.164.0 and local Docker**.
 Interaction remains in this example; no user-simulation abstract has been added.
+Simulated-user runs keep Harbor's `auto_mounting: true` for post-run reward and
+evidence collection. Live control messages use a separate root-owned bridge and
+do not use a writable mailbox under `/logs/agent`.
 
 ```mermaid
 flowchart LR
@@ -182,15 +185,18 @@ usage, the complete native Session, frozen file bytes, conversation and tool eve
 | AHE `integrations/hermit/workspace.py` | Host workspace operations, freeze and native artifact collection |
 | AHE `integrations/hermit/export.py` | Source task recipes and frozen cohort conversion |
 | AHE `integrations/hermit/feedback.py` | Native report publication, demand roles and delivery recovery |
-| `utils/hermit_user_codex.py`, `channel.py`, `user_hook.py` | One Codex process, mailbox interaction and Actor shutdown |
+| `utils/hermit_user_codex.py`, `channel.py`, `channel_server.py`, `user_hook.py` | One Codex process, root-owned user channel and Actor shutdown |
+| `utils/processes.py` | Baseline-aware process cleanup using trusted service registrations |
 | `utils/acting.py`, `binding.py` | Per-task assignment, valid-rollout reuse and code-version binding |
 | `hermit/agent/evolver/methods/ahe_beta/` | One full feedback/delivery cycle per training step |
 | `hermit/adapter/templates/ahe_beta/` | Declared mutable adapter surface and fixed checker |
 
 The initial hook/channel design comes from the Hermit authors' reference handoff for
-Hermit `e813538`, Harbor 0.25.0 and Codex 0.164.0. This version adds native AHE lifecycle
-integration, explicit shutdown, failure propagation and full evidence preservation.
-It does not replace the authors' general interaction abstract or add another host.
+Hermit `e813538`, Harbor 0.25.0 and Codex 0.164.0. This version keeps the interaction
+API in the example while routing live control and event records through a root-owned
+bridge. The Actor cannot write the queue, event log, hook implementation or hook
+configuration. Actor cleanup trusts registered services and process ancestry rather
+than declared listening ports.
 
 Real smoke results cover a small file task in both modes and scripted control-message
 races. The exported M02 and KV tasks also passed real Harbor environment startup;

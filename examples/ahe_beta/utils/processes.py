@@ -5,9 +5,9 @@ start time so that a recycled PID does not inherit an exclusion from the baselin
 """
 
 import os
-from pathlib import Path
 import signal
 import time
+from pathlib import Path
 
 
 def processes():
@@ -28,38 +28,42 @@ def snapshot():
     return {str(pid): start for pid, (_, start) in processes().items()}
 
 
-def exclusions(rows, ports):
+def exclusions(rows, _ports=(), service_dir=Path("/run/ahe-services")):
+    """Return processes that belong to the host or explicitly registered services.
+
+    Declared ports are diagnostic metadata.  A task process can bind one of
+    those ports, so port ownership is never sufficient to exempt a process
+    from terminal cleanup.
+    """
     excluded = {1}
     parent = os.getpid()
     while parent in rows and parent not in excluded:
         excluded.add(parent)
         parent = rows[parent][0]
-    # Services are recipe-owned, and a hot replacement may own a declared handoff port.
+    # Services are recipe-owned.  The marker directory is created by the
+    # runtime as root, and the marker records PID plus its proc start time.
     services = set()
-    for marker in Path("/run/ahe-services").glob("*.pid"):
+    try:
+        directory = service_dir.stat()
+        trusted_service_dir = directory.st_uid == 0 and not directory.st_mode & 0o022
+    except OSError:
+        trusted_service_dir = False
+    if not trusted_service_dir:
+        return excluded
+    for marker in service_dir.glob("*.pid"):
         try:
-            services.add(int(marker.read_text().strip()))
+            metadata = marker.stat()
+            if metadata.st_uid != 0 or metadata.st_mode & 0o022:
+                continue
+            raw = marker.read_text().strip().split(":", 1)
+            pid = int(raw[0])
+            if pid not in rows:
+                continue
+            if len(raw) == 2 and int(raw[1]) != rows[pid][1]:
+                continue
+            services.add(pid)
         except (ValueError, OSError):
             continue
-    inodes = set()
-    for name in ("tcp", "tcp6"):
-        table = Path("/proc/net") / name
-        if not table.exists():
-            continue
-        for line in table.read_text().splitlines()[1:]:
-            fields = line.split()
-            if fields[3] == "0A" and int(fields[1].rsplit(":", 1)[1], 16) in ports:
-                inodes.add(fields[9])
-    for pid in rows:
-        try:
-            for fd in Path("/proc", str(pid), "fd").iterdir():
-                try:
-                    if os.readlink(fd) in {f"socket:[{i}]" for i in inodes}:
-                        services.add(pid)
-                except FileNotFoundError:
-                    pass
-        except FileNotFoundError:
-            pass
     while True:
         expanded = services | {
             pid for pid, (ppid, _) in rows.items() if ppid in services
@@ -70,7 +74,7 @@ def exclusions(rows, ports):
     return excluded | services
 
 
-def quiesce(baseline, ports):
+def quiesce(baseline, ports=()):
     for sig in (signal.SIGTERM, signal.SIGKILL):
         rows = processes()
         excluded = exclusions(rows, ports)

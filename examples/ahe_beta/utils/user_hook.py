@@ -3,11 +3,11 @@
 
     python3 user_hook.py PreToolUse | PostToolUse | Stop        (registered in <workdir>/.codex/hooks.json)
 
-Standard library only. The settings are in `user_hook.json` beside this file: `mail` (the mailbox directory, under
-the agent's log directory, which Harbor shares with the host), `wait_s` (how long a Stop waits for the user),
-`adapter_stop` (the adapter's own Stop commands, run here before the user hears anything).
+Standard library only. The settings are in `user_hook.json` beside this file: `channel` (the root-owned bridge socket),
+`wait_s` (how long a Stop waits for the user), and `adapter_stop` (the adapter's own Stop commands, run here before
+the user hears anything). A legacy `mail` setting remains supported for offline hook tests.
 
-The mailbox:
+The legacy mailbox:
 
     to-user/<time>-<pid>-<kind>.json     written here:        tool_start, tool, reply, delivered, timeout
     to-agent/<time>-<kind>.json          written by the host: message, interrupt, end
@@ -25,20 +25,27 @@ What each event does:
 
 import json
 import os
-from pathlib import Path
+import socket
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 HERE = Path(__file__).resolve()
 CFG = json.loads(HERE.with_suffix(".json").read_text())
-MAIL = Path(CFG["mail"])
+MAIL = Path(CFG.get("mail") or "/run/ahe-user-channel/legacy-mail")
 TO_USER, TO_AGENT, TAKEN = MAIL / "to-user", MAIL / "to-agent", MAIL / "taken"
+CHANNEL = Path(CFG["channel"]) if CFG.get("channel") else None
 SHORT = 20000  # characters of a tool's input or output reported to the user
 
 
 def report(kind: str, **fields) -> None:
     """One event for the user, written whole (a temporary name, then a rename)."""
+    if CHANNEL is not None:
+        response = _request({"op": "report", "event": {"kind": kind, "t": round(time.time(), 3), **fields}})
+        if not response.get("ok"):
+            raise RuntimeError(response.get("error") or "user channel report failed")
+        return
     TO_USER.mkdir(parents=True, exist_ok=True)
     name = f"{time.time():017.6f}-{os.getpid()}-{kind}.json"
     tmp = TO_USER / ("." + name)
@@ -47,12 +54,50 @@ def report(kind: str, **fields) -> None:
     os.replace(tmp, TO_USER / name)
 
 
-def waiting(kind: str) -> list[Path]:
+def _request(payload: dict) -> dict:
+    if CHANNEL is None:
+        return {}
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(10)
+        connection.connect(str(CHANNEL))
+        connection.sendall(json.dumps(payload, ensure_ascii=False).encode() + b"\n")
+        data = bytearray()
+        while len(data) < 256 * 1024:
+            chunk = connection.recv(4096)
+            if not chunk:
+                break
+            data.extend(chunk)
+            if b"\n" in chunk:
+                break
+    try:
+        response = json.loads(bytes(data).splitlines()[0])
+    except (IndexError, ValueError):
+        return {"ok": False, "error": "invalid channel response"}
+    if not isinstance(response, dict) or not response.get("ok"):
+        return {"ok": False, "error": str((response or {}).get("error") or "channel request failed")}
+    return response
+
+
+def waiting(kind: str) -> list[Path] | list[dict]:
+    if CHANNEL is not None:
+        response = _request({"op": "peek", "kind": kind})
+        if not response.get("ok"):
+            raise RuntimeError(response.get("error") or "user channel read failed")
+        return list(response.get("messages") or [])
     return sorted(TO_AGENT.glob(f"*-{kind}.json")) if TO_AGENT.is_dir() else []
 
 
-def take(paths: list[Path]) -> list[dict]:
+def take(paths: list[Path] | list[dict]) -> list[dict]:
     """Claim the files (a rename: two hooks running at once never deliver the same message twice)."""
+    if CHANNEL is not None:
+        names = [str(value.get("_file")) for value in paths if isinstance(value, dict) and value.get("_file")]
+        if not names:
+            return []
+        kind = str(next((value.get("kind") for value in paths if isinstance(value, dict)), ""))
+        response = _request({"op": "take", "kind": kind, "names": names})
+        if not response.get("ok"):
+            raise RuntimeError(response.get("error") or "user channel claim failed")
+        return [dict(value) for value in response.get("messages") or []]
     TAKEN.mkdir(parents=True, exist_ok=True)
     out = []
     for path in paths:
@@ -97,6 +142,7 @@ def adapter_stop(raw: str, payload: dict) -> dict | None:
                 input=raw,
                 capture_output=True,
                 text=True,
+                check=False,
                 cwd=payload.get("cwd") or None,
                 timeout=float(hook.get("timeout") or 60),
             )
@@ -137,8 +183,12 @@ def main() -> None:
         interrupts = waiting("interrupt")
         if interrupts:  # left in place: every call is denied until the agent stops
             try:
-                text = json.loads(interrupts[0].read_text()).get("text") or ""
-            except (OSError, ValueError):
+                value = interrupts[0]
+                text = (
+                    (value.get("text") if isinstance(value, dict) else json.loads(value.read_text()).get("text"))
+                    or ""
+                )
+            except (OSError, ValueError, AttributeError):
                 text = ""
             report("denied", **tool)
             print(
@@ -182,7 +232,8 @@ def main() -> None:
         return
     passthrough = {}
     interrupted = bool(take(waiting("interrupt")))
-    if not interrupted and not waiting("end"):
+    ends = waiting("end")
+    if not interrupted and not ends:
         block = adapter_stop(raw, payload)
         if block and (
             block.get("decision") == "block" or block.get("continue") is False
