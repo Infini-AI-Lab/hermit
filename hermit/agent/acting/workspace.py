@@ -54,6 +54,15 @@ and what `collect` adds; Evolvers read it (hermit.agent.base.trajectory). `RunOu
 backend, model, effort, web_search, deploy, isolation, deployed, exit_code, timed_out, attempts, workspace, mounts (where
 each task mount inside the workspace is: bound or linked), and context_tool, task and session_failed (a session that
 gave no answer) when there are any. Usage is read from the event stream, as the AgentEvolver reads it.
+
+In a task's own environment (`run(task, adapter, environment=...)`, a remote one: a task's Harbor environment,
+hermit.environment.harbor) the workspace is the environment's: the adapter is deployed here into a staging folder as
+`hermit deploy` lays it out for a session there (the hosts' deployment with the environment's `python3`, its tools
+not served, its hooks run from `hermit/<id>/` relative to the session's directory: `remote_hooks`), the staging's
+files uploaded into the environment's workspace (Hermit's context first in a context file the image already has,
+then the image's own text), the `files` uploaded beside them, and the CLI runs there (its Base Agent's remote
+isolation). The adapter's notes come back from there. The adapter's tools, `mounts`, `prepare` and `collect` are not
+supported there (refused).
 """
 from __future__ import annotations
 
@@ -68,7 +77,7 @@ import time
 import uuid
 
 from hermit.agent.acting.agent import ALL, Agent
-from hermit.agent.base.interface import BaseAgent, LoginFailed, make
+from hermit.agent.base.interface import BaseAgent, LoginFailed, Unsupported, make
 from hermit.environment import Container, Environment, Limits, Mount, Local, docker as container
 from hermit.agent.base.login import LOGINS, NO_LOGIN
 from hermit.common import RunOutput, load_callable
@@ -137,41 +146,102 @@ def _context(task: dict, adapter: Path, params: dict) -> tuple[str, dict | None]
 
 
 def deploy(adapter: Path, workspace: Path, backend: str, *, context: str | None = None,
-           context_limit: int | None = None, approve_tools: bool = False, serve_tools: bool = True) -> dict:
+           context_limit: int | None = None, approve_tools: bool = False, serve_tools: bool = True,
+           python: str | None = None) -> dict:
     """`hermit deploy`'s deployment into a workspace; `context` is this task's, for an adapter whose context is per
     task, `context_limit` Codex's project_doc_max_bytes for the session (None: Codex's default), `approve_tools` the
-    adapter's tools called without asking."""
+    adapter's tools called without asking, `python` the interpreter the deployment's commands run with where the
+    session runs (default: this one)."""
+    python = python or sys.executable
     if backend == "codex":
         from hermit.hosts.codex import DOC_BYTES, prepare
-        return prepare(adapter, workspace, sys.executable, context=context, context_limit=context_limit or DOC_BYTES,
+        return prepare(adapter, workspace, python, context=context, context_limit=context_limit or DOC_BYTES,
                        approve_tools=approve_tools, serve_tools=serve_tools)
     if backend == "pi":
         from hermit.hosts.pi import prepare as prepare_pi
-        return prepare_pi(adapter, workspace, sys.executable, context=context)
+        return prepare_pi(adapter, workspace, python, context=context)
     if backend == "mini-swe-agent":
         from hermit.hosts.mini_swe_agent import prepare as prepare_mini
-        return prepare_mini(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
+        return prepare_mini(adapter, workspace, python, context=context, serve_tools=serve_tools)
     if backend == "opencode":
         from hermit.hosts.opencode import prepare as prepare_opencode
-        return prepare_opencode(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
+        return prepare_opencode(adapter, workspace, python, context=context, serve_tools=serve_tools)
     if backend == "dsh":
         from hermit.hosts.dsh import prepare as prepare_dsh
-        return prepare_dsh(adapter, workspace, sys.executable, context=context)
+        return prepare_dsh(adapter, workspace, python, context=context)
     if backend == "hermes":
         from hermit.hosts.hermes import prepare as prepare_hermes
-        return prepare_hermes(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
+        return prepare_hermes(adapter, workspace, python, context=context, serve_tools=serve_tools)
     from hermit.hosts.claude_code import prepare
-    return prepare(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
+    return prepare(adapter, workspace, python, context=context, serve_tools=serve_tools)
 
 
-def _deploy(task: dict, adapter: Path | None, work: Path, backend: str, params: dict) -> tuple[dict, dict | None]:
-    """The adapter in the workspace; (what was deployed, the context tool's record or None)."""
+REMOTE_HOOK_HOSTS = {"codex": "hermit.hosts.codex", "claude": "hermit.hosts.claude_code"}
+CONTEXT_FILES = {"codex": "AGENTS.md", "claude": "CLAUDE.md"}
+
+
+def remote_hooks(adapter: Path, manifest: dict, deploy_dir: Path, backend: str) -> bool:
+    """The deployed hooks rewritten for a session in a remote environment: the ones the host's deployment connects (its
+    HOOK_TYPES), every command run from the adapter's copy by its workspace-relative path (Codex's
+    `.codex/hooks.json`; the `hooks` of Claude Code's `.claude/settings.json`, from `$CLAUDE_PROJECT_DIR`, since Claude
+    Code runs a hook in the shell's current directory), not from this machine's folder. True when the adapter has
+    hooks the CLI runs."""
+    from importlib import import_module
+    import shlex
+    from hermit.adapter.loader import hook_definitions
+    from hermit.hosts.inputs import ADAPTER_DIR, hook_commands, native_hooks
+    if backend not in REMOTE_HOOK_HOSTS:
+        return False
+    hooks = native_hooks(hook_definitions(adapter, manifest), import_module(REMOTE_HOOK_HOSTS[backend]).HOOK_TYPES)
+    relative = hook_commands(hooks, Path(ADAPTER_DIR) / manifest["id"]) if hooks else None
+    if backend == "claude":
+        if relative is not None:
+            folder = f"{ADAPTER_DIR}/{manifest['id']}"
+            plain = f"cd {shlex.quote(folder)} || exit 1\n"
+            for groups in relative["hooks"].values():
+                for hook in (h for g in groups for h in g["hooks"]):
+                    if hook.get("type") == "command" and hook["command"].startswith(plain):
+                        hook["command"] = f'cd "${{CLAUDE_PROJECT_DIR:-.}}"/{shlex.quote(folder)} || exit 1\n' + \
+                            hook["command"][len(plain):]
+        path = deploy_dir / ".claude" / "settings.json"
+        settings = json.loads(path.read_text()) if path.is_file() else {}
+        if relative is None:
+            if settings.pop("hooks", None) is not None:
+                path.write_text(json.dumps(settings, indent=2) + "\n")
+            return False
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({**settings, "hooks": relative["hooks"]}, indent=2) + "\n")
+        return True
+    path = deploy_dir / ".codex" / "hooks.json"
+    if relative is None:
+        path.unlink(missing_ok=True)
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(relative, indent=2) + "\n")
+    return True
+
+
+def _deploy(task: dict, adapter: Path | None, work: Path, backend: str, params: dict, *,
+            remote: bool = False) -> tuple[dict, dict | None]:
+    """The adapter in the workspace (for a remote environment: in the staging folder `work`, laid out for a session
+    there); (what was deployed, the context tool's record or None)."""
     if adapter is None:
         return {"mode": "host"}, None
     adapter = Path(adapter)
     from hermit.adapter.loader import agent_tools, load_manifest
     from hermit.adapter.manifest import PORTABLE
     manifest = load_manifest(adapter)
+    if remote:
+        if backend not in REMOTE_HOOK_HOSTS:
+            raise Unsupported(f"agent {backend} does not run in a remote environment (codex and claude do)")
+        if agent_tools(manifest):
+            raise Unsupported(f"the adapter {manifest['id']} has tools, and a session in a remote environment (a "
+                              "task's Harbor environment) cannot reach the framework's tool server yet")
+        context, record = _context(task, adapter, params) if not manifest.get(PORTABLE, True) else (None, None)
+        deployed = deploy(adapter, work, backend, context=context, context_limit=params.get("project_doc_max_bytes"),
+                          approve_tools=True, serve_tools=False, python="python3")
+        hooks = remote_hooks(adapter, manifest, work, backend)
+        return {"mode": "host", **deployed, "hooks": hooks}, record
     # A container session cannot start the tools' server on this machine, mini-swe-agent reaches tools only
     # through its Base Agent, OpenCode waits 2 s at most for a starting server (STARTUP_GRACE_MS in 2.2; the
     # adapter's takes longer, so its first request would go without them), and Hermes reads MCP servers from its home
@@ -280,13 +350,32 @@ def _output(last: str, task: dict, params: dict, base: Path, code: int, timed_ou
 
 class CliAgent(Agent):
     supports = ALL      # a deployment connects each export where the CLI has a place, and names the rest in the context
-    def run(self, task: dict, adapter: Path | None) -> RunOutput:
-        return _run(task, adapter, self.params, self.base)
+    def run(self, task: dict, adapter: Path | None, environment=None) -> RunOutput:
+        return _run(task, adapter, self.params, self.base, environment)
 
 
-def run(task: dict, adapter: Path | None, *, params: dict, base: Path) -> RunOutput:
+def run(task: dict, adapter: Path | None, *, params: dict, base: Path, environment=None) -> RunOutput:
     """The function form; CliAgent is the class (`agent.name: codex` or `claude-code`)."""
-    return _run(task, adapter, params, base)
+    return _run(task, adapter, params, base, environment)
+
+
+def _upload_staging(environment: Environment, work: Path, backend: str, deployed: dict) -> None:
+    """The staging folder's files into a remote environment's workspace. A context file the image already has there
+    is kept after Hermit's text (Hermit's first)."""
+    name = CONTEXT_FILES.get(backend)
+    mine = work / name if name else None
+    if mine is not None and mine.is_file() and deployed.get("adapter_id"):
+        theirs = work.parent / f"image-{name}"
+        try:
+            environment.download(name, theirs)
+        except Exception:                                # noqa: BLE001 - the image has none
+            theirs = None
+        if theirs is not None and theirs.is_file():
+            mine.write_text(mine.read_text(encoding="utf-8") + "\n\n" + theirs.read_text(encoding="utf-8",
+                                                                                         errors="replace"),
+                            encoding="utf-8")
+    for entry in sorted(work.iterdir()):
+        environment.upload(entry, entry.name)
 
 
 def _check(backend: str, params: dict) -> str:
@@ -352,7 +441,7 @@ def base_agent(backend: str, params: dict) -> BaseAgent:
     """The Base Agent (Layer 2) these params describe: the CLI and how it is run, nothing of the task."""
     from hermit.agent.base.cli import HERMES_PARAMS, PI_PARAMS
     settings = {k: params[k] for k in ("model", "binding", "login", "plan_dir", "plan_max_wait_s", "usage_credits",
-                                       "effort", "codex_sandbox", "shell_env",
+                                       "effort", "codex_sandbox", "shell_env", "bin", "version", "remote_home",
                                        "project_doc_max_bytes", "args", "env", "price", *PI_PARAMS,
                                        *(p for p in HERMES_PARAMS if p != "skills_dir"),
                                        "model_class", "config", "step_limit")
@@ -364,8 +453,17 @@ def base_agent(backend: str, params: dict) -> BaseAgent:
     return make(backend, {**settings, "web_search": params["web_search"]})
 
 
-def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutput:
+def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Environment | None = None) -> RunOutput:
     backend = _check(params.get("backend", "codex"), params)
+    remote = given is not None and given.isolation == "remote"
+    if given is not None and not remote:
+        raise Unsupported(f"agent {backend} makes its own workspace; the environment a task gives it is a remote one "
+                          f"(a task's Harbor environment), not {given!r}")
+    if remote:
+        unsupported = [k for k in ("mounts", "prepare", "collect") if params.get(k)]
+        if unsupported or params.get("isolation") == "container":
+            raise Unsupported(f"agent {backend} in a remote environment (a task's Harbor environment) takes none of "
+                              f"{', '.join(unsupported) or 'isolation: container'}: the environment is the task's own")
     if params.get("config"):                        # mini-swe-agent's config file, beside the run config
         params = {**params, "config": str(Path(base) / os.path.expanduser(str(params["config"])))}
     agent = base_agent(backend, params)
@@ -391,8 +489,9 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
         for d in (work, home, log):
             shutil.rmtree(d, ignore_errors=True)
             d.mkdir(parents=True)
-        deployed, context_tool = _deploy(task, adapter, work, backend, params)
-        session = agent.configured(args=[*(agent.settings.get("args") or []), *_session_args(backend, deployed, work)],
+        deployed, context_tool = _deploy(task, adapter, work, backend, params, remote=remote)
+        where = Path(str(given.workspace)) if remote else work       # the workspace as the session sees it
+        session = agent.configured(args=[*(agent.settings.get("args") or []), *_session_args(backend, deployed, where)],
                                    **({"tools_name": deployed["harness_tools"].replace("-", "_")}
                                       if deployed.get("harness_tools") else {}),
                                    # OpenCode loads only the skills it is allowed: the deployment's
@@ -405,7 +504,9 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
             source = Path(base) / item
             target = work / source.name
             shutil.copytree(source, target) if source.is_dir() else shutil.copy2(source, target)
-        mounts = _mounts(task, work, params, base)
+        if remote:
+            _upload_staging(given, work, backend, deployed)
+        mounts = [] if remote else _mounts(task, work, params, base)
         prompt = _prompt(params, base, task) + (
             "\n" + MEMORY_NOTE.format(path=memory.relative_to(work).as_posix()) if memory else "")
         (log / "prompt.txt").write_text(prompt, encoding="utf-8")
@@ -418,10 +519,13 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
                 if served is not None:
                     served.close()
                 raise RuntimeError(f"agent {backend} could not be served within deadline_s={budget:.0f}")
+        if remote:
+            own = given.limits.timeout_s
+            place = given.with_limits(Limits(timeout_s=min(timeout_s, float(own)) if own else timeout_s))
+        else:
+            place = environment(work, params, Limits(readable=mounts, timeout_s=timeout_s))
         try:
-            result = session.run(prompt, environment=environment(work, params, Limits(readable=mounts,
-                                                                                       timeout_s=timeout_s)),
-                                 tools=served.as_tools() if served else ())
+            result = session.run(prompt, environment=place, tools=served.as_tools() if served else ())
         finally:
             if served is not None:
                 served.close()
@@ -442,13 +546,18 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
         time.sleep(wait if budget is None else max(0.0, min(wait, budget - (time.time() - started) - 1)))
     code, timed_out, last, usage = result.exit_code, result.timed_out, result.reply, result.usage
     (log / "last_message.txt").write_text(last, encoding="utf-8")
-    if memory is not None and memory.parent.is_dir():                  # the notes the session left
+    if memory is not None and remote:                                  # the notes the session left, from there
+        try:
+            given.download(memory.parent.relative_to(work).as_posix(), log / "memory")
+        except Exception:                                              # noqa: BLE001 - none left
+            pass
+    elif memory is not None and memory.parent.is_dir():                # the notes the session left
         shutil.copytree(memory.parent, log / "memory", dirs_exist_ok=True)
     # A session the CLI itself reports as failed has no answer to read or to judge (trainer.rollout: an error record).
     failed = result.extra.get("failed")
     output = None if failed else _output(last, task, params, base, code, timed_out, timeout_s)
     facts = None
-    fn = _task_function(params.get("collect"), base)
+    fn = None if remote else _task_function(params.get("collect"), base)
     if fn is not None:
         facts = _call(fn, task, work, log, params=params, base=base)
     _clean(work, [m.target for m in mounts])
@@ -458,9 +567,10 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
         tokens = sum(u.input_tokens + u.output_tokens for u in usage)
     extra = {"backend": backend, "model": params.get("model"), "effort": params.get("effort"),
              "web_search": params["web_search"],
-             "deploy": deployed.get("mode"), "isolation": params.get("isolation") or "none",
+             "deploy": deployed.get("mode"), "isolation": "remote" if remote else params.get("isolation") or "none",
              "deployed": {k: v for k, v in deployed.items() if k not in ("mode", "files")},
-             "exit_code": code, "timed_out": timed_out, "attempts": attempt, "workspace": str(work),
+             "exit_code": code, "timed_out": timed_out, "attempts": attempt,
+             "workspace": str(given.workspace) if remote else str(work),
              "mounts": result.extra.get("mounts") or {}}       # a task's data in the workspace: bound or linked
     if failed:
         extra["session_failed"] = str(result.extra.get("failure") or f"the CLI exited {code} without a result")

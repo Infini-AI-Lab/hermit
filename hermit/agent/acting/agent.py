@@ -2,13 +2,13 @@
 
     class Agent:
         def __init__(self, params: dict, base: Path)             # agent.params from the config, and its directory
-        def run(self, task: dict, adapter: Path | None) -> RunOutput
+        def run(self, task: dict, adapter: Path | None, environment=None) -> RunOutput
 
 A config names the agent:
 
     agent:
       name: react                        # a built-in: react | codex | claude-code | pi | mini-swe-agent | opencode | dsh
-                                         # | hermes
+                                         # | hermes | answer
       name: agent/agent.py:CLBenchAgent  # or the task's own class (file.py:Class, module:Class)
       name: agent/pipeline.py:run        # or a plain function run(task, adapter), wrapped as a FunctionAgent
       concurrency: 4
@@ -16,7 +16,10 @@ A config names the agent:
 
 The Trainer, `eval` and `check` call nothing but `run`; what happens inside (a tool loop, a
 CLI process, a benchmark's own loop with the adapter plugged in) is the agent's business. `Session` gives any agent the
-adapter's exports; `self.session(adapter)` builds one.
+adapter's exports; `self.session(adapter)` builds one. `environment` is the task's own environment when the task set
+gives one (a task's Harbor environment: hermit.environment.harbor), where the agent works through its `exec`,
+`upload` and `download`; None for a task the agent works on in a workspace of its own. A run hands it only to an
+agent whose `run` takes it.
 
 What an agent can take of an adapter is its `supports`: the exports (exports.yaml: tools, context_tool, skills,
 agents, hooks; every agent takes the context) it gives the session. A method says what of these it needs (its
@@ -44,7 +47,7 @@ class Agent:
         self.params = dict(params or {})
         self.base = Path(base).resolve() if base is not None else Path.cwd()
 
-    def run(self, task: dict, adapter: Path | None) -> RunOutput:
+    def run(self, task: dict, adapter: Path | None, environment=None) -> RunOutput:
         raise NotImplementedError(f"{type(self).__name__}.run")
 
     # --- helpers for subclasses ---------------------------------------------------------------------------------
@@ -79,8 +82,14 @@ class FunctionAgent(Agent):
             self.extra["params"] = self.params
         if "base" in wanted:
             self.extra["base"] = self.base
+        self.takes_environment = "environment" in wanted
 
-    def run(self, task: dict, adapter: Path | None) -> RunOutput:
+    def run(self, task: dict, adapter: Path | None, environment=None) -> RunOutput:
+        if environment is not None:
+            if not self.takes_environment:
+                raise TypeError(f"{getattr(self.fn, '__name__', self.fn)} takes no environment, and the task gives one: "
+                                "add an `environment` parameter")
+            return self.fn(task, adapter, environment=environment, **self.extra)
         return self.fn(task, adapter, **self.extra)
 
 
@@ -97,14 +106,17 @@ def builtin(name: str):
         if backend is None:
             return CliAgent
         return lambda params, base: CliAgent({"backend": backend, **(params or {})}, base)
+    if name == "answer":
+        from hermit.agent.acting.answer import AnswerAgent
+        return AnswerAgent
     if name == "harbor":
-        from hermit.harbor.runner import HarborAgent
-        return HarborAgent
+        raise ValueError("agent.name: harbor is gone: a Harbor task set gives each task its environment "
+                         "(environment.harbor), and any acting agent works in it; see docs/framework/task.md")
     return None
 
 
 BUILTIN_NAMES = ("react", "codex", "claude-code", "pi", "mini-swe-agent", "opencode", "dsh", "hermes", "cli",
-                 "harbor")
+                 "answer")
 
 
 def load_agent(name: str, params: dict | None, base: Path) -> Agent:
@@ -126,19 +138,15 @@ def load_agent(name: str, params: dict | None, base: Path) -> Agent:
 
 def supports_of(name: str, base: Path, params: dict | None = None, *, may_import: bool) -> tuple[str, ...] | None:
     """What the agent `agent.name` names takes of an adapter (its `supports`), without running it: a built-in's from
-    its class (Harbor's from its acting agent, read from `params` and its benchmark file); a task's own class or
-    function only when `may_import` (it runs on this machine anyway), else None."""
+    its class; a task's own class or function only when `may_import` (it runs on this machine anyway), else None."""
     factory = builtin(str(name))
     if factory is not None:
         if str(name) == "react":
             from hermit.agent.acting.react import ReactAgent
             return ReactAgent.supports
-        if str(name) == "harbor":
-            from hermit.harbor.runner import supports_of_params
-            try:
-                return supports_of_params(params, base)
-            except (OSError, ValueError):       # an unreadable benchmark file: its own settings check reports it
-                return None
+        if str(name) == "answer":
+            from hermit.agent.acting.answer import AnswerAgent
+            return AnswerAgent.supports
         from hermit.agent.acting.workspace import CliAgent
         return CliAgent.supports
     if not may_import:

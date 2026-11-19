@@ -12,6 +12,14 @@ mode: shared | separate}`), as Harbor runs it: `tests/test.sh` with the tests at
 writing /logs/verifier/reward.txt (one number) or reward.json (named numbers; `reward` is the score, else their
 mean), and, beyond Harbor, /logs/verifier/feedback.txt: what a learning method reads (else the script's output's
 tail). It runs only in the judge's sandbox, which shows the task's tests and a fresh log directory at those names.
+
+A task in its own Harbor environment (`environment.harbor`: hermit.environment.harbor) is verified by Harbor's
+verifier in that environment, after the agent, by the run (hermit.trainer.rollout); `environment` below is the judge
+that reads that verdict (`judge: {path: hermit.task.verify, name: environment}`): the reward is the score, whatever the
+session's end (its timeout, a CLI that exited with an error: Harbor verifies all of them, and its own job mean scores
+them), 0 when the verifier left none (`verifier_failed`) or ran out of its time on the agent's solution
+(`solution_timed_out`); an environment that failed (`infra`) is not the agent's result: no score (Unscored), so the run
+records a failed run. `passed` says whether the reward reached the task set's pass reward.
 """
 from __future__ import annotations
 
@@ -40,6 +48,11 @@ TESTS = "/tests"                      # where the judge's sandbox shows a task's
 LOGS = "/logs/verifier"               # ... and the directory the script writes its reward to
 SANDBOX_ENV = "HERMIT_VERIFIER_SANDBOX"   # set by the judge's sandbox that shows them (hermit.isolate.SandboxedJudge)
 FEEDBACK_CHARS = 4000
+TAIL = 1500                           # characters of the verifier's output in the feedback of a task that did not pass
+
+
+class Unscored(RuntimeError):
+    """A run that is not the agent's result (its environment failed): no score is the agent's."""
 
 
 def judge_verifier(judge: Callable) -> Verifier:
@@ -121,3 +134,36 @@ def script(task: dict, output: RunOutput) -> JudgeResult:
     verdict = read_reward(Path(LOGS), tail)
     verdict.extra["exit_code"] = done.returncode
     return verdict
+
+
+def environment(task: dict, output: RunOutput) -> JudgeResult:
+    """The verdict of the task's own environment's verifier (module docstring), which the run put in
+    `output.extra["verified"]` (hermit.environment.harbor.HarborEnvironments.verdict)."""
+    verdict = (output.extra or {}).get("verified")
+    if not isinstance(verdict, dict):
+        raise RuntimeError("the output holds no verdict of the task's environment: the environment judge is for a task "
+                           "set in its own environments (environment.harbor)")
+    status, cause = verdict.get("status") or "infra", verdict.get("failure_cause")
+    exception = verdict.get("exception") or {}
+    if status == "infra":
+        raise Unscored(f"the task's environment failed ({cause or 'infra'}: {exception.get('type') or ''} "
+                       f"{str(exception.get('message') or '')[:600]}): it has no score")
+    reward = verdict.get("reward")
+    passed = verdict.get("passed")
+    extra = output.extra or {}
+    if status == "ok":
+        feedback = "passed" if passed else f"reward {reward:g}" if reward is not None else "no reward"
+    else:
+        feedback = f"{status} ({cause}{': ' + exception['type'] if exception.get('type') else ''})"
+        if cause == "solution_timed_out":
+            feedback += ("; the verifier ran out of its time on the agent's solution (too slow to finish its tests, "
+                         "or a process it left that hung them)")
+    if extra.get("timed_out"):
+        feedback += "; the agent ran out of its time budget"
+    if not passed and verdict.get("feedback"):
+        text = str(verdict["feedback"]).strip()
+        feedback += "\nverifier output (tail):\n" + (text[-TAIL:] if len(text) > TAIL else text)
+    return JudgeResult(float(reward) if reward is not None else 0.0, feedback,
+                       {"status": status, "passed": passed, "rewards": verdict.get("rewards"),
+                        **({"failure_cause": cause} if cause else {}),
+                        **({"trial_dir": verdict["trial_dir"]} if verdict.get("trial_dir") else {})})

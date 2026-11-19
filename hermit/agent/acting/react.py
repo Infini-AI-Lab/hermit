@@ -108,8 +108,8 @@ class ReactAgent(Agent):
     supports = ("context", "context_tool", "tools")   # the adapter exports it takes (hermit.agent.acting.agent)
     environment = None                               # the current task's environment (environment_for), if any
 
-    def run(self, task: dict, adapter: Path | None) -> RunOutput:
-        return _run(task, adapter, self.params, self.base, agent=self)
+    def run(self, task: dict, adapter: Path | None, environment=None) -> RunOutput:
+        return _run(task, adapter, self.params, self.base, agent=self, environment=environment)
 
     # ---------- task-level hooks ----------
     def system_prompt(self, task: dict, context: str) -> str:
@@ -129,8 +129,11 @@ class ReactAgent(Agent):
         return result.reply
 
     def environment_for(self, task: dict):
-        """The environment the task's tools work in (hermit.environment), or None: the loop needs none."""
-        return None
+        """The environment the task's tools work in (hermit.environment), or None: the loop needs none. By default the
+        call's own (the task's environment, when its task set gives one)."""
+        return self.given_environment
+
+    given_environment = None                         # the environment the call was given (run's `environment`)
 
     # ---------- the loop's hooks (React's), forwarded ----------
     def call_model(self, loop, messages, specs):
@@ -182,13 +185,15 @@ def run(task: dict, adapter: Path | None, *, params: dict, base: Path) -> RunOut
     return ReactAgent(params, base).run(task, adapter)
 
 
-def _run(task: dict, adapter: Path | None, params: dict, base: Path, agent: ReactAgent) -> RunOutput:
+def _run(task: dict, adapter: Path | None, params: dict, base: Path, agent: ReactAgent,
+         environment=None) -> RunOutput:
     model = params.get("model")
     if not isinstance(model, dict) or not model.get("base_url") or not model.get("model"):
         raise ValueError("agent.params.model is required: a `<backend>/<model>` reference, or {base_url, model, "
                          "api_key_env, price} (the run's `model` is the default)")
     client = ChatClient.from_spec(model)          # one client for the loop and the answer-tag call: its total is the run's
     agent = copy.copy(agent)                      # this task's agent: its environment, its tools' self, its loop
+    agent.given_environment = environment
     agent.environment = agent.environment_for(task)
     session = Session(adapter) if adapter is not None else None
     tools = agent.tools(task) + (session.as_tools() if session else [])

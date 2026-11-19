@@ -42,7 +42,10 @@ Settings (given once; `configured(...)` for a call's own):
   timeout_s         the session's wall clock (default 3600); Limits.timeout_s overrides it
   cancel            a threading.Event: the session is stopped once it is set
   tools_name        the MCP server's name for the call's tools (default hermit_tools)
-  bin               the CLI's program (default codex / claude)
+  bin               the CLI's program (default codex / claude); in a remote environment, its path there
+  version           in a remote environment without `bin`: the version the environment installs (default: its
+                    installer's)
+  remote_home       in a remote environment: the session's home there (default /installed-agent/hermit-home)
   cwd               Codex: the working directory it is told, when the isolation shows the workspace under another
                     path (MWM's /w)
   tools_env         a variable that gets the tools' JSON entrance (GET <url>/tools, POST <url>/call/<name>)
@@ -97,15 +100,26 @@ Settings (given once; `configured(...)` for a call's own):
   argument (ARG_MAX bytes) at most and runs under isolation none or sandbox.
 
 The isolation is the call's environment's (hermit.environment), never a setting: none (Local: the CLI on
-this machine), sandbox (Sandboxed: inside the run's hermit.sandbox.Sandbox) or container (Container: a Docker container
+this machine), sandbox (Sandboxed: inside the run's hermit.sandbox.Sandbox), container (Container: a Docker container
 of its own, its settings image, network, proxy: hermit.environment.docker, where the CLI's own sandbox holds the
-session's commands: Codex's `codex_sandbox`, Claude Code's CLAUDE_SANDBOX). Limits are the environment's, enforced by
-its isolation, or the call is refused (Unsupported):
+session's commands: Codex's `codex_sandbox`, Claude Code's CLAUDE_SANDBOX) or remote (an environment that runs the
+CLI where it runs its commands, through its `exec`: a task's Harbor environment, hermit.environment.harbor, or one
+served to the agent's process, hermit.environment.remote). In a remote environment (Codex and Claude Code) the
+session's home is rendered here and uploaded to `remote_home` there, the CLI is the environment's (`bin`, else
+installed by the environment's own installer when it has none), the command runs from the workspace with the prompt
+on its stdin where the CLI reads it there, and the stream is its output. A secret the CLI reads from a descriptor
+(Claude Code's token on `login: claude`) reaches the environment's exec by name and is moved there into a pipe before
+the CLI starts, as in a container of its own. Codex's own sandbox is off there unless `codex_sandbox` says otherwise
+(the environment is the boundary, as Harbor's own agents run), and Claude Code runs as the environment's root may
+(IS_SANDBOX), with no update mid-session. The call's tools, readable mounts, hidden paths and a network limit are
+refused (the environment is the task's own: it says what it reaches).
+Limits are the environment's, enforced by its isolation, or the call is refused (Unsupported):
 
   isolation   readable                          hidden                         network
   none        linked into the workspace          refused                        refused (any list)
   sandbox     shown at its target (a bind)       refused when the sandbox shows it    the sandbox's own: [] only
   container   bound read-only at their target    all but workspace, home, data  the container's proxy: [] only
+  remote      refused                            refused                        refused (the task's own)
 """
 from __future__ import annotations
 
@@ -138,7 +152,10 @@ from hermit.agent.base.trajectory import (claude_steps, codex_steps, dsh_steps, 
                                           mini_swe_agent_steps, opencode_steps, pi_steps)
 from hermit.agent.model.backends import CLAUDE_ENV
 
-ISOLATIONS = ("none", "sandbox", "container")
+ISOLATIONS = ("none", "sandbox", "container", "remote")
+REMOTE_HOME = "/installed-agent/hermit-home"       # a session's home in a remote environment (a task's Harbor one)
+# The installed agent of Harbor's that installs each CLI in a remote environment that installs CLIs (its `install`)
+REMOTE_INSTALL = {"codex": "codex", "claude": "claude-code"}
 ENVIRONMENT_KEYS = ("isolation", "sandbox", "container")    # the environment's (hermit.environment), not settings
 # The CLI's own reports of a provider it could not reach (it retries those itself first), and of a container that
 # could not start, not the session's text
@@ -196,6 +213,9 @@ CLAUDE_AUTH = re.compile(r"not logged in|failed to authenticate|login expired|pl
 CLAUDE_DOWN = re.compile(r"not your usage limit|api error: (?:429|5\d\d)|request timed out|connection (?:error|refused|"
                          r"to the api was lost)|no response from api|stream idle timeout|high load|overloaded", re.I)
 FINISH = {"max_tokens": "length", "pause_turn": "length", "refusal": "content_filter"}
+# In a remote environment (a task's own, whose container is the boundary): bypassPermissions as its root, and no update
+# of the CLI mid-session
+CLAUDE_REMOTE_ENV = {"IS_SANDBOX": "1", "DISABLE_AUTOUPDATER": "1"}
 _ready: set = set()
 
 
@@ -520,7 +540,14 @@ class CliAgent(BaseAgent):
         one place every isolation shows it."""
         if len(text.encode()) <= ARG_MAX:
             return [flag, text]
-        path = home / f"{flag.lstrip('-')}.md"         # system-prompt.md, append-system-prompt.md: one file each
+        name = f"{flag.lstrip('-')}.md"               # system-prompt.md, append-system-prompt.md: one file each
+        remote = getattr(self, "_remote_home", None)  # (this machine's home, its path in a remote environment)
+        if remote is not None and str(home) == str(remote[1]):
+            path = Path(remote[0]) / name                 # written here, uploaded with the home
+            _clear(path)
+            path.write_text(text, encoding="utf-8")
+            return [f"{flag}-file", str(remote[1] / name)]
+        path = home / name
         _clear(path)                                 # a link the last session left would take the text elsewhere
         path.write_text(text, encoding="utf-8")
         return [f"{flag}-file", str(path)]
@@ -603,6 +630,11 @@ class CliAgent(BaseAgent):
             why = "container runs Codex" if isolation == "container" else f"{isolation} is not for {self.label}"
             raise Unsupported(f"isolation: {why}; {self.label} takes isolation {' or '.join(self.isolations)}")
         network = None if limits.network is None else list(limits.network)
+        if isolation == "remote":
+            if limits.readable or limits.hidden or network is not None:
+                raise Unsupported(f"{self.name} in a remote environment takes no readable mounts, hidden paths or "
+                                  "network limits: the environment is the task's own")
+            return isolation, None, None
         if isolation == "none":
             if limits.hidden:
                 raise Unsupported(f"{self.name} without isolation cannot hide paths: use isolation sandbox or container")
@@ -839,6 +871,8 @@ class CliAgent(BaseAgent):
 
     def _session(self, prompt, *, environment: Environment, tools: Sequence[Tool] = (), session: Any = None,
                  roles: Sequence[dict] = ()) -> Result:
+        if environment.isolation == "remote":
+            return self._remote_session(prompt, environment=environment, tools=tools, session=session, roles=roles)
         workspace, limits = environment.workspace, environment.limits
         if not isinstance(prompt, str):
             raise Unsupported(f"{self.name} takes a prompt, not chat messages")
@@ -1021,6 +1055,123 @@ class CliAgent(BaseAgent):
                              "cancelled": cancelled, "isolation": isolation, "wall_s": round(wall_s, 1),
                              "mounts": placed, "output_tail": raw[-2000:]})
 
+    def _is_file(self, path) -> bool:
+        """Whether `path` is a file where the session runs: in a remote environment, there."""
+        env = self.environment
+        if env is not None and env.isolation == "remote":
+            return env.exec(["test", "-f", str(path)], timeout=60).code == 0
+        return Path(path).is_file()
+
+    def _remote_program(self, environment: Environment) -> None:
+        """The CLI in a remote environment: `bin` as it is, else the program found there, else installed by the
+        environment's own installer (Harbor's installed agent of the CLI)."""
+        s = self.settings
+        if s.get("bin"):
+            return
+        found = environment.exec(["sh", "-c", f"command -v {self.program}"], timeout=60)
+        if found.code == 0 and found.output.strip():
+            return
+        installer = REMOTE_INSTALL.get(self.backend)
+        if installer is None or not hasattr(environment, "install"):
+            raise Unsupported(f"{self.label} is not in the environment and the environment installs none: give its "
+                              "path there as `bin`")
+        environment.install(installer, s.get("version"))
+
+    def _remote_session(self, prompt, *, environment: Environment, tools: Sequence[Tool] = (), session: Any = None,
+                        roles: Sequence[dict] = ()) -> Result:
+        """One session where a remote environment runs its commands (the module docstring): the home rendered here
+        and uploaded, the command run through the environment's exec, its output the stream."""
+        from pathlib import PurePosixPath
+        s, limits = self.settings, environment.limits or Limits()
+        if not isinstance(prompt, str):
+            raise Unsupported(f"{self.name} takes a prompt, not chat messages")
+        if not isinstance(s.get("web_search"), bool):
+            raise ValueError(f"{self.name}: set web_search, true or false")
+        if s.get("text_only") and (tools or roles):
+            raise Unsupported(f"{self.name}: a session with text_only has no tools or roles")
+        if tools:
+            raise Unsupported(f"{self.name} in a remote environment cannot reach the call's tools (the framework's tool "
+                              "server runs on this machine)")
+        self._isolation(PurePosixPath(str(environment.workspace)), limits)
+        prompt = self.prompt_text(prompt)
+        workspace = PurePosixPath(str(environment.workspace))
+        remote_home = PurePosixPath(str(s.get("remote_home") or REMOTE_HOME))
+        home, fresh = self._home()
+        if s.get("log"):
+            stream = Path(s["log"])
+        elif fresh:
+            stream = Path(tempfile.mkstemp(prefix=f"agent-{self.backend}-", suffix=".jsonl")[1])
+        else:
+            stream = home / f"agent-{self.backend}.jsonl"
+        _session_output(stream, (home,))
+        stream.parent.mkdir(parents=True, exist_ok=True)
+        last_file = home / "last_message.txt"
+        _clear(last_file)
+        last_file.unlink(missing_ok=True)
+        timeout = limits.timeout_s or s.get("timeout_s", 3600)
+        timeout = float(timeout) if timeout else None
+        self._remote_home = (home, remote_home)
+        copied, code, timed_out, raw, wall_s = [], -1, False, "", 0.0
+        try:
+            copied = self._sign_in(home)
+            env = {k: os.path.expandvars(str(v)) for k, v in (s.get("env") or {}).items()}   # $KEY_VAR -> the key
+            env.update(self.session_env())
+            self.prepare_home(home, roles, None, s.get("tools_name") or "hermit_tools")
+            env.update(self.home_env(remote_home))
+            key_env = self._key_env()
+            if key_env:                                  # passed by name to the environment's exec, never in a file
+                env[key_env] = os.environ.get(key_env, "")
+            command = self.command(prompt, workspace, remote_home / "last_message.txt", session=session, roles=roles,
+                                   tools_url=None)
+            by_fd = self.by_fd()
+            if by_fd:                                    # each secret into a pipe, out of the environment, first
+                missing = set(by_fd) - set(env)
+                if missing:
+                    raise ValueError(f"by_fd names variables the session does not pass: {sorted(missing)}")
+                command = ["sh", "-c", container._by_fd(by_fd) + 'exec "$@"', "sh", *command]
+            self._remote_program(environment)
+            environment.exec(["rm", "-rf", str(remote_home)], timeout=120)
+            environment.upload(home, str(remote_home))
+            timeout = self._left(timeout)
+            if timeout is False:
+                return self._not_run("deadline", None)
+            started = time.time()
+            done = environment.exec(command, cwd=str(workspace), env=env, timeout=timeout,
+                                    stdin=prompt if self.on_stdin() else None)
+            wall_s = time.time() - started
+            code, timed_out, raw = done.code, done.timed_out, done.output
+            stream.write_text(raw, encoding="utf-8")
+            with contextlib.suppress(Exception):         # a session that wrote none: the stream's last message
+                environment.download(str(remote_home / "last_message.txt"), last_file)
+            if s.get("login") == "chatgpt":              # the refreshed sign-in back here, then out of the environment
+                with contextlib.suppress(Exception):
+                    environment.download(str(remote_home / codex_login.FILE), home / codex_login.FILE)
+        finally:
+            self._remote_home = None
+            if s.get("login") == "chatgpt":
+                with contextlib.suppress(Exception):
+                    environment.exec(["rm", "-f", str(remote_home / codex_login.FILE)], timeout=120)
+                codex_login.keep_refreshed(Path(s.get("login_root") or codex_login.ROOT), home)
+                codex_login.note_usage(codex_login.plan_dir(s.get("plan_dir")), home)
+            for path in copied:
+                path.unlink(missing_ok=True)
+        said = self.outcome(raw, stream, last_file)
+        said["failed"] = said.get("failed", False) and not timed_out
+        began = said.pop("started", None)
+        handle, usage = self.parse(stream, (s.get("binding") or {}).get("ref") or s.get("model") or self.backend)
+        usage = self.adjust_usage(home, handle, usage, resumed=bool(session))
+        price_usage(usage, s)
+        steps = self.steps(events(stream))
+        if fresh:
+            shutil.rmtree(home, ignore_errors=True)
+        return Result(reply=said.pop("reply"), finish_reason=said.pop("finish_reason", None), trajectory=steps,
+                      usage=usage, session=handle, exit_code=code, timed_out=timed_out, log=stream,
+                      extra={"failed": False, "login_failed": False, "rejected": False, **said,
+                             "started": any(line.lstrip().startswith("{") for line in raw.splitlines())
+                             if began is None else bool(began),
+                             "cancelled": False, "isolation": "remote", "wall_s": round(wall_s, 1),
+                             "mounts": {}, "output_tail": raw[-2000:]})
+
     def on_stdin(self) -> bool:
         """Whether the prompt is given on stdin, not on the command line."""
         return bool(self.settings.get("stdin"))
@@ -1092,10 +1243,12 @@ class Codex(CliAgent):
     def command(self, prompt, workspace, last_file, *, session=None, roles=(), tools_url=None):
         s = self.settings
         effort = s.get("effort")
-        hooks = (workspace / ".codex" / "hooks.json").is_file()     # the deployment's hooks, trusted as deployed
+        hooks = self._is_file(workspace / ".codex" / "hooks.json")   # the deployment's hooks, trusted as deployed
+        remote = self.environment is not None and self.environment.isolation == "remote"
         return [str(s.get("bin") or self.program), "exec", "--json", "--skip-git-repo-check",
                 "-C", str(s.get("cwd") or workspace),
-                "-s", s.get("codex_sandbox") or "workspace-write", "-o", str(last_file),
+                "-s", s.get("codex_sandbox") or ("danger-full-access" if remote else "workspace-write"),
+                "-o", str(last_file),
                 *(["-m", s["model"]] if s.get("model") else []),
                 *(["-c", f'model_reasoning_effort="{effort}"'] if effort else []),
                 *(["--dangerously-bypass-hook-trust"] if hooks else []),
@@ -1181,6 +1334,8 @@ class Claude(CliAgent):
 
     def session_env(self):
         s, env = self.settings, {}
+        if self.environment is not None and self.environment.isolation == "remote":
+            env.update(CLAUDE_REMOTE_ENV)
         if s.get("text_only"):
             env.update(CLAUDE_TEXT_ENV)
         if s.get("login") == "claude":

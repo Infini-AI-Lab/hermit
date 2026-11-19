@@ -17,7 +17,8 @@ from hermit.sandbox import hidden_paths, set_hidden
 from hermit.agent.evolver.loader import find, instantiate, load_class
 from hermit.spec import check_spec
 from hermit.agent.acting.agent import load_agent
-from hermit.isolate import agent_pipeline, config_paths, host_pipeline, judge_for, validate as validate_sandboxes
+from hermit.isolate import agent_pipeline, config_paths, host_pipeline, judge_for, task_environments, \
+    validate as validate_sandboxes
 from hermit.task import Benchmark, load_callable
 from hermit.trainer.rollout import run_one
 from hermit.trainer.trainer import needs_errors, warnings_for
@@ -158,6 +159,7 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
         try:
             probe_pipeline, close = agent_pipeline(config, "check", records=None)
             judge = judge_for(config, probe_pipeline)
+            environments = task_environments(config)
         except Exception as exc:
             close()                  # what was started before the error
             probe_pipeline, close = None, (lambda: None)
@@ -165,7 +167,7 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
                       "api_speed": None, "cost_usd": None}
         if probe_pipeline is not None:
             try:
-                record = run_one(task, None, probe_pipeline, judge)
+                record = run_one(task, None, probe_pipeline, judge, environments)
             except LoginFailed as exc:
                 record = {"status": "error", "error": str(exc), "judge": {"score": 0.0}, "api_speed": None,
                           "cost_usd": None}

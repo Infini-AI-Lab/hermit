@@ -2,15 +2,15 @@
 
     python -m hermit.harbor.report <eval dir or results.jsonl>... [--json]
 
-`hermit eval` scores a trial that is not the agent's result (infra: the host, the provider, a session that never
-started, once the runner's own runs again are spent: agent.params.infra_retries) as a failed run: its judge
-(hermit.harbor.judge) gives it no score, so it counts among the summary's `errors` and as 0 in its `mean_score`. A
-benchmark's own figure leaves such trials out. This reads the eval's results.jsonl (`<run dir>/eval/<adapter>/`) and
+`hermit eval` scores a trial that is not the agent's result (infra: the task's environment could not be given, or it
+failed under the verifier) as a failed run: its judge (hermit.task.verify.environment) gives it no score, so it counts
+among the summary's `errors` and as 0 in its `mean_score`. A benchmark's own figure leaves such trials out. This reads the eval's results.jsonl (`<run dir>/eval/<adapter>/`) and
 gives, over all its repeats and for each repeat:
 
     trials        the rows of the eval
     scored        the trials the judge scored (status ok): the agent's results
-    infra         the trials that are not the agent's result (the runner's verdict: output.status infra)
+    infra         the trials that are not the agent's result (an environment that could not be given, or that failed:
+                  the judge's Unscored)
     failed        the other failed runs (the pipeline or the judge failed for another reason)
     pass_at_1     of the scored trials, the share that passed (the judge's `passed`, which hermit eval keeps in the
                   row's judge.extra: the reward reached the run's pass_reward); null when the judge says no trial
@@ -113,12 +113,16 @@ def later(path: Path) -> str | None:
             "not finish, beside the summary of the eval before")
 
 
+INFRA_SAID = ("Unscored", "the task's environment could not be given")
+
+
 def kind(row: dict) -> str:
     """scored, infra or failed (the module's docstring)."""
-    output = row.get("output") if isinstance(row.get("output"), dict) else {}
-    if output.get("status") == "infra":
-        return "infra"
-    return "scored" if row.get("status") == "ok" else "failed"
+    if row.get("status") == "ok":
+        return "scored"
+    judged = row.get("judge") if isinstance(row.get("judge"), dict) else {}
+    said = f"{row.get('error') or ''} {judged.get('feedback') or ''}"
+    return "infra" if any(word in said for word in INFRA_SAID) else "failed"
 
 
 def passed(row: dict):

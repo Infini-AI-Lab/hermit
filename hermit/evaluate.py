@@ -8,7 +8,7 @@ import time
 
 from hermit.adapter.manifest import CARD, MANIFEST
 from hermit.config import Config
-from hermit.isolate import agent_pipeline, judge_for
+from hermit.isolate import agent_pipeline, judge_for, task_environments
 from hermit.redact import redact_path, redact_value
 from hermit.task import Benchmark
 from hermit.trainer.budget import Budget
@@ -46,6 +46,7 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
     pipeline, close = agent_pipeline(config, "eval", records=out / "sandbox")
     try:
         judge = judge_for(config, pipeline)
+        environments = task_environments(config, log=log)
     except BaseException:
         close()                      # the pipeline's sandbox and proxies, before the error leaves
         raise
@@ -58,7 +59,7 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
             for r in range(1, repeats + 1):
                 log(f"eval {label}: repeat {r}/{repeats} on {len(tests)} test tasks")
                 for rec in run_tasks(tests, target, pipeline, judge, concurrency=int(d["agent"]["concurrency"]),
-                                     budget=budget, part="rollout"):
+                                     budget=budget, part="rollout", environments=environments):
                     per_task[str(rec["id"])].append(rec["judge"]["score"])      # Task.id: the row's id as text
                     errors += rec["status"] != "ok"
                     row = {"repeat": r, **{k: rec[k] for k in ("id", "status", "error", "output", "judge",

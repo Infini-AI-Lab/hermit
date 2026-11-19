@@ -17,7 +17,10 @@ access. What the sandbox shows is the run config's `environment` section and not
 The data and split files, the judge, the runs and trees directories may not lie in a declared path: the config is
 refused, and the isolation check inside proves them absent. A task with `environment.image` runs its CLI agent in a
 container of its own (the Base Agent's container isolation), started from a worker on the host that keeps the
-adapter's code in the strict sandbox; a Harbor task set (`agent.name: harbor`) runs in Harbor's, from this process.
+adapter's code in the strict sandbox. A task set in Harbor's environments (`environment.harbor`) gives each task its
+own environment (hermit.environment.harbor, kept in this process with its driver and Docker); the agent's worker in
+the task sandbox reaches it only through a server of the agent's operations on it (hermit.environment.remote: exec,
+upload, download), never its verifier or the task's directory.
 
 The judge runs where `judge.mode` says: `host` in this process on the downloaded answer, `shared` in the task
 sandbox after the agent (a new exec over the same work directory, with `judge.tests` shown to it alone), `separate`
@@ -80,8 +83,6 @@ def host_pipeline(config) -> str | None:
     d = config.data
     if not d["sandbox"]["enabled"]:
         return "sandbox.enabled is false"
-    if str(d["agent"]["name"]) == "harbor":
-        return "a Harbor task set runs in Harbor's own environment"
     if d["environment"].get("runner") == "host":
         return "environment.runner: host (the task's own code isolates the adapter's code it runs, in containers)"
     if d["environment"].get("image"):
@@ -544,12 +545,25 @@ class SandboxedAgent:
 
     def refuses(self, needs: dict) -> list[str]:
         """What a task asks of its environment (a task directory's `needs`) that this run's does not give: such a task
-        is never run with less (hermit.trainer.rollout asks before each call)."""
+        is never run with less (hermit.trainer.rollout asks before each call, unless the task has an environment of
+        its own: a Harbor one gives what it asks)."""
         return self.spec.problems_for(needs, verifier=self.verifies)
 
-    def __call__(self, task: dict, adapter: Path | None, needs: dict | None = None) -> RunOutput:
+    def __call__(self, task: dict, adapter: Path | None, environment=None, needs: dict | None = None) -> RunOutput:
         """`needs`: what the task asks of its environment (its private half's; hermit.trainer.rollout passes it), of
-        which its agent's timeout bounds the call."""
+        which its agent's timeout bounds the call. A task in an environment of its own (a Harbor one): the worker's
+        sandbox reaches only the server of it."""
+        server = None
+        if environment is not None:
+            from hermit.environment.remote import EnvironmentServer
+            server = EnvironmentServer(environment).start()
+        try:
+            return self._call(task, adapter, server, needs)
+        finally:
+            if server is not None:
+                server.close()
+
+    def _call(self, task: dict, adapter: Path | None, server, needs: dict | None = None) -> RunOutput:
         self._recheck()
         work = self.work_root / f"{_safe(task.get('id', 'task'))}-{uuid.uuid4().hex[:8]}"
         home = work / "home"
@@ -577,12 +591,14 @@ class SandboxedAgent:
             keep.append(var)
         binds = _log_binds(work, self.logs, [work])
         job = {"kind": "agent", "name": self.name, "params": params, "base": str(self.base), "task": task,
-               "adapter": str(adapter) if adapter else None}
+               "adapter": str(adapter) if adapter else None,
+               **({"environment": server.spec()} if server is not None else {})}
+        forward = [*self.forward, *([server.port] if server is not None else [])]
         clean = work.parent / f"{work.name}.log"
         try:
             try:
                 payload = _run_worker(self.sandbox, job, work, home=home, readable=[adapter] if adapter else [],
-                                      env=env, keep=keep, forward=self.forward,
+                                      env=env, keep=keep, forward=forward,
                                       timeout=_deadline(self.timeout, needs or task),
                                       binds=binds)
             finally:
@@ -655,8 +671,11 @@ class ContainerAgent:
         self.enforce = d["sandbox"].get("enforce", "required")
         self.box = Sandbox(enabled=False, role=role)     # the worker is on the host; the container is the boundary
 
-    def __call__(self, task: dict, adapter: Path | None) -> RunOutput:
+    def __call__(self, task: dict, adapter: Path | None, environment=None) -> RunOutput:
         from hermit.adapter.session import ENV_ENFORCE
+        if environment is not None:
+            raise ValueError("environment.image runs the agent in a container of its own; a task that gives its own "
+                             "environment (environment.harbor) runs in that one: give one of them")
         work = self.work_root / f"{_safe(task.get('id', 'task'))}-{uuid.uuid4().hex[:8]}"
         work.mkdir(parents=True)
         # The agent's logs go to this call's own directory; its workspaces stay where the task puts them
@@ -848,6 +867,23 @@ class SandboxedJudge:
             for kept in (place, *writable):              # the judge holds the task's keys too: none kept
                 redact_tree(kept)
         return payload["result"]
+
+
+def task_environments(config, *, log=None):
+    """The run's task environments: Harbor's (hermit.environment.harbor.HarborEnvironments), one for each task, when
+    the config's `environment.harbor` names them; else None (the agent works in its own workspace). A task whose agent
+    phase has no public network lets the agent reach its model's hosts too."""
+    d = config.data
+    section = d["environment"].get("harbor")
+    if not section:
+        return None
+    if d["environment"].get("image"):
+        raise ValueError("environment.harbor and environment.image: a task in Harbor's environment runs its agent "
+                         "there, not in a container of the agent's own; give one of them")
+    from hermit.environment.harbor import HarborEnvironments
+    params = dict(d["agent"].get("params") or {})
+    _, hosts, _ = model_access([params.get("binding"), params.get("model")])
+    return HarborEnvironments(section, base=Path(config.base), allowed_hosts=hosts, log=log)
 
 
 def judge_for(config, pipeline):

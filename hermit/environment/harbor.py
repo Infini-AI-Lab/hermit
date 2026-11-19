@@ -21,10 +21,10 @@ compose projects taken down by name.
 Settings (a run config's `environment.harbor`, merged over the benchmark file it names as `benchmark`):
 
   tasks_dir         the task directories (relative to the benchmark file's folder; its links followed once)
-  type, import_path, kwargs, delete, force_build, mounts, extra_docker_compose, env, override_cpus,
-  override_memory_mb, override_storage_mb, override_gpus
-                    Harbor's environment (docker by default; e2b, modal, daytona, ...: whatever Harbor supports,
-                    its own extra installed in Harbor's venv)
+  environment       Harbor's environment config: type (docker by default; e2b, modal, daytona, ...: whatever Harbor
+                    supports, its own extra installed in Harbor's venv), import_path, kwargs, delete, force_build,
+                    mounts, extra_docker_compose (relative to the benchmark file's folder), env, override_cpus,
+                    override_memory_mb, ...
   verifier          Harbor's verifier config (override_timeout_sec, max_timeout_sec, env, disable, ...)
   verifier_timeout_multiplier, environment_build_timeout_multiplier   Harbor's, at least 1
   agent_timeout_sec the agent's budget (Harbor's override_timeout_sec); null: each task's own
@@ -50,6 +50,7 @@ no command runs in the environment after it.
 """
 from __future__ import annotations
 
+import atexit
 import contextlib
 import json
 import os
@@ -80,11 +81,8 @@ START_TIMEOUT_S = 3600.0             # the driver's start: the image's pull or b
 VERIFY_TIMEOUT_S = 7200.0            # ... and its verifier (Harbor's own timeout ends it first)
 STOP_TIMEOUT_S = 600.0
 PASS_REWARD = 1.0
-ENVIRONMENT_KEYS = ("type", "import_path", "kwargs", "delete", "force_build", "mounts", "extra_docker_compose", "env",
-                    "override_cpus", "override_memory_mb", "override_storage_mb", "override_gpus",
-                    "cpu_enforcement_policy", "memory_enforcement_policy", "suppress_override_warnings")
 MULTIPLIERS = ("verifier_timeout_multiplier", "environment_build_timeout_multiplier")
-SETTINGS = (*ENVIRONMENT_KEYS, *MULTIPLIERS, "benchmark", "tasks_dir", "verifier", "agent_timeout_sec",
+SETTINGS = (*MULTIPLIERS, "benchmark", "tasks_dir", "environment", "verifier", "agent_timeout_sec",
             "setup_timeout_sec", "allowed_hosts", "docker_cleanup", "rmi_threshold_gb", "disk_gate_gb",
             "disk_gate_wait_s", "tmp_gate_gb", "image_sizes", "jobs_dir", "harbor", "start_timeout_s",
             "verify_timeout_s", "verifier_timeout", "pass_reward", "reward_key", "dataset")
@@ -167,6 +165,17 @@ class HarborEnvironments:
                                                                   if h not in (s.get("allowed_hosts") or []))]
         self.log = log or (lambda m: print(m, file=sys.stderr, flush=True))
         self._root: Path | None = None
+        self.live: set = set()                  # the environments started and not stopped: stopped at exit
+        self._lock = threading.Lock()
+        atexit.register(self.stop_all)
+
+    def stop_all(self) -> None:
+        """Every environment still up (this process is ending): stopped, its compose projects taken down."""
+        with self._lock:
+            left = list(self.live)
+        for env in left:
+            with contextlib.suppress(Exception):
+                env.stop()
 
     def path(self, value) -> Path:
         p = Path(os.path.expandvars(str(value))).expanduser()
@@ -240,8 +249,10 @@ class HarborEnvironments:
 
     # --- what each environment is given --------------------------------------------------------------------------
     def environment_config(self) -> dict:
-        s = self.settings
-        env = {"delete": True, **{k: s[k] for k in ENVIRONMENT_KEYS if s.get(k) is not None}}
+        given = self.settings.get("environment") or {}
+        if not isinstance(given, dict):
+            raise ValueError("environment.harbor.environment is a mapping (Harbor's environment config)")
+        env = {"delete": True, **{k: v for k, v in given.items() if v is not None}}
         if env.get("extra_docker_compose"):
             env["extra_docker_compose"] = [str(self.path(p)) for p in env["extra_docker_compose"]]
         if env.get("mounts"):
@@ -415,6 +426,8 @@ class HarborEnvironment(Environment):
         if not owner.wait_for_disk(self.task_dir, self.admitted):
             raise EnvironmentUnavailable(f"{owner.disk_held(self.task_dir)}: no environment started")
         self.trials_dir.mkdir(parents=True, exist_ok=True)
+        with owner._lock:
+            owner.live.add(self)
         tmp = owner.jobs_dir / "tmp"
         tmp.mkdir(parents=True, exist_ok=True)
         env = {**os.environ, "TMPDIR": str(tmp)}
@@ -449,6 +462,8 @@ class HarborEnvironment(Environment):
             for key in self.admitted:
                 self.owner.pulls.done(key)
             self.admitted = []
+            with self.owner._lock:
+                self.owner.live.discard(self)
 
     def _live(self) -> _Driver:
         if self.driver is None:

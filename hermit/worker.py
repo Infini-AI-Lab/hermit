@@ -3,8 +3,9 @@
 
     python worker.py          # the job arrives as JSON on stdin; HA_RESULT_FD names the pipe the result leaves by
 
-A job is {"kind": "agent", "name", "params", "base", "task", "adapter"} (what `load_agent(...).run(task, adapter)`
-takes), {"kind": "judge", "spec", "base", "task", "output"} (the judge on an output record, in a sandboxed judge
+A job is {"kind": "agent", "name", "params", "base", "task", "adapter", "environment"} (what
+`load_agent(...).run(task, adapter)` takes; `environment`, when the task gives one, the spec of the server the host
+serves it from, hermit.environment.remote: the agent gets a ProxyEnvironment of it), {"kind": "judge", "spec", "base", "task", "output"} (the judge on an output record, in a sandboxed judge
 mode) or {"kind": "tool", "entrypoint", "base", "arguments", "bound"} (a template's or task's declared tool). The
 result is {"ok": true, "output": <RunOutput record>} / {"ok": true, "result": ...} or {"ok": false, "error",
 "traceback"}.
@@ -31,7 +32,12 @@ def _run(job: dict) -> dict:
         os.environ[ENV_SANDBOX] = "1"
         os.environ[ENV_PYTHON] = sys.executable
         agent = load_agent(job["name"], job.get("params"), Path(job["base"]))
-        out = agent.run(job["task"], Path(job["adapter"]) if job.get("adapter") else None)
+        adapter = Path(job["adapter"]) if job.get("adapter") else None
+        if job.get("environment"):
+            from hermit.environment.remote import ProxyEnvironment
+            out = agent.run(job["task"], adapter, environment=ProxyEnvironment.from_spec(job["environment"]))
+        else:
+            out = agent.run(job["task"], adapter)
         if not isinstance(out, RunOutput):
             raise TypeError(f"the pipeline returned {type(out).__name__}, not RunOutput")
         return {"ok": True, "output": output_record(out)}
