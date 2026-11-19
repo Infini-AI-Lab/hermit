@@ -60,7 +60,7 @@ def test_structured_mutation_context_raw_and_state():
 
 
 def test_native_model_list_can_be_classified_without_changing_observation():
-    pytest.importorskip('agentdojo')
+    pytest.importorskip('agentdojo.agent_pipeline')
     from pydantic import BaseModel
     from agentdojo.agent_pipeline.tool_execution import tool_result_to_str
 

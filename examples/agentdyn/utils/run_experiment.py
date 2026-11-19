@@ -306,9 +306,10 @@ def run_measured(path, config, snapshot_metadata=None):
             if source.is_file():
                 manifest['task_info_sha256'][source.name] = hashlib.sha256(source.read_bytes()).hexdigest()
         from victim import model_params
-        from bridge import AGENTDYN_REVISION
+        from bridge import benchmark_settings
         manifest['victim_model_id'] = model_params(config.data['agent']['params'])['model']
-        manifest['dataset_revision'] = AGENTDYN_REVISION
+        manifest['benchmark'] = config.data['agent']['params'].get('benchmark', 'agentdyn')
+        _, manifest['dataset_revision'] = benchmark_settings(manifest['benchmark'])
         manifest['docker_version'] = subprocess.check_output(['docker', 'version', '--format', '{{.Server.Version}}'], text=True).strip()
         from hermit.agent.evolver.methods.evosafe.cli_roles import proposer
         manifest['learner_backend'] = proposer(config.data['evolver']['params'])

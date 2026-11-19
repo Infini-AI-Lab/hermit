@@ -52,10 +52,10 @@ def read_collection(root):
     return cases, sources
 
 
-def audit_native(cases):
+def audit_native(cases, *, suite_names=SUITES, benchmark_version="v1.2.2"):
     """Validate IDs/vectors and reject already-successful or malformed initial states."""
     from agentdojo.task_suite import get_suite
-    suites = {name: get_suite("v1.2.2", name) for name in SUITES}
+    suites = {name: get_suite(benchmark_version, name) for name in suite_names}
     inventory = {name: {"user_tasks": len(s.user_tasks), "injection_tasks": len(s.injection_tasks),
                        "vectors": len(s.get_injection_vector_defaults())} for name, s in suites.items()}
     audit = {}
