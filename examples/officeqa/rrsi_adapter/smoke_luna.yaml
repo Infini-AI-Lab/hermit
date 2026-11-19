@@ -1,9 +1,9 @@
 # A smoke of run_luna.yaml: the 4 smoke questions x k = 2, one round of two candidates (three steps), real Codex
 # sessions on the ChatGPT login for the agent, the proposer and the roles; the 4 smoke test questions for `hermit eval`.
 data:
-  tasks: rows/tasks.jsonl              # make_rows.py: ../utils/tasks.jsonl plus k trial rows per training question
+  tasks: rows/tasks.jsonl              # make_rows.py: ../utils/benchmark/tasks plus k trial rows per training question
   train: rows/smoke_k2.txt             # the 4 smoke questions x k = 2
-  test: ../utils/splits/smoke_test.txt
+  test: ../utils/benchmark/splits/smoke_test.txt
   step_size: 8
   shuffle: false
 task_info: task-info/
@@ -27,9 +27,9 @@ agent:
     project_doc_max_bytes: 65536       # 64 KiB, as every OfficeQA Codex config: past Codex's default 32 KiB it would
                                        # cut AGENTS.md (deploy refuses that)
 judge:
-  path: trials.py                      # ../utils/judge.py on the row's question
+  path: trials.py                      # ../utils/benchmark/judge.py on the row's question
 template: rrsi-adapter@1.0
-start_from: seed_adapter               # make_seed.py writes it from ../utils/seed_adapter
+start_from: seed_adapter               # make_seed.py writes it from ../utils/benchmark/seed_adapter
 evolver:
   name: rrsi_adapter
   params:                              # Layer 3: the method

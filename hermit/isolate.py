@@ -49,7 +49,12 @@ from hermit.redact import redact_name, redact_tree
 from hermit.sandbox import (LIMITS, NETWORK_MODES, PACKAGE, AllowlistProxy, Bind, Sandbox, framework_env,
                             gpu_list, hidden_paths, model_access, network_mode, owner_readable, package_closure,
                             program_paths, sanitized_copy, set_hidden)
+from hermit.environment.bwrap import task_sandbox
+from hermit.environment.spec import EnvironmentSpec
 from hermit.task import RunOutput, load_callable, output_record
+from hermit.task.verify import LOGS, SANDBOX_ENV, TESTS
+
+SCRIPT_VERIFIER = ("hermit.task.verify", "script")      # judge: {path, name} of a task directory's own verifier
 
 WORKER = PACKAGE / "worker.py"
 CLI_HOMES = {c.backend: (c.user_folder, c.home_var, c.home_files[0]) for c in CLIS.values()}   # folder, var, sign-in
@@ -470,6 +475,19 @@ def _safe(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", str(text))[:60] or "task"
 
 
+STARTUP_S = 60          # beyond a task's own timeout: the sandbox and the worker start, the result comes back
+
+
+def _deadline(run_timeout: float | None, task: dict) -> float | None:
+    """A call's deadline: the run's (agent.timeout_min), and a task directory's own `agent_timeout_sec` (task.toml's
+    [agent] timeout_sec, which Harbor enforces) when it is stricter, with the worker's start-up beside it."""
+    own = task.get("agent_timeout_sec")
+    if not own:
+        return run_timeout
+    own = float(own) + STARTUP_S
+    return own if run_timeout is None else min(run_timeout, own)
+
+
 class SandboxedAgent:
     """The run's agent as a pipeline, every call in a worker inside the task sandbox."""
 
@@ -482,8 +500,7 @@ class SandboxedAgent:
         missing = [p for p in envc.get("packages") or [] if p != "*" and not package_closure([p])]
         if missing:
             raise ValueError(f"environment.packages names distributions that are not installed: {missing}")
-        readable = config_paths(config, "environment.read", envc.get("read"))
-        writable = config_paths(config, "environment.write", envc.get("write"))
+        self.spec = EnvironmentSpec.from_section(envc, lambda where, values: config_paths(config, where, values))
         self.params = dict(agent.get("params") or {})
         if model_endpoint is not None:       # a model only a CLI reaches: its endpoint is out here, with the sign-in;
             self.params["model"] = endpoint_spec(model_endpoint, self.params["model"])   # the call gets a URL
@@ -494,12 +511,14 @@ class SandboxedAgent:
         self.cli = _cli_kind(self.name, self.params)
         self.timeout = float(agent["timeout_min"]) * 60 if agent.get("timeout_min") else None
         self.enforce = d["sandbox"].get("enforce", "required")
+        # A task's own verifier runs in a sandbox like this one, so its network is checked with the agent's
+        judge = d.get("judge") or {}
+        self.verifies = (str(judge.get("path") or ""), judge.get("name")) == SCRIPT_VERIFIER
         self.logs = _agent_logs(self.name, self.base)
         for log_dir in self.logs:                        # the mount point of each call's own log directory
             log_dir.mkdir(exist_ok=True)
         self.others: list[Sandbox] = []                  # the judge's sandboxes, closed with this one
-        if self.cli:                                     # the CLI and the node it may run on, as installed
-            readable += program_paths(CLIS[self.cli].program)
+        program = program_paths(CLIS[self.cli].program) if self.cli else []   # a CLI and its node, as installed
         # A CLI agent on a login waits for the login's plan with every session on the machine: the plan's directory
         # (its PAUSE, MAX_USED, SLOTS and report) is the one outside, shared into every call; the worker inside runs
         # the Base Agent's wait, slot and holds there. A ChatGPT login's file is copied in; a Claude login signs in
@@ -513,25 +532,24 @@ class SandboxedAgent:
             if self.cli and codex_login.LOGINS.get(login) == self.cli else None
         if self.plan is not None:
             self.plan.mkdir(parents=True, exist_ok=True)
-        network, allow = envc.get("network") or "no-network", list(envc.get("allowed_hosts") or [])
-        wanted = [*model_hosts, *(codex_login.hosts(login) if self.plan is not None else [])]   # and a plan login's
-        if network != "public" and wanted:
-            network, allow = "allowlist", [*allow, *[h for h in wanted if h not in allow]]
-        isolated, wants_proxy = network_mode(network)
-        self.allow_proxy = AllowlistProxy(allow, log=records / f"network-{role}.jsonl" if records else None) \
-            if (isolated == "isolated" and wants_proxy and allow) else None
-        self.sandbox = Sandbox(enabled=True, network=network, allow=allow, readable=readable,
-                               writable=[*writable, *([self.plan] if self.plan is not None else [])],
-                               proxy_url=self.allow_proxy.url if self.allow_proxy else None,
-                               env_allow=[*(envc.get("env") or []), *model_keys], enforce=self.enforce,
-                               packages=list(envc.get("packages") or []), framework=True, record_dir=records,
-                               probe_absent=[*HOME_SECRETS, *run_secrets(config)],
-                               limits=dict(envc.get("resources") or {}), gpu=gpu_list(envc.get("gpu")), role=role)
+        # The task sandbox is the bwrap backend's (hermit.environment.bwrap), with what is the agent's own added: its
+        # model's hosts and key variable, a login's plan and its hosts, the CLI's installation.
+        self.sandbox, self.allow_proxy = task_sandbox(
+            self.spec, enforce=self.enforce, records=records, role=role,
+            probe_absent=[*HOME_SECRETS, *run_secrets(config)], extra_readable=program,
+            extra_writable=[self.plan] if self.plan is not None else [], extra_env=model_keys,
+            extra_hosts=[*model_hosts, *(codex_login.hosts(login) if self.plan is not None else [])])
         # What the config declares (not the CLI's installation), searched again for run records before calls.
-        self._recheck = Recheck([*config_paths(config, "environment.read", envc.get("read")),
-                                 *config_paths(config, "environment.write", envc.get("write"))])
+        self._recheck = Recheck([*self.spec.read, *self.spec.write])
 
-    def __call__(self, task: dict, adapter: Path | None) -> RunOutput:
+    def refuses(self, needs: dict) -> list[str]:
+        """What a task asks of its environment (a task directory's `needs`) that this run's does not give: such a task
+        is never run with less (hermit.trainer.rollout asks before each call)."""
+        return self.spec.problems_for(needs, verifier=self.verifies)
+
+    def __call__(self, task: dict, adapter: Path | None, needs: dict | None = None) -> RunOutput:
+        """`needs`: what the task asks of its environment (its private half's; hermit.trainer.rollout passes it), of
+        which its agent's timeout bounds the call."""
         self._recheck()
         work = self.work_root / f"{_safe(task.get('id', 'task'))}-{uuid.uuid4().hex[:8]}"
         home = work / "home"
@@ -564,7 +582,9 @@ class SandboxedAgent:
         try:
             try:
                 payload = _run_worker(self.sandbox, job, work, home=home, readable=[adapter] if adapter else [],
-                                      env=env, keep=keep, forward=self.forward, timeout=self.timeout, binds=binds)
+                                      env=env, keep=keep, forward=self.forward,
+                                      timeout=_deadline(self.timeout, needs or task),
+                                      binds=binds)
             finally:
                 if self.chatgpt:
                     # Every copy the call left: its run copy, and a session's own when the worker was stopped
@@ -757,6 +777,9 @@ class SandboxedJudge:
         self.readable = [*([config.path(module)] if module.endswith(".py") else []),     # the file, not its dir
                          *config_paths(config, "judge.tests", d["judge"].get("tests"))]
         self.collect = list(d["judge"].get("collect") or [])
+        # A task directory's own verifier (hermit.task.verify.script): each call shows the task's tests at /tests and a
+        # fresh log directory at /logs/verifier, as Harbor's verifier sees them.
+        self.script = self.spec == f"{SCRIPT_VERIFIER[0]}:{SCRIPT_VERIFIER[1]}"
         # The judge's own sandbox: the task sandbox's settings, and its probe checks only the home's secrets (the
         # judge, its tests and the data are its to read, and so is what sandbox.hide covers for everyone else). A
         # separate judge gets none of what the agent could write (environment.write): only what is collected. Nor
@@ -766,6 +789,14 @@ class SandboxedJudge:
         self.box = dataclasses.replace(agent.sandbox, probe_absent=[*HOME_SECRETS, *plan], role="judge", hide=[],
                                        writable=[] if self.mode == "separate" else own)
         agent.others.append(self.box)
+
+    def _timeout(self, task: dict) -> float | None:
+        """The judge's deadline: the agent's; a task's verifier script gets at least its own timeout_sec and the
+        worker's start-up (its script stops itself at timeout_sec)."""
+        own = ((task.get("_private") or {}).get("verifier") or {}).get("timeout_sec") if self.script else None
+        if not own or self.agent.timeout is None:
+            return self.agent.timeout
+        return max(self.agent.timeout, float(own) + STARTUP_S)
 
     def __call__(self, task: dict, out: RunOutput) -> dict:
         work = out.extra.get("sandbox_work")
@@ -777,6 +808,8 @@ class SandboxedJudge:
         home.mkdir(parents=True)
         record = output_record(out)
         record["extra"] = {k: v for k, v in (record.get("extra") or {}).items() if k != "sandbox_work"}
+        if self.script and not record["extra"].get("workspace"):
+            record["extra"]["workspace"] = str(work)     # where the agent worked: the verifier's workspace
         job = {"kind": "judge", "spec": self.spec, "base": str(self.base), "task": task, "output": record}
         # Shared: the agent's work as the agent saw it, its per-call `.logs` at the names the agent wrote them under.
         binds = _log_binds(work, self.agent.logs, [work, place], existing=True,
@@ -792,10 +825,27 @@ class SandboxedJudge:
             binds, writable = [Bind(fresh, str(work), True)], []
         # The log the agent returned is a sanitized copy beside its work directory: the judge reads it there.
         log_copy = [out.log.parent] if out.log and Path(out.log).parent.name == f"{work.name}.log" else []
+        env, keep = framework_env(), []
+        if self.script:
+            private = task.get("_private") or {}
+            if not private.get("tests"):
+                raise RuntimeError(f"task {task.get('id')!r} has no tests/ for its verifier script")
+            if (private.get("verifier") or {}).get("environment_mode") == "separate" and self.mode != "separate":
+                raise RuntimeError(f"task {task.get('id')!r} asks for a separate verifier (task.toml "
+                                   "[verifier] environment_mode); set judge.mode: separate")
+            logs = place / "verifier"
+            logs.mkdir()
+            tests = Path(private["tests"])
+            if private.get("step_tests"):                # a step's own tests laid over the task's, as Harbor does
+                tests = place / "tests"
+                shutil.copytree(private["tests"], tests, symlinks=True)
+                shutil.copytree(private["step_tests"], tests, symlinks=True, dirs_exist_ok=True)
+            binds = [*binds, Bind(tests, TESTS), Bind(logs, LOGS, True)]
+            env[SANDBOX_ENV], keep = "1", [SANDBOX_ENV]
         try:
             payload = _run_worker(self.box, job, place, home=home, readable=[*self.readable, *log_copy],
-                                  writable=writable, env=framework_env(),
-                                  forward=self.agent.forward, timeout=self.agent.timeout, binds=binds)
+                                  writable=writable, env=env, keep=keep,
+                                  forward=self.agent.forward, timeout=self._timeout(task), binds=binds)
         finally:
             for kept in (place, *writable):              # the judge holds the task's keys too: none kept
                 redact_tree(kept)

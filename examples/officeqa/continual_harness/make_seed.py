@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Write seed_adapter/ beside this file: SkillOpt's initial OfficeQA skill (../utils/seed_adapter/ADAPTER.md, written
-by ../utils/prepare.py) as a `continual-harness` adapter: the skill text is AGENTS.md (the base policy p; ADAPTER.md
-is its copy), and the sub-agents, skills and memory start empty, as the template leaves them. Continual Harness then
-starts from exactly the text the GEPA, SkillOpt and Harness² runs start from.
+"""Write seed_adapter/ beside this file: SkillOpt's initial OfficeQA skill (../utils/benchmark/seed_adapter/ADAPTER.md,
+written by ../utils/benchmark/prepare.py) as a `continual-harness` adapter: the skill text is AGENTS.md (the base policy
+p; ADAPTER.md is its copy), and the sub-agents, skills and memory start empty, as the template leaves them. Continual
+Harness then starts from exactly the text the GEPA, SkillOpt and Harness² runs start from.
 
     python examples/officeqa/continual_harness/make_seed.py
 """
@@ -14,7 +14,7 @@ from hermit.spec import check_spec
 
 HERE = Path(__file__).resolve().parent
 TEMPLATE = Path(hermit.__file__).resolve().parent / "adapter" / "templates" / "continual_harness"
-seed = (HERE.parent / "utils" / "seed_adapter" / "ADAPTER.md").read_text()
+seed = (HERE.parent / "utils" / "benchmark" / "seed_adapter" / "ADAPTER.md").read_text()
 out = HERE / "seed_adapter"
 if out.exists():
     shutil.rmtree(out)

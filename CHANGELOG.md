@@ -6,6 +6,10 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Breaking
 
+- OfficeQA's task set is task directories in Harbor's format under `examples/officeqa/utils/benchmark/` (with its
+  `prepare.py`, `judge.py`, `task-info/`, splits, `data.json` and seed adapter): run `prepare.py` again. The agents read
+  each task as the row they always read, so prompts are unchanged.
+
 - Tasks and environments are packages of their own beside the agents: `hermit/environment/` (moved from
   `hermit/agent/environment/`, which forwards for one release) and `hermit/task/` (from `hermit/task.py`: `Task` with
   a public half the agent is handed and a private half only the judge reads, `Benchmark`, the verifier). `RunOutput`
@@ -52,6 +56,12 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   again when a task file's mode was other than 644 or 755 or a task holds a link.
 
 ### Added
+
+- Task directories in Harbor's format as a task set (`data.tasks: <directory>`, `data.rollouts`), read without Harbor
+  (`hermit/task/directory.py`), with their own verifier script run in the judge's sandbox (`judge: {path:
+  hermit.task.verify, name: script}`: `/tests`, `/logs/verifier/reward.txt` or `reward.json`, and `feedback.txt`).
+  The task sandbox is built from an `EnvironmentSpec` by the bubblewrap backend (`hermit/environment/spec.py`,
+  `bwrap.py`), which refuses a task that asks for more network or memory than the run's environment gives.
 
 - RoboDojo-Sim (`examples/robodojo_sim/`), a first implementation (its smoke run on the real simulator; no
   training run yet): its forty-two tasks with a Codex session writing a program that controls the robot,

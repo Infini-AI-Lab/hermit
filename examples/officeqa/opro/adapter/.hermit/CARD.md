@@ -3,7 +3,7 @@
 - Template: `prompt-only@1.0`
 - Started from: `3dc113889b760d0d9c0bc21b963fe8a9fd543920`
 - Evolver: `opro`
-- Task: ../utils/task-info/
+- Task: ../utils/benchmark/task-info/
 - Training: 3 epoch(s), 3 step(s)
 - Spending: rollouts $0.0000, Evolver $0.0000 (+835 calls of unknown cost); 2.41 h
 

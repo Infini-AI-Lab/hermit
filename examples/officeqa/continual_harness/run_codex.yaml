@@ -7,12 +7,13 @@
 # place; no validation gate. GLM 5.3 Flash acts and refines, at medium effort; one evaluation pass, as the all-Flash
 # GEPA and SkillOpt runs (gepa/run_codex_flash.yaml, skillopt/run_codex_flash.yaml).
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/train.txt
-  test: ../utils/splits/test.txt
+  tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/officeqa_fields.py:officeqa_task   # each task as the row SkillOpt's loader gives
+  train: ../utils/benchmark/splits/train.txt
+  test: ../utils/benchmark/splits/test.txt
   step_size: 3                         # the Refiner's window: three questions' trajectories per step
   shuffle_seed: 42
-task_info: ../utils/task-info/
+task_info: ../utils/benchmark/task-info/
 agent:
   base: codex                          # Layer 2: Codex as a Base Agent (hermit/agent/base/cli.py)
   concurrency: 3
@@ -31,9 +32,9 @@ agent:
     project_doc_max_bytes: 65536       # 64 KiB: the skill (up to 40 KB) with the deployment's notes; past
                                        # Codex's default 32 KiB it would cut AGENTS.md (deploy refuses that)
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 template: continual-harness@1.1
-start_from: seed_adapter               # make_seed.py writes it from ../utils/seed_adapter
+start_from: seed_adapter               # make_seed.py writes it from ../utils/benchmark/seed_adapter
 evolver:
   name: continual_harness
   params:

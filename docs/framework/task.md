@@ -243,6 +243,53 @@ whose manifest names a [`context_tool`](adapter.md#per-task-context), such a loo
 `session.context(query=<the instance's input>, task=<the row>)` and records `session.last_context` in
 `RunOutput.extra["context_tool"]`, as `react` does, so the Evolver knows what the agent read.
 
+## Task directories
+
+`data.tasks` may name a directory of task directories in [Harbor's format](https://harborframework.com/docs/tasks)
+instead of a `tasks.jsonl` (`hermit/task/directory.py`; Harbor is not needed to read them):
+
+```text
+tasks/<task>/
+  instruction.md      what the agent is asked
+  task.toml           [metadata]; [agent] timeout_sec; [verifier] timeout_sec, environment_mode;
+                      [environment] network_mode, allowed_hosts, cpus, memory_mb
+  environment/        what the task needs of its environment (a Dockerfile for a container)
+  tests/test.sh       the verifier; a task without tests/ is judged by the run's judge (judge.mode: host)
+```
+
+Each task's row (its public half, what the agent is handed) holds the instruction, its settings and its metadata, and
+`harbor_task`, the directory's name; where its directory and tests are is its private half, which only the judge
+reads. `data.view: <file.py>:<function>` turns each row into the row the task set's agents and learners read instead
+(a benchmark moved from a `tasks.jsonl` to task directories keeps its prompts and its learning material so); what a
+task asks of its environment is checked either way. Splits name the directories (`<task>`, `<task>:<step>` for a multi-step task's steps, `<task>#<k>` with
+`data.rollouts: k`). The run's `environment` must give each task what it asks: a task whose agent needs the public
+network (what a task that says nothing asks, Harbor's default) or more memory than `environment.resources.memory_mb`
+is refused, never run with less; so is an allowlist task whose `allowed_hosts` the run's allowlist lacks, and, with
+the script verifier below, a task whose verifier needs a wider network. A task's `[agent] timeout_sec` bounds each of
+its calls (with a minute for the sandbox to start), unless `agent.timeout_min` is stricter.
+
+A task's own verifier runs as Harbor runs it, in the judge's sandbox:
+
+```yaml
+judge:
+  path: hermit.task.verify
+  name: script
+  mode: shared            # over the agent's work; separate: a fresh sandbox with judge.collect's paths
+```
+
+`tests/` is shown at `/tests` and a fresh log directory at `/logs/verifier`; `test.sh` runs in the agent's workspace
+(`HERMIT_WORKSPACE`, from the output's `extra.workspace`) with the agent's output in the file `HERMIT_OUTPUT` names,
+and writes `reward.txt` (one number) or `reward.json` (named numbers: `reward` is the score, else their mean). Beyond
+Harbor, `feedback.txt` there is the feedback a learning method reads (else the script's output's tail). A task whose
+task.toml asks for `environment_mode = "separate"` is refused under `mode: shared`. A step's own `[steps.verifier]`
+settings come before the task's, its mode and environment resolved as Harbor resolves them, and its `tests/` are laid
+over the task's (its `test.sh` first); a reward that is not a finite number is an error; `[verifier.env]` is set for the script, with `${NAME}` and `${NAME:-default}` taken
+from the judge sandbox's environment (`environment.env`), as Harbor resolves them; the judge's deadline is at least the
+verifier's `timeout_sec` and a minute. The workspace is the agent's own
+(`HERMIT_WORKSPACE`, its output's `extra.workspace`, else the directory it ran in). Not supported here yet: files a task
+places in the agent's workspace before it starts, and a multi-step task (its steps share one environment in order),
+which is refused.
+
 ## Benchmarks
 
 A benchmark enters Hermit as a task set in [Harbor](https://github.com/laude-institute/harbor)'s format: that is the

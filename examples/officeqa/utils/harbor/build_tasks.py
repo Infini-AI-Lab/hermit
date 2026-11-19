@@ -2,21 +2,23 @@
 """OfficeQA in the SkillOpt paper's setting as a task set in Harbor's format: one task directory per question, run by
 `agent.name: harbor` (the Codex harness in a container Harbor starts, instead of one the acting agent's environment.image starts).
 
-    python examples/officeqa/utils/harbor/build_tasks.py                 # after utils/prepare.py
-        [--out utils/.private/harbor_tasks] [--ids utils/splits/test.txt] [--limit N] [--base-image ubuntu:24.04]
+    python examples/officeqa/utils/harbor/build_tasks.py                 # after utils/benchmark/prepare.py
+        [--out utils/benchmark/.private/harbor_tasks] [--ids utils/benchmark/splits/test.txt] [--limit N] [--base-image
+        ubuntu:24.04]
 
 Each task is `<out>/<UID>/`: `task.toml` (the question's metadata, a 3600 s agent budget as the Codex route's),
-`instruction.md` (the task text SkillOpt's Codex harness writes to task.md: the question, its oracle parsed pages,
-the corpus note, the candidate files, the source hints, with the answer instruction), `environment/Dockerfile`
+`instruction.md` (the task text SkillOpt's Codex harness writes to task.md: the question, its oracle parsed pages, the
+corpus note, the candidate files, the source hints, with the answer instruction), `environment/Dockerfile`
 (`--base-image` plus python3, ripgrep and CA certificates; the same for every task, so Harbor builds one image), and
-`tests/` (`test.sh`, `judge.py`, `gold.json`: the exact-match judge of utils/judge.py, run inside the container after
-the agent, so the answer is never where the agent can read it). The corpus is not in the image: the config mounts
-it read-only at `/app/docs/root_1`, where the instruction's candidate paths point (`MOUNTS.json` beside the tasks
-says which host directory). `<out>/tasks.jsonl` holds the rows for `data.tasks` (the same UIDs as utils/tasks.jsonl,
-so utils/splits/ apply unchanged).
+`tests/` (`test.sh`, `judge.py`, `gold.json`: the exact-match judge of utils/benchmark/judge.py, run inside the
+container after the agent, so the answer is never where the agent can read it). The corpus is not in the image: the
+config mounts it read-only at `/app/docs/root_1`, where the instruction's candidate paths point (`MOUNTS.json` beside
+the tasks says which host directory). `<out>/tasks.jsonl` holds the rows for `data.tasks` (the same UIDs as
+utils/benchmark/tasks, so utils/benchmark/splits/ apply unchanged).
 
 Needs the skillopt extra (the instruction is rendered with SkillOpt's own `_build_user`) and the answers
-utils/prepare.py wrote to utils/.private/answers.jsonl. The output is private: it holds the gold answers.
+utils/benchmark/prepare.py wrote to utils/benchmark/.private/answers.jsonl. The output is private: it holds the gold
+answers.
 """
 from __future__ import annotations
 
@@ -67,6 +69,14 @@ def task_toml(row: dict) -> str:
         "[environment]", "build_timeout_sec = 900.0", "cpus = 2", "memory_mb = 4096", 'workdir = "/app"', ""])
 
 
+def question_rows() -> list[dict]:
+    """Every question's row as the agents read it (utils/agent/officeqa_fields.py), from the task directories of
+    utils/benchmark/prepare.py, in the splits' order (train, validation, test)."""
+    from hermit.common import load_callable
+    rows = load_callable(str(UTILS / "agent" / "officeqa_fields.py") + ":question_rows", UTILS)
+    return rows(UTILS / "benchmark" / "tasks", UTILS / "benchmark" / "splits")
+
+
 def build(out: Path, rows: list[dict], answers: dict[str, str], docs: str, base_image: str) -> list[str]:
     from task import task_text                            # SkillOpt's task.md, and the corpus roots it names
     out.mkdir(parents=True, exist_ok=True)
@@ -97,15 +107,15 @@ def build(out: Path, rows: list[dict], answers: dict[str, str], docs: str, base_
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--out", type=Path, default=UTILS / ".private" / "harbor_tasks")
+    parser.add_argument("--out", type=Path, default=UTILS / "benchmark" / ".private" / "harbor_tasks")
     parser.add_argument("--ids", type=Path, help="only these task ids (one per line; default: every task)")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--base-image", default="ubuntu:24.04",
                         help="the image the tasks build on; one with Codex installed saves Harbor's install per trial")
-    parser.add_argument("--docs", help="treasury_bulletins_parsed/ (default: utils/data.json's)")
+    parser.add_argument("--docs", help="treasury_bulletins_parsed/ (default: utils/benchmark/data.json's)")
     args = parser.parse_args(argv)
-    data = json.loads((UTILS / "data.json").read_text())
-    rows = [json.loads(l) for l in (UTILS / "tasks.jsonl").read_text().splitlines() if l.strip()]
+    data = json.loads((UTILS / "benchmark" / "data.json").read_text())
+    rows = question_rows()
     if args.ids:
         wanted = {l.strip() for l in args.ids.read_text().splitlines() if l.strip() and not l.startswith("#")}
         rows = [r for r in rows if r["id"] in wanted]
@@ -114,7 +124,7 @@ def main(argv=None) -> int:
     answers = {r["id"]: r["answer"] for r in map(json.loads, Path(data["answers"]).read_text().splitlines()) if r}
     missing = [r["id"] for r in rows if r["id"] not in answers]
     if missing:
-        raise SystemExit(f"no answer for {missing[:5]}: run utils/prepare.py first")
+        raise SystemExit(f"no answer for {missing[:5]}: run utils/benchmark/prepare.py first")
     out = args.out.resolve()
     written = build(out, rows, answers, args.docs or data["docs"], args.base_image)
     from hermit.harbor import dataset

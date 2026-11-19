@@ -46,14 +46,16 @@ pages in either:
 ## Prepare the data
 
 ```bash
-python examples/officeqa/utils/prepare.py --csv /absolute/path/to/officeqa_full.csv \
+python examples/officeqa/utils/benchmark/prepare.py --csv /absolute/path/to/officeqa_full.csv \
   --docs /absolute/path/to/treasury_bulletins_parsed
 ```
 
-It writes into `examples/officeqa/utils/`:
+It writes into `examples/officeqa/utils/benchmark/`:
 
 ```text
-tasks.jsonl               the 246 questions, without answers
+tasks/<UID>/              the 246 questions as task directories in Harbor's format: instruction.md (the question),
+                          task.toml (its category and sources under [metadata]); no answers and no tests/ (the
+                          judge runs on the host)
 splits/                   train.txt, val.txt and test.txt (50 / 24 / 172 ids), and smoke_train.txt, smoke_val.txt
                           and smoke_test.txt: the first four training, two validation and four test questions
 data.json                 absolute paths of the corpus, the answers and the CSV, and drifted_from_split
@@ -61,6 +63,11 @@ seed_adapter/             SkillOpt's initial OfficeQA skill as a prompt-only@1.0
 .private/answers.jsonl    the answers, which the judge reads
 documents                 a link to the corpus: what the agent's sandbox shows (`environment.read`); `.private/` is not
 ```
+
+The configs read `data.tasks: ../utils/benchmark/tasks` with `data.view: ../utils/agent/officeqa_fields.py:officeqa_task`:
+every task is the row SkillOpt's loader gives (the instruction as `question`, the metadata beside it), so the agents'
+prompts, the run records and what a learning method reads are the same as when the task set was one `tasks.jsonl`. Prepared before this layout? Run `prepare.py` again: the files moved from
+`utils/` to `utils/benchmark/`.
 
 The split comes from SkillOpt's repository at a pinned commit unless `--split-dir` names a local copy of its
 `data/officeqa_id_split`. Questions, answers and source fields come from the CSV, so they follow the dataset
@@ -70,7 +77,7 @@ paper's revision. `prepare.py` prints the split sizes and those ids. `data.json`
 
 ## Check, train, evaluate
 
-Inspect `examples/officeqa/gepa/smoke.yaml`. It selects `prompt-only@1.0`, starts from `../utils/seed_adapter`,
+Inspect `examples/officeqa/gepa/smoke.yaml`. It selects `prompt-only@1.0`, starts from `../utils/benchmark/seed_adapter`,
 uses the `gepa` Evolver with GLM 5.3 as its model, batches of two tasks, two validation tasks, one epoch, and a
 training budget of USD 5 / three hours. Usage becomes visible at call boundaries, so the budget is not a
 provider-side spending cap. The separate `check` probe and `eval` calls are outside the training budget.
@@ -79,7 +86,7 @@ provider-side spending cap. The separate `check` probe and `eval` calls are outs
 hermit check --config examples/officeqa/gepa/smoke.yaml
 hermit train --config examples/officeqa/gepa/smoke.yaml
 hermit eval --config examples/officeqa/gepa/smoke.yaml --adapter final
-hermit eval --config examples/officeqa/gepa/smoke.yaml --adapter ../utils/seed_adapter
+hermit eval --config examples/officeqa/gepa/smoke.yaml --adapter ../utils/benchmark/seed_adapter
 hermit eval --config examples/officeqa/gepa/smoke.yaml --adapter none
 ```
 
@@ -120,7 +127,7 @@ SkillOpt its best skill, handed back as is (`promote_final: false`).
 
 Each method folder has six configs, each with its own run name and adapter tree, so runs can train side by side;
 do not mix their run-name or tree settings. All use the `prompt-only@1.0` template and start from
-`../utils/seed_adapter`; all but the Flash-row and GPT-5.6-Luna configs (`run_codex_flash.yaml`,
+`../utils/benchmark/seed_adapter`; all but the Flash-row and GPT-5.6-Luna configs (`run_codex_flash.yaml`,
 `run_codex_luna.yaml`: one pass) evaluate three passes per test question. The full runs run eight rollouts at a
 time, the smoke runs four.
 
@@ -163,7 +170,7 @@ hermit train --config examples/officeqa/skillopt/run.yaml
 hermit eval --config examples/officeqa/gepa/run.yaml --adapter final
 hermit eval --config examples/officeqa/skillopt/run.yaml --adapter final
 hermit eval --config examples/officeqa/skillopt/run.yaml --adapter none
-hermit eval --config examples/officeqa/skillopt/run.yaml --adapter ../utils/seed_adapter
+hermit eval --config examples/officeqa/skillopt/run.yaml --adapter ../utils/benchmark/seed_adapter
 ```
 
 Each row of [Results](#results) is the `mean_score` of one evaluation, in the folder named after its selector:
@@ -171,7 +178,7 @@ Each row of [Results](#results) is the `mean_score` of one evaluation, in the fo
 | Row | Config | `--adapter` | `summary.json` under `examples/officeqa/` |
 |---|---|---|---|
 | no skill | `skillopt/run.yaml` | `none` | `skillopt/runs/paper-skillopt/eval/none/` |
-| initial skill | `skillopt/run.yaml` | `../utils/seed_adapter` | `skillopt/runs/paper-skillopt/eval/seed_adapter/` |
+| initial skill | `skillopt/run.yaml` | `../utils/benchmark/seed_adapter` | `skillopt/runs/paper-skillopt/eval/seed_adapter/` |
 | GEPA | `gepa/run.yaml` | `final` | `gepa/runs/paper-gepa/eval/final/` |
 | SkillOpt | `skillopt/run.yaml` | `final` | `skillopt/runs/paper-skillopt/eval/final/` |
 | ReHarness, direct chat | `reharness/run.yaml`, through `reharness/launch.sh run eval` ([ReHarness](#reharness)) | `final` | `reharness/runs/paper-reharness/eval/final/` |
@@ -254,7 +261,7 @@ hermit train --config examples/officeqa/skillopt/run_codex.yaml
 hermit eval --config examples/officeqa/gepa/run_codex.yaml --adapter final
 hermit eval --config examples/officeqa/skillopt/run_codex.yaml --adapter final
 hermit eval --config examples/officeqa/skillopt/run_codex.yaml --adapter none
-hermit eval --config examples/officeqa/skillopt/run_codex.yaml --adapter ../utils/seed_adapter
+hermit eval --config examples/officeqa/skillopt/run_codex.yaml --adapter ../utils/benchmark/seed_adapter
 ```
 
 Codex's workspaces are under `~/.cache/hermit/officeqa-codex-actor/` (`agent.params.workspaces`), outside the
@@ -270,7 +277,7 @@ run a method's `run_codex_harbor.yaml` with the corpus mounted where the tasks e
 
 ```bash
 python -m pip install --group skillopt                  # the task text is rendered by SkillOpt's own code
-python examples/officeqa/utils/harbor/build_tasks.py    # utils/.private/harbor_tasks/<UID>/, tasks.jsonl, MOUNTS.json
+python examples/officeqa/utils/harbor/build_tasks.py    # utils/benchmark/.private/harbor_tasks/<UID>/, tasks.jsonl, MOUNTS.json
 export OFFICEQA_DOCS_ROOT=...                           # the mount the build prints: the corpus at /app/docs/root_1
 hermit check --config examples/officeqa/gepa/run_codex_harbor.yaml
 hermit train --config examples/officeqa/gepa/run_codex_harbor.yaml
@@ -520,7 +527,7 @@ Paired per question, 95% bootstrap intervals; bold where the interval lies above
 ## OPRO
 
 [OPRO](https://arxiv.org/abs/2309.03409) (Yang et al., ICLR 2024) searches one instruction document, `ADAPTER.md` on
-the `prompt-only` template, from SkillOpt's initial skill (`utils/seed_adapter`). Its optimizer reads the best
+the `prompt-only` template, from SkillOpt's initial skill (`utils/benchmark/seed_adapter`). Its optimizer reads the best
 instructions scored so far with their training scores and three training problems, and writes four new ones per
 step, each scored on the 50 training questions; `final` is the best validation mean of the top 3 on training
 ([OPRO](../methods/opro.md)).
@@ -542,7 +549,7 @@ evaluation pass, and one evaluation of the initial skill in the same setting.
 
 | Adapter | accuracy | − the initial skill, points |
 |---|---|---|
-| the initial skill (`utils/seed_adapter`), this setting | 0.355 [0.285, 0.424] | |
+| the initial skill (`utils/benchmark/seed_adapter`), this setting | 0.355 [0.285, 0.424] | |
 | OPRO `final` (candidate 2 of 13, validation 0.625) | 0.436 [0.366, 0.512] | **+8.1** [+1.7, +14.5] |
 
 Paired per question, 95% bootstrap intervals; bold where the interval excludes zero. 24 questions better and 10
@@ -580,7 +587,7 @@ A run's records are under `examples/officeqa/<method>/runs/<run name>/` (`<run>`
 `<selector>` is `final`, `none`, `adapter`, or a directory's name such as `seed_adapter`; re-evaluating a selector
 replaces its records.
 
-- Each answer is scored by SkillOpt's evaluator (`utils/judge.py`): exact match after its normalisation (lower case;
+- Each answer is scored by SkillOpt's evaluator (`utils/benchmark/judge.py`): exact match after its normalisation (lower case;
   commas, punctuation and unit words removed), with no numeric tolerance. Token F1 is recorded as `f1` and is not
   the score. An attempt without an answer scores 0.
 - Accuracy is `mean_score` over 172 test questions × 3 passes = 516 attempts per adapter. The framework computes no
@@ -604,7 +611,7 @@ agents are the acting model, GLM 5.3 Flash (medium) ([ReHarness](#reharness)). T
 | Skill | Direct chat | Codex harness |
 |---|---|---|
 | none: the agent without an adapter | 0.415 | 0.543 |
-| SkillOpt's initial skill (`utils/seed_adapter/`) | 0.465 | 0.564 |
+| SkillOpt's initial skill (`utils/benchmark/seed_adapter/`) | 0.465 | 0.564 |
 | GEPA's trained skill | 0.564 ([card](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/officeqa/gepa/adapter/.hermit/CARD.md)) | 0.595 |
 | SkillOpt's trained skill | 0.576 ([card](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/officeqa/skillopt/adapter/.hermit/CARD.md)) | 0.628 |
 | ReHarness's bank (`reharness/run.yaml`): the initial skill plus the five reflections retrieved per question, written from the 50 training questions | 0.579 | not provided |
@@ -890,7 +897,7 @@ gains over the reference execution overlap GLM's intervals: they cannot be calle
   editor sessions. All runs together took the plan's weekly window from 29% to 38% (whole percents, account-wide: an
   upper bound on their share); no session was refused for the plan's limit and the credits balance did not change.
 - **Two defects of the ports**, found on this row and not fixed here, which touch the GLM row too:
-  `utils/task-info/README.md` tells the learner the judge removes "unit words", where `normalize_answer` removes
+  `utils/benchmark/task-info/README.md` tells the learner the judge removes "unit words", where `normalize_answer` removes
   million, billion, dollar and nominal and keeps `%`, thousand and trillion; only Continual Harness's Refiner reads
   it, and it wrote "required unit words" into its policy (steps 2–172; "any required unit words" from step 5). The
   Continual Harness Evolver counts Codex's own notices (the hook-trust warning `codex_agent.py` always causes,

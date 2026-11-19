@@ -44,7 +44,7 @@ case "${1:-}" in train|eval|check) COMMAND=$1; shift;; esac
 WM_PORT=${WM_PORT:?set WM_PORT, the port of the wire meter (3601, say)}
 export PYTHONPATH=$FRAMEWORK${PYTHONPATH:+:$PYTHONPATH}
 cd "$HERE"
-[ -f ../utils/tasks.jsonl ] || { echo "REFUSING: run ../utils/prepare.py first"; exit 1; }
+[ -d ../utils/benchmark/tasks ] || { echo "REFUSING: run ../utils/benchmark/prepare.py first"; exit 1; }
 case "$CONFIG" in stream|stream_codex|stream_codex_luna) [ "$COMMAND" != eval ] \
   || { echo "REFUSING: $CONFIG.yaml has no test split; its number is the mean of rollout.mean_score over the run's steps.jsonl"; exit 1; };; esac
 # hermit's options (--adapter, --no-probe) go before its overrides (key=value), whatever order they were given in.

@@ -76,9 +76,10 @@ import shutil
 import stat
 import subprocess
 import sys
-import tomllib
 
-TASK_FILE = "task.toml"
+from hermit.task.directory import (TASK_FILE, is_task, network_modes, resources,  # noqa: F401
+                                    rows_of, step_names, task_config, task_dirs)
+
 SKIP_DIRS = {".git", "__pycache__"}
 LOCK_SCHEMA = 1
 TASKS_ROOT_ENV = "HERMIT_HARBOR_TASKS"                  # the root of every prepared task set (prepare's data default)
@@ -89,113 +90,6 @@ DATASET_KEYS = {"ref", "data", "repo", "registry_url", "registry_path", "rollout
                 "image_sizes"}
 SOURCE_KEYS = ("repo", "registry_url", "registry_path")  # Harbor's options that pick a ref's tasks, besides the ref
 SOURCE_FILE = ".hermit-source.json"                      # in a data directory: its download's source and patch
-
-
-def is_task(path: Path) -> bool:
-    return path.is_dir() and (path / TASK_FILE).is_file()
-
-
-def task_dirs(tasks_dir: Path) -> list[Path]:
-    """The task directories under `tasks_dir`, by name."""
-    tasks_dir = Path(tasks_dir)
-    if is_task(tasks_dir):
-        return [tasks_dir]
-    return sorted(p for p in tasks_dir.iterdir() if is_task(p)) if tasks_dir.is_dir() else []
-
-
-def task_config(task_dir: Path) -> dict:
-    return tomllib.loads((Path(task_dir) / TASK_FILE).read_text())
-
-
-def step_names(config: dict) -> list[str]:
-    return [str(s["name"]) for s in (config.get("steps") or [])]
-
-
-def _baseline(env) -> str:
-    """An environment's network mode (Harbor's baseline): its network_mode, else the deprecated allow_internet (true:
-    public, false: no-network), else public."""
-    env = env if isinstance(env, dict) else {}
-    if env.get("network_mode"):
-        return str(env["network_mode"])
-    if env.get("allow_internet") is not None and env.get("allowed_hosts") is None:
-        return "public" if env["allow_internet"] else "no-network"
-    return "public"
-
-
-def network_modes(config: dict, step: str | None = None) -> dict[str, str]:
-    """{"agent": mode, "verifier": mode} of a task (or of its step `step`), as Harbor resolves them
-    (harbor/trial/network_policy.py): a phase's own `network_mode` ([agent], [verifier], a step's first), else the
-    environment's baseline (the verifier's own environment's when it has one); modes public, no-network, allowlist."""
-    step_cfg = next((s for s in config.get("steps") or [] if str(s.get("name")) == str(step)), None) if step else None
-    step_cfg = step_cfg or {}
-
-    def explicit(role: str):
-        return ((step_cfg.get(role) or {}).get("network_mode")) or ((config.get(role) or {}).get("network_mode"))
-    base = _baseline(config.get("environment"))
-    verifier_env = ((step_cfg.get("verifier") or {}).get("environment")
-                    or (config.get("verifier") or {}).get("environment"))
-    return {"agent": str(explicit("agent") or base),
-            "verifier": str(explicit("verifier") or (_baseline(verifier_env) if verifier_env else base))}
-
-
-def _size_mb(value) -> int | None:
-    """A size as Harbor reads the deprecated `memory`/`storage` fields ("2G", "512M"), in MB; None when unreadable."""
-    text = str(value).strip().upper()
-    try:
-        if text.endswith("G"):
-            return int(float(text[:-1]) * 1024)
-        if text.endswith("M"):
-            return int(float(text[:-1]))
-        if text.endswith("K"):
-            return int(float(text[:-1]) / 1024)
-    except ValueError:
-        return None
-    return None
-
-
-def resources(config: dict) -> dict:
-    """The task's resources ([environment]): cpus, memory_mb, storage_mb, gpus (None where it sets none)."""
-    env = config.get("environment") or {}
-    memory = env.get("memory_mb") if env.get("memory_mb") is not None else \
-        (_size_mb(env["memory"]) if env.get("memory") is not None else None)
-    storage = env.get("storage_mb") if env.get("storage_mb") is not None else \
-        (_size_mb(env["storage"]) if env.get("storage") is not None else None)
-    return {"cpus": env.get("cpus"), "memory_mb": memory, "storage_mb": storage, "gpus": env.get("gpus")}
-
-
-def _instruction(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8").strip()
-    except OSError:
-        return ""
-
-
-def rows_of(task_dir: Path, *, rollouts: int = 1) -> list[dict]:
-    """The Hermit rows of one task: by rollout, and by step for a multi-step task."""
-    task_dir = Path(task_dir)
-    config = task_config(task_dir)
-    env, agent, verifier = (config.get("environment") or {}), (config.get("agent") or {}), (config.get("verifier") or {})
-    base = {"harbor_task": task_dir.name, "agent_timeout_sec": agent.get("timeout_sec"),
-            "verifier_timeout_sec": verifier.get("timeout_sec"), "build_timeout_sec": env.get("build_timeout_sec"),
-            "docker_image": env.get("docker_image"), "metadata": config.get("metadata") or {}, **resources(config),
-            "network": network_modes(config)}
-    steps = step_names(config)
-    out = []
-    for k in range(1, rollouts + 1):
-        suffix = f"#{k}" if rollouts > 1 else ""
-        if not steps:
-            out.append({"id": f"{task_dir.name}{suffix}", **base, "rollout": k,
-                        "instruction": _instruction(task_dir / "instruction.md")})
-            continue
-        for i, step in enumerate(steps, start=1):
-            step_cfg = next(s for s in config["steps"] if str(s["name"]) == step)
-            out.append({"id": f"{task_dir.name}:{step}{suffix}", **base, "rollout": k, "step": step, "step_index": i,
-                        "steps": len(steps), "instruction": _instruction(task_dir / "steps" / step / "instruction.md"),
-                        "network": network_modes(config, step),
-                        "agent_timeout_sec": (step_cfg.get("agent") or {}).get("timeout_sec") or base["agent_timeout_sec"],
-                        "verifier_timeout_sec": ((step_cfg.get("verifier") or {}).get("timeout_sec")
-                                                 or base["verifier_timeout_sec"])})
-    return out
 
 
 def index(tasks_dir: Path, *, rollouts: int = 1, include: list[str] | None = None) -> list[dict]:

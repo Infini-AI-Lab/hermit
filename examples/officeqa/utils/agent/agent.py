@@ -26,9 +26,10 @@ import types
 
 from hermit.agent.acting import Agent
 from hermit.task import RunOutput
+from officeqa_fields import officeqa_task        # beside this file (load_callable puts its folder on the path)
 
 HERE = Path(__file__).resolve().parent
-DATA = json.loads((HERE.parent / "data.json").read_text())
+DATA = json.loads((HERE.parent / "benchmark" / "data.json").read_text())
 DEFAULT_MODEL = "fireworks/accounts/fireworks/models/glm-5p3-flash"
 EFFORT = "medium"                                                 # paper p.8: teacher and student at medium
 MAX_TURNS, MAX_TOKENS = 24, 16384                                 # configs/officeqa/default.yaml; issue #13
@@ -151,6 +152,7 @@ class OfficeQAAgent(Agent):
     def run(self, task: dict, adapter: Path | None) -> RunOutput:
         _setup(self.params)
         from skillopt.envs.officeqa.rollout import process_one
+        task = officeqa_task(task)                  # a task directory's row as the row the rollout always read
 
         session = self.session(adapter)
         # The question is the instance's input: what the adapter's context tool, if it declares one, retrieves for.
@@ -162,7 +164,7 @@ class OfficeQAAgent(Agent):
         from skillopt.envs.officeqa.tool_runtime import build_oracle_parsed_pages_context, resolve_docs_roots
         if not build_oracle_parsed_pages_context(item["source_files"], item["source_docs"],
                                                  resolve_docs_roots([DATA["docs"]])):   # cached: the rollout rereads them
-            raise RuntimeError(f"no parsed pages for {task['id']} under {DATA['docs']}: see utils/prepare.py")
+            raise RuntimeError(f"no parsed pages for {task['id']} under {DATA['docs']}: see utils/benchmark/prepare.py")
         started = time.time()
         for attempt in range(3):            # the API was unavailable: run the whole rollout again later
             out_root = Path(tempfile.mkdtemp(prefix=f"{task['id']}-", dir=logs))

@@ -3,7 +3,7 @@
 - Template: `ace@1.0`
 - Started from: `0cf6d3ec6911d9682df1309ca98c1bccd9234b73`
 - Evolver: `ace`
-- Task: ../utils/task-info/
+- Task: ../utils/benchmark/task-info/
 - Training: 2 epoch(s), 100 step(s)
 - Spending: rollouts $0.0000, Evolver $0.0000 (+386 calls of unknown cost); 1.45 h
 

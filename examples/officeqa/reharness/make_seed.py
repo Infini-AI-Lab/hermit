@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Write seed_adapter/ beside this file: the reharness template with SkillOpt's initial OfficeQA skill as ADAPTER.md.
 
-The skill is skillopt/envs/officeqa/skills/initial.md of the installed skillopt package, the text ../utils/prepare.py
-gives the prompt-only seed the GEPA and SkillOpt runs start from; below it, after a blank line, the template's own
-ADAPTER.md (the framing of the retrieved reflections). Everything else is the template's: index.json, the reader,
-reharness_core/, an empty bank. Rewrites the directory each time (launch.sh runs it before every command).
+The skill is skillopt/envs/officeqa/skills/initial.md of the installed skillopt package, the text
+../utils/benchmark/prepare.py gives the prompt-only seed the GEPA and SkillOpt runs start from; below it, after a blank
+line, the template's own ADAPTER.md (the framing of the retrieved reflections). Everything else is the template's:
+index.json, the reader, reharness_core/, an empty bank. Rewrites the directory each time (launch.sh runs it before every
+command).
 
     python examples/officeqa/reharness/make_seed.py
 """
