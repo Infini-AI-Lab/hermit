@@ -27,6 +27,12 @@ without Docker and the image `docker/claude/` builds, named by HERMIT_CLAUDE_IMA
 methods' tests (`gepa`, `skillopt`, `harness2`, `rrsi`) skip themselves without the method's dependency group; the
 sandbox and MWM tests need Linux and a working bubblewrap, and some do not yet skip without it (CONTRIBUTING.md).
 
+AgentDojo task regressions live in `examples/agentdojo/utils/tests/` and are
+selected with the benchmark’s `evosafe` example (plus `core` and the existing
+`she` dependency). Native tests need official AgentDojo and skip when AgentDyn is
+installed instead; model responses come from a local HTTP server. The Docker
+hook check also skips without an engine and the `python:3.12-slim` image.
+
 CI (`.github/workflows/tests.yml`) runs `--changed` on a pull request and the whole suite on main, daily and on
 demand.
 

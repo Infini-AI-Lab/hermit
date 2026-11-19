@@ -1,6 +1,6 @@
-"""AgentDyn fixed-case replay and defense hooks (no attack generation).
+"""Shared AgentDyn/AgentDojo fixed-case replay and defense hooks (no attack generation).
 
-The optional agentdojo distribution must come from AgentDyn, not upstream AgentDojo.
+Install the agentdojo distribution from the selected benchmark in a separate environment.
 Each call constructs a fresh pipeline, defense and environment. Run untrusted defense
 code in a separate networkless container; native tools and judges stay in the trusted episode worker.
 """
@@ -26,6 +26,17 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 AGENTDYN_REVISION = "5353cf7615b135cace8d07c8f12dac53a16b6db3"
+AGENTDOJO_REVISION = "089ed468cf3ed0322acc66b0211f26d9d90dbf60"
+BENCHMARKS = {
+    "agentdyn": ({"shopping", "github", "dailylife"}, AGENTDYN_REVISION),
+    "agentdojo": ({"banking", "slack", "travel", "workspace"}, AGENTDOJO_REVISION),
+}
+
+
+def benchmark_settings(benchmark):
+    if benchmark not in BENCHMARKS:
+        raise ValueError("benchmark must be agentdyn or agentdojo")
+    return BENCHMARKS[benchmark]
 
 
 def metered(usage):
@@ -64,9 +75,10 @@ def case_fields(task: dict) -> dict:
             "group": f"{task['suite']}/{task['user_task_id']}", "domain": task["suite"]}
 
 
-def validate_case(task: dict) -> None:
-    if task.get("suite") not in {"shopping", "github", "dailylife"}:
-        raise ValueError("suite must be shopping, github or dailylife (AgentDyn)")
+def validate_case(task: dict, *, benchmark="agentdyn") -> None:
+    suites, _ = benchmark_settings(benchmark)
+    if task.get("suite") not in suites:
+        raise ValueError(f"suite must be one of {', '.join(sorted(suites))} ({benchmark})")
     if not isinstance(task.get("user_task_id"), str) or not task["user_task_id"]:
         raise ValueError("user_task_id is required")
     injections = task.get("injections", {})
@@ -85,12 +97,14 @@ def validate_case(task: dict) -> None:
 class GuardedRuntime:
     """A per-executor facade: no monkey patching of the suite or shared runtime."""
 
-    def __init__(self, runtime, defense, instruction, trace_id, formatter, audit, server="agentdyn", classifier=None):
+    def __init__(self, runtime, defense, instruction, trace_id, formatter, audit, server="agentdyn", classifier=None,
+                 *, framework="agentdyn"):
         self.functions = runtime.functions
         self.runtime, self.defense = runtime, defense
         self.instruction, self.trace_id = instruction, trace_id
         self.formatter, self.audit = formatter, audit
         self.server = server
+        self.framework = framework
         self.classifier = classifier
 
     def _refuse(self, name, args, reason, *, executed=False):
@@ -106,7 +120,7 @@ class GuardedRuntime:
                           "description": getattr(fn, "description", ""),
                           "parameters": parameters.model_json_schema() if parameters is not None else {}}
         before = copy.deepcopy(args)
-        ctx = ToolCallContext("agentdyn", self.server, name, copy.deepcopy(args), self.trace_id,
+        ctx = ToolCallContext(self.framework, self.server, name, copy.deepcopy(args), self.trace_id,
                               {"instruction": self.instruction, "available_tools": tools})
         if self.classifier is not None:
             ctx.classify_output = lambda text: self.classifier.classify(self.instruction, text)
@@ -130,7 +144,7 @@ class GuardedRuntime:
             if not isinstance(revised_ctx, ToolCallContext):
                 raise TypeError("structured pre-hook must return ToolCallContext, a decision dict or None")
             ctx = revised_ctx
-        if (ctx.framework != "agentdyn" or ctx.server != self.server or ctx.tool_name != name
+        if (ctx.framework != self.framework or ctx.server != self.server or ctx.tool_name != name
                 or ctx.trace_id != self.trace_id or not isinstance(ctx.metadata, dict)
                 or ctx.metadata.get("instruction") != self.instruction):
             raise ValueError("pre-hook may rewrite arguments and custom metadata, not call identity or trusted instruction")
@@ -217,7 +231,9 @@ class GuardedRuntime:
 
 
 def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) -> RunOutput:
-    validate_case(task)
+    benchmark = params.get("benchmark", "agentdyn")
+    validate_case(task, benchmark=benchmark)
+    _, reference_revision = benchmark_settings(benchmark)
     from victim import model_params
     params = model_params(params)
     try:
@@ -225,7 +241,8 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
         from agentdojo.agent_pipeline.tool_execution import ToolsExecutionLoop, ToolsExecutor, tool_result_to_str
         from agentdojo.task_suite.load_suites import get_suite
     except ImportError as exc:
-        raise RuntimeError("Install the pinned AgentDyn checkout in the rollout Python environment; see examples/agentdyn/README.md") from exc
+        raise RuntimeError(f"Install the pinned {benchmark} checkout in the rollout Python environment; "
+                           f"see examples/{benchmark}/README.md") from exc
     suite = get_suite(params.get("benchmark_version", "v1.2.2"), task["suite"])
     user_task = suite.get_user_task_by_id(task["user_task_id"])
     injection_task = suite.get_injection_task_by_id(task["injection_task_id"]) if task.get("injection_task_id") else None
@@ -277,17 +294,17 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
         def query(self, query, runtime, env, messages=(), extra_args=None):
             captured[:] = messages
             facade = GuardedRuntime(runtime, defense, trusted_query if trusted_query is not None else query,
-                                    trace_id, tool_result_to_str, audit, task["suite"], classifier)
+                                    trace_id, tool_result_to_str, audit, task["suite"], classifier, framework=benchmark)
             q, _, e, m, a = super().query(query, facade, env, messages, extra_args or {})
             captured[:] = m
             return q, runtime, e, m, a
 
     loops = [element for element in pipeline.elements if isinstance(element, ToolsExecutionLoop)]
     if len(loops) != 1:
-        raise RuntimeError("AgentDyn pipeline changed: expected exactly one native tools loop")
+        raise RuntimeError(f"{benchmark} pipeline changed: expected exactly one native tools loop")
     loop = loops[0]
     if sum(isinstance(e, ToolsExecutor) for e in loop.elements) != 1:
-        raise RuntimeError("AgentDyn pipeline changed: expected exactly one native executor")
+        raise RuntimeError(f"{benchmark} pipeline changed: expected exactly one native executor")
     loop.elements = [Executor(lambda text: text) if isinstance(e, ToolsExecutor) else e for e in loop.elements]
     loop.max_iters = int(params.get("max_iters", 15))
     if loop.max_iters < 1:
@@ -395,7 +412,8 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
     if adapter is not None:
         for name in ("ADAPTER.md", "defense.py", *getattr(defense, "artifact_paths", ())):
             digest.update(name.encode() + (adapter / name).read_bytes())
-    provenance = {"reference_revision": AGENTDYN_REVISION, "model": params["model"],
+    provenance = {"benchmark": benchmark, "reference_revision": reference_revision,
+                  "benchmark_version": params.get("benchmark_version", "v1.2.2"), "model": params["model"],
                   "generation": {k: params[k] for k in ("max_tokens", "temperature", "top_p", "extra_body", "max_iters") if k in params},
                   "adapter_sha256": digest.hexdigest() if adapter else None,
                   "case_sha256": hashlib.sha256(json.dumps(task, sort_keys=True).encode()).hexdigest()}

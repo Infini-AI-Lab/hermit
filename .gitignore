@@ -10,3 +10,5 @@ __pycache__/
 .venv-docs/
 .venv-agentdyn/
 /docs/_build/
+
+.venv-agentdojo/

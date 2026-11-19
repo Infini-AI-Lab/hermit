@@ -93,6 +93,7 @@ recipes/index
 tutorials/reproduce-a-result
 recipes/officeqa
 recipes/agentdyn
+recipes/agentdojo
 recipes/servelearnbench
 recipes/clbench
 recipes/lean-collaboration

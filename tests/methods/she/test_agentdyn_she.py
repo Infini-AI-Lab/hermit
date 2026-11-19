@@ -408,7 +408,7 @@ def run(task, adapter):
 
 
 def test_native_runtime_final_answer_and_provenance(tmp_path, monkeypatch):
-    pytest.importorskip("agentdojo")
+    pytest.importorskip("agentdojo.agent_pipeline")
     if os.environ.get("HERMIT_TEST_DOCKER") != "1":
         pytest.skip("HERMIT_TEST_DOCKER=1 enables native container integration")
     from agentdojo.agent_pipeline import agent_pipeline as api
@@ -590,7 +590,7 @@ def test_selective_judge_crosses_networkless_docker_rpc():
 
 @pytest.mark.skipif(os.environ.get('HERMIT_TEST_DOCKER') != '1', reason='set HERMIT_TEST_DOCKER=1 for Docker RPC')
 def test_native_preprocessing_keeps_the_original_goal_for_tool_checks(tmp_path, monkeypatch):
-    pytest.importorskip('agentdojo')
+    pytest.importorskip('agentdojo.agent_pipeline')
     from agentdojo.agent_pipeline import agent_pipeline as api
     from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
     from agentdojo.functions_runtime import FunctionCall
@@ -678,7 +678,7 @@ def test_selective_judge_prompt_matches_the_pinned_upstream_client(tmp_path, mon
 
 
 def test_native_failure_keeps_code_locations_without_private_exception_text(tmp_path, monkeypatch):
-    pytest.importorskip('agentdojo')
+    pytest.importorskip('agentdojo.agent_pipeline')
     from agentdojo.agent_pipeline import agent_pipeline as api
     from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
     from victim import empty_usage
@@ -710,7 +710,7 @@ def test_native_failure_keeps_code_locations_without_private_exception_text(tmp_
 
 @pytest.mark.parametrize('phase', ['state_export', 'defense_close', 'auditor_close', 'victim_close', 'request_and_state'])
 def test_finalization_failure_preserves_original_error_cleanup_and_known_usage(tmp_path, monkeypatch, phase):
-    pytest.importorskip('agentdojo')
+    pytest.importorskip('agentdojo.agent_pipeline')
     from agentdojo.agent_pipeline import agent_pipeline as api
     from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
     from agentdojo.types import text_content_block_from_string

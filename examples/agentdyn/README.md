@@ -9,6 +9,10 @@ judges. Nothing here generates or optimizes attacks.
 | [`utils/`](utils/) | The benchmark integration: the hook bridge to AgentDyn's agent loop and environments (`bridge.py`), the OpenAI-compatible victim (`victim.py`), the optional same-victim classifier (`auditor.py`), the native judge (`judge.py`), case preparation (`prepare*.py`), reports (`report.py`, `compare.py`), the domain specification (`task-info/`) and the data notes ([`DATA.md`](utils/DATA.md)) |
 | [`evosafe/`](evosafe/) | Experiments with the [EvoSafeHarness](../../docs/methods/evosafe.md) method: run configs and how to run and read them |
 
+The replay runtime also supports [official AgentDojo](../agentdojo/) through its
+separate task entry point and Python environment. Both distributions use the
+`agentdojo` package name; install only one in an environment.
+
 The method itself lives in Hermit (`hermit/agent/evolver/methods/evosafe/`, template `evosafe@1.0`) and does not
 depend on AgentDyn. `utils/` fills the method's
 [task contract](../../docs/methods/evosafe.md#the-task-contract): the bridge is the task pipeline, the judge reports

@@ -4,8 +4,11 @@ import hashlib
 import json
 from pathlib import Path
 import random
+import sys
 
-from bridge import AGENTDYN_REVISION, case_fields, validate_case
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from examples.agentdyn.utils.bridge import benchmark_settings, case_fields, validate_case
 
 
 def read_logs(directory, suite):
@@ -24,12 +27,13 @@ def read_logs(directory, suite):
     return cases
 
 
-def prepare(cases, output, seed=0):
+def prepare(cases, output, seed=0, *, benchmark="agentdyn"):
+    _, revision = benchmark_settings(benchmark)
     rows = []
     seen = set()
     groups = set()
     for case in cases:
-        validate_case(case)
+        validate_case(case, benchmark=benchmark)
         # Explicitly discard old trajectories/verdicts and other answer material.
         # A clean case is the same row whether its injection fields are absent, null or empty.
         row = {key: case[key] for key in ("suite", "user_task_id", "injection_task_id", "injections") if case.get(key)}
@@ -61,7 +65,7 @@ def prepare(cases, output, seed=0):
     (output / "tasks.jsonl").write_text("".join(json.dumps(case_fields(r)) + "\n" for r in rows))
     for name, members in splits.items():
         (output / f"{name}.txt").write_text("".join(r["id"] + "\n" for r in members))
-    manifest = {"seed": seed, "reference_revision": AGENTDYN_REVISION,
+    manifest = {"seed": seed, "benchmark": benchmark, "reference_revision": revision,
                 "groups": [{"suite": s, "user_task_id": u, "split": assignment[(s,u)]} for s,u in ordered],
                 "counts": {k: len(v) for k,v in splits.items()},
                 "tasks_sha256": hashlib.sha256((output / "tasks.jsonl").read_bytes()).hexdigest()}
