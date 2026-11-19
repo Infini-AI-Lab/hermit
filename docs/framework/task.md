@@ -330,13 +330,19 @@ Hermit's Harbor runner read a trial: `hermit/environment/harbor_errors.py`, port
 agent's 0: an environment that did not start (its pull or build, Docker, the healthcheck: `sandbox_failed`; the driver:
 `harbor_failed`, `harbor_timeout`), one that failed under the verifier, a verifier that left neither an exception nor a
 reward, or ran no test (its tools never arrived, the host's disk full: `verifier_failed`), a session that never
-started or that the provider could not serve (`session_failed`, `model_provider_failed`). It runs again, the whole task
+started or that the provider could not serve (`session_failed`, `model_provider_failed`), a provider that refused the run's configuration before serving anything
+(`model_rejected`, never run again; a prompt too long or the model's own refusal stays the agent's result), and a
+provider that does not bill the account (its quota or credit spent: the run ends, as a lost sign-in does). It runs
+again, the whole task
 in a fresh environment, up to `infra_retries` times (default 2), each after `infra_wait_s` (300 s), unless its cause
 runs no better again (a disk gate that waited its time out, `disk`; `model_rejected`); every run's usage is the
 rollout's (`extra.attempts`). One that stays infra is marked `unscored` and the judge refuses to score it: the run
 records a failed run (status `judge_error`, score 0, its usage and log kept), which a learner sees as one and `hermit
 eval` counts among its `errors` and as 0 in its `mean_score`; `python -m hermit.harbor.report <eval dir>` gives pass@1
-over the runs that are the agent's result ([Evaluation](../guides/evaluation.md)). AlgoTune's judge (`examples/algotune/utils/judge.py`) reads the same verdict
+over the runs that are the agent's result ([Evaluation](../guides/evaluation.md)). Each eval row keeps the rollout's
+`outcome` (`status`: ok, timeout, agent_error or infra; `failure_cause`, `timed_out`, `exit_code`, `unscored`,
+`verifier_reward_raw`), as the runner's output kept it; a setting is overridden on the command line by its path
+(`environment.harbor.infra_retries=0`). AlgoTune's judge (`examples/algotune/utils/judge.py`) reads the same verdict
 and scores its speedup.
 
 **The environment.** Harbor runs in its own venv (Python 3.13, `harbor` 0.25.0, `~/.cache/hermit/harbor-venv`), so
@@ -373,8 +379,11 @@ from the workspace with the prompt (Harbor's instruction, unless the agent's `pr
 output is the stream Hermit reads as it reads its own sessions (Codex's lost sign-in, provider failure, plan limit and
 refused configuration read from its own notices, as the runner read them), and the CLI's last message comes back. Its
 clock is the task's agent budget unless the agent's `timeout_s` says less. The model's key reaches the exec by name;
-Claude Code's subscription token (`login: claude`) is moved into a pipe there before the CLI starts; on a login the
-run waits for the plan before the environment starts. Codex's own sandbox is off there (the environment is the
+Claude Code's subscription token (`login: claude`) is moved into a pipe there before anything that outlives the move
+starts (no process there holds it in its environment), and no variable of the agent's reaches this machine's Docker
+client; on a login the run takes its admission to the plan (the wait and one of its session slots) around the whole
+of the task's environment, never inside the agent's time, and a session the plan refused runs the task again once the
+plan allows (not counted). Codex's own sandbox is off there (the environment is the
 boundary, as Harbor's own agents run) unless `codex_sandbox` says otherwise, Claude Code runs as the environment's root
 may, and the CLI's web search is off where the task's agent phase has no public network. Every sign-in file the home
 took is removed from the environment before the verifier runs (a ChatGPT sign-in's refresh, and the plan's usage

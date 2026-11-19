@@ -92,20 +92,28 @@ def _status(extra: dict, verdict: dict) -> dict:
             status, cause = "timeout", "agent_exhausted_budget"
         elif extra.get("session_failed") or extra.get("exit_code") not in (None, 0):
             status, cause = "agent_error", cause or "unclassified"
-    return {"status": status, "failure_cause": cause}
+    # and the verifier's own reward beside it (the runner's verifier_reward_raw: AHE asks whether a timed-out trial's
+    # work passed)
+    return {"status": status, "failure_cause": cause, "verifier_reward_raw": verdict.get("reward")}
 
 
-def _infra_output(task: Task, cause: str, message: str, started: float, *, ran: bool) -> RunOutput:
+def _infra_output(task: Task, cause: str, message: str, started: float, *, ran: bool,
+                  spent: RunOutput | None = None) -> RunOutput:
     """A rollout that ended infra before its environment's verdict (the environment did not start, the session never
     did): no verdict but this one, which the judge refuses (hermit.task.verify.environment). Nothing ran when its
     environment never came up (its cost 0); a session that may have run leaves its cost unknown."""
     verdict = {"status": "infra", "failure_cause": cause, "reward": None, "rewards": None, "passed": None,
                "exception": {"type": None, "message": message[-2000:]}, "exception_message": message[-2000:],
                "feedback": ""}
+    # what its sessions spent, when the agent said (`spent`: its output); unknown when one may have run unsaid
+    cost = spent.cost_usd if spent is not None else (None if ran else 0.0)
+    tokens = spent.tokens if spent is not None else (None if ran else 0)
+    calls = (spent.api_speed or {}).get("model_calls") if spent is not None else (None if ran else 0)
     return RunOutput(output={"harbor_task": task.public.get("harbor_task"), "reward": None, "status": "infra",
                              "failure_cause": cause},
-                     cost_usd=None if ran else 0.0, tokens=None if ran else 0, wall_s=round(time.time() - started, 1),
-                     api_speed={"model_calls": None if ran else 0, "status": "infra"},
+                     log=spent.log if spent is not None else None,
+                     cost_usd=cost, tokens=tokens, wall_s=round(time.time() - started, 1),
+                     api_speed={"model_calls": calls, "status": "infra"},
                      extra={"status": "infra", "failure_cause": cause, "exception_message": message[-2000:],
                             "verified": verdict, "unscored": cause})
 
@@ -139,51 +147,65 @@ def environment_rollout(task: Task, given: dict, adapter: Path | None, pipeline,
                         *, pause=None):
     """One task in its own environment, run again while it ends infra (not the agent's result: `unscored`), up to
     `environments.infra_retries` times, each in a fresh environment after `infra_wait_s`, unless its cause runs no
-    better again (NO_RETRY: the disk gate, model_rejected), as Hermit's Harbor runner ran a trial again (its
-    `_run_trial`). What every run used is the rollout's (_attempts). Returns the output, or the record of a pipeline
-    that failed on its own (no environment's fault: the run's failed record, as for any task)."""
+    better again (NO_RETRY: the disk gate, model_rejected, this machine's failure) or the agent's provider allowance
+    is spent, as Hermit's Harbor runner ran a trial again (its `_run_trial`); a session the login's plan refused runs
+    again once the plan allows, not counted. On a login the run's admission to the plan (its wait and one of its
+    slots, environments.admission) is held around the whole environment, as the runner held it around a trial. What
+    every run used is the rollout's (_attempts). Returns the output, or the record of a pipeline that failed on its own
+    (no environment's fault: the run's failed record, as for any task)."""
+    import contextlib
     from hermit.environment.harbor import EnvironmentUnavailable
     from hermit.environment.harbor_errors import INSTALL_FAILED, NO_RETRY, pipeline_cause
-    retries, wait, runs = environments.infra_retries, environments.infra_wait_s, []
+    retries, wait, runs, counted = environments.infra_retries, environments.infra_wait_s, [], 0
     stopping = getattr(environments, "stopping", None)
     while True:
         begun, final = time.time(), False
-        hold = getattr(environments, "before_start", None)
-        if hold is not None:            # the agent's login's plan, waited for before the environment is held
-            hold()
+        admission = getattr(environments, "admission", None)
         try:
-            with environments.session(environments.task_dir(task), task.id) as env:
-                try:
-                    out = _given(pipeline, given, adapter, env, task.private.get("needs") or {})
-                except Exception as exc:
-                    why = login_failure(exc)
-                    if why is not None:
-                        raise LoginFailed(why) from None
-                    read = pipeline_cause(f"{type(exc).__name__}: {exc}")
-                    if read is None:
-                        return _failed_record(task, given, started, exc, "the pipeline failed")
-                    cause, again = read
-                    final = not again
-                    said = f"{type(exc).__name__}: {exc}"
-                    out = _infra_output(task, cause, said, begun, ran=INSTALL_FAILED not in said)
-                else:
-                    logs = Path(out.log) if out.log and Path(out.log).is_dir() else None
-                    verdict = env.verify(agent_logs=logs)
-                    out.extra = {**(out.extra or {}), "verified": verdict, **_status(out.extra or {}, verdict)}
-                    if verdict["status"] == "infra":
-                        out.extra["unscored"] = verdict["failure_cause"] or "infra"
+            with (admission() if admission is not None else contextlib.nullcontext()):
+                with environments.session(environments.task_dir(task), task.id) as env:
+                    env.plan_admitted = admission is not None
+                    try:
+                        out = _given(pipeline, given, adapter, env, task.private.get("needs") or {})
+                    except Exception as exc:
+                        why = login_failure(exc)
+                        if why is not None:
+                            raise LoginFailed(why) from None
+                        read = pipeline_cause(f"{type(exc).__name__}: {exc}")
+                        if read is None:
+                            return _failed_record(task, given, started, exc, "the pipeline failed")
+                        cause, again = read
+                        final = not again
+                        said = f"{type(exc).__name__}: {exc}"
+                        out = _infra_output(task, cause, said, begun, ran=INSTALL_FAILED not in said)
+                    else:
+                        if (out.extra or {}).get("infra"):   # the agent said it is not its result (its sessions')
+                            final = bool(out.extra.get("infra_final"))
+                            out = _infra_output(task, out.extra["infra"], str(out.extra.get("exception_message")),
+                                                begun, ran=True, spent=out)
+                        else:
+                            logs = Path(out.log) if out.log and Path(out.log).is_dir() else None
+                            verdict = env.verify(agent_logs=logs)
+                            out.extra = {**(out.extra or {}), "verified": verdict,
+                                         **_status(out.extra or {}, verdict)}
+                            if verdict["status"] == "infra":
+                                out.extra["unscored"] = verdict["failure_cause"] or "infra"
         except EnvironmentUnavailable as exc:
             out = _infra_output(task, exc.cause, str(exc), begun, ran=False)
         except ValueError as exc:                        # no task directory: the task set's, not the environment's
             return _failed_record(task, given, started, exc, "the task's environment could not be given")
         runs.append(out)
         cause = out.extra.get("unscored")
-        if cause is None or cause in NO_RETRY or final or len(runs) > retries or (stopping and stopping.is_set()):
+        if cause != "usage_limit":                       # the plan's refusal runs again once it allows: not counted
+            counted += 1
+        if cause is None or cause in NO_RETRY or final or counted > retries or (stopping and stopping.is_set()):
             return _attempts(runs)
         message = str(out.extra.get("exception_message") or (out.extra.get("verified") or {}).get("exception_message")
                       or "")
         print(f"hermit {task.id}: not the agent's result ({cause}: {message[:300]}); again in {wait:.0f} s "
-              f"({len(runs)}/{retries})", file=sys.stderr, flush=True)
+              f"({counted}/{retries})", file=sys.stderr, flush=True)
+        if cause == "usage_limit":
+            continue                                     # the admission waits for the plan's window
         if pause is not None:
             pause(wait)
         elif stopping is not None:

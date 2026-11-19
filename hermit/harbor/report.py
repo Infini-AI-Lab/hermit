@@ -119,7 +119,8 @@ INFRA_SAID = ("Unscored", "the task's environment could not be given")
 def kind(row: dict) -> str:
     """scored, infra or failed (the module's docstring)."""
     output = row.get("output") if isinstance(row.get("output"), dict) else {}
-    if output.get("status") == "infra":                     # a rollout that stayed infra (the runner's mark, kept)
+    outcome = row.get("outcome") if isinstance(row.get("outcome"), dict) else {}
+    if output.get("status") == "infra" or outcome.get("status") == "infra":   # a rollout that stayed infra
         return "infra"
     if row.get("status") == "ok":
         return "scored"

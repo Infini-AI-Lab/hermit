@@ -43,10 +43,39 @@ from hermit.agent.acting.tools import MARK, as_tools, load_tools, tool   # noqa:
 from hermit.agent.base.react import React, total as usage_total
 from hermit.agent.base.tool import Tool
 from hermit.agent.model.direct import Direct
-from hermit.agent.model.llm import ChatClient
+from hermit.agent.model.llm import ChatAborted, ChatClient
 from hermit.common import RunOutput
 
 CONTEXT_HEADING = "# Instructions from the harness adapter"
+
+
+class Bounded:
+    """A chat client whose every call is given up once the task's whole agent budget is spent (a task's own
+    environment's `timeout_s`), as Harbor's agent timeout cancelled its agents: the call in flight closed
+    (ChatAborted). `expired` says whether it was."""
+
+    def __init__(self, client, budget_s: float):
+        import threading
+        self.client, self.abort = client, threading.Event()
+        self.timer = threading.Timer(float(budget_s), self.abort.set)
+        self.timer.daemon = True
+        self.timer.start()
+
+    @property
+    def expired(self) -> bool:
+        return self.abort.is_set()
+
+    def chat(self, messages, **kwargs):
+        if self.abort.is_set():
+            from hermit.agent.model.llm import ChatAborted
+            raise ChatAborted("the task's agent budget is spent")
+        return self.client.chat(messages, abort=self.abort, **kwargs)
+
+    def close(self) -> None:
+        self.timer.cancel()
+
+    def __getattr__(self, name):
+        return getattr(self.client, name)
 USER_FIELDS = ("prompt", "question", "instruction", "input")
 _TOOLS: dict[tuple, list] = {}
 
@@ -210,11 +239,25 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, agent: Reac
     started = time.time()
     loop_agent = agent._loop_agent = _Loop(settings, client, agent)
     # The loop cannot stop a model call at a time limit (react refuses one): a task's environment that has its own
-    # budget (a Harbor task's) bounds each of its commands, and max_turns bounds the loop.
+    # budget (a Harbor task's) bounds each of its commands, and the whole of the loop's model calls (Bounded: the call
+    # in flight given up once it is spent, as Harbor's agent timeout cancels its agents), whatever runs the pipeline.
     place = agent.environment
+    bounded = None
     if place is not None and getattr(place, "limits", None) is not None and place.limits.timeout_s:
+        bounded = Bounded(client, place.limits.timeout_s)
+        loop_agent.model = bounded
         place = place.with_limits(dataclasses.replace(place.limits, timeout_s=None))
-    result = loop_agent.run(messages, environment=place, tools=tools)
+    try:
+        result = loop_agent.run(messages, environment=place, tools=tools)
+    except ChatAborted:
+        if bounded is None or not bounded.expired:
+            raise
+        from hermit.agent.base.interface import Result
+        result = Result(reply="", session=messages, timed_out=True, usage=[],
+                        extra={"turns": 0, "model_s": 0.0, "tool_calls": 0})
+    finally:
+        if bounded is not None:
+            bounded.close()
     messages, turns, usages = result.session, result.extra["turns"], list(result.usage)
     if tag and f"<{tag}>".upper() not in (result.reply or "").upper():   # the tag in the model's reply, not answer()'s
         follow = Direct({"max_tokens": int(params.get("max_tokens", 16384)),
@@ -233,7 +276,8 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, agent: Reac
                                "messages": messages}, ensure_ascii=False, indent=1))
     # What this run's calls used, as call_model reported it (a subclass may call another client) and the follow-up's
     total, model_s = usage_total(client, usages), result.extra["model_s"]
-    extra = {"turns": turns, "tool_calls": result.extra["tool_calls"]}
+    extra = {"turns": turns, "tool_calls": result.extra["tool_calls"],
+             **({"timed_out": True} if result.timed_out else {})}     # the task's agent budget ran out
     if session is not None and session.last_context is not None:
         extra["context_tool"] = session.last_context         # what the adapter's context tool rendered for this task
     return RunOutput(output=answer, log=log, cost_usd=total.cost_usd, wall_s=round(time.time() - started, 1),

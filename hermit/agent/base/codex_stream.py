@@ -1,8 +1,10 @@
-"""What Hermit reads of a Codex session's stream beyond Codex's Base Agent's own `outcome`, for a session in a remote
-environment (a task's Harbor environment): a lost sign-in or key, a provider that could not serve, the plan's usage
-limit and a refusal of the run's configuration, each read from Codex's own notices only, never from what its log quotes
-of the session's work. Ported unchanged from Hermit's Harbor runner (hermit/harbor/signin.py's readers and the
-runner's CONFIG_REFUSED), which applied them to every Codex session in a task's container.
+"""What Hermit reads of a CLI session's stream beyond its Base Agent's own `outcome`, for a session in a remote
+environment (a task's Harbor environment): for Codex, a lost sign-in or key, a provider that could not serve, the
+plan's usage limit and a refusal of the run's configuration, each read from Codex's own notices only, never from what
+its log quotes of the session's work; for every CLI, whether a refusal was of the run's configuration or of the
+account's bill (`session_verdict`). Ported unchanged from Hermit's Harbor runner (hermit/harbor/signin.py's readers
+and the runner's CONFIG_REFUSED, BILLING_REFUSED, QUOTA_SAID and session_verdict), which applied them to every session
+in a task's container.
 """
 from __future__ import annotations
 
@@ -234,3 +236,33 @@ CONFIG_REFUSED = re.compile(r"(?:^|\((?:exit -?\d+|timed out)\): |\bAPI error(?:
                             r"(?<!/)\bbilling(?! details)|unsupported[ _](?:parameter|value)|model is not supported\b|"
                             r"unrecognized request argument|unsupported[ _-]operation|" + CODEX_PLAN_REFUSED,
                             re.I | re.M)
+# ... of them, an account the provider does not bill (its quota or its credit spent, a payment it needs): nothing later
+# can be served, as after an API account's usage limit, so it ends the run (usage_limit, a halt)
+BILLING_REFUSED = re.compile(r"(?:^|\((?:exit -?\d+|timed out)\): |\bAPI error(?:: | \()|\bError code: |"
+                             r"(?:\bstatus(?:[ _]code)?|\"code\")\"?:? ?\"?)402\b|\(HTTP 402\)|payment required|"
+                             r"credit balance is too low|insufficient[_ ]?(?:quota|balance|credits?|funds)\b|"
+                             r"^\s*Quota exceeded\. Check your plan and billing details\b|(?<!/)\bbilling(?! details)|"
+                             + CODEX_PLAN_REFUSED, re.I | re.M)
+# ... and OpenAI's code for an API account whose quota or credit is spent, which comes with a 429 (the status of a rate
+# limit, which a pause ends: `unavailable`), in the error's code or type (the answer agent's relay records it) or in
+# the words a CLI's failure quotes of the reply: nothing later can be served, so it ends the run too
+QUOTA_SPENT = "insufficient_quota"
+QUOTA_SAID = re.compile(r"\binsufficient_quota\b")
+
+
+def session_verdict(facts: dict, tokens: int | None) -> str | None:
+    """What a session that served nothing says beyond its own result, as the Harbor runner's `session_verdict` read
+    it from any CLI's facts (its Base Agent's outcome): "usage_limit" when the provider does not bill the account (a
+    refusal of the configuration that is billing's, BILLING_REFUSED, or a provider that could not serve for a quota
+    spent, QUOTA_SAID: nothing later can be served, the run ends), "model_rejected" when it refused the run's
+    configuration before serving anything (CONFIG_REFUSED, no model refusal, no tokens: never run again), else None:
+    a request refused for what the adapter's or the task's input made it (a prompt too long, an invalid request, a
+    content filter) and the model's own refusal are the agent's result."""
+    if facts.get("served"):
+        return None
+    failure = str(facts.get("failure") or "")
+    if facts.get("unavailable") and not facts.get("refused") and QUOTA_SAID.search(failure):
+        return "usage_limit"
+    if facts.get("rejected") and not facts.get("model_refusal") and not tokens and CONFIG_REFUSED.search(failure):
+        return "usage_limit" if BILLING_REFUSED.search(failure) else "model_rejected"
+    return None

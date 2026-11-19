@@ -362,7 +362,19 @@ def run(task: dict, adapter: Path | None, *, params: dict, base: Path, environme
     return _run(task, adapter, params, base, environment)
 
 
-def _upload_staging(environment: Environment, work: Path, backend: str, deployed: dict, params: dict) -> None:
+def _infra_run(cause: str, message: str, usages: list, log: Path, started: float, *, final: bool) -> RunOutput:
+    """A run in a task's own environment that is not the agent's result (`extra.infra`, which the run reads:
+    hermit.trainer.rollout), with what its sessions spent: `final`, never run again (the provider allowance spent, the
+    configuration refused)."""
+    cost = None if any(u.cost_usd is None for u in usages) else sum(u.cost_usd for u in usages)
+    tokens = sum(u.input_tokens + u.output_tokens for u in usages) if usages else 0
+    return RunOutput(output=None, log=log, cost_usd=cost, wall_s=round(time.time() - started, 1), tokens=tokens,
+                     api_speed={"model_calls": sum(u.calls for u in usages)},
+                     extra={"infra": cause, "infra_final": final, "exception_message": message[-2000:]})
+
+
+def _upload_staging(environment: Environment, work: Path, backend: str, deployed: dict, params: dict,
+                    image: dict | None = None) -> None:
     """The staging folder's files into a remote environment's workspace. A context file the image already has there
     is kept after Hermit's text (Hermit's first), as the Harbor runner merged them; a file that is there but cannot be
     read fails the call (the environment's fault: never the adapter's text alone in its place), and for Codex the
@@ -370,14 +382,19 @@ def _upload_staging(environment: Environment, work: Path, backend: str, deployed
     name = CONTEXT_FILES.get(backend)
     mine = work / name if name else None
     if mine is not None and mine.is_file() and deployed.get("adapter_id"):
-        if environment.exec(["test", "-e", name], timeout=60).code == 0:
-            theirs = work.parent / f"image-{name}"
-            try:
-                environment.download(name, theirs)
-                text = theirs.read_text(encoding="utf-8", errors="replace")
-            except Exception as exc:
-                raise RuntimeError(f"{IMAGE_CONTEXT_UNREAD} ({name}): {type(exc).__name__}: {exc}") from None
-            mine.write_text(mine.read_text(encoding="utf-8") + "\n\n" + text, encoding="utf-8")
+        image = {} if image is None else image          # the image's own file, read once: a run again finds the merge
+        if "text" not in image:
+            image["text"] = None
+            if environment.exec(["test", "-e", name], timeout=60).code == 0:
+                theirs = work.parent / f"image-{name}"
+                try:
+                    environment.download(name, theirs)
+                    image["text"] = theirs.read_text(encoding="utf-8", errors="replace")
+                except Exception as exc:
+                    del image["text"]
+                    raise RuntimeError(f"{IMAGE_CONTEXT_UNREAD} ({name}): {type(exc).__name__}: {exc}") from None
+        if image["text"] is not None:
+            mine.write_text(mine.read_text(encoding="utf-8") + "\n\n" + image["text"], encoding="utf-8")
         if backend == "codex":
             from hermit.hosts.codex import DOC_BYTES
             limit = int(params.get("project_doc_max_bytes") or DOC_BYTES)
@@ -532,6 +549,7 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
     timeout_s = float(params.get("timeout_s") or default_s)
     retries = max(1, int(params.get("retries", 3)))
     usages: list = []                   # every attempt's usage: a run again spends too
+    image_context: dict = {}            # a task environment's own context file, read before the first deployment
     started = time.time()
     # `deadline_s`: the whole call's time (attempts and waits), set by a caller that is stopped at it (a container
     # session must end, and remove its container, before its worker is killed)
@@ -558,7 +576,7 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
             target = work / source.name
             shutil.copytree(source, target) if source.is_dir() else shutil.copy2(source, target)
         if remote:
-            _upload_staging(given, work, backend, deployed, params)
+            _upload_staging(given, work, backend, deployed, params, image_context)
             if deployed.get("hooks"):
                 _ensure_python3(given)
         mounts = [] if remote else _mounts(task, work, params, base)
@@ -587,20 +605,39 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
         usages += list(result.usage or [])
         if result.extra.get("login_failed"):          # before a timeout: a session that then hung is no attempt
             raise LoginFailed(f"agent {backend}: {result.extra.get('failure')}")
-        if remote and result.extra.get("rejected") and not result.extra["served"]:
-            # the provider refused the run's configuration (its key, model, bill): no run again changes it
-            raise RuntimeError(f"agent {backend}: {MODEL_REJECTED}: {result.extra.get('failure')}")
+        if remote:
+            # what the Harbor runner read of a session beyond its own result (codex_stream.session_verdict): the
+            # account's bill refused (nothing later can be served: the run ends), the configuration refused (never
+            # run again); a refusal of what the input made the request, and the model's own, are the agent's result
+            from hermit.agent.base.codex_stream import session_verdict
+            spent = sum(u.input_tokens + u.output_tokens for u in (result.usage or []))
+            said = session_verdict(result.extra, spent)
+            if said == "usage_limit":
+                raise LoginFailed(f"agent {backend}: usage_limit: the provider does not bill the account (its quota "
+                                  f"or credit spent, or a payment it needs): {result.extra.get('failure')}")
+            if said == MODEL_REJECTED:
+                return _infra_run(MODEL_REJECTED, f"agent {backend}: the provider refused the run's configuration: "
+                                  f"{result.extra.get('failure')}", usages, log, started, final=True)
+            if result.extra.get("refused") and not result.extra["served"] and not result.timed_out:
+                # the login's plan refused it (its window): run again once the plan allows, never counted
+                return _infra_run("usage_limit", f"agent {backend}: the plan refused the session: "
+                                  f"{result.extra.get('failure')}", usages, log, started, final=False)
         if result.extra["served"] or result.timed_out:
             break
         if not result.extra["unavailable"]:
             if result.exit_code and not result.extra["started"]:
                 # The CLI exited before it wrote one event: the run never started, which is no wrong answer.
-                raise RuntimeError(f"agent {backend} exited {result.exit_code} before starting a session: "
-                                   f"{result.extra['output_tail']}")
+                said = f"agent {backend} exited {result.exit_code} before starting a session: " \
+                    f"{result.extra['output_tail']}"
+                if remote:
+                    return _infra_run("session_failed", said, usages, log, started, final=False)
+                raise RuntimeError(said)
             break
         if attempt == retries:
-            raise RuntimeError(f"agent {backend} could not be served after {retries} attempts: "
-                               f"{result.extra['output_tail']}")
+            said = f"agent {backend} could not be served after {retries} attempts: {result.extra['output_tail']}"
+            if remote:                  # the rollout's one provider allowance spent: never run again there
+                return _infra_run("model_provider_failed", said, usages, log, started, final=True)
+            raise RuntimeError(said)
         wait = float(params.get("retry_wait_s", 120))
         time.sleep(wait if budget is None else max(0.0, min(wait, budget - (time.time() - started) - 1)))
     code, timed_out, last, usage = result.exit_code, result.timed_out, result.reply, usages

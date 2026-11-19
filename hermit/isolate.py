@@ -911,13 +911,34 @@ def task_environments(config, *, log=None):
     hosts = [*hosts, *(h for h in codex_login.hosts(login) if h not in hosts)]     # a subscription's own hosts too
     environments = HarborEnvironments(section, base=Path(config.base), allowed_hosts=hosts, log=log)
     if codex_login.LOGINS.get(login):
-        # As the Harbor runner did before a trial on a login: wait while its plan holds sessions back before the
-        # task's environment is started and held, never inside the agent's time
-        plan = codex_login.plan_dir(params.get("plan_dir"), login)
-        credits = codex_login.opted_in(params.get("usage_credits"))
-        say = log or (lambda m: print(m, file=sys.stderr, flush=True))
-        environments.before_start = lambda: codex_login.wait(plan, environments.stopping, say, None, credits)
+        environments.admission = _plan_admission(codex_login.plan_dir(params.get("plan_dir"), login),
+                                                 codex_login.opted_in(params.get("usage_credits")),
+                                                 environments.stopping, log)
     return environments
+
+
+def _plan_admission(plan: Path, credits: bool, stopping, log=None):
+    """A task's admission to its login's plan, as the Harbor runner held a trial's: the wait while the plan holds
+    sessions back, then one of the machine's session slots, held around the whole of the task's environment (the CLI
+    in it takes none of its own: `plan_admitted`), never inside the agent's time. A run that ended meanwhile
+    (`stopping`) ends the rollout as a lost sign-in does."""
+    import contextlib
+    from hermit.agent.base.interface import LoginFailed
+    say = log or (lambda m: print(m, file=sys.stderr, flush=True))
+
+    @contextlib.contextmanager
+    def admitted():
+        while True:
+            if codex_login.wait(plan, stopping, say, None, credits):
+                raise LoginFailed("the run ended while the task waited for its login's plan")
+            with codex_login.slot(plan, stopping, say, None) as got:
+                if got is not True:
+                    raise LoginFailed("the run ended while the task waited for its login's plan")
+                if codex_login.held(plan, credits):     # held while it waited for the slot: wait again
+                    continue
+                yield
+                return
+    return admitted
 
 
 def judge_for(config, pipeline):
