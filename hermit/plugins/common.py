@@ -72,7 +72,7 @@ class Bundle:
     def other_files(self) -> list[str]:
         """The adapter's files no export connects (paths in the adapter). In training and in a `hermit deploy`
         workspace the agent's context names them, at the adapter's copy (hermit.hosts.inputs.resources); a plugin
-        embeds them under `adapter/`, and names them where the target can say where it is installed."""
+        embeds them under `adapter/`."""
         return other_files(self.adapter, self.manifest, {"agents": self.roles}, self.hooks)
 
 
@@ -99,28 +99,12 @@ def refuse(bundle: Bundle, target: str, reasons: dict[str, str], *, allow_lossy:
     return sorted(reasons)
 
 
-def folder_sentence(bundle: Bundle, root: str) -> str:
-    """The deployment's folder note (hermit.hosts.inputs.folder_note) for a plugin installed at `root`."""
-    return (f"The files of the `{bundle.id}` adapter are in `{root}/{ADAPTER_DIR}/`. Paths in its instructions, and in "
-            f"its skills and roles, are relative to that folder: run a command they give from there "
-            f"(`cd \"{root}/{ADAPTER_DIR}\" && ...`).")
-
-
-def names_folder(bundle: Bundle, skills: list[str]) -> bool:
-    """Whether the session should be told where the adapter's files are: it has files no export connects, or skills
-    or roles whose paths are relative to the adapter's folder (as a deployment's context says)."""
-    return bool(bundle.other_files or bundle.roles or skills)
-
-
 def unnamed_line(bundle: Bundle, target: str) -> str:
-    """The README's line on the adapter's files that no export connects: in training and in a `hermit deploy`
-    workspace the context names them; this target's plugin carries them under `adapter/` but cannot say where it is
-    installed, so the session is not told about them."""
+    """The README's line on the adapter's files that no export connects, which the plugin carries but does not name to
+    the session (a `hermit deploy` workspace's context names them)."""
     if not bundle.other_files:
         return "- Files the session is not told about: none"
-    return (f"- Files the session is not told about: {', '.join(bundle.other_files)} (under `{ADAPTER_DIR}/`; a "
-            f"{target} plugin cannot name where it is installed, while a `hermit deploy` workspace's context names "
-            "them)")
+    return f"- Files the session is not told about: {', '.join(bundle.other_files)} (under `{ADAPTER_DIR}/`)"
 
 
 def prepare_output(output: Path, adapter: Path, own_file: str) -> Path:

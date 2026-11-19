@@ -325,32 +325,9 @@ def test_a_reconversion_drops_the_list_of_files_the_adapter_no_longer_has(tmp_pa
     assert "none is named to the session" in (plugin / "README.md").read_text()
 
 
-def test_hermes_names_the_adapters_folder_and_files_at_the_end_of_its_section(tmp_path):
-    out = tmp_path / "installed here"
-    result = build("hermes", variant(tmp_path, roles=False), out, sys.executable)
-    assert result["files_named"] is True and result["unnamed_files"] == []
-    ctx = StubContext()
-    load_hermes_module(out).register(ctx)
-    section = ctx.sections["file-example"]
-    assert section.startswith("Review the task requirements")
-    assert f"The files of the `file-example` adapter are in `{out.resolve()}/adapter/`." in section
-    assert "- `README.md`: File interface example" in section and "- `tools.py`:" in section
-    assert len(section) <= 4_000
-
-
-def test_hermes_reports_the_files_when_naming_them_would_pass_its_section_limit(tmp_path):
-    a = variant(tmp_path, roles=False)
-    (a / "ADAPTER.md").write_text("Check the result. " * 210)              # about 3,800 characters: within 4,000
-    result = build("hermes", a, tmp_path / "h", sys.executable)
-    assert result["files_named"] is False and result["unnamed_files"] == ["README.md", "tools.py"]
-    ctx = StubContext()
-    load_hermes_module(tmp_path / "h").register(ctx)
-    assert "adapter/`" not in ctx.sections["file-example"]
-
-
-@pytest.mark.parametrize("target", ["codex", "pi"])
-def test_a_target_that_cannot_name_its_folder_reports_the_files_the_session_is_not_told_about(tmp_path, target):
+@pytest.mark.parametrize("target", ["codex", "pi", "hermes"])
+def test_codex_pi_and_hermes_report_the_files_the_session_is_not_told_about(tmp_path, target):
     result = build(target, variant(tmp_path, roles=False, context=False), tmp_path / target, sys.executable)
     assert result["unnamed_files"] == ["README.md", "tools.py"]
     readme = (Path(result.get("plugin") or result["output"]) / "README.md").read_text()
-    assert "- Files the session is not told about: README.md, tools.py (under `adapter/`" in readme
+    assert "- Files the session is not told about: README.md, tools.py (under `adapter/`)" in readme

@@ -24,7 +24,7 @@ import json
 
 from hermit.hosts.inputs import other_files_section
 from hermit.plugins.common import (ADAPTER_DIR, AUDIT_LOG, FRAMEWORK_VERSION, SERVER_COMMAND, clear, copy_skills,
-                                           embed_adapter, folder_sentence, load, names_folder, prepare_output,
+                                           embed_adapter, load, prepare_output,
                                            record, refuse, server_args, subagent_file, write_json)
 
 SCHEMA = "https://anthropic.com/claude-code/plugin.schema.json"
@@ -38,10 +38,13 @@ def folder_hook(bundle, plugin: Path, skills: list[str]) -> str | None:
     (hermit.hosts.inputs.folder_note and the "Other files" list), when the adapter has any the agent may be sent to:
     files no export connects, or skills and roles whose paths are relative to the adapter. Returns the hooks file."""
     others = bundle.other_files
-    if not names_folder(bundle, skills):
+    if not (others or bundle.roles or skills):
         return None
     # the installed path is printf's argument, never part of the command; an adapter id has no % or quote
-    command = f"printf '{folder_sentence(bundle, '%s')}\\n' \"$CLAUDE_PLUGIN_ROOT\" \"$CLAUDE_PLUGIN_ROOT\""
+    note = (f"The files of the `{bundle.id}` adapter are in `%s/{ADAPTER_DIR}/`. Paths in its instructions, and in "
+            f"its skills and roles, are relative to that folder: run a command they give from there "
+            f"(`cd \"%s/{ADAPTER_DIR}\" && ...`).")
+    command = f"printf '{note}\\n' \"$CLAUDE_PLUGIN_ROOT\" \"$CLAUDE_PLUGIN_ROOT\""
     if others:
         # Past 10,000 characters Claude Code keeps a hook's output in a file and shows its first 2,000, which hold the
         # folder; the list (at most LISTED_FILES entries, as a deployment's) is shorter for any ordinary adapter.

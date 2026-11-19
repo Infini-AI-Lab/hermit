@@ -8,10 +8,6 @@
 - tools: `ctx.register_tool`, each forwarding to a `hermit serve` process the plugin starts on the first call,
   so the tools run exactly as they do under the other hosts.
 - roles: Hermes has no file-defined subagents; an adapter with roles is refused.
-- the adapter's files: embedded under `adapter/`. `register` knows where the plugin is installed, so the section
-  ends with the deployment's folder note and its list of the files no export connects (`files.md`, the folder
-  written in when Hermes loads the plugin), as long as the section stays within 4,000 characters; otherwise the files
-  are listed under `unnamed_files`.
 
 The plugin's `__init__.py` is `hermes/plugin_init.py`, the same file for every adapter; the adapter-specific parts
 are data next to it.
@@ -22,14 +18,10 @@ from pathlib import Path
 import json
 import shutil
 
-from hermit.hosts.inputs import other_files_section
-from hermit.plugins.common import (FRAMEWORK_VERSION, RECORD, clear, copy_skills, embed_adapter, folder_sentence, load,
-                                           names_folder, prepare_output, record, refuse, unnamed_line)
+from hermit.plugins.common import (FRAMEWORK_VERSION, RECORD, clear, copy_skills, embed_adapter, load,
+                                           prepare_output, record, refuse, unnamed_line)
 
 SECTION_MAX_CHARS = 4_000
-FILES = "files.md"                 # the folder note and the list, with FOLDER where the installed folder goes
-FOLDER = "@HERMIT_PLUGIN_ROOT@"
-PATH_ROOM = 2 * 300                # the installed path, written in twice, counted against the section's limit
 SECTION_MARKERS = ("<!-- hermes-plugin-sections:start -->", "<!-- hermes-plugin-sections:end -->")
 
 # Copied unchanged into every emitted plugin as its `__init__.py`.
@@ -49,7 +41,7 @@ def build(adapter: Path, output: Path, python: str, *, allow_lossy: bool = False
         reasons["roles"] = f"Hermes has no file-defined subagents ({', '.join(r['name'] for r in bundle.roles)})"
     omitted = refuse(bundle, "Hermes", reasons, allow_lossy=allow_lossy)
     output = prepare_output(output, bundle.adapter, RECORD)
-    clear(output, "skills", "context.md", FILES)
+    clear(output, "skills", "context.md")
 
     tools = [{"name": t["name"], "hermes_name": f"{bundle.server}_{t['name']}", "description": t["description"],
               "input_schema": t["input_schema"]} for t in bundle.tools]
@@ -57,12 +49,11 @@ def build(adapter: Path, output: Path, python: str, *, allow_lossy: bool = False
         f"name: {bundle.id}\nversion: {json.dumps(bundle.version)}\ndescription: {json.dumps(bundle.name)}\n"
         + (f"provides_tools: [{', '.join(t['hermes_name'] for t in tools)}]\n" if tools else ""))
     shutil.copyfile(PLUGIN_INIT, output / "__init__.py")
-    record(bundle, output, toolset=bundle.server, tools=tools, section_max=SECTION_MAX_CHARS, folder=FOLDER)
+    record(bundle, output, toolset=bundle.server, tools=tools)
     context_file = output / "context.md"
     if bundle.has_context and "context" not in omitted:
         context_file.write_text(context + "\n")
     skills = copy_skills(bundle, output / "skills")
-    named = _files_note(bundle, output, skills, context if context_file.exists() else "")
     embed_adapter(bundle, output)
     (output / "README.md").write_text("\n".join([
         f"# {bundle.name}", "",
@@ -75,27 +66,10 @@ def build(adapter: Path, output: Path, python: str, *, allow_lossy: bool = False
         f"all plugins' sections together would pass 8,000 characters." if context_file.exists() else "- Context: none",
         f"- Skills: {', '.join(skills) or 'none'}",
         f"- Tools: {', '.join(t['hermes_name'] for t in tools) or 'none'}",
-        (f"- The adapter's files: under `adapter/`, named at the end of the section"
-         + (f" with the {len(bundle.other_files)} files no export connects" if bundle.other_files else ""))
-        if named else unnamed_line(bundle, "Hermes"),
+        unnamed_line(bundle, "Hermes"),
         f"- Left out (--allow-lossy): {', '.join(omitted)}" if omitted else "- Left out: nothing", ""]))
     return {"target": "hermes", "adapter_id": bundle.id, "version": bundle.version, "framework": FRAMEWORK_VERSION,
             "output": str(output),
             "install": [f"cp -r {output} ~/.hermes/plugins/{bundle.id}", f"hermes plugins enable {bundle.id}"],
             "context_chars": len(context) if context_file.exists() else 0, "skills": skills,
-            "tools": [t["hermes_name"] for t in tools], "files_named": named,
-            "unnamed_files": [] if named else bundle.other_files, "omitted": omitted}
-
-
-def _files_note(bundle, output: Path, skills: list[str], context: str) -> bool:
-    """Write `files.md`, which `register` appends to the section with the installed folder written in, when the session
-    should be told where the adapter's files are and the section stays within Hermes' limit. Whether it was written."""
-    if not names_folder(bundle, skills):
-        return False
-    text = folder_sentence(bundle, FOLDER)
-    if bundle.other_files:
-        text += "\n\n" + other_files_section(bundle.adapter, bundle.other_files, None)
-    if len(context) + 2 + len(text) + PATH_ROOM > SECTION_MAX_CHARS:
-        return False
-    (output / FILES).write_text(text + "\n")
-    return True
+            "tools": [t["hermes_name"] for t in tools], "unnamed_files": bundle.other_files, "omitted": omitted}

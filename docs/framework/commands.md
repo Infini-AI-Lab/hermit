@@ -136,7 +136,7 @@ names the machine that produced it.
 | Tools | `.mcp.json` | `mcp.json` | generated extension, `pi.registerMcpServer` | `ctx.register_tool`, forwarding to `hermit serve` |
 | Roles | `agents/` | refused | refused | refused |
 | Hooks | refused | refused | refused | refused |
-| The adapter's folder and its other files | named by a `SessionStart` hook | not named: listed under `unnamed_files` | not named: listed under `unnamed_files` | named at the end of the section, within 4,000 characters |
+| The adapter's folder and its other files | named by a `SessionStart` hook | not named: listed under `unnamed_files` | not named: listed under `unnamed_files` | not named: listed under `unnamed_files` |
 
 A part the target's plugin format cannot carry is refused: `convert` exits 2 and names every such part before writing
 anything. A non-empty context (`ADAPTER.md`) makes Codex and Pi refuse, and a context over 4,000 characters makes
@@ -146,16 +146,9 @@ under `omitted` in the result.
 
 In training and in a `deploy` workspace, the agent's context says where the adapter's copy is (paths in its
 instructions, skills and roles are relative to that folder) and lists the files no export connects, such as a
-README or a tool's source. A plugin carries those files under `adapter/` and names them where its format can say
-where it is installed:
-
-- **Claude Code:** an output style gets no `${CLAUDE_PLUGIN_ROOT}`, so a `SessionStart` hook prints the installed
-  folder and the same list (`hermit-files.md`), and Claude Code adds its output to the context. The hook is a POSIX
-  shell command (`sh`; Git Bash on Windows, without which Claude Code uses PowerShell and the hook fails).
-- **Hermes:** the plugin's `register` appends the folder and the list to its system prompt section (`files.md`), when
-  the section stays within 4,000 characters; otherwise the files are listed under `unnamed_files`.
-- **Codex and Pi** read no context from a plugin, so the result lists the files under `unnamed_files` and the
-  plugin's README names them. Nothing is refused for them, since the plugin still holds the files.
+README or a tool's source. A Claude Code plugin names them with a `SessionStart` hook, which prints the installed
+folder and the same list (an output style gets no `${CLAUDE_PLUGIN_ROOT}`); the hook needs a POSIX shell (Git Bash on
+Windows). The other targets list them under `unnamed_files` and in the plugin's README.
 
 Why the refusals:
 
