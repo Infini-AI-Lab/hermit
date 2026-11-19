@@ -922,6 +922,14 @@ def task_environments(config, *, log=None):
     login = params.get("login")
     hosts = [*hosts, *(h for h in codex_login.hosts(login) if h not in hosts)]     # a subscription's own hosts too
     environments = HarborEnvironments(section, base=Path(config.base), allowed_hosts=hosts, log=log)
+    # what the agent needs installed before its phase (Agent.installs), which Harbor's setup installs: a built-in
+    # agent's (a task's own class is not loaded on this machine; one in Harbor's environment brings what it needs)
+    from hermit.agent.acting.agent import builtin
+    kind = builtin(str(d["agent"].get("name") or ""))
+    if kind is not None:
+        declared = kind(params, Path(config.base))
+        if callable(getattr(declared, "installs", None)):
+            environments.installs_for = declared.installs
     if codex_login.LOGINS.get(login):
         environments.admission = _plan_admission(codex_login.plan_dir(params.get("plan_dir"), login),
                                                  codex_login.opted_in(params.get("usage_credits")),

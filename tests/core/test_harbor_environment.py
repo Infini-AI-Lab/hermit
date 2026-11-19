@@ -25,7 +25,7 @@ from hermit.environment import harbor as harbor_mod
 from hermit.environment.base import Environment, ExecResult, Limits, Unsupported
 from hermit.environment.harbor import EnvironmentUnavailable, HarborEnvironments
 
-# The driver's stand-in: the container is the folder FAKE_ROOT, its workdir FAKE_ROOT/app; `verify` writes the reward
+# The driver's stand-in: the container is the folder FAKE_ROOT, its workdir FAKE_ROOT/app; `done` writes the reward
 # a file /app/reward-to-give names (0 when there is none), or fails as FAKE_VERIFY says.
 FAKE_DRIVER = textwrap.dedent('''
     import json, os, shutil, subprocess, sys
@@ -59,7 +59,7 @@ FAKE_DRIVER = textwrap.dedent('''
             src, dst = local(req["source"]), Path(req["target"])
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(src, dst, dirs_exist_ok=True) if src.is_dir() else shutil.copy2(src, dst)
-        elif op == "verify":
+        elif op == "done":
             logs = root.parent / "verifier"; logs.mkdir(exist_ok=True)
             how = os.environ.get("FAKE_VERIFY", "")
             if how:
@@ -105,7 +105,7 @@ def harbor(tmp_path, monkeypatch):
 def test_an_environment_starts_behind_the_disk_gate_serves_the_agent_verifies_and_stops(harbor, tmp_path):
     environments, root, calls = harbor
     with environments.session(environments.task_dir({"id": "demo#1", "harbor_task": "demo"}), "demo#1") as env:
-        assert env.workspace == PurePosixPath("/app") and env.limits.timeout_s == 900.0   # the task's budget
+        assert env.workspace == PurePosixPath("/app") and env.limits.timeout_s == 840.0   # the task's, less the margin
         assert env.exec(["sh", "-c", "echo $WHO > who.txt; cat who.txt"], env={"WHO": "agent"}).output == "agent\n"
         (tmp_path / "local.txt").write_text("1\n")
         env.upload(tmp_path / "local.txt", "reward-to-give")                   # relative: in the workspace
@@ -376,7 +376,7 @@ class Environments:
     def task_dir(self, task):
         return self.tmp / str(task.public["harbor_task"])
 
-    def session(self, task_dir, name=None):
+    def session(self, task_dir, name=None, installs=None):
         import contextlib
         outer = self
 
@@ -520,11 +520,21 @@ def test_a_real_harbor_environment_runs_the_agents_commands_and_harbors_verifier
             # Harbor's scrub of the verifier's credential: neither the feedback nor the trial's files hold it
             assert "grader-literal-credential" not in verdict["feedback"] and "grader key" in verdict["feedback"]
             late.join(timeout=30)
-            assert ended and "the verifier started" in ended[0]
+            assert ended and "the agent's phase ended" in ended[0]
     assert rewards == [1.0, 0.0]                        # the agent's credential never reached the verifier
     kept = [p for p in (tmp_path / "jobs").rglob("*") if p.is_file() and not p.is_symlink()]
     assert not [p for p in kept if b"grader-literal-credential" in p.read_bytes()]
     assert not [p for p in kept if AGENT_KEY.encode() in p.read_bytes()]          # nor stays in the trial's files
+    # Harbor's own agent timeout ends the phase: the command still running is ended (AgentPhaseOver), and the trial
+    # runs on to its verifier, its verdict the agent's timeout
+    timed = HarborEnvironments({"tasks_dir": str(tmp_path / "tasks"), "jobs_dir": str(tmp_path / "jobs2"),
+                                "disk_gate_gb": 0, "tmp_gate_gb": 0, "agent_timeout_sec": 15}, base=tmp_path)
+    with timed.session(task) as env:
+        assert env.limits.timeout_s == 13.5                                      # its own budget ends first
+        with pytest.raises(RuntimeError, match="AgentPhaseOver"):
+            env.exec(["sleep", "100"], timeout=100)
+        verdict = env.verify()
+    assert (verdict["status"], (verdict["exception"] or {}).get("type")) == ("timeout", "AgentTimeoutError")
 
 
 def test_a_react_agent_works_in_the_tasks_environment_its_tools_run_there(tmp_path, monkeypatch):
@@ -642,14 +652,14 @@ def test_a_session_the_provider_could_not_serve_is_infra_and_any_other_pipeline_
         out = rollout.environment_rollout(task, task.given(), None, failing, Environments(tmp_path), 0.0,
                                           pause=lambda s: None)
         assert (len(seen), out.extra["unscored"]) == (runs, cause), said
-    from hermit.environment.harbor_errors import INSTALL_FAILED
+    def phase_over(task, adapter, environment=None):              # Harbor's agent timeout ended the phase first
+        raise RuntimeError("AgentPhaseOver: exec: the agent's phase ended")
 
-    def uninstalled(task, adapter, environment=None):
-        raise RuntimeError(f"EnvironmentUnavailable: {INSTALL_FAILED}: TimeoutError")
-
-    out = rollout.environment_rollout(task, task.given(), None, uninstalled, Environments(tmp_path, infra_retries=0),
-                                      0.0, pause=lambda s: None)
-    assert out.extra["unscored"] == "harbor_failed" and out.cost_usd == 0.0     # no session ran: nothing spent
+    environments = Environments(tmp_path, verdicts=[{"reward": 0.0, "rewards": {"reward": 0.0}, "status": "timeout",
+                                                     "failure_cause": "agent_exhausted_budget", "passed": False,
+                                                     "feedback": ""}])
+    out = rollout.environment_rollout(task, task.given(), None, phase_over, environments, 0.0, pause=lambda s: None)
+    assert out.extra["verified"]["status"] == "timeout" and out.extra["timed_out"] is True   # the trial's verdict
 
     def broken(task, adapter, environment=None):
         raise KeyError("a bug of the agent's own")
@@ -815,7 +825,7 @@ def test_hooks_get_python3_their_audit_comes_back_and_the_image_context_is_check
             raise OSError("docker cp failed")
 
     env = Env(tmp_path, lambda c: ExecResult(1, "") if c[:2] == ["sh", "-c"] else ExecResult(0, ""))
-    assert workspace._ensure_python3(env) is False and calls == [("ensure", ["python3"])]   # its cat fails too
+    assert workspace._ensure_python3(env) is False and calls == []    # nothing installs during the agent phase
     workspace._collect_hooks(env, log)
     assert (log / "hook-calls.jsonl").is_file() and (log / "hook-state").is_dir()
     work = tmp_path / "work"
@@ -888,7 +898,7 @@ def test_a_run_that_ends_stops_the_pause_before_a_run_again(tmp_path):
     task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
     session = environments.session
 
-    def failing(task_dir, name=None):                           # another task ends the run while this one fails
+    def failing(task_dir, name=None, installs=None):            # another task ends the run while this one fails
         environments.stopping.set()
         return session(task_dir, name)
 
@@ -1024,63 +1034,90 @@ DRIVER_FILE = Path(harbor_mod.__file__).with_name("harbor_driver.py")
 
 
 @pytest.mark.skipif(not HARBOR_PYTHON.exists(), reason="needs Harbor's venv (~/.cache/hermit/harbor-venv)")
-def test_the_driver_never_verifies_or_runs_on_without_its_guarantees(tmp_path):
-    """In the driver (Harbor's interpreter): a kill not confirmed stops the verifier (raised, kept, tried again), and an
-    agent phase whose network policy could not be restored takes no further agent command or install."""
+def test_the_bridge_relays_only_in_its_phase_and_ends_its_commands_before_it_returns(tmp_path):
+    """The bridge's run (in Harbor's interpreter, its trial and environment the test's): the phase starts with the
+    instruction; a relayed command is refused outside the phase; at `done` and at Harbor's agent timeout (wait_for
+    cancelling the run) every command still running is ended, its Docker client too, before the run returns; a kill
+    not confirmed fails the run (no verifier) and Hermit's logs reach the agent logs scrubbed."""
     script = tmp_path / "probe.py"
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "agent-codex.jsonl").write_text(f"key {AGENT_KEY}\n")
     script.write_text(textwrap.dedent(f"""
         import asyncio, importlib.util, sys
+        from pathlib import Path
         from types import SimpleNamespace
         spec = importlib.util.spec_from_file_location("drv", {str(DRIVER_FILE)!r})
-        drv = importlib.util.module_from_spec(spec); spec.loader.exec_module(drv)
+        drv = importlib.util.module_from_spec(spec); sys.modules["drv"] = drv; spec.loader.exec_module(drv)
 
         class Env:
-            def __init__(self, ok): self.ok, self.cwds, self.policies = ok, [], []
+            def __init__(self, ok=True): self.ok, self.kills = ok, []
             async def exec(self, command, cwd=None, user=None, **kw):
-                self.cwds.append(cwd)
-                if self.ok is None: raise RuntimeError("docker exec failed")
+                if command.startswith("printf"):
+                    return SimpleNamespace(return_code=0, stdout="hermit-workdir:/app\\n", stderr="")
+                self.kills.append(command)
                 return SimpleNamespace(return_code=0 if self.ok else 1, stdout="", stderr="")
-            async def set_network_policy(self, policy):
-                self.policies.append(policy)
-                if policy == "agent": raise RuntimeError("iptables failed")
+
+        def trial(tmp):
+            plan = SimpleNamespace(agent_phase=SimpleNamespace(network_mode="no-network"))
+            paths = SimpleNamespace(trial_dir=Path(tmp), agent_dir=Path(tmp) / "agent")
+            config = SimpleNamespace(agent=SimpleNamespace(user=None), environment=SimpleNamespace(
+                os=SimpleNamespace(value="linux")), verifier=SimpleNamespace(environment_mode=None))
+            return SimpleNamespace(task=SimpleNamespace(config=config), paths=paths, agent_timeout_sec=60,
+                                   agent_setup_timeout_sec=60, verifier_timeout_sec=60,
+                                   _network_plan=lambda step: plan)
+
+        class Out:
+            def write(self, s): pass
+            def flush(self): pass
+
+        async def held(d):                              # an exec of the agent's still running: a client, a mark
+            drv.CLIENT_KIND.set("agent")
+            task = asyncio.current_task(); d.agent_ops.add(task); d.running.add("m1")
+            client = await asyncio.create_subprocess_exec("sleep", "30")
+            try:
+                await asyncio.sleep(60)
+            finally:
+                d.agent_ops.discard(task)
+            return client
 
         async def main():
             out = []
-            for ok in (None, False):
-                d = drv.Driver(sys.stdout)
-                env = Env(ok)
-                d.trial = SimpleNamespace(agent_environment=env)
-                d.running.add("m1")
+            drv.resolve_task_verifier_mode = lambda config: SimpleNamespace(value="shared")
+            for how in ("done", "timeout", "unconfirmed"):
+                d = drv.DRIVER = drv.Driver(Out())
+                d.trial = trial({str(tmp_path)!r} + "/" + how)
+                env = Env(ok=how != "unconfirmed")
+                await d.handle({{"id": 1, "op": "exec", "command": "true"}})    # before the phase: refused
+                run = asyncio.create_task(d.phase("Do it.", env))       # the bridge's run, as Harbor awaits it
+                started = await d.phase_started
+                op = asyncio.create_task(held(d))
+                await asyncio.sleep(0.3)
+                client = [p for p in drv.CLIENTS if drv.CLIENTS[p] == "agent"][-1]
                 try:
-                    await d._drain(); out.append("drained")
-                except RuntimeError as exc:
-                    out.append("raised" if "could not be ended" in str(exc) else str(exc))
-                out.append(sorted(d.unkilled)); out.append(env.cwds[-1])
-                env.ok = True
-                await d._drain(); out.append(sorted(d.unkilled))
-            d = drv.Driver(sys.stdout)
-            env = Env(True)
-            d.trial = SimpleNamespace(agent_environment=env)
-            d.agent_phase = object()
-            d.plan = SimpleNamespace(agent_phase="agent", agent_env_baseline="public")
-            try:
-                async with d._setup_phase():
-                    pass
-            except RuntimeError:
-                pass
-            out.append(bool(d.broken)); out.append(d.agent_allowed.is_set())
-            for call in (d.exec({{"command": "true"}}), d.install({{"name": "codex"}})):
-                try:
-                    await call; out.append("ran")
-                except RuntimeError as exc:
-                    out.append("refused" if "broken" in str(exc) else str(exc))
+                    if how == "timeout":                 # Harbor's wait_for cancels the run at the agent timeout
+                        run.cancel()
+                        await asyncio.gather(run, return_exceptions=True)
+                    else:
+                        d.agent_logs = {str(logs)!r}
+                        d.secrets.add({AGENT_KEY!r})
+                        d.done.set()
+                        await run
+                    ended = "returned"
+                except drv.HarborDriverError:            # Harbor records it and runs no verifier: infra
+                    ended = "raised"
+                out.append([how, started["instruction"], started["workdir"], ended, op.cancelled() or op.done(),
+                            client.returncode is not None, any("HERMIT_AGENT_EXEC=" in k for k in env.kills)])
+                agent_log = Path({str(tmp_path)!r}) / how / "agent" / "agent-codex.jsonl"
+                out.append(agent_log.read_text() if agent_log.exists() else None)
             print("RESULT", out)
         asyncio.run(main())
     """))
     done = subprocess.run([str(HARBOR_PYTHON), "-I", str(script)], capture_output=True, text=True, timeout=120)
     line = next((x for x in done.stdout.splitlines() if x.startswith("RESULT")), done.stdout + done.stderr)
-    assert line == "RESULT " + str(["raised", ["m1"], "/", [], "raised", ["m1"], "/", [],
-                                    True, True, "refused", "refused"]), line
+    assert line == "RESULT " + str([["done", "Do it.", "/app", "returned", True, True, True], "key [REDACTED]\n",
+                                    ["timeout", "Do it.", "/app", "returned", True, True, True], None,
+                                    ["unconfirmed", "Do it.", "/app", "raised", True, True, True], None]), line
 
 
 def test_an_admitted_session_takes_no_slot_and_a_refused_one_holds_the_plan_and_comes_back(tmp_path, monkeypatch):
@@ -1398,7 +1435,7 @@ def test_the_verifier_watchdog_follows_harbors_own_timeout(harbor, monkeypatch):
         original = env.driver.request
         env.driver.request = lambda op, timeout, **f: asked.append((op, timeout)) or original(op, timeout, **f)
         env.verify()
-    assert ("verify", 14400.0 + harbor_mod.VERIFY_ALLOWANCE_S) in asked
+    assert ("done", 14400.0 + harbor_mod.VERIFY_ALLOWANCE_S) in asked
 
 
 def test_a_teardown_failure_keeps_the_tasks_verdict_and_a_host_failure_is_not_run_again(tmp_path):
@@ -1409,7 +1446,7 @@ def test_a_teardown_failure_keeps_the_tasks_verdict_and_a_host_failure_is_not_ru
     session = environments.session
 
     @contextlib.contextmanager
-    def breaking(task_dir, name=None):
+    def breaking(task_dir, name=None, installs=None):
         with session(task_dir, name) as env:
             yield env
         raise OSError(28, "No space left on device: the cleanup lock")
@@ -1440,7 +1477,7 @@ def test_a_lost_sign_in_stops_new_work_before_the_tasks_teardown(tmp_path):
     session = environments.session
 
     @contextlib.contextmanager
-    def watched(task_dir, name=None):
+    def watched(task_dir, name=None, installs=None):
         try:
             with session(task_dir, name) as env:
                 yield env
@@ -1659,15 +1696,24 @@ def test_react_keeps_the_budget_through_the_answer_tag_follow_up_and_counts_an_a
     assert out.cost_usd is None and out.api_speed["model_calls"] == 2 and out.tokens == 10   # its cost not known
 
 
-def test_python3_for_hooks_never_runs_on_in_an_environment_left_under_the_setups_policy(tmp_path):
-    from hermit.agent.acting import workspace
-
-    class Broken(Recorded):
-        def ensure(self, packages):
-            raise RuntimeError("the environment is broken: the agent phase's network policy could not be restored")
-
-    with pytest.raises(RuntimeError, match="broken"):
-        workspace._ensure_python3(Broken(tmp_path, lambda c: ExecResult(1, "")))     # python3 missing
+def test_a_cli_agent_declares_what_harbors_setup_installs_and_the_phase_installs_nothing(harbor, tmp_path):
+    """Agent.installs: the CLI (unless `bin` names one there; probed first unless a version is pinned) and python3
+    for an adapter's hooks, which the run hands the environment's setup; during the phase install() only reports
+    what setup installed, and refuses anything else."""
+    from hermit.agent.acting.workspace import CliAgent
+    from hermit.agent.acting.agent import Agent
+    assert Agent().installs(None) == []                                      # an agent that needs nothing
+    codex = CliAgent({"backend": "codex", "version": "0.162.0"}, tmp_path).installs(None)
+    assert codex[0]["agent"] == "codex" and codex[0]["version"] == "0.162.0" and "command -v codex" in codex[0]["probe"]
+    assert CliAgent({"backend": "claude", "bin": "/opt/claude"}, tmp_path).installs(None) == []
+    environments, _, _ = harbor
+    with environments.session(environments.task_dir({"harbor_task": "demo"}), installs=codex) as env:
+        sent = [json.loads(line) for line in (tmp_path / "requests.jsonl").read_text().splitlines()]
+        assert sent[0]["installs"] == codex
+        env.started["installed"] = {"codex": "0.162.0"}
+        assert env.install("codex", "0.162.0") == "0.162.0"
+        with pytest.raises(Unsupported, match="not installed at the environment's setup"):
+            env.install("claude-code")
 
 
 def test_the_driver_scrubs_the_agents_credentials_from_the_logs_it_hands_the_verifier(tmp_path):

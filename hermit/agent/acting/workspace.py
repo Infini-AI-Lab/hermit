@@ -71,6 +71,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import sys
 import time
@@ -357,6 +358,34 @@ class CliAgent(Agent):
     def run(self, task: dict, adapter: Path | None, environment=None) -> RunOutput:
         return _run(task, adapter, self.params, self.base, environment)
 
+    def installs(self, adapter: Path | None) -> list[dict]:
+        return installs(self.params, adapter)
+
+
+def installs(params: dict, adapter: Path | None) -> list[dict]:
+    """What a CLI agent needs in a task's own environment before its session (Agent.installs): its CLI, unless `bin`
+    names one there (by the environment's installer of the CLI's name, unless it is on the session's PATH there and no
+    `version` is pinned, as the Harbor runner installed it), and python3 when the adapter has hooks the CLI runs."""
+    from hermit.agent.base.cli import REMOTE_INSTALL, REMOTE_PATH
+    backend = str(params.get("backend") or "codex")
+    out = []
+    if not params.get("bin") and backend in REMOTE_INSTALL:
+        out.append({"agent": REMOTE_INSTALL[backend], "version": params.get("version"),
+                    "probe": "bash -c " + shlex.quote(REMOTE_PATH + f"command -v {backend}")})
+    if adapter is not None and backend in REMOTE_HOOK_HOSTS:
+        from importlib import import_module
+        from hermit.adapter.loader import hook_definitions, load_manifest
+        from hermit.hosts.inputs import native_hooks
+        try:
+            manifest = load_manifest(Path(adapter))
+            hooks = native_hooks(hook_definitions(Path(adapter), manifest),
+                                 import_module(REMOTE_HOOK_HOSTS[backend]).HOOK_TYPES)
+        except (OSError, ValueError, KeyError):         # the deployment says why, in the agent's run
+            hooks = None
+        if hooks:
+            out.append({"packages": ["python3"]})
+    return out
+
 
 def run(task: dict, adapter: Path | None, *, params: dict, base: Path, environment=None) -> RunOutput:
     """The function form; CliAgent is the class (`agent.name: codex` or `claude-code`)."""
@@ -431,28 +460,17 @@ def _upload_staging(environment: Environment, work: Path, backend: str, deployed
 
 
 IMAGE_CONTEXT_UNREAD = "the image's own context file could not be read"
-BROKEN = "the environment is broken"        # the driver's word for an environment left under a wider network policy
 IMAGE_MARK = "hermit-image-context:"        # what precedes the file's text in the reading command's output
 
 
 def _ensure_python3(environment: Environment) -> bool:
-    """python3 where the session runs, for the adapter's hooks (rendered for `python3`): installed by the environment's
-    own installer when it has one and Python is missing, as the Harbor runner did before a session with hooks. False
-    when it could not be had (the session then runs with hooks that may fail open); raised only when the environment
-    is broken (left under its setup's network policy), where no agent command runs on."""
+    """Whether python3 is where the session runs, for the adapter's hooks (rendered for `python3`): installed at the
+    environment's setup when the agent asked for it (installs: an adapter with hooks), as the Harbor runner ensured it
+    before a session with hooks. Missing: a warning, and the session runs with hooks that may fail open."""
     if environment.exec(["sh", "-c", "command -v python3"], timeout=60).code == 0:
         return True
-    ensure = getattr(environment, "ensure", None)
-    if ensure is None:
-        return False
-    try:
-        ensure(["python3"])
-    except Exception as exc:                             # noqa: BLE001 - as the runner: warn, run on
-        if BROKEN in str(exc):                           # but never on in an environment left under the setup's policy
-            raise
-        print(f"WARNING: python3 for the adapter's hooks could not be installed: {exc}", file=sys.stderr, flush=True)
-        return False
-    return environment.exec(["sh", "-c", "command -v python3"], timeout=60).code == 0
+    print("WARNING: python3 for the adapter's hooks is not in the environment", file=sys.stderr, flush=True)
+    return False
 
 
 def _collect_hooks(environment: Environment, log: Path) -> None:

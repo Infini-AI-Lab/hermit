@@ -82,7 +82,8 @@ HALTING = {"ApiUsageLimitError", "AgentAuthenticationError"}       # nothing aft
 # the causes of an infra rollout that run no better again (the runner's NO_RETRY): a disk gate that waited its time out,
 # a request the provider refused for the run's configuration (its key, permission, model or bill: no input to the
 # session changes it)
-NO_RETRY = ("disk", "model_rejected", "host_failed")   # and this machine's own failure, which the runner never ran
+NO_RETRY = ("disk", "model_rejected", "host_failed",   # and this machine's own failure, which the runner never ran
+            "unsupported_task")                        # again, nor a task Harbor runs for none of Hermit's agents
                                                       # again (an OSError starting the environment's driver)
 INFRA_RETRIES = 2                                                # environment.harbor.infra_retries' default
 INFRA_WAIT_S = 300.0                                             # infra_wait_s'
@@ -251,11 +252,11 @@ PIPELINE_INFRA = ((re.compile(r"\bmodel_rejected\b|chat/completions HTTP 40[1-4]
                   (re.compile(r"chat/completions HTTP (?:408|409|429|5\d\d)\b|chat/completions failed: "),
                    "model_provider_failed", True),
                   (re.compile(r"\bEnvironmentUnavailable\b|the Harbor driver|the environment is not started|"
-                              r"the image's own context file could not be read|the environment is broken|"
+                              r"the image's own context file could not be read|"
                               r"the task's environment did not provide"), "harbor_failed", True))
 
 
-INSTALL_FAILED = "the CLI's install failed"     # before any session: nothing was spent (its cost 0, as the runner's)
+AGENT_PHASE_OVER = "AgentPhaseOver"     # an agent command refused or ended because Harbor ended the agent phase
 
 
 def pipeline_cause(message: str) -> tuple[str, bool] | None:

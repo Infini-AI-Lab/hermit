@@ -322,8 +322,8 @@ judge:
 (`hermit/environment/harbor.py`), hands the acting agent that environment with the task's public half
 (`run(task, adapter, environment=env)`), runs Harbor's verifier on what the agent left there, whatever its session's
 end (a timeout, a CLI that exited with an error: Harbor verifies all of them), and stops the environment. The
-verifier's verdict is the output's `extra["verified"]`, which the judge reads: the reward is the score (`reward_key`,
-else the one reward, else their mean), `passed` says whether it reached `pass_reward`, the feedback is the verifier's
+verifier's verdict is the output's `extra["verified"]`, which the judge reads: the reward is the score (the reward
+under `reward_key`; none there is infra, as the runner read it), `passed` says whether it reached `pass_reward`, the feedback is the verifier's
 `feedback.txt` (Hermit's, beyond Harbor) or its output's tail. A verifier that left no reward, or ran out of its time
 on the agent's solution, scores 0, as Harbor grades it. A rollout that is not the agent's result (`infra`, read as
 Hermit's Harbor runner read a trial: `hermit/environment/harbor_errors.py`, ported from its `errors.py`) is never the
@@ -350,12 +350,20 @@ and scores its speedup.
 
 **The environment.** Harbor runs in its own venv (Python 3.13, `harbor` 0.25.0, `~/.cache/hermit/harbor-venv`), so
 each environment is a driver process under Harbor's python (`hermit/environment/harbor_driver.py`) that speaks JSON
-lines with Hermit. The driver builds Harbor's own trial of the task with Harbor's do-nothing agent (`nop`) in the
-agent's place and drives its lifecycle a piece at a time, so that what Harbor does to the environment is Harbor's own
-code: the prebuilt image pulled or the Dockerfile built (with the build timeout and its multiplier), the healthcheck,
-the agent phase's network policy and user, the task's tests uploaded only for the verifier, the verifier's environment
-(`[verifier] environment_mode`: shared, or a separate one), its timeout and multiplier, the reward files, the trial's
-`result.json` (under `jobs_dir/<task>__<id>/`). Around it Hermit keeps its warm start
+lines with Hermit. Harbor runs the whole trial with its own `Trial.run()`: the prebuilt image pulled or the Dockerfile
+built (with the build timeout and its multiplier), the healthcheck, Harbor's capability check (a task with MCP servers,
+a skills folder or a Windows container is refused: `unsupported_task`, never run again), the agent's setup (within its
+setup timeout, under the baseline network policy), the agent phase (its network policy, its user, its timeout), the
+task's tests uploaded only for the verifier, the verifier's environment (`[verifier] environment_mode`: shared, or a
+separate one), its timeout and multiplier, the reward files, the scrub of credentials, the trial's `result.json`
+(under `jobs_dir/<task>__<id>/`) and the environment's stop. The agent in that trial is a bridge with no logic of its
+own (`HermitBridge`, a Harbor agent in the driver): its setup installs what the acting agent declares it needs
+(`Agent.installs`: the CLI unless `bin` names one, python3 for an adapter's hooks) with Harbor's own installers,
+Debian bullseye's archived sources repaired first; its run relays the agent's `exec`, `upload` and `download` to the
+environment until Hermit's agent is done, or Harbor's agent timeout ends the phase, and ends every command it started
+that still runs before it returns (what an ended one left running, a server the task asked for, stays); Harbor then
+verifies. The agent's own budget ends 60 s before Harbor's agent timeout (10% of a short one), so that its session's
+end and logs reach the trial first. Around it Hermit keeps its warm start
 (`hermit/environment/harbor_docker.py`): no environment starts while the host's /tmp or Docker's data root has less
 than its gate free (room kept for the task's image when it is not here yet, `image_sizes`, and for the images other
 environments of the run are still to pull), the task's prebuilt image is removed after it as `docker_cleanup` says,
@@ -367,7 +375,7 @@ An environment's operations are the Environment API's ([Agent layers](agent-laye
 command in the task's main container as the task's agent user, from its working directory (the workspace), each
 variable passed by name (never on a command line of this machine), under a timeout enforced there (its process group
 killed); `upload` and `download` move files (a relative path is in the workspace, an absolute one anywhere there);
-`install(cli)` has Harbor's own installed agent of the CLI install it. The task's directory and tests are the task's
+`install(cli)` reports the version the setup installed (nothing installs during the phase). The task's directory and tests are the task's
 private half: the agent never sees them. In the task sandbox (the default) the agent's worker reaches the environment
 only through a server of these operations on the host (`hermit/environment/remote.py`, a token in its URL, never
 `verify`); the environment, its driver and Docker stay in the run's process.
@@ -376,8 +384,7 @@ only through a server of these operations on the host (`hermit/environment/remot
 `remote`, `hermit/agent/base/cli.py`), as the Harbor runner's launch plan ran a session in a task's container: its home
 is rendered here and uploaded to `/installed-agent/hermit-home`, the CLI is the environment's (`agent.<cli>.bin`, a
 path there, such as a binary of this machine the environment mounts, `environment.harbor.environment.mounts`; else
-Harbor installs it, `agent.<cli>.version`, under the environment's baseline network policy and within Harbor's setup
-timeout, Debian bullseye's archived sources repaired first; nvm's and `~/.local/bin` are on PATH), the command runs
+Harbor's setup installs it, `agent.<cli>.version`; nvm's and `~/.local/bin` are on PATH), the command runs
 from the workspace with the prompt (Harbor's instruction, unless the agent's `prompt` says otherwise) on its stdin, its
 output is the stream Hermit reads as it reads its own sessions (Codex's lost sign-in, provider failure, plan limit and
 refused configuration read from its own notices, as the runner read them), and the CLI's last message comes back. Its
@@ -390,10 +397,9 @@ plan allows (not counted). Codex's own sandbox is off there (the environment is 
 boundary, as Harbor's own agents run) unless `codex_sandbox` says otherwise, Claude Code runs as the environment's root
 may, and the CLI's web search is off where the task's agent phase has no public network. Every sign-in file the home
 took is removed from the environment before the verifier runs (a ChatGPT sign-in's refresh, and the plan's usage
-reports, come back first); a removal that fails fails the call. A session is not resumed there. Before the verifier,
-the agent's commands still running are ended (what an ended one left running, a server the task asked for, stays). The
+reports, come back first); a removal that fails fails the call. A session is not resumed there. The
 acting agent deploys the adapter as `hermit deploy` lays it out for a session there (its hooks run from `hermit/<id>/`
-relative to the workspace with `python3`, installed when missing; a context file the image already has kept after
+relative to the workspace with `python3`, installed at the setup when missing; a context file the image already has kept after
 Hermit's text, the whole within Codex's cap, 262144 bytes there as the runner's unless `project_doc_max_bytes` says)
 and uploads it into the workspace; the adapter's notes and the hooks' audit
 and state (`hook-calls.jsonl`, `hook-state/`) come back into the log. The answer-only agent (`agent.name: answer`,

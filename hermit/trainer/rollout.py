@@ -179,7 +179,7 @@ def environment_rollout(task: Task, given: dict, adapter: Path | None, pipeline,
     (no environment's fault: the run's failed record, as for any task)."""
     import contextlib
     from hermit.environment.harbor import EnvironmentUnavailable
-    from hermit.environment.harbor_errors import INSTALL_FAILED, NO_RETRY, pipeline_cause
+    from hermit.environment.harbor_errors import AGENT_PHASE_OVER, NO_RETRY, pipeline_cause
     retries, runs, counted = environments.infra_retries, [], 0
     busy, busy_retries = 0, int(getattr(environments, "busy_retries", 3))
     stopping = getattr(environments, "stopping", None)
@@ -190,7 +190,9 @@ def environment_rollout(task: Task, given: dict, adapter: Path | None, pipeline,
         admission = getattr(environments, "admission", None)
         try:
             with (admission() if admission is not None else contextlib.nullcontext()):
-                with environments.session(environments.task_dir(task), task.id) as env:
+                installs = getattr(environments, "installs_for", None)
+                with environments.session(environments.task_dir(task), task.id,
+                                          installs(adapter) if installs is not None else None) as env:
                     env.plan_admitted = admission is not None
                     try:
                         out = _given(pipeline, given, adapter, env, task.private.get("needs") or {})
@@ -204,7 +206,11 @@ def environment_rollout(task: Task, given: dict, adapter: Path | None, pipeline,
                             if stopping is not None:
                                 stopping.set()
                             raise LoginFailed(why) from None
-                        if isinstance(exc, OSError):     # this machine's (the runner's host_failed): never run again
+                        if AGENT_PHASE_OVER in str(exc):  # Harbor's agent timeout ended the phase: its verdict
+                            out = _read(RunOutput(output=None, extra={"timed_out": True, "session_failed":
+                                                                      f"{type(exc).__name__}: {exc}"[-600:]}),
+                                        env, task, begun)
+                        elif isinstance(exc, OSError):   # this machine's (the runner's host_failed): never run again
                             out = _infra_output(task, "host_failed", f"{type(exc).__name__}: {exc}", begun, ran=True)
                             final = True
                         else:
@@ -214,7 +220,7 @@ def environment_rollout(task: Task, given: dict, adapter: Path | None, pipeline,
                             cause, again = read
                             final = not again
                             said = f"{type(exc).__name__}: {exc}"
-                            out = _infra_output(task, cause, said, begun, ran=INSTALL_FAILED not in said)
+                            out = _infra_output(task, cause, said, begun, ran=True)
                     else:
                         out = _read(out, env, task, begun)
                         if out.extra.get("infra"):

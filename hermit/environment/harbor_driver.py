@@ -1,36 +1,36 @@
-"""One task's Harbor environment, served to Hermit: run under Harbor's own interpreter, it imports harbor and the
-standard library only (never hermit), and speaks JSON lines on its stdin and stdout.
+"""One task's Harbor trial, served to Hermit: run under Harbor's own interpreter, it imports harbor and the standard
+library only (never hermit), and speaks JSON lines on its stdin and stdout.
 
     <harbor venv>/bin/python -I harbor_driver.py        # hermit.environment.harbor starts it, one per task
 
-Harbor gives the task's data, its environment and its verifier; the agent is Hermit's. The driver builds Harbor's own
-trial of the task (`Trial.create`, a single-step task) with Harbor's do-nothing agent (`nop`) in the agent's place and
-drives its lifecycle a piece at a time, so that everything Harbor does to a task's environment is Harbor's own code:
-the environment's start (the prebuilt image pulled, or the Dockerfile built, with the build timeout and its
-multiplier; the healthcheck; the task's skills), the agent phase's network policy and user, the verifier (the task's
-tests uploaded only now, `[verifier] environment_mode` shared or separate, its timeout and multiplier, the reward
-files), the artifacts and the trial's result.json. Between the start and the verifier Hermit's agent works in the
-environment through `exec`, `upload` and `download`.
+Harbor runs the whole trial with its own `Trial.run()`: the environment's start (the prebuilt image pulled or the
+Dockerfile built, its build timeout and multiplier, the healthcheck, the task's skills), Harbor's capability check,
+the agent's setup (under Harbor's setup timeout, the baseline network policy, the agent user), the agent phase (the
+task's agent network policy, its user, its timeout), the verifier (`[verifier] environment_mode` shared or separate,
+the tests uploaded only now, its timeout), the scrub of the trial's files, result.json and the environment's stop.
+The agent in it is HermitBridge, a Harbor agent with no logic of its own (an external agent, as Harbor calls one):
+its setup installs what Hermit asked for with Harbor's own installers, and its run relays Hermit's agent commands to
+the environment until Hermit says it is done, or Harbor's agent timeout or a cancellation ends it; either way it ends
+every command it started that still runs before it returns (what a command that ended left running, a server the
+task asked for, stays, as the runner's agents left it). Harbor then verifies.
 
 Requests, one JSON object a line: {"id": n, "op": <op>, ...}; each is answered, in any order, by one line
 {"id": n, "ok": true, ...} or {"id": n, "ok": false, "error": "<Type>: <message>", "type": "<Type>"}.
 
-    start     {task_dir, trials_dir, trial_name, agent, environment, verifier, trial}
-              -> {workdir, user, agent_timeout_sec, trial_dir, verifier_mode}: Harbor's TrialConfig parts (agent:
-              override_timeout_sec, override_setup_timeout_sec, extra_allowed_hosts; environment and verifier as
-              Harbor's EnvironmentConfig and VerifierConfig; trial: the timeout multipliers); the environment is up
-    exec      {command, cwd, env, timeout_sec, stdin, user} -> {code, output, timed_out}: `command` (a shell line) in
-              the main container, as the task's agent user unless `user` names another; with a timeout, under
-              `timeout` there (the command's process group killed when it runs out), and `stdin` given through a file
-    upload    {source, target}: a file or a folder of this machine to `target` (owned by the agent user, when the task
-              names one)
-    download  {source, target}: a file or a folder of the environment to `target` on this machine
-    install   {agent, version} -> {version}: the CLI installed by Harbor's own installed agent of that name
-    verify    {agent_logs} -> {rewards, exception, verifier_dir, verifier_mode}: the agent phase ends (its network
-              policy and user restored), `agent_logs` (a folder of this machine) is copied to the trial's agent logs
-              (/logs/agent, which a verifier may read), and Harbor's verifier runs: rewards as Harbor read them, or
-              the exception it raised ({type, message}); the agent's environment is stopped as Harbor's trial stops it
-    stop      -> {result}: the trial's result.json written and the environment down; the driver exits
+    start     {task_dir, trials_dir, trial_name, agent, environment, verifier, trial, installs}
+              -> {workdir, user, agent_timeout_sec, setup_timeout_sec, verifier_timeout_sec, trial_dir, instruction,
+              agent_network, installed, verifier_mode}: answered once the agent phase began (the environment up, the
+              installs done); a trial that ended before it is answered with its exception (its type: Harbor's, or
+              UnsupportedTask: a task Harbor runs for none of Hermit's agents)
+    exec      {command, cwd, env, timeout_sec, stdin, user, by_fd} -> {code, output, timed_out}: `command` (a shell
+              line) in the main container, as the task's agent user unless `user` names another; with a timeout, under
+              `timeout` there, and `stdin` given through a file; only during the agent phase
+    upload    {source, target}: a file or a folder of this machine to `target` (owned by the agent user when the task
+              names one); download {source, target}: the other way
+    done      {agent_logs} -> {rewards, exception, verifier_dir, verifier_mode, trial_dir}: the agent phase ends (its
+              commands still running ended, `agent_logs`, a folder of this machine, copied scrubbed into the trial's
+              agent logs, /logs/agent, which a verifier may read), and the trial runs on to its end
+    stop      -> {result}: a trial still running is cancelled (Harbor's own teardown); the driver exits
 
 A variable `exec` passes reaches a local Docker environment's `docker compose exec` by name (`-e NAME`, its value in
 the compose client's own environment): never on a command line of this machine. The driver ends with the trial
@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from datetime import datetime, timezone
+import contextvars
 import json
 import os
 from pathlib import Path
@@ -53,12 +53,16 @@ import time
 import traceback
 import uuid
 
+from harbor.agents.base import BaseAgent
 from harbor.agents.factory import AgentFactory
 from harbor.models.agent.name import AgentName
-from harbor.models.task.verifier_mode import VerifierEnvironmentMode, resolve_task_verifier_mode
+from harbor.models.task.verifier_mode import resolve_task_verifier_mode
 from harbor.models.trial.config import AgentConfig, EnvironmentConfig, TaskConfig, TrialConfig, VerifierConfig
-from harbor.models.trial.result import TimingInfo
 from harbor.trial.trial import Trial
+
+MODULE = "hermit_harbor_driver"         # this module's name for Harbor's agent import (AgentConfig.import_path)
+BRIDGE = f"{MODULE}:HermitBridge"
+UNSUPPORTED = ("does not support", "cannot forward HTTP MCP")   # Harbor's capability refusals of an agent
 
 TRIAL_FIELDS = ("verifier_timeout_multiplier", "environment_build_timeout_multiplier", "agent_timeout_multiplier",
                 "agent_setup_timeout_multiplier", "timeout_multiplier")
@@ -94,7 +98,8 @@ def kill_marked(mark: str) -> str:
             "[ -n \"$all\" ] && kill -9 $all 2>/dev/null; "
             # confirmed: none of them left but as a zombie, within 5 s; else exit 1 (the caller's failure)
             "n=0; while [ $n -lt 25 ]; do left=; for q in $all; do "
-            "grep -qs '^State:[[:space:]]*[^Z]' /proc/$q/status && left=1; done; [ -z \"$left\" ] && exit 0; "
+            "st=$(sed -n 's/^State:[[:space:]]*\\([A-Za-z]\\).*/\\1/p' /proc/$q/status 2>/dev/null); "
+            "[ -n \"$st\" ] && [ \"$st\" != Z ] && left=1; done; [ -z \"$left\" ] && exit 0; "
             "sleep 0.2; n=$((n+1)); done; exit 1")
 
 
@@ -215,25 +220,90 @@ def log(message: str) -> None:
         pass
 
 
+
+# Every Docker client this process starts (Harbor's and its own: asyncio.create_subprocess_exec), with the operation it
+# serves: Harbor's collector leaves a client running when its awaiting task is cancelled, so the bridge ends the
+# clients of the agent's commands before it returns, and the driver every client before a teardown on Hermit's exit.
+CLIENTS: dict = {}                       # process -> "agent" or "lifecycle"
+CLIENT_KIND: contextvars.ContextVar = contextvars.ContextVar("hermit_client_kind", default="lifecycle")
+_spawn = asyncio.create_subprocess_exec
+
+
+async def _tracked_spawn(*args, **kwargs):
+    process = await _spawn(*args, **kwargs)
+    for known in [p for p in CLIENTS if p.returncode is not None]:
+        CLIENTS.pop(known, None)
+    CLIENTS[process] = CLIENT_KIND.get()
+    return process
+
+asyncio.create_subprocess_exec = _tracked_spawn
+
+
+async def end_clients(kind: str | None = None) -> None:
+    """The clients of `kind` (every one: None) still running killed and waited for."""
+    for process, of in list(CLIENTS.items()):
+        if process.returncode is None and (kind is None or of == kind):
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(process.wait(), 30)
+        if process.returncode is not None:
+            CLIENTS.pop(process, None)
+
+
+class HarborDriverError(RuntimeError):
+    """The bridge's own failure in the trial (a command it could not confirm ended, the working directory unread): a
+    trial Harbor then records with this exception and does not verify, which Hermit reads as infra (harbor_failed)."""
+
+
+class Failed(RuntimeError):
+    """A request's failure with the type its reply names (`kind`)."""
+
+    def __init__(self, kind: str, message: str):
+        super().__init__(message)
+        self.kind = kind
+
+
+DRIVER: "Driver | None" = None          # the process's one driver, which the bridge reaches
+
+
+class HermitBridge(BaseAgent):
+    """Harbor's agent for a Hermit agent: no logic of its own (module docstring). Its capabilities are Harbor's
+    defaults, so Harbor itself refuses a Windows task, a task's skills or MCP servers for it."""
+
+    @staticmethod
+    def name() -> str:
+        return "hermit"
+
+    def version(self) -> str | None:
+        return None
+
+    async def setup(self, environment) -> None:
+        await DRIVER.setup(environment)
+
+    async def run(self, instruction: str, environment, context) -> None:
+        await DRIVER.phase(instruction, environment)
+
+
 class Driver:
     def __init__(self, out):
         self.out = out
         self.trial: Trial | None = None
-        self.agent_phase: contextlib.AsyncExitStack | None = None
+        self.run_task: asyncio.Task | None = None
+        self.installs: list = []
+        self.installed: dict = {}
+        self.phase_started: asyncio.Future = asyncio.get_running_loop().create_future()
+        self.done = asyncio.Event()
+        self.agent_logs: str | None = None
+        self.env = None                                # the environment, while the agent phase is on
+        self.in_phase = False
         self.user = None
-        self.secrets: set = set()                      # the credentials the agent's commands were given (scrubbed)
         self.has_timeout: bool | None = None
-        self.verified = False
-        self.stopped = False
-        self.plan = None                               # the agent phase's network plan (an install runs under the
-                                                       # environment's baseline, as Harbor's setup does)
         self.mark = uuid.uuid4().hex                   # this environment's agent commands' mark (MARK)
-        self.agent_ops: set = set()                    # the agent's operations in flight (drained before verify)
+        self.agent_ops: set = set()                    # the agent's operations in flight
         self.running: set = set()                      # the marks of the agent commands still running
         self.unkilled: set = set()                     # marks whose processes were not confirmed ended
-        self.broken: str | None = None                 # the agent phase's network policy could not be restored
-        self.agent_allowed = asyncio.Event()           # cleared while an install runs under the setup network
-        self.agent_allowed.set()
+        self.secrets: set = set()                      # the credentials the agent's commands were given (scrubbed)
         self.repaired = False
         self.lock = asyncio.Lock()                     # one request that changes the trial's phase at a time
 
@@ -241,152 +311,139 @@ class Driver:
         self.out.write(json.dumps({"id": rid, **payload}, default=str) + "\n")
         self.out.flush()
 
-    @property
-    def env(self):
-        if self.trial is None:
-            raise RuntimeError("the environment is not started")
-        return self.trial.agent_environment
-
-    # --- the lifecycle ------------------------------------------------------------------------------------------
+    # --- the trial ------------------------------------------------------------------------------------------------
     async def start(self, req: dict) -> dict:
         if self.trial is not None:
-            raise RuntimeError("the environment is already started")
+            raise RuntimeError("the trial is already started")
         agent = {k: v for k, v in (req.get("agent") or {}).items() if k in AGENT_FIELDS and v is not None}
         fields = {k: v for k, v in (req.get("trial") or {}).items() if k in TRIAL_FIELDS and v is not None}
         config = TrialConfig(task=TaskConfig(path=Path(req["task_dir"])), trial_name=req["trial_name"],
-                             trials_dir=Path(req["trials_dir"]), agent=AgentConfig(name=AgentName.NOP.value, **agent),
+                             trials_dir=Path(req["trials_dir"]), agent=AgentConfig(import_path=BRIDGE, **agent),
                              environment=EnvironmentConfig(**(req.get("environment") or {})),
                              verifier=VerifierConfig(**(req.get("verifier") or {})), job_id=uuid.uuid4(), **fields)
         trial = await Trial.create(config)
         if trial.task.has_steps:
             raise ValueError(f"{trial.task.name} has [[steps]]: a multi-step task is not served here")
-        self.trial = trial
-        trial._init_result()
-        try:
-            await trial._prepare()                      # the environment's start, Harbor's own (warm start)
-        except Exception as exc:
-            trial._record_exception(exc)                # in the trial's result.json, which stop writes
-            raise
-        self.user = trial.task.config.agent.user
-        stack = contextlib.AsyncExitStack()
-        plan = self.plan = trial._network_plan(None, warn_unknown_inference=True)
-        stack.enter_context(trial.agent_environment.with_default_user(self.user))
-        await stack.enter_async_context(trial._phase_network_policy(
-            trial.agent_environment, baseline_policy=plan.agent_env_baseline, phase_policy=plan.agent_phase))
-        self.agent_phase = stack
-        trial.result.agent_execution = TimingInfo(started_at=datetime.now(timezone.utc))
-        found = await trial.agent_environment.exec(f"printf '{WORKDIR_MARK}%s\\n' \"$PWD\"")
+        self.trial, self.installs = trial, list(req.get("installs") or [])
+        self.run_task = asyncio.create_task(trial.run())
+        await asyncio.wait({self.run_task, self.phase_started}, return_when=asyncio.FIRST_COMPLETED)
+        if self.phase_started.done():
+            return self.phase_started.result()
+        with contextlib.suppress(BaseException):        # the trial ended before its agent phase: its exception
+            self.run_task.result()
+        info = trial.result.exception_info
+        kind = getattr(info, "exception_type", None) or "TrialEnded"
+        message = getattr(info, "exception_message", None) or "the trial ended before its agent phase"
+        if any(word in message for word in UNSUPPORTED):
+            kind = "UnsupportedTask"
+        raise Failed(kind, message)
+
+    async def setup(self, environment) -> None:
+        """Harbor's agent setup (its timeout, the baseline network policy, the agent user): each CLI Hermit asked
+        for, by Harbor's own installed agent of that name (unless its probe finds it there and no version is
+        pinned), and the system packages asked for, by Harbor's own installer."""
+        for item in self.installs:
+            if item.get("probe") and not item.get("version"):
+                found = await environment.exec(str(item["probe"]))
+                if found.return_code == 0 and (found.stdout or "").strip():
+                    continue
+            if not self.repaired:
+                self.repaired = True
+                with contextlib.suppress(Exception):     # a failure here is left to the install to report
+                    await environment.exec(APT_REPAIR, user="root")
+            if item.get("agent"):
+                agent = self._installer(str(item["agent"]), item.get("version"))
+                await agent.setup(environment)
+                self.installed[str(item["agent"])] = agent.version()
+            if item.get("packages"):
+                await self._installer("codex").ensure_system_dependencies(environment, tuple(item["packages"]))
+                for package in item["packages"]:
+                    self.installed[str(package)] = True
+
+    def _installer(self, name: str, version=None):
+        logs = self.trial.paths.trial_dir / "install" / name
+        logs.mkdir(parents=True, exist_ok=True)
+        return AgentFactory.create_agent_from_name(AgentName(name), logs_dir=logs, version=version)
+
+    async def phase(self, instruction: str, environment) -> None:
+        """The bridge's run: the agent phase, Hermit's commands relayed until `done`, Harbor's timeout or a
+        cancellation; the commands still running ended (confirmed: one that is not fails the trial before any
+        verifier) and Hermit's logs copied, scrubbed, into the trial's agent logs."""
+        trial = self.trial
+        self.env, self.user = environment, trial.task.config.agent.user
+        found = await environment.exec(f"printf '{WORKDIR_MARK}%s\\n' \"$PWD\"")
         marked = [line[len(WORKDIR_MARK):] for line in ((found.stdout or "") + (found.stderr or "")).splitlines()
                   if line.startswith(WORKDIR_MARK)]
         if found.return_code != 0 or not marked or not marked[-1].startswith("/"):
-            raise RuntimeError(f"the environment's working directory could not be read: {found.stdout!r}"[:500])
-        workdir = marked[-1]
-        return {"workdir": workdir, "user": self.user, "agent_timeout_sec": trial.agent_timeout_sec,
-                "setup_timeout_sec": trial.agent_setup_timeout_sec,
-                "verifier_timeout_sec": trial.verifier_timeout_sec,
-                "trial_dir": str(trial.paths.trial_dir), "os": str(trial.task.config.environment.os.value),
-                "verifier_mode": resolve_task_verifier_mode(trial.task.config).value,
-                "instruction": trial.task.instruction,    # Harbor's own, as its agents are given it
-                "agent_network": str(getattr(plan.agent_phase.network_mode, "value", plan.agent_phase.network_mode))}
+            raise HarborDriverError(f"the environment's working directory could not be read: {found.stdout!r}"[:500])
+        plan = trial._network_plan(None)
+        self.in_phase = True
+        self.phase_started.set_result({
+            "workdir": marked[-1], "user": self.user, "agent_timeout_sec": trial.agent_timeout_sec,
+            "setup_timeout_sec": trial.agent_setup_timeout_sec, "verifier_timeout_sec": trial.verifier_timeout_sec,
+            "trial_dir": str(trial.paths.trial_dir), "os": str(trial.task.config.environment.os.value),
+            "verifier_mode": resolve_task_verifier_mode(trial.task.config).value, "instruction": instruction,
+            "agent_network": str(getattr(plan.agent_phase.network_mode, "value", plan.agent_phase.network_mode)),
+            "installed": self.installed})
+        try:
+            await self.done.wait()
+        finally:
+            self.in_phase = False
+            await self._end_commands()
+            if self.agent_logs and Path(self.agent_logs).is_dir():
+                safe_copy(Path(self.agent_logs), trial.paths.agent_dir, self.secrets)
 
-    async def _drain(self) -> None:
-        """The agent's operations still in flight ended before the verifier starts: their requests cancelled, and the
-        processes of each command still running killed in the environment (MARK), so that no command of the agent's
-        runs on while the task's tests are there. What a command that already ended left running (a server the task
-        asked for) stays, as Harbor's own agents leave it."""
-        marks = [*self.running, *self.unkilled]
+    async def _end_commands(self) -> None:
+        """The agent's operations still in flight cancelled, their Docker clients ended, and the processes of each
+        command still running killed in the environment (MARK), confirmed; a command that already ended left what
+        it started (a server the task asked for), as Harbor's own agents leave it."""
+        marks = list(self.running)
         for task in list(self.agent_ops):
             task.cancel()
         if self.agent_ops:
             await asyncio.gather(*self.agent_ops, return_exceptions=True)
-        for mark in marks:                               # confirmed, or no verifier: the environment's failure
+        await end_clients("agent")
+        for mark in marks:
             await self._kill(mark)
+        if marks:                                        # one a client had dispatched as it was ended
+            await asyncio.sleep(1)
+            for mark in marks:
+                await self._kill(mark)
 
-    async def _kill(self, mark: str) -> None:
-        """Every process of the agent command `mark` ended, confirmed (kill_marked's exit), from `/`; one not
-        confirmed is kept (`unkilled`, tried again before the verifier) and raised."""
-        try:
-            done = await self.env.exec(kill_marked(mark), cwd="/", user="root")
-            ok = done.return_code == 0
-        except Exception as exc:                         # noqa: BLE001 - as unconfirmed
-            ok, done = False, exc
-        if not ok:
-            self.unkilled.add(mark)
-            raise RuntimeError(f"an agent command's processes could not be ended ({mark}): {str(done)[-300:]}")
-        self.unkilled.discard(mark)
-
-    async def _end_agent_phase(self) -> None:
-        if self.agent_phase is not None:
-            stack, self.agent_phase = self.agent_phase, None
-            await stack.aclose()
-            execution = self.trial.result.agent_execution
-            if execution is not None:
-                execution.finished_at = datetime.now(timezone.utc)
-
-    async def verify(self, req: dict) -> dict:
+    async def done_op(self, req: dict) -> dict:
+        if self.run_task is None:
+            raise RuntimeError("the trial is not started")
+        if not self.done.is_set():
+            self.agent_logs = req.get("agent_logs")
+            self.done.set()
+        with contextlib.suppress(BaseException):
+            await asyncio.shield(self.run_task)
         trial = self.trial
-        if trial is None:
-            raise RuntimeError("the environment is not started")
-        if self.verified:
-            raise RuntimeError("the task was verified already")
-        self.verified = True                             # no agent operation starts from here on
-        await self._drain()
-        await self._end_agent_phase()
-        logs = req.get("agent_logs")
-        if logs and Path(logs).is_dir():
-            safe_copy(Path(logs), trial.paths.agent_dir, self.secrets)
-        mode = resolve_task_verifier_mode(trial.task.config)
-        exception = None
+        scrub_tree(trial.paths.trial_dir, self.secrets)  # Harbor's scrub ran in its trial; the agent's own too
         try:
-            # SingleStepTrial._run after its agent: logs back to a non-mounted environment, the artifacts, the
-            # verifier in the environment the task's mode names
-            await trial._upload_agent_logs()
-            await trial._collect_artifacts(stop_main_before_sidecars=(mode == VerifierEnvironmentMode.SEPARATE))
-            if mode == VerifierEnvironmentMode.SEPARATE:
-                await trial._stop_agent_environment()
-            await trial._run_verifier()
-        except Exception as exc:                         # recorded as Harbor's trial records it, and answered
-            trial._record_exception(exc)
-            exception = {"type": type(exc).__name__, "message": str(exc)[-4000:]}
-        finally:
-            if mode == VerifierEnvironmentMode.SHARED:
-                await trial._stop_agent_environment()
-        result = trial.result.verifier_result
-        if exception is not None:                        # scrubbed with the trial's files, before Hermit reads them
-            said = trial.paths.trial_dir / "hermit-verify-exception.txt"
-            said.write_text(exception["message"])
-        self._scrub()
-        if exception is not None:
-            exception["message"] = said.read_text()
-            said.unlink()
-        return {"rewards": dict(result.rewards) if result is not None and result.rewards else None,
-                "exception": exception, "verifier_dir": str(trial.paths.verifier_dir), "verifier_mode": mode.value}
-
-    def _scrub(self) -> None:
-        """Harbor's scrub of the trial's files (a credential the verifier's env names), as its trial runs it, and of the
-        credentials the agent's commands were given (`secrets`), which Harbor's does not know."""
-        try:
-            self.trial._scrub_jobs_dir()
-        except Exception as exc:                         # noqa: BLE001 - logged; the files stay as they are
-            log(f"scrub: {type(exc).__name__}: {exc}")
-        scrub_tree(self.trial.paths.trial_dir, self.secrets)
+            result = json.loads(trial.paths.result_path.read_text())
+        except (OSError, ValueError):
+            result = {}
+        rewards = (result.get("verifier_result") or {}).get("rewards")
+        info = result.get("exception_info") or None
+        exception = {"type": info.get("exception_type"), "message": info.get("exception_message") or ""} \
+            if info else None
+        return {"rewards": rewards or None, "exception": exception, "verifier_dir": str(trial.paths.verifier_dir),
+                "verifier_mode": resolve_task_verifier_mode(trial.task.config).value,
+                "trial_dir": str(trial.paths.trial_dir)}
 
     async def stop(self, req: dict | None = None) -> dict:
-        if self.stopped or self.trial is None:
-            self.stopped = True
-            return {"result": None}
-        self.stopped = True
-        trial = self.trial
-        try:
-            await self._end_agent_phase()
-        except Exception as exc:                         # noqa: BLE001 - the environment still goes down
-            log(f"the agent phase did not end cleanly: {type(exc).__name__}: {exc}")
-        try:
-            await trial._finalize()                      # the environment down, result.json written
-        finally:
-            self._scrub()
-            trial._close_logger_handler()
-        return {"result": str(trial.paths.result_path)}
+        """A trial still running cancelled (Harbor's own teardown: its environment down, result.json written)."""
+        task = self.run_task
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(BaseException):
+                await task
+        await end_clients()
+        if self.trial is not None:
+            scrub_tree(self.trial.paths.trial_dir, self.secrets)
+            return {"result": str(self.trial.paths.result_path)}
+        return {"result": None}
 
     # --- the agent's operations ---------------------------------------------------------------------------------
     async def _timeout_ok(self) -> bool:
@@ -411,13 +468,7 @@ class Driver:
         timeout = req.get("timeout_sec")
         user = req.get("user", None)
         mark = f"{self.mark}-{uuid.uuid4().hex[:8]}"
-        while True:                     # admitted and counted at once: an install waits for every admitted command
-            await self.agent_allowed.wait()
-            if self.broken:
-                raise RuntimeError(f"the environment is broken: {self.broken}")
-            if self.agent_allowed.is_set():
-                self.running.add(mark)
-                break
+        self.running.add(mark)
         try:
             return await self._run_command(req, command, timeout, user, mark)
         finally:
@@ -534,83 +585,37 @@ class Driver:
             await self.env.download_file(source, target)
         return {}
 
-    async def _repair(self) -> None:
-        if not self.repaired:
-            self.repaired = True
-            with contextlib.suppress(Exception):         # a failure here is left to the install to report
-                await self.env.exec(APT_REPAIR, user="root")
-
-    @contextlib.asynccontextmanager
-    async def _setup_phase(self):
-        """An install as Harbor's setup runs one: under the environment's baseline network policy, not the agent
-        phase's (a task whose agent may not reach the network still installs its CLI), then back."""
-        plan, env = self.plan, self.env
-        switch = plan is not None and self.agent_phase is not None and plan.agent_phase != plan.agent_env_baseline
-        if not switch:
-            yield
-            return
-        self.agent_allowed.clear()     # no agent command runs under the wider policy: new ones wait, running ones end
+    async def _kill(self, mark: str) -> None:
+        """Every process of the agent command `mark` ended, confirmed (kill_marked's exit), from `/`; one not
+        confirmed is kept (`unkilled`) and raised: the bridge's run then fails, and Harbor runs no verifier."""
         try:
-            while self.running:
-                await asyncio.sleep(0.2)
-            await env.set_network_policy(plan.agent_env_baseline)
-            try:
-                yield
-            finally:
-                try:
-                    await env.set_network_policy(plan.agent_phase)
-                except BaseException as exc:
-                    # never back to agent commands under the setup's wider policy: the environment is done for
-                    self.broken = f"the agent phase's network policy could not be restored: {exc}"
-                    raise
-        finally:
-            self.agent_allowed.set()
+            done = await self.env.exec(kill_marked(mark), cwd="/", user="root")
+            ok = done.return_code == 0
+        except Exception as exc:                         # noqa: BLE001 - as unconfirmed
+            ok, done = False, exc
+        if not ok:
+            self.unkilled.add(mark)
+            raise HarborDriverError(f"an agent command's processes could not be ended ({mark}): {str(done)[-300:]}")
+        self.unkilled.discard(mark)
 
-    def _installer(self, name: str, version=None):
-        logs = self.trial.paths.trial_dir / "install" / name
-        logs.mkdir(parents=True, exist_ok=True)
-        return AgentFactory.create_agent_from_name(AgentName(name), logs_dir=logs, version=version)
-
-    async def install(self, req: dict) -> dict:
-        if self.broken:
-            raise RuntimeError(f"the environment is broken: {self.broken}")
-        trial = self.trial
-        agent = self._installer(str(req["agent"]), req.get("version"))
-        async with self._setup_phase():
-            await self._repair()
-            # Harbor's install of the CLI, as its trials run it: within Harbor's agent setup timeout
-            await asyncio.wait_for(agent.setup(self.env), timeout=trial.agent_setup_timeout_sec)
-        return {"version": agent.version()}
-
-    async def ensure(self, req: dict) -> dict:
-        """System packages (python3 for an adapter's hooks) with Harbor's own installer, as the runner ensured them."""
-        if self.broken:
-            raise RuntimeError(f"the environment is broken: {self.broken}")
-        agent = self._installer("codex")
-        async with self._setup_phase():
-            await self._repair()
-            await asyncio.wait_for(agent.ensure_system_dependencies(self.env, tuple(req.get("packages") or ())),
-                                   timeout=self.trial.agent_setup_timeout_sec)
-        return {}
 
     # --- the loop -----------------------------------------------------------------------------------------------
     async def handle(self, req: dict) -> None:
         rid, op = req.get("id"), req.get("op")
         try:
-            if op in ("start", "verify", "stop", "install", "ensure"):
+            if op in ("start", "done", "stop"):
                 async with self.lock:
-                    payload = await getattr(self, op)(req)
+                    payload = await getattr(self, "done_op" if op == "done" else op)(req)
             elif op in ("exec", "upload", "download"):
-                if self.verified or self.stopped:
-                    raise RuntimeError("the agent's phase is over: the task was verified or stopped")
-                if self.broken:
-                    raise RuntimeError(f"the environment is broken: {self.broken}")
+                if not self.in_phase:
+                    raise Failed("AgentPhaseOver", "the agent's phase is not on (not begun, or ended)")
                 task = asyncio.current_task()
                 self.agent_ops.add(task)
+                CLIENT_KIND.set("agent")                 # this task's own context: its clients are the agent's
                 try:
                     payload = await getattr(self, op)(req)
-                except asyncio.CancelledError:          # drained: the verifier starts
-                    self.reply(rid, {"ok": False, "error": f"{op}: the agent's phase ended (the verifier started)",
+                except asyncio.CancelledError:          # the phase ended: done, Harbor's timeout, a cancellation
+                    self.reply(rid, {"ok": False, "error": f"AgentPhaseOver: {op}: the agent's phase ended",
                                      "type": "AgentPhaseOver"})
                     return
                 finally:
@@ -620,11 +625,14 @@ class Driver:
             self.reply(rid, {"ok": True, **payload})
         except Exception as exc:                         # noqa: BLE001 - the caller gets the error
             log(f"{op}: {type(exc).__name__}: {exc}\n{traceback.format_exc()[-2000:]}")
-            self.reply(rid, {"ok": False, "error": f"{type(exc).__name__}: {exc}"[-4000:], "type": type(exc).__name__})
+            kind = getattr(exc, "kind", None) or type(exc).__name__
+            self.reply(rid, {"ok": False, "error": f"{kind}: {exc}"[-4000:], "type": kind})
 
 
 async def serve(out) -> int:
-    driver = Driver(out)
+    global DRIVER
+    sys.modules.setdefault(MODULE, sys.modules[__name__])   # Harbor imports the bridge by this name
+    driver = DRIVER = Driver(out)
     loop = asyncio.get_running_loop()
     reader = asyncio.StreamReader(limit=1 << 30)
     await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
@@ -646,11 +654,13 @@ async def serve(out) -> int:
             break
     if stopping is not None:
         await stopping
-    else:                                               # Hermit went away: the trial is stopped all the same
-        for task in list(tasks):
-            task.cancel()
+    else:                                               # Hermit went away: the trial is cancelled all the same
         with contextlib.suppress(Exception):
             await driver.stop()
+        for task in list(tasks):
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
     return 0
 
 

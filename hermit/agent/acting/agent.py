@@ -50,6 +50,13 @@ class Agent:
     def run(self, task: dict, adapter: Path | None, environment=None) -> RunOutput:
         raise NotImplementedError(f"{type(self).__name__}.run")
 
+    def installs(self, adapter: Path | None) -> list[dict]:
+        """What this agent needs installed in a task's own environment before its run (an environment that installs,
+        a task's Harbor one, does it at its setup; nothing installs while the agent runs): items of {agent, version,
+        probe} (a CLI by the environment's installer of that name, unless `probe`, a shell line, finds it and no
+        version is pinned) or {packages}. None by default."""
+        return []
+
     # --- helpers for subclasses ---------------------------------------------------------------------------------
     def session(self, adapter: Path | None, **kwargs):
         """The adapter's exports as a Session, or None without an adapter (a baseline run)."""

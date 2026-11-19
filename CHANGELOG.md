@@ -15,9 +15,11 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   `jobs_dir`, `harbor`, `pass_reward`, `reward_key`, `verifier_timeout`), its acting agent as any other
   (`agent.base: codex` or `claude` with `agent.model` and `agent.<cli>.web_search`; `agent.name: answer` for the
   answer-only agent that replaces HermitAnswer), and its judge as `{path: hermit.task.verify, name: environment}`.
-  Each task's environment is Harbor's own trial of it driven by Hermit (`hermit/environment/harbor.py` and its driver
-  under Harbor's venv): the run starts it behind the disk gate, hands it to the agent (`run(task, adapter,
-  environment=...)`), runs Harbor's verifier and stops it; `hermit/harbor/docker.py` moved unchanged to
+  Each task's environment is Harbor's own trial of it, run whole by Harbor's `Trial.run()` (`hermit/environment/
+  harbor.py` and its driver under Harbor's venv), whose agent is a bridge relaying the Hermit agent's commands
+  (`HermitBridge`: its setup installs what the agent declares, `Agent.installs`; its run ends its commands still
+  running before Harbor verifies): the run starts it behind the disk gate, hands it to the agent (`run(task, adapter,
+  environment=...)`), ends the agent phase and reads the trial's verdict; `hermit/harbor/docker.py` moved unchanged to
   `hermit/environment/harbor_docker.py`. Codex and Claude Code run in it through its `exec` (isolation `remote`); in
   the task sandbox the agent reaches it through a server of its operations (`hermit/environment/remote.py`). A rollout
   that is not the agent's result keeps the runner's semantics (`hermit/environment/harbor_errors.py`, ported from
