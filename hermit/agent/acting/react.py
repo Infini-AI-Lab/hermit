@@ -209,7 +209,12 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, agent: Reac
                 {"role": "user", "content": user}]
     started = time.time()
     loop_agent = agent._loop_agent = _Loop(settings, client, agent)
-    result = loop_agent.run(messages, environment=agent.environment, tools=tools)
+    # The loop cannot stop a model call at a time limit (react refuses one): a task's environment that has its own
+    # budget (a Harbor task's) bounds each of its commands, and max_turns bounds the loop.
+    place = agent.environment
+    if place is not None and getattr(place, "limits", None) is not None and place.limits.timeout_s:
+        place = place.with_limits(dataclasses.replace(place.limits, timeout_s=None))
+    result = loop_agent.run(messages, environment=place, tools=tools)
     messages, turns, usages = result.session, result.extra["turns"], list(result.usage)
     if tag and f"<{tag}>".upper() not in (result.reply or "").upper():   # the tag in the model's reply, not answer()'s
         follow = Direct({"max_tokens": int(params.get("max_tokens", 16384)),

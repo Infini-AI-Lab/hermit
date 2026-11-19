@@ -444,3 +444,34 @@ def test_a_real_harbor_environment_runs_the_agents_commands_and_harbors_verifier
             assert env.exec(["sh", "-c", script], timeout=60).code == 0
             rewards.append(env.verify()["reward"])
     assert rewards == [1.0, 0.0]
+
+
+def test_a_react_agent_works_in_the_tasks_environment_its_tools_run_there(tmp_path, monkeypatch):
+    """A ReactAgent subclass's tools use the task's environment (`self.environment`, the run's by default); the loop,
+    which cannot stop a model call at the environment's budget, is given it without that budget."""
+    from hermit.agent.acting.react import ReactAgent, tool
+    from hermit.agent.model import llm
+    from hermit.agent.model.usage import Usage
+    replies = iter([{"role": "assistant", "content": "", "tool_calls": [
+        {"id": "c1", "type": "function", "function": {"name": "bash", "arguments": json.dumps({"command": "ls"})}}]},
+        {"role": "assistant", "content": "listed"}])
+
+    class Model:
+        model = "m"
+        usage = []
+
+        def chat(self, messages, **kwargs):
+            return next(replies), Usage(model="m", input_tokens=1, output_tokens=1, calls=1, cost_usd=0.0)
+
+    monkeypatch.setattr(llm.ChatClient, "from_spec", staticmethod(lambda spec: Model()))
+
+    class Terminal(ReactAgent):
+        @tool
+        def bash(self, command: str) -> str:
+            """Run a shell command in the task's environment."""
+            return self.environment.exec(["bash", "-c", command]).output
+
+    env = Recorded(tmp_path, lambda c: ExecResult(0, "README.md\n"))
+    out = Terminal({"model": {"base_url": "https://x", "model": "m"}, "logs": str(tmp_path / "logs")},
+                   tmp_path).run({"id": "t", "instruction": "list the files"}, None, environment=env)
+    assert out.output == "listed" and env.calls[0]["command"] == ["bash", "-c", "ls"]
