@@ -533,20 +533,25 @@ def refused(output: str) -> bool:
 
 
 def hold(plan: Path | str | None = None, until: float | None = None, why: str = "session_refused", *, cancel=None,
-         max_s: float | None = None) -> None:
+         max_s: float | None = None) -> bool:
     """A session was refused for the plan's limit: hold every session back until `until` (a reset time the refusal
     named), else until a report says otherwise, or for an hour when no report says when the window resets. `why` is the
     hold's reason when the plan names none yet: usage_credits (a session drew the account's usage credits) holds only
     the sessions that may not draw them. If the hold cannot be written, this session waits five minutes itself rather
-    than ask again at once (at most `max_s`, until `cancel` is set)."""
+    than ask again at once (at most `max_s`, until `cancel` is set). Whether the hold was written."""
     try:
         _hold(plan, until, why)
+        return True
     except OSError:
-        pause = 300.0 if max_s is None else min(300.0, max(0.0, max_s))
+        pause = HOLD_UNWRITTEN_S if max_s is None else min(HOLD_UNWRITTEN_S, max(0.0, max_s))
         if cancel is not None:
             cancel.wait(pause)
         else:
             time.sleep(pause)
+        return False
+
+
+HOLD_UNWRITTEN_S = 300.0                  # a refused session's own wait when its plan's hold cannot be written
 
 
 def _hold(plan: Path | str | None = None, until: float | None = None, why: str = "session_refused") -> None:

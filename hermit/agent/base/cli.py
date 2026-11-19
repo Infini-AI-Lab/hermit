@@ -855,9 +855,9 @@ class CliAgent(BaseAgent):
                                  cancel=self.settings.get("cancel"), max_s=0.0)
         refused = not result.extra.get("served") and result.extra.get("refused") and \
             not result.extra.get("login_failed")
-        if refused:
-            codex_login.hold(plan, until=result.extra.get("held_until") or None, cancel=self.settings.get("cancel"),
-                             max_s=0.0)
+        if refused and codex_login.hold(plan, until=result.extra.get("held_until") or None,
+                                        cancel=self.settings.get("cancel"), max_s=0.0) is False:
+            result.extra["hold_unwritten"] = True        # the run waits HOLD_UNWRITTEN_S itself, outside the env
         return result
 
     def _within(self, limits: Limits | None):
@@ -1190,7 +1190,7 @@ class CliAgent(BaseAgent):
                 # the refreshed sign-in and the plan's usage reports back here, however the session's exec ended (a
                 # session that rotated its token before its exec failed), before the sign-in leaves the environment
                 with contextlib.suppress(Exception):
-                    environment.download(str(remote_home / codex_login.FILE), home / codex_login.FILE)
+                    self._signin_back(environment, remote_home, home)
                 with contextlib.suppress(Exception):
                     environment.download(str(remote_home / "sessions"), home / "sessions")
             # every sign-in file the home took (the login's, or the user's own CLI home's) out of the environment,
@@ -1207,6 +1207,9 @@ class CliAgent(BaseAgent):
                 if s.get("login") == "chatgpt":
                     codex_login.keep_refreshed(Path(s.get("login_root") or codex_login.ROOT), home)
                     codex_login.note_usage(codex_login.plan_dir(s.get("plan_dir")), home)
+            except OSError as exc:      # this machine's (the shared copy's folder full): the session stands, its
+                print(f"WARNING: the sign-in or plan report the session refreshed could not be kept ({exc}); a "
+                      "later session refreshes again", file=sys.stderr, flush=True)   # refresh lost (the runner's)
             finally:                                     # the local copies go however the take-back went
                 for path in copied:
                     path.unlink(missing_ok=True)
@@ -1229,6 +1232,26 @@ class CliAgent(BaseAgent):
                              if began is None else bool(began),
                              "cancelled": False, "isolation": "remote", "wall_s": round(wall_s, 1),
                              "mounts": {}, "output_tail": raw[-2000:]})
+
+    @staticmethod
+    def _signin_back(environment, remote_home, home: Path) -> None:
+        """The ChatGPT sign-in the session left in the environment, as the Harbor runner took it back (signin.
+        take_back): downloaded into a private folder, then the local copy only when it is a regular file of at most
+        SIGNIN_MAX_BYTES holding a ChatGPT sign-in stamped at most SKEW (a local Docker environment, sharing this
+        machine's clock) or OTHER_CLOCK past this machine's clock."""
+        from hermit.agent.base import codex_stream
+        skew = codex_stream.SKEW if getattr(environment, "same_clock", True) else codex_stream.OTHER_CLOCK
+        with tempfile.TemporaryDirectory(prefix="hermit-signin-") as private:
+            got = Path(private) / codex_login.FILE
+            environment.download(str(remote_home / codex_login.FILE), got)
+            data = codex_stream.regular_bytes(got, codex_stream.SIGNIN_MAX_BYTES)
+            if data is None or not codex_stream.signed_in(data, skew):
+                return
+            local = home / codex_login.FILE
+            fd = os.open(f"{local}.taken", os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            os.replace(f"{local}.taken", local)
 
     def on_stdin(self) -> bool:
         """Whether the prompt is given on stdin, not on the command line."""
@@ -1327,7 +1350,7 @@ class Codex(CliAgent):
                         unavailable=codex_stream.codex_unavailable(raw), refused=codex_stream.codex_refused(raw),
                         rejected=bool(rejected))
             if rejected:                                 # what session_verdict reads: Codex's own failure
-                said["failure"] = rejected[-600:]
+                said["failure"] = rejected[:600]         # what refused it, its status first (the runner's head)
         return said
 
 

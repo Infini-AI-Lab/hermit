@@ -221,6 +221,8 @@ def probe_of(command) -> bool:
     return command[:2] == ["bash", "-c"] and len(command) == 3 and "command -v" in command[2]
 
 
+ROTATED = json.dumps({"tokens": {"access_token": "a" * 20, "refresh_token": "r" * 20, "account_id": "acc"},
+                      "last_refresh": "2026-01-01T00:00:00Z"})      # a ChatGPT sign-in Codex refreshed
 CODEX_STREAM = "\n".join(json.dumps(e) for e in [
     {"type": "thread.started", "thread_id": "t-1"}, {"type": "turn.started"},
     {"type": "item.completed", "item": {"id": "i", "type": "agent_message", "text": "fixed it"}},
@@ -433,6 +435,7 @@ def test_the_environment_judge_scores_the_reward_and_refuses_an_environment_that
 
 
 HARBOR_VENV = Path(os.path.expanduser("~/.cache/hermit/harbor-venv/bin/harbor"))
+AGENT_KEY = "sk-agent-synthetic-0123456789abcdef"     # an agent's model credential, the test's own
 
 
 def _docker_up() -> bool:
@@ -465,7 +468,8 @@ def test_a_real_harbor_environment_runs_the_agents_commands_and_harbors_verifier
         '#!/bin/bash\nrunning() { for p in /proc/[0-9]*; do tr "\\0" " " < $p/cmdline 2>/dev/null; echo; done | '
         'grep -q "^sleep $1"; }\n'
         'echo "grader key: $GRADER_API_KEY"\n'
-        'if [ "$(cat /app/answer.txt 2>/dev/null)" = 42 ] && ! running 777 && ! running 666 && running 888; then '
+        'if [ "$(cat /app/answer.txt 2>/dev/null)" = 42 ] && ! running 777 && ! running 666 && running 888 && '
+        '! grep -rqs sk-agent-synthetic /logs/agent; then '
         'echo 1 > /logs/verifier/reward.txt; else echo 0 > /logs/verifier/reward.txt; fi\n')
     environments = HarborEnvironments({"tasks_dir": str(tmp_path / "tasks"), "jobs_dir": str(tmp_path / "jobs"),
                                        "disk_gate_gb": 0, "tmp_gate_gb": 0,
@@ -484,7 +488,7 @@ def test_a_real_harbor_environment_runs_the_agents_commands_and_harbors_verifier
                             env={"DOCKER_HOST": "tcp://127.0.0.1:9", "SECRET": "s3cr3t-value"},
                             by_fd={"SECRET": "SECRET_FD"}, timeout=60)
             assert said.output.split() == ["host=tcp://127.0.0.1:9", "s3cr3t-value", "0"], said.output
-            assert env.exec(["true"], timeout=60).code == 0
+            assert env.exec(["true"], env={"FAKE_AGENT_API_KEY": AGENT_KEY}, timeout=60).code == 0
             if script != "true":
                 # an image whose AGENTS.md is a link to its CLAUDE.md: the adapter's text goes first in a file of its
                 # own there, the image's text (read through the link there) after it, CLAUDE.md untouched
@@ -508,15 +512,19 @@ def test_a_real_harbor_environment_runs_the_agents_commands_and_harbors_verifier
             late.start()                                                         # still running at the verifier
             import time
             time.sleep(3)
-            verdict = env.verify()
+            logs = tmp_path / "agent-logs"                  # the session's log holding the agent's credential
+            logs.mkdir(exist_ok=True)
+            (logs / "agent-codex.jsonl").write_text(f"error: bad key {AGENT_KEY}\n")
+            verdict = env.verify(agent_logs=logs)
             rewards.append(verdict["reward"])
             # Harbor's scrub of the verifier's credential: neither the feedback nor the trial's files hold it
             assert "grader-literal-credential" not in verdict["feedback"] and "grader key" in verdict["feedback"]
             late.join(timeout=30)
             assert ended and "the verifier started" in ended[0]
-    assert rewards == [1.0, 0.0]
+    assert rewards == [1.0, 0.0]                        # the agent's credential never reached the verifier
     kept = [p for p in (tmp_path / "jobs").rglob("*") if p.is_file() and not p.is_symlink()]
     assert not [p for p in kept if b"grader-literal-credential" in p.read_bytes()]
+    assert not [p for p in kept if AGENT_KEY.encode() in p.read_bytes()]          # nor stays in the trial's files
 
 
 def test_a_react_agent_works_in_the_tasks_environment_its_tools_run_there(tmp_path, monkeypatch):
@@ -1186,7 +1194,7 @@ def test_a_rotated_sign_in_comes_back_though_the_sessions_exec_failed(tmp_path, 
         def download(self, source, target):
             if source.endswith(login.FILE):
                 seen.append("download")
-                Path(target).write_text('{"rotated": 1}')
+                Path(target).write_text(ROTATED)
                 return Path(target)
             raise FileNotFoundError(source)
 
@@ -1196,7 +1204,7 @@ def test_a_rotated_sign_in_comes_back_though_the_sessions_exec_failed(tmp_path, 
         make("codex", {"web_search": False, "login": "chatgpt", "model": "m", "bin": "codex",
                        "plan_dir": str(tmp_path / "plan"), "login_root": str(tmp_path / "root")}).run(
             "x", environment=env)
-    assert seen == ["download", ("keep", '{"rotated": 1}')]        # brought back before the removal
+    assert seen == ["download", ("keep", ROTATED)]                 # brought back before the removal
 
 
 def test_an_environment_failing_under_the_agent_or_this_machine_is_infra(harbor, monkeypatch):
@@ -1291,9 +1299,9 @@ def test_a_local_sign_in_copy_goes_though_its_take_back_failed(tmp_path, monkeyp
     monkeypatch.setattr(login, "keep_refreshed", lambda *a: (_ for _ in ()).throw(OSError(28, "No space left")))
     env = Recorded(tmp_path, lambda c: ExecResult(0, CODEX_STREAM) if session_of(c) else ExecResult(0, ""))
     env.plan_admitted = True
-    with pytest.raises(OSError):
-        make("codex", {"web_search": False, "login": "chatgpt", "model": "m", "bin": "codex",
-                       "home": str(tmp_path / "kept"), "plan_dir": str(tmp_path / "plan")}).run("x", environment=env)
+    out = make("codex", {"web_search": False, "login": "chatgpt", "model": "m", "bin": "codex",
+                         "home": str(tmp_path / "kept"), "plan_dir": str(tmp_path / "plan")}).run("x", environment=env)
+    assert out.reply == "fixed it"                               # the finished session stands (the runner's)
     assert copies and not copies[0].exists()                     # removed however the take-back went
 
 
@@ -1660,3 +1668,151 @@ def test_python3_for_hooks_never_runs_on_in_an_environment_left_under_the_setups
 
     with pytest.raises(RuntimeError, match="broken"):
         workspace._ensure_python3(Broken(tmp_path, lambda c: ExecResult(1, "")))     # python3 missing
+
+
+def test_the_driver_scrubs_the_agents_credentials_from_the_logs_it_hands_the_verifier(tmp_path):
+    import contextlib
+    import shutil as shutil_mod
+    import uuid
+    copy = _driver_function("safe_copy", os=os, shutil=shutil_mod, Path=Path, contextlib=contextlib, uuid=uuid,
+                            scrubbed=_driver_function("scrubbed"))
+    logs, shared = tmp_path / "logs", tmp_path / "agent"
+    logs.mkdir()
+    shared.mkdir()
+    (logs / "agent-codex.jsonl").write_text(f"401: bad key {AGENT_KEY}\n")
+    copy(logs, shared, {AGENT_KEY})
+    assert (shared / "agent-codex.jsonl").read_text() == "401: bad key [REDACTED]\n"
+
+
+def test_harbor_settings_redact_the_verifier_and_take_the_named_reward_only(harbor, tmp_path):
+    environments, _, _ = harbor
+    with pytest.raises(ValueError, match="verifier_redact"):
+        HarborEnvironments({"tasks_dir": str(tmp_path / "tasks"), "harbor": sys.executable,
+                            "verifier_redact": ["("]}, base=tmp_path)
+    redacting = HarborEnvironments({"tasks_dir": str(tmp_path / "tasks"), "harbor": sys.executable,
+                                    "reward_key": "accuracy", "verifier_redact": [r"expected \d+"]}, base=tmp_path)
+    out = tmp_path / "verifier"
+    out.mkdir()
+    (out / "test-stdout.txt").write_text("FAILED: expected 44463, got 12\n")
+    verdict = redacting.verdict({"rewards": {"accuracy": 0.0}, "verifier_dir": str(out)})
+    assert "44463" not in verdict["feedback"] and "[redacted]" in verdict["feedback"]
+    missing = redacting.verdict({"rewards": {"f1": 0.85, "answered": 1}, "verifier_dir": str(out)})
+    assert (missing["status"], missing["failure_cause"], missing["reward"]) == ("infra", "verifier_failed", None)
+
+
+def test_an_adapter_failure_on_a_scale_benchmark_has_no_pass(tmp_path):
+    from hermit.trainer.rollout import _read
+    from hermit.task import Task
+    env = Recorded(tmp_path)
+    env.owner = type("Owner", (), {"pass_reward": None})()
+    out = _read(RunOutput(output=None, extra={"adapter_failed": "adapter_failed", "exception_message": "x"}), env,
+                Task(id="t", public={}), 0.0)
+    assert out.extra["verified"]["passed"] is None
+
+
+def test_the_sandboxed_agent_uses_the_configured_chatgpt_login_root(tmp_path):
+    from hermit import isolate
+    from hermit.agent.base import login as codex_login
+    agent = isolate.SandboxedAgent.__new__(isolate.SandboxedAgent)
+    agent.params = {"login_root": str(tmp_path / "root")}
+    assert agent._login_root() == tmp_path / "root"
+    agent.params = {}
+    assert agent._login_root() == codex_login.ROOT
+
+
+def test_a_refreshed_sign_in_that_is_no_valid_one_never_replaces_the_shared_copy(tmp_path, monkeypatch):
+    from hermit.agent.base import codex_stream, login
+    from hermit.agent.base.interface import make
+    monkeypatch.setenv("HERMIT_HOMES", str(tmp_path / "homes"))
+    kept = []
+    monkeypatch.setattr(login, "prepare", lambda root, home: (Path(home) / login.FILE).write_text(ROTATED))
+    monkeypatch.setattr(login, "keep_refreshed", lambda root, home: kept.append((Path(home) / login.FILE).read_text()))
+    monkeypatch.setattr(login, "note_usage", lambda *a, **k: None)
+    no_tokens = json.dumps({"tokens": {"account_id": "acc"}, "last_refresh": "2026-11-19T00:00:00Z"})
+
+    class Env(Recorded):
+        def download(self, source, target):
+            if source.endswith(login.FILE):
+                Path(target).write_text(no_tokens)
+                return Path(target)
+            raise FileNotFoundError(source)
+
+    env = Env(tmp_path, lambda c: ExecResult(0, CODEX_STREAM) if session_of(c) else ExecResult(0, ""))
+    env.plan_admitted = True
+    make("codex", {"web_search": False, "login": "chatgpt", "model": "m", "bin": "codex",
+                   "plan_dir": str(tmp_path / "plan"), "login_root": str(tmp_path / "root")}).run("x", environment=env)
+    assert kept == [ROTATED]                                     # the session's own copy, not the file it handed back
+    assert not codex_stream.signed_in(b"x" * 10, 60) and codex_stream.regular_bytes(tmp_path / "none", 10) is None
+    big = tmp_path / "big.json"
+    big.write_bytes(b" " * (codex_stream.SIGNIN_MAX_BYTES + 1))
+    assert codex_stream.regular_bytes(big, codex_stream.SIGNIN_MAX_BYTES) is None
+
+
+def test_a_long_codex_rejection_keeps_its_status_for_the_verdict(tmp_path):
+    from hermit.agent.base.cli import Codex
+    from hermit.agent.base.codex_stream import session_verdict
+    raw = json.dumps({"type": "turn.failed", "error": {"message": "unexpected status 402 Payment Required: "
+                                                                 + "proxy said " * 200}}) + "\n"
+    agent = Codex({"web_search": False})
+    agent.environment = Recorded(tmp_path)
+    stream = tmp_path / "s.jsonl"
+    stream.write_text(raw)
+    said = agent.outcome(raw, stream, tmp_path / "none")
+    assert said["failure"].startswith("unexpected status 402") or "402" in said["failure"][:100]
+    assert session_verdict({**said, "served": False}, 0) == "usage_limit"
+
+
+def test_a_session_cut_off_before_its_usage_reports_an_unknown_cost(tmp_path, monkeypatch):
+    from hermit.agent.acting.workspace import CliAgent
+    monkeypatch.setenv("HERMIT_HOMES", str(tmp_path / "homes"))
+    started = json.dumps({"type": "thread.started", "thread_id": "t"}) + "\n" + json.dumps({"type": "turn.started"})
+    env = Recorded(tmp_path, lambda c: ExecResult(1, started) if session_of(c) else ExecResult(0, ""))
+    out = CliAgent({"backend": "codex", "web_search": False, "bin": "codex", "workspaces": str(tmp_path / "ws")},
+                   tmp_path).run({"id": "t", "instruction": "x"}, None, environment=env)
+    assert out.cost_usd is None                                  # never a known 0
+
+
+def test_a_refused_session_whose_hold_cannot_be_written_pauses_before_the_next_environment(tmp_path, monkeypatch):
+    from hermit.agent.base import login
+    monkeypatch.setattr(login, "_hold", lambda *a, **k: (_ for _ in ()).throw(OSError(28, "No space left")))
+    assert login.hold(tmp_path / "plan", max_s=0.0) is False
+    from hermit.task import Task
+    from hermit.task.verify import environment as judge
+    from hermit.trainer import rollout
+    pauses, runs = [], []
+
+    def pipeline(task, adapter, environment=None):
+        runs.append(1)
+        if len(runs) == 1:
+            return RunOutput(output=None, extra={"infra": "usage_limit", "infra_final": False,
+                                                 "exception_message": "refused", "hold_unwritten": True})
+        return RunOutput(output="done")
+
+    monkeypatch.setattr(rollout, "_sleep", pauses.append)
+    environments = Environments(tmp_path)
+    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
+    record = rollout.run_one(task, None, pipeline, judge, environments)
+    assert len(runs) == 2 and pauses == [login.HOLD_UNWRITTEN_S] and record["judge"]["score"] == 1.0
+
+
+def test_the_answer_agent_reads_patterns_and_token_limits_as_the_runner(tmp_path, monkeypatch):
+    from hermit.agent.acting import answer as answer_mod
+    from hermit.agent.model.usage import Usage
+    sent = []
+
+    class Model:
+        model = "m"
+
+        def chat(self, messages, abort=None, **kwargs):
+            sent.append(kwargs)
+            return {"role": "assistant", "content": "yes"}, Usage(model="m", calls=1, cost_usd=0.01)
+
+    monkeypatch.setattr(answer_mod.ChatClient, "from_spec", staticmethod(lambda spec: Model()))
+    params = {"model": {"base_url": "https://x", "model": "m"}, "logs": str(tmp_path / "l")}
+
+    env = Recorded(tmp_path)
+    env.instruction = "Which?"
+    answer_mod.AnswerAgent(params, tmp_path).run({"id": "q"}, None, environment=env)
+    assert "max_tokens" not in sent[0]                           # none given: none sent (the runner's)
+    agent = answer_mod.AnswerAgent({**params, "answer_pattern": r"yes(?:=(\w+))?"}, tmp_path)
+    assert agent.answer("yes") == "yes" and agent.answer("yes=B") == "B"

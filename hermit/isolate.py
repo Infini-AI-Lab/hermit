@@ -584,6 +584,11 @@ class SandboxedAgent:
             if server is not None:
                 server.close()
 
+    def _login_root(self) -> Path:
+        """The ChatGPT login's shared copy this run's preflight checked: the agent's `login_root`, else the default."""
+        root = self.params.get("login_root")
+        return Path(os.path.expanduser(str(root))) if root else codex_login.ROOT
+
     def _call(self, task: dict, adapter: Path | None, server, needs: dict | None = None) -> RunOutput:
         self._recheck()
         work = self.work_root / f"{_safe(task.get('id', 'task'))}-{uuid.uuid4().hex[:8]}"
@@ -607,7 +612,7 @@ class SandboxedAgent:
             agent_home = home / folder
             agent_home.mkdir(parents=True)               # a folder of more than one level (Pi's .pi/agent)
             if self.chatgpt:
-                codex_login.prepare(codex_login.ROOT, agent_home)      # the shared copy, refreshed by earlier calls
+                codex_login.prepare(self._login_root(), agent_home)    # the shared copy, refreshed by earlier calls
             env[var] = str(agent_home)
             keep.append(var)
         binds = _log_binds(work, self.logs, [work])
@@ -633,7 +638,7 @@ class SandboxedAgent:
                             *work.glob(f"workspaces/*/home/{codex_login.FILE}")]
                     try:
                         for path in left:
-                            codex_login.take_back(codex_login.ROOT, path, within=work)
+                            codex_login.take_back(self._login_root(), path, within=work)
                     finally:                             # removed however the take-back went (a full volume)
                         for path in left:
                             codex_login.remove(path, within=work)

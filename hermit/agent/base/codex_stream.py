@@ -266,3 +266,54 @@ def session_verdict(facts: dict, tokens: int | None) -> str | None:
     if facts.get("rejected") and not facts.get("model_refusal") and not tokens and CONFIG_REFUSED.search(failure):
         return "usage_limit" if BILLING_REFUSED.search(failure) else "model_rejected"
     return None
+
+
+# ---- the sign-in a session hands back (ported from hermit/harbor/signin.py) ----------------------------------------
+SIGNIN_MAX_BYTES = 64 << 10   # a sign-in larger than this is none, never read whole (Codex's auth.json is a few KB)
+SKEW = 60.0                   # seconds a refresh may lie past this machine's clock: a local Docker container's
+OTHER_CLOCK = 3600.0          # ... another machine's (a cloud sandbox): the hour login.take_back allows
+
+
+def regular_bytes(path, limit: int):
+    """At most `limit` bytes of `path` opened as a regular file at its own name, never through a link there
+    (O_NOFOLLOW), read once; None for none there, a link, no regular file, or one larger than `limit`."""
+    import os
+    import stat
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        with os.fdopen(fd, "rb") as f:
+            fd = None
+            data = f.read(limit + 1)
+    except OSError:
+        return None
+    finally:
+        if fd is not None:
+            os.close(fd)
+    return data if len(data) <= limit else None
+
+
+def signed_in(data: bytes, skew_s: float) -> bool:
+    """Whether a sign-in file's bytes are a ChatGPT sign-in Codex refreshed at most `skew_s` past this machine's clock:
+    a JSON object whose tokens hold a refresh and an access token (each a string, not empty), and a last_refresh that
+    parses and lies no further ahead (a file the session could write must not pin the shared copy)."""
+    from datetime import datetime, timedelta, timezone
+    try:
+        parsed = json.loads(data.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, RecursionError):
+        return False
+    tokens = parsed.get("tokens") if isinstance(parsed, dict) else None
+    if not isinstance(tokens, dict) or not all(isinstance(tokens.get(k), str) and tokens[k]
+                                               for k in ("refresh_token", "access_token")):
+        return False
+    try:
+        when = datetime.fromisoformat(str(parsed["last_refresh"]).replace("Z", "+00:00"))
+    except (KeyError, ValueError, TypeError):
+        return False
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when <= datetime.now(timezone.utc) + timedelta(seconds=skew_s)

@@ -559,7 +559,7 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
             raise Unsupported(f"agent {backend} in a remote environment (a task's Harbor environment) takes none of "
                               f"{', '.join(unsupported) or 'isolation: container'}: the environment is the task's own")
     if remote and backend == "codex" and not params.get("project_doc_max_bytes"):
-        # the Harbor runner's cap on AGENTS.md for Codex in a task's container (hermit.harbor.clis: 256 KiB), for the
+        # the Harbor runner's cap on AGENTS.md for Codex in a task's container (its CLI table's: 256 KiB), for the
         # deployment's check and the session's own setting alike
         params = {**params, "project_doc_max_bytes": REMOTE_CODEX_DOC_BYTES}
     if params.get("config"):                        # mini-swe-agent's config file, beside the run config
@@ -655,6 +655,11 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
             if served is not None:
                 served.close()
         usages += list(result.usage or [])
+        if remote and not result.usage and result.extra.get("started"):
+            # a session that reached its CLI's events but reported no usage (cut off before turn.completed) may have
+            # been billed: its cost is not known (the runner's usage None), never 0
+            from hermit.agent.model.usage import Usage
+            usages.append(Usage(model=str(params.get("model") or backend), unreported_calls=1, cost_usd=None))
         if result.extra.get("login_failed"):          # before a timeout: a session that then hung is no attempt
             raise LoginFailed(f"agent {backend}: {result.extra.get('failure')}")
         if remote:
@@ -676,8 +681,11 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
                     raise LoginFailed(f"agent {backend}: usage_limit: the account refused the session for its usage "
                                       f"limit and the run holds no plan to wait for: {result.extra.get('failure')}")
                 # the login's plan refused it (its window): run again once the plan allows, never counted
-                return _infra_run("usage_limit", f"agent {backend}: the plan refused the session: "
-                                  f"{result.extra.get('failure')}", usages, log, started, final=False)
+                out = _infra_run("usage_limit", f"agent {backend}: the plan refused the session: "
+                                 f"{result.extra.get('failure')}", usages, log, started, final=False)
+                if result.extra.get("hold_unwritten"):   # no hold to wait for: the run pauses (the runner's 5 min)
+                    out.extra["hold_unwritten"] = True
+                return out
         if result.extra["served"] or result.timed_out:
             break
         if not result.extra["unavailable"]:

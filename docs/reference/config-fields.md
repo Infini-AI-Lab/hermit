@@ -32,7 +32,7 @@ guarantee that their consumer supports arbitrary fields.
 | `data.shuffle` | boolean / true | Shuffle training order; set false for ordered streams |
 | `data.shuffle_seed` | integer / 0 | Training shuffle seed; does not seed every model or method |
 | `task_info` | directory / null | Learner-facing task description; provide `README.md` |
-| `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `hermes`, `answer` (one model call, its answer written where the task's verifier reads it), an Agent class, or a `file.py:function` / `module:function`; a benchmark's task set in Harbor's environments is `environment.harbor` ([Benchmarks](../framework/task.md#benchmarks)), any of these agents working there |
+| `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `hermes`, `answer` (one model call, its answer written where the task's verifier reads it), an Agent class, or a `file.py:function` / `module:function`; a benchmark's task set in Harbor's environments is `environment.harbor` ([Benchmarks](../framework/task.md#benchmarks)), where `codex`, `claude-code`, `answer`, `react` and a custom agent that takes the `environment` argument work (the other CLIs refuse it) |
 | `agent.concurrency` | integer / 4 | Maximum concurrent rollout/evaluation task executions; use a positive value |
 | `agent.timeout_min` | number / null | A sandboxed task call (its worker) running longer is stopped and recorded as an error; null: no limit |
 | `agent.params` | mapping / {} | Passed to Agent constructors; plain functions receive it when they declare a `params` argument |

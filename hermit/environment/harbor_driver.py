@@ -128,7 +128,32 @@ def container_prologue(values: dict, by_fd: dict) -> tuple[str, dict]:
     return "".join(line + "\n" for line in lines), carried
 
 
-def safe_copy(source: Path, target: Path) -> None:
+def scrubbed(data: bytes, secrets) -> bytes:
+    """`data` with each of `secrets` replaced, as Harbor's trial scrubs its files (text only: a binary file is left)."""
+    if not secrets or b"\0" in data[:8192]:
+        return data
+    for secret in sorted(secrets, key=len, reverse=True):
+        data = data.replace(secret.encode(), b"[REDACTED]")
+    return data
+
+
+def scrub_tree(root: Path, secrets) -> None:
+    """Every regular file under `root` scrubbed of `secrets` (links never followed)."""
+    if not secrets:
+        return
+    for path in root.rglob("*"):
+        try:
+            if path.is_symlink() or not path.is_file():
+                continue
+            data = path.read_bytes()
+            clean = scrubbed(data, secrets)
+            if clean != data:
+                path.write_bytes(clean)
+        except OSError as exc:
+            log(f"scrub: {path}: {exc}")
+
+
+def safe_copy(source: Path, target: Path, secrets=()) -> None:
     """`source`'s files under `target`, never through a link there, however the agent's environment changes the folder
     it shares with this machine (/logs/agent) meanwhile: every step goes through a directory descriptor opened without
     following a link (O_NOFOLLOW), an entry where a folder goes is moved aside for one of this process's own, and a
@@ -155,7 +180,10 @@ def safe_copy(source: Path, target: Path) -> None:
         else:
             fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=parent)
             with os.fdopen(fd, "wb") as out, open(path, "rb") as given:
-                shutil.copyfileobj(given, out)
+                if secrets:                              # the agent's credentials never reach the verifier's folder
+                    out.write(scrubbed(given.read(), secrets))
+                else:
+                    shutil.copyfileobj(given, out)
         try:
             os.rename(temp, name, src_dir_fd=parent, dst_dir_fd=parent)
         except OSError:                                  # a folder in the way
@@ -193,6 +221,7 @@ class Driver:
         self.trial: Trial | None = None
         self.agent_phase: contextlib.AsyncExitStack | None = None
         self.user = None
+        self.secrets: set = set()                      # the credentials the agent's commands were given (scrubbed)
         self.has_timeout: bool | None = None
         self.verified = False
         self.stopped = False
@@ -305,7 +334,7 @@ class Driver:
         await self._end_agent_phase()
         logs = req.get("agent_logs")
         if logs and Path(logs).is_dir():
-            safe_copy(Path(logs), trial.paths.agent_dir)
+            safe_copy(Path(logs), trial.paths.agent_dir, self.secrets)
         mode = resolve_task_verifier_mode(trial.task.config)
         exception = None
         try:
@@ -334,11 +363,13 @@ class Driver:
                 "exception": exception, "verifier_dir": str(trial.paths.verifier_dir), "verifier_mode": mode.value}
 
     def _scrub(self) -> None:
-        """Harbor's scrub of the trial's files (a credential the verifier's env names), as its trial runs it."""
+        """Harbor's scrub of the trial's files (a credential the verifier's env names), as its trial runs it, and of the
+        credentials the agent's commands were given (`secrets`), which Harbor's does not know."""
         try:
             self.trial._scrub_jobs_dir()
         except Exception as exc:                         # noqa: BLE001 - logged; the files stay as they are
             log(f"scrub: {type(exc).__name__}: {exc}")
+        scrub_tree(self.trial.paths.trial_dir, self.secrets)
 
     async def stop(self, req: dict | None = None) -> dict:
         if self.stopped or self.trial is None:
@@ -364,7 +395,18 @@ class Driver:
             self.has_timeout = "yes" in (found.stdout or "")
         return self.has_timeout
 
+    def _note_secrets(self, req: dict) -> None:
+        """The credentials an agent command is given, kept to scrub: a value of a variable Harbor names as a secret,
+        or one passed on a descriptor, as Harbor's own scrub reads its agents' env."""
+        from harbor.utils.env import is_bool_env_value, is_sensitive_env_key
+        by_fd = req.get("by_fd") or {}
+        for key, value in (req.get("env") or {}).items():
+            value = str(value or "")
+            if value and (key in by_fd or is_sensitive_env_key(str(key))) and not is_bool_env_value(value):
+                self.secrets.add(value)
+
     async def exec(self, req: dict) -> dict:
+        self._note_secrets(req)
         command = str(req["command"])
         timeout = req.get("timeout_sec")
         user = req.get("user", None)

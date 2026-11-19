@@ -197,13 +197,14 @@ def _text(path: Path) -> str:
         return ""
 
 
-def verifier_verdict(verdict: dict, verifier_dir: Path | None) -> dict:
+def verifier_verdict(verdict: dict, verifier_dir: Path | None, redact=()) -> dict:
     """A rollout whose verifier ran no test is infra: run again, not kept as the agent's result, whether the verifier
     wrote 0, left no reward or ran out of its time. Either the verifier's tools never arrived, their download failed by
     a server (a 5xx, GitHub's release download) so its test runner is missing and it wrote no report
     (verifier_unreached), or the host's disk was full while it ran, before its tests wrote a report
     (verifier_disk_full: with a report, the words are a test's output). A rollout the verifier passed ran its tests;
-    one whose verifier never ran (no output of it) stays as it was."""
+    one whose verifier never ran (no output of it) stays as it was. The output quoted has `redact`'s patterns removed
+    (verifier_redact)."""
     if verifier_dir is None or verdict["status"] == "infra" or float(verdict.get("reward") or 0) >= 1:
         return verdict
     out = Path(verifier_dir)
@@ -215,7 +216,14 @@ def verifier_verdict(verdict: dict, verifier_dir: Path | None) -> dict:
     else:
         return verdict
     return {**verdict, "status": "infra", "failure_cause": "verifier_failed",
-            "exception_message": f"{why}: {stdout.strip()[-300:]}"}
+            "exception_message": f"{why}: {_redacted(stdout, redact).strip()[-300:]}"}
+
+
+def _redacted(text: str, patterns) -> str:
+    """The runner's curate.redact_verifier: each match of `patterns` replaced."""
+    for pattern in patterns or ():
+        text = re.sub(str(pattern), "[redacted]", text)
+    return text
 
 
 def start_cause(kind: str | None, message: str) -> str:

@@ -62,6 +62,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import queue
+import re
 import shlex
 import shutil
 import subprocess
@@ -95,7 +96,7 @@ SETTINGS = (*MULTIPLIERS, "benchmark", "tasks_dir", "environment", "verifier", "
             "setup_timeout_sec", "allowed_hosts", "docker_cleanup", "rmi_threshold_gb", "disk_gate_gb",
             "disk_gate_wait_s", "tmp_gate_gb", "image_sizes", "jobs_dir", "harbor", "start_timeout_s",
             "verify_timeout_s", "verifier_timeout", "pass_reward", "reward_key", "infra_retries", "infra_wait_s",
-            "busy_retries", "busy_wait_s",
+            "busy_retries", "busy_wait_s", "verifier_redact",
             "dataset")
 VERIFIER_TIMEOUTS = ("agent", "infra")
 FEEDBACK_CHARS = 4000
@@ -174,6 +175,7 @@ class HarborEnvironments:
         self.pass_reward = PASS_REWARD if "pass_reward" not in s else \
             (None if s["pass_reward"] is None else float(s["pass_reward"]))
         self.reward_key = str(s.get("reward_key") or "reward")
+        self.redactions = self._redactions(s.get("verifier_redact"))
         self.infra_retries = self._count("infra_retries", errors.INFRA_RETRIES, int)
         self.infra_wait_s = self._count("infra_wait_s", errors.INFRA_WAIT_S, float)
         self.busy_retries = self._count("busy_retries", errors.BUSY_RETRIES, int)
@@ -321,6 +323,24 @@ class HarborEnvironments:
         finally:
             env.stop()
 
+    @staticmethod
+    def _redactions(patterns) -> list[str]:
+        """verifier_redact: regexes removed from the verifier's output the feedback and an infra verdict quote (what
+        the learner must not read, a test's expected answer), the Harbor runner's setting."""
+        patterns = [patterns] if isinstance(patterns, str) else list(patterns or [])
+        for pattern in patterns:
+            try:
+                re.compile(str(pattern))
+            except re.error as exc:
+                raise ValueError(f"environment.harbor.verifier_redact: {pattern!r} is no regular expression "
+                                 f"({exc})") from None
+        return [str(p) for p in patterns]
+
+    def redact(self, text: str) -> str:
+        for pattern in self.redactions:
+            text = re.sub(pattern, "[redacted]", text)
+        return text
+
     def verdict(self, verified: dict) -> dict:
         """What a verifier's answer is for a judge, as Hermit's Harbor runner read a trial (hermit.environment.
         harbor_errors): the reward (`reward_key`, else the one reward, else their mean), the rewards, the feedback
@@ -331,28 +351,25 @@ class HarborEnvironments:
         the host's disk full) or no exception and no reward: not the agent's result."""
         rewards = verified.get("rewards") or None
         exception = verified.get("exception") or None
-        reward = None
-        if rewards:
-            reward = rewards.get(self.reward_key)
-            if reward is None:
-                reward = next(iter(rewards.values())) if len(rewards) == 1 else sum(rewards.values()) / len(rewards)
-            reward = float(reward)
+        reward = (rewards or {}).get(self.reward_key)   # the named reward only: none there is the runner's infra
+        reward = float(reward) if reward is not None else None
         # Harbor's trial as the runner read its result.json: the reward under its key, the exception Harbor recorded
-        result = {"verifier_result": {"rewards": {self.reward_key: reward} if reward is not None else {}},
+        result = {"verifier_result": {"rewards": dict(rewards or {})},
                   "exception_info": {"exception_type": exception.get("type"), "exception_message":
                                      exception.get("message") or ""} if exception else None}
         read = errors.classify(result, reward_key=self.reward_key)
         read = errors.verifier_timeout_verdict(read, self.verifier_timeout)
         logs = Path(verified.get("verifier_dir") or "") if verified.get("verifier_dir") else None
-        read = errors.verifier_verdict(read, logs)
+        read = errors.verifier_verdict(read, logs, self.redactions)
         feedback = ""
         for name in ("feedback.txt", "test-stdout.txt"):
             if logs is not None and (logs / name).is_file() and not (logs / name).is_symlink():
-                feedback = (logs / name).read_text(encoding="utf-8", errors="replace")[-FEEDBACK_CHARS:]
+                feedback = self.redact((logs / name).read_text(encoding="utf-8", errors="replace"))[-FEEDBACK_CHARS:]
                 break
         passed = None if self.pass_reward is None else (reward is not None and reward >= self.pass_reward)
         return {"reward": reward, "rewards": rewards, "status": read["status"], "failure_cause": read["failure_cause"],
-                "passed": passed, "exception": exception, "exception_message": read["exception_message"],
+                "passed": passed, "exception": exception,
+                "exception_message": self.redact(str(read["exception_message"] or "")),
                 "feedback": feedback, "verifier_dir": verified.get("verifier_dir"),
                 "trial_dir": verified.get("trial_dir")}
 
@@ -523,6 +540,9 @@ class HarborEnvironment(Environment):
         self.workspace = PurePosixPath(started.get("workdir") or "/")
         self.instruction = started.get("instruction")           # Harbor's own, as its agents are given it
         self.network_public = (started.get("agent_network") or "public") == "public"
+        kind = (owner.settings.get("environment") or {}).get("type") if isinstance(
+            owner.settings.get("environment"), dict) else None
+        self.same_clock = kind in (None, "docker")       # a local Docker container shares this machine's clock
         self.setup_budget_s = float(started.get("setup_timeout_sec") or 0) + SETUP_ALLOWANCE_S
         budget = started.get("agent_timeout_sec")
         self.limits = Limits(readable=self.limits.readable, hidden=self.limits.hidden, network=self.limits.network,

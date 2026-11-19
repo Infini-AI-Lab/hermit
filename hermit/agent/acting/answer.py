@@ -91,7 +91,8 @@ class AnswerAgent(Agent):
             [{"role": "user", "content": content}]
         timed_out = False
         try:
-            reply = Direct({"max_tokens": int(p.get("max_tokens") or 16384)}, caller).run(messages)
+            # max_tokens only when given (the runner's answer agent sent none otherwise)
+            reply = Direct({"max_tokens": int(p["max_tokens"]) if p.get("max_tokens") else None}, caller).run(messages)
         except ChatAborted:
             if not (budget and caller.expired):
                 raise
@@ -204,8 +205,8 @@ class AnswerAgent(Agent):
         pattern = self.params.get("answer_pattern")
         if not pattern:
             return reply.strip()
-        found = list(re.finditer(str(pattern), reply, re.DOTALL))
-        if not found:
+        found = list(re.finditer(str(pattern), reply))   # the runner's extract: its last match, group 1 when it has
+        if not found:                                    # one and it took part, else the whole match
             return reply.strip()
         last = found[-1]
-        return (last.group(1) if last.groups() else last.group(0)).strip()
+        return (last.group(1) if last.re.groups and last.group(1) is not None else last.group(0)).strip()

@@ -118,7 +118,8 @@ class EnvironmentServer:
         return {"workspace": str(env.workspace), "timeout_s": env.limits.timeout_s, "isolation": env.isolation,
                 "installs": hasattr(env, "install"), "instruction": getattr(env, "instruction", None),
                 "network_public": getattr(env, "network_public", True),
-                "plan_admitted": bool(getattr(env, "plan_admitted", False))}
+                "plan_admitted": bool(getattr(env, "plan_admitted", False)),
+                "same_clock": bool(getattr(env, "same_clock", True))}
 
     def spec(self) -> dict:
         return {"url": self.url, **self.info()}
@@ -146,7 +147,8 @@ class ProxyEnvironment(Environment):
     isolation = "remote"
 
     def __init__(self, url: str, workspace: str, limits: Limits | None = None, *, installs: bool = False,
-                 instruction: str | None = None, network_public: bool = True, plan_admitted: bool = False):
+                 instruction: str | None = None, network_public: bool = True, plan_admitted: bool = False,
+                 same_clock: bool = True):
         super().__init__(PurePosixPath("/"), limits)
         self.workspace = PurePosixPath(workspace)
         self.url = url.rstrip("/")
@@ -154,6 +156,7 @@ class ProxyEnvironment(Environment):
         self.instruction = instruction                   # the task's instruction as its environment gives it
         self.network_public = network_public             # whether the agent's phase reaches the public network
         self.plan_admitted = plan_admitted               # the run holds the login's plan admission for this task
+        self.same_clock = same_clock                     # whether the environment shares this machine's clock
 
     @classmethod
     def from_spec(cls, spec: dict) -> "ProxyEnvironment":
@@ -161,7 +164,7 @@ class ProxyEnvironment(Environment):
         return cls(spec["url"], spec.get("workspace") or "/", Limits(timeout_s=float(timeout) if timeout else None),
                    installs=bool(spec.get("installs")), instruction=spec.get("instruction"),
                    network_public=spec.get("network_public", True) is not False,
-                   plan_admitted=bool(spec.get("plan_admitted")))
+                   plan_admitted=bool(spec.get("plan_admitted")), same_clock=spec.get("same_clock", True) is not False)
 
     def __repr__(self) -> str:
         return f"ProxyEnvironment(workspace={str(self.workspace)!r})"

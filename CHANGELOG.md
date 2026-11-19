@@ -34,7 +34,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   refusal: run again once it allows) is read the same way (`hermit/agent/base/codex_stream.py`, ported). Codex there
   keeps the runner's `project_doc_max_bytes` of 262144 unless the config sets one. A hook audit that cannot be read
   back leaves the session's result and usage (`hooks_audit_missing`). The sandbox's proxy of a task's environment
-  refuses Hermit's network, hidden-path and mount limits (the task's own say what it reaches). Not carried
+  refuses Hermit's network, hidden-path and mount limits (the task's own say what it reaches). As the runner did:
+  `verifier_redact`, the named `reward_key` only (none there is infra), a ChatGPT sign-in taken back only when valid
+  (64 KiB, both tokens, its clock), a session's missing usage as an unknown cost. Not carried
   over: multi-step tasks (streams), the adapter's tools in a task's environment, the `<cli>_bin` mount (a config
   mounts a binary through `environment.harbor.environment.mounts` and names it as `agent.<cli>.bin`), Harbor's own agents
   (`acting_agent: {name}`), the Pi, OpenCode, dsh and mini-swe-agent CLIs in a task's environment, and the curated

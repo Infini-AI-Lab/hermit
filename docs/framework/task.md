@@ -405,7 +405,8 @@ Not supported in a Harbor environment yet, and refused rather than dropped: the 
 server runs on this machine), the agent's `mounts`, `prepare` and `collect`, readable mounts, hidden paths or a
 network limit of Hermit's (the task's task.toml says what its environment reaches; refused through the sandbox's proxy
 of the environment too), and a multi-step task
-(`[[steps]]`, which needs one environment across the Trainer's steps).
+(`[[steps]]`, which needs one environment across the Trainer's steps). The credentials an agent command was given are
+scrubbed from the logs handed to the verifier and from the trial's files.
 
 | `environment.harbor` | Meaning |
 |---|---|
@@ -420,7 +421,8 @@ of the environment too), and a multi-step task
 | `start_timeout_s`, `verify_timeout_s` | how long Hermit waits for the driver's start and its verifier |
 | `busy_retries`, `busy_wait_s` | how many times a session the provider could not serve runs the task again in a fresh environment, over all of its runs (default 3, not counted in `infra_retries`), the n-th after n x `busy_wait_s` (120 s) |
 | `infra_retries`, `infra_wait_s` | how many times a rollout that is not the agent's result runs again in a fresh environment (default 2), each after how long (300 s); never one whose cause runs no better again (`disk`, `model_rejected`) |
-| `verifier_timeout`, `pass_reward`, `reward_key` | a verifier that ran out of its time: `agent` (scored 0) or `infra`; the reward that passes (1.0; null: a scale); the reward's key |
+| `verifier_timeout`, `pass_reward`, `reward_key` | a verifier that ran out of its time: `agent` (scored 0) or `infra`; the reward that passes (1.0; null: a scale); the reward's key (a verifier that left no reward under it is infra) |
+| `verifier_redact` | regexes removed from the verifier's output the feedback and an infra verdict quote (a test's expected answer the learner must not read) |
 
 A task row (`tasks.jsonl`, written by `python -m hermit.harbor.dataset index <tasks dir> --out tasks.jsonl
 [--rollouts k]`) names its directory as `harbor_task`, so a benchmark's split files apply with one rollout a task;

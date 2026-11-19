@@ -89,8 +89,10 @@ def _read(out: RunOutput, env, task: Task, begun: float) -> RunOutput:
     if extra.get("infra"):
         return out
     if extra.get("adapter_failed"):
+        bar = getattr(getattr(env, "owner", None), "pass_reward", 1.0)          # no pass reward: no pass rate
         verdict = {"reward": None, "rewards": None, "status": "agent_error", "failure_cause": extra["adapter_failed"],
-                   "passed": False, "exception": None, "exception_message": extra.get("exception_message"),
+                   "passed": None if bar is None else False, "exception": None,
+                   "exception_message": extra.get("exception_message"),
                    "feedback": str(extra.get("exception_message") or "")}
         out.extra = {**extra, "verified": verdict, "status": "agent_error", "failure_cause": extra["adapter_failed"],
                      "verifier_reward_raw": None}
@@ -217,8 +219,11 @@ def environment_rollout(task: Task, given: dict, adapter: Path | None, pipeline,
                         out = _read(out, env, task, begun)
                         if out.extra.get("infra"):
                             final, said_by_agent = bool(out.extra.get("infra_final")), True
+                            unwritten = bool(out.extra.get("hold_unwritten"))
                             out = _infra_output(task, out.extra["infra"], str(out.extra.get("exception_message")),
                                                 begun, ran=True, spent=out)
+                            if unwritten:
+                                out.extra["hold_unwritten"] = True
         except EnvironmentUnavailable as exc:
             if exc.cause == "stopped":                   # the run ended (another task's lost sign-in)
                 raise LoginFailed(str(exc)) from None
@@ -251,8 +256,17 @@ def environment_rollout(task: Task, given: dict, adapter: Path | None, pipeline,
             wait_now = float(environments.infra_wait_s)
         print(f"hermit {task.id}: not the agent's result ({cause}: {message[:300]}); again in {wait_now:.0f} s "
               f"({counted}/{retries})", file=sys.stderr, flush=True)
-        if cause == "usage_limit":
-            continue                                     # the admission waits for the plan's window
+        if cause == "usage_limit":                       # the admission waits for the plan's window, or, its hold
+            if out.extra.get("hold_unwritten"):          # not written, the runner's pause first (cancellable)
+                from hermit.agent.base.login import HOLD_UNWRITTEN_S
+                if pause is not None:
+                    pause(HOLD_UNWRITTEN_S)
+                elif stopping is not None:
+                    if stopping.wait(HOLD_UNWRITTEN_S):
+                        return _attempts(runs)
+                else:
+                    _sleep(HOLD_UNWRITTEN_S)
+            continue
         if pause is not None:
             pause(wait_now)
         elif stopping is not None:
