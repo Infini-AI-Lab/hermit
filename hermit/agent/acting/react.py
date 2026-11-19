@@ -247,19 +247,26 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, agent: Reac
         bounded = Bounded(client, place.limits.timeout_s)
         loop_agent.model = bounded
         place = place.with_limits(dataclasses.replace(place.limits, timeout_s=None))
+    loop = loop_agent.start(messages, environment=place, tools=tools)
+    timed_out = False
     try:
-        result = loop_agent.run(messages, environment=place, tools=tools)
+        while not loop.done:
+            if bounded is not None and bounded.expired:      # spent between steps (a tool ran it out)
+                timed_out = True
+                break
+            loop_agent.step(loop)
     except ChatAborted:
         if bounded is None or not bounded.expired:
             raise
-        from hermit.agent.base.interface import Result
-        result = Result(reply="", session=messages, timed_out=True, usage=[],
-                        extra={"turns": 0, "model_s": 0.0, "tool_calls": 0})
+        timed_out = True                                     # the call in flight given up: what ran before is kept
     finally:
         if bounded is not None:
             bounded.close()
+    result = loop.result()
+    if timed_out:
+        result = dataclasses.replace(result, timed_out=True)
     messages, turns, usages = result.session, result.extra["turns"], list(result.usage)
-    if tag and f"<{tag}>".upper() not in (result.reply or "").upper():   # the tag in the model's reply, not answer()'s
+    if tag and not timed_out and f"<{tag}>".upper() not in (result.reply or "").upper():   # the model's reply's tag
         follow = Direct({"max_tokens": int(params.get("max_tokens", 16384)),
                          "temperature": params.get("temperature")}, client)
         reply = follow.run(f"Stop using tools. Give your final answer now inside <{tag}>...</{tag}>.", session=messages)

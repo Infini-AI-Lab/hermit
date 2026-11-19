@@ -49,8 +49,8 @@ of them trains on it (DGM, SICA and HGM do, and are not ported).
 
 The gains are small at this level, and AHE gives the tokens a trial beside them, a mean over its completed trials (an
 infra or timed-out one left out, §4.1). Here a trial's tokens are `tokens` in the eval's `results.jsonl`; leave out the
-same trials (a row whose status is not `ok`, or whose judge says `timeout`) for a mean beside AHE's. Neither paper says how many runs a task
-had; here each runs once. With the final adapter of
+same trials (a row whose `outcome.status` is not `ok`: `infra`, `timeout` or `agent_error`) for a mean beside
+AHE's. Neither paper says how many runs a task had; here each runs once. With the final adapter of
 [Terminal-Bench 2.0's AHE run](../terminal_bench_2_0/README.md#ahe-adapter) written out as a directory (that README says
 how), the same acting agent tests it:
 

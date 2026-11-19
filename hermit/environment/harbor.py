@@ -43,6 +43,9 @@ Settings (a run config's `environment.harbor`, merged over the benchmark file it
   infra_retries, infra_wait_s   a rollout that is not the agent's result (infra: hermit.environment.harbor_errors) runs
                     again in a fresh environment this many times at most (default 2), each after this long (default
                     300 s), unless its cause runs no better again (NO_RETRY: the disk gate, model_rejected)
+  busy_retries, busy_wait_s   a session the provider could not serve runs again in a fresh environment this many times
+                    over the task's runs (default 3, not counted in infra_retries), the n-th after n x this (120 s), as
+                    the runner's busy_retries
 
 An environment runs the task's commands where Harbor runs them (isolation `remote`): `exec` runs a command in the
 task's main container as the task's agent user, from its working directory (the workspace), a variable passed by name
@@ -80,7 +83,9 @@ DISK_GATE_WAIT_S = 7200.0
 TMP_GATE_GB = 1.0
 HOST_TMP = Path("/tmp")
 START_TIMEOUT_S = 3600.0             # the driver's start: the image's pull or build, the healthcheck
-VERIFY_TIMEOUT_S = 7200.0            # ... and its verifier (Harbor's own timeout ends it first)
+VERIFY_TIMEOUT_S = 7200.0            # ... and its verifier when Harbor names no timeout (its own ends it first)
+VERIFY_ALLOWANCE_S = 1800.0          # beside Harbor's verifier timeout: the tests' upload, a separate environment's
+                                     # start, the logs
 STOP_TIMEOUT_S = 600.0
 SETUP_ALLOWANCE_S = 360.0            # beside a task's agent budget: the CLI's install, the home's upload (the runner's
                                      # SETUP_BUDGET_S)
@@ -90,6 +95,7 @@ SETTINGS = (*MULTIPLIERS, "benchmark", "tasks_dir", "environment", "verifier", "
             "setup_timeout_sec", "allowed_hosts", "docker_cleanup", "rmi_threshold_gb", "disk_gate_gb",
             "disk_gate_wait_s", "tmp_gate_gb", "image_sizes", "jobs_dir", "harbor", "start_timeout_s",
             "verify_timeout_s", "verifier_timeout", "pass_reward", "reward_key", "infra_retries", "infra_wait_s",
+            "busy_retries", "busy_wait_s",
             "dataset")
 VERIFIER_TIMEOUTS = ("agent", "infra")
 FEEDBACK_CHARS = 4000
@@ -170,6 +176,8 @@ class HarborEnvironments:
         self.reward_key = str(s.get("reward_key") or "reward")
         self.infra_retries = self._count("infra_retries", errors.INFRA_RETRIES, int)
         self.infra_wait_s = self._count("infra_wait_s", errors.INFRA_WAIT_S, float)
+        self.busy_retries = self._count("busy_retries", errors.BUSY_RETRIES, int)
+        self.busy_wait_s = self._count("busy_wait_s", errors.BUSY_WAIT_S, float)
         sizes = json.loads(self.path(s["image_sizes"]).read_text()) if s.get("image_sizes") else {}
         self.image_sizes = {k: v for k, v in sizes.items() if not str(k).startswith("_")}
         self.pulls = docker.Pulls()
@@ -624,8 +632,13 @@ class HarborEnvironment(Environment):
         if self.verified is not None:
             return self.verified
         driver = self._live()
+        # Harbor's own verifier timeout (its overrides and multiplier) ends a verifier; this side waits for that and the
+        # verifier's preparation and the logs beside it (verify_timeout_s overrides)
+        own = self.started.get("verifier_timeout_sec")
+        watchdog = float(self.owner.settings.get("verify_timeout_s") or
+                         (float(own) + VERIFY_ALLOWANCE_S if own else VERIFY_TIMEOUT_S))
         try:
-            verified = driver.request("verify", float(self.owner.settings.get("verify_timeout_s") or VERIFY_TIMEOUT_S),
+            verified = driver.request("verify", watchdog,
                                       agent_logs=str(Path(agent_logs).absolute()) if agent_logs else None)
         except (RuntimeError, TimeoutError) as exc:      # the driver's or this side's, not Harbor's verifier's
             said = f"{getattr(exc, 'kind', None) or type(exc).__name__}: {exc}"[-3000:]

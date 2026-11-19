@@ -631,11 +631,13 @@ class SandboxedAgent:
                     codex_login.remove(home / CLI_HOMES["codex"][0] / CLI_HOMES["codex"][2], within=work)
                     left = [work / "workspaces" / "login" / codex_login.FILE,
                             *work.glob(f"workspaces/*/home/{codex_login.FILE}")]
-                    for path in left:
-                        codex_login.take_back(codex_login.ROOT, path, within=work)
-                    for path in left:
-                        codex_login.remove(path, within=work)
-                    shutil.rmtree(work / "workspaces" / "login", ignore_errors=True)
+                    try:
+                        for path in left:
+                            codex_login.take_back(codex_login.ROOT, path, within=work)
+                    finally:                             # removed however the take-back went (a full volume)
+                        for path in left:
+                            codex_login.remove(path, within=work)
+                        shutil.rmtree(work / "workspaces" / "login", ignore_errors=True)
             rec = payload["output"]
             # The log is copied into the learner's material outside any sandbox: it must lie where this call could
             # write (its work directory, its logs, the declared write paths), never a file it merely names.
@@ -906,6 +908,11 @@ def task_environments(config, *, log=None):
                          "there, not in a container of the agent's own; give one of them")
     from hermit.environment.harbor import HarborEnvironments
     params = dict(d["agent"].get("params") or {})
+    model = params.get("model")
+    if isinstance(model, dict) and model.get("cli"):
+        raise ValueError("agent.params.model: a model a CLI reaches (`cli: ...`) is not supported for a task in "
+                         "Harbor's environments: its login's plan would be waited for inside the task's time; give the "
+                         "agent a <backend>/<model> reference, or run the CLI itself as the agent (agent.base)")
     _, hosts, _ = model_access([params.get("binding"), params.get("model")])
     login = params.get("login")
     hosts = [*hosts, *(h for h in codex_login.hosts(login) if h not in hosts)]     # a subscription's own hosts too

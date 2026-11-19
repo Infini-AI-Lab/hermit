@@ -573,7 +573,10 @@ class Trainer:
                      | ({"log": self._visible_log(r)} if r["id"] in allowed["train"] else {})
                      | ({"error": r.get("error")} if r.get("status") == "error" else {})
                      | {k: (r.get("pipeline_extra") or {})[k] for k in ("exit_code", "timed_out")
-                        if k in (r.get("pipeline_extra") or {})} for r in results]
+                        if k in (r.get("pipeline_extra") or {})}
+                     # a task in its own environment: the rollout's outcome, as the Harbor runner's output carried it
+                     | ({"outcome": {k: (r.get("pipeline_extra") or {}).get(k) for k in ("status", "failure_cause")}}
+                        if "verified" in (r.get("pipeline_extra") or {}) else {}) for r in results]
             return {"results": redact_value(shown)}
         return FunctionTool("run_agent", "Run an adapter (default: your working copy) on training or validation "
                             "tasks through the task's pipeline and judge; returns outputs and scores, and for "

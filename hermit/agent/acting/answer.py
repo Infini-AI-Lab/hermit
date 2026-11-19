@@ -28,6 +28,7 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
+import os
 from pathlib import Path
 import re
 import tempfile
@@ -37,7 +38,7 @@ from hermit.agent.acting.agent import Agent
 from hermit.agent.acting.react import Bounded
 from hermit.agent.base.react import total as usage_total
 from hermit.agent.model.direct import Direct
-from hermit.agent.model.llm import ChatAborted, ChatClient
+from hermit.agent.model.llm import ChatAborted, ChatClient, ChatHTTPError
 from hermit.common import RunOutput
 
 INPUT_FIELDS = ("prompt", "question", "instruction", "input")
@@ -56,6 +57,19 @@ class AnswerAgent(Agent):
         if not isinstance(model, dict) or not model.get("base_url") or not model.get("model"):
             raise ValueError("agent.params.model is required: a `<backend>/<model>` reference")
         started = time.time()
+        client = ChatClient.from_spec(model)
+        if model.get("max_retries") is not None:        # the relay forwarded it; the chat client takes it here
+            client.max_retries = int(model["max_retries"])
+        budget = getattr(getattr(environment, "limits", None), "timeout_s", None) if environment is not None else None
+        caller = Bounded(client, budget) if budget else client    # the task's agent budget bounds the whole call,
+        try:                                                      # as Harbor's agent timeout cancelled the runner's
+            return self._answer(task, adapter, environment, model, client, caller, budget, started)
+        finally:
+            if budget:
+                caller.close()
+
+    def _answer(self, task, adapter, environment, model, client, caller, budget, started) -> RunOutput:
+        p = self.params
         question = self.question(task, environment)
         session = self.session(adapter)
         try:
@@ -69,10 +83,7 @@ class AnswerAgent(Agent):
                                                         for url in images)] if images else question
         messages = ([{"role": "system", "content": system}] if system.strip() else []) + \
             [{"role": "user", "content": content}]
-        client = ChatClient.from_spec(model)
-        budget = getattr(getattr(environment, "limits", None), "timeout_s", None) if environment is not None else None
-        caller = Bounded(client, budget) if budget else client    # the task's agent budget bounds the call, as
-        timed_out = False                                         # Harbor's agent timeout cancelled the runner's
+        timed_out = False
         try:
             reply = Direct({"max_tokens": int(p.get("max_tokens") or 16384)}, caller).run(messages)
         except ChatAborted:
@@ -80,10 +91,10 @@ class AnswerAgent(Agent):
                 raise
             from hermit.agent.model.direct import Reply
             reply, timed_out = Reply(reply=""), True
-        finally:
-            if budget:
-                caller.close()
+        except ChatHTTPError as exc:
+            reply, timed_out = self._refused(exc), False
         answer = self.answer(reply.reply)
+        timed_out = timed_out or bool(budget and caller.expired)
         answer_file = None if "answer_file" in p and p["answer_file"] is None else p.get("answer_file") or ANSWER_FILE
         if environment is not None and answer_file and not timed_out:
             text = str(p.get("answer_format") or "{answer}").replace("{answer}", answer)
@@ -92,11 +103,13 @@ class AnswerAgent(Agent):
                 local.write_text(text, encoding="utf-8")
                 environment.upload(local, str(answer_file))
         logs = self.log_dir()
-        log = Path(tempfile.mkstemp(prefix=f"{task.get('id', 'task')}-", suffix=".json", dir=logs)[1])
+        fd, name = tempfile.mkstemp(prefix=f"{task.get('id', 'task')}-", suffix=".json", dir=logs)
+        log = Path(name)
         shown = [{**m, "content": question if isinstance(m["content"], list) else m["content"]} for m in messages]
-        log.write_text(json.dumps({"task": task.get("id"), "model": model["model"], "messages": shown,
-                                   "attachments": named, "reply": reply.reply, "answer": answer},
-                                  ensure_ascii=False, indent=1))
+        with os.fdopen(fd, "w", encoding="utf-8") as f:   # the descriptor mkstemp opened, closed with the file
+            f.write(json.dumps({"task": task.get("id"), "model": model["model"], "messages": shown,
+                                "attachments": named, "reply": reply.reply, "answer": answer},
+                               ensure_ascii=False, indent=1))
         usage = usage_total(client, reply.usage)
         extra = {"attachments": named, **({"timed_out": True} if timed_out else {})}
         if record is not None:
@@ -136,7 +149,8 @@ class AnswerAgent(Agent):
         if listing.code != 0:
             raise RuntimeError(f"the attachments could not be listed: {listing.output[-500:]}")
         urls, named = [], []
-        for path in [line for line in listing.output.splitlines() if line.strip()]:
+        found = list(dict.fromkeys(line for line in listing.output.splitlines() if line.strip()))   # each image once
+        for path in found:
             kind = mimetypes.guess_type(path)[0] or ""
             if not kind.startswith("image/"):
                 continue
@@ -148,6 +162,24 @@ class AnswerAgent(Agent):
                 urls.append(f"data:{kind};base64,{base64.b64encode(local.read_bytes()).decode()}")
                 named.append(path)
         return urls, named
+
+    @staticmethod
+    def _refused(exc):
+        """The model endpoint's refusal, read as the Harbor runner read the answer agent's: a bill or a spent quota ends
+        the run (usage_limit), the run's configuration refused (401-404, a request setting it does not take) is
+        model_rejected (never run again), a provider that could not serve is infra; a request refused for what its
+        input made it (a prompt too long, an invalid request) is the agent's result: no answer."""
+        from hermit.agent.base.codex_stream import BILLING_REFUSED, CONFIG_REFUSED, QUOTA_SAID
+        from hermit.agent.base.interface import LoginFailed
+        from hermit.agent.model.direct import Reply
+        said = f"{exc.code} {exc.body.decode(errors='replace')[-1000:]}"
+        if exc.code == 402 or BILLING_REFUSED.search(said) or QUOTA_SAID.search(said):
+            raise LoginFailed(f"agent answer: usage_limit: the provider does not bill the account: {said}") from None
+        if exc.code in (401, 403, 404) or (exc.code == 400 and CONFIG_REFUSED.search(said)):
+            raise RuntimeError(f"agent answer: model_rejected: {said}") from None
+        if exc.code in (408, 409, 429) or exc.code >= 500:
+            raise exc
+        return Reply(reply="")
 
     def answer(self, reply: str) -> str:
         pattern = self.params.get("answer_pattern")

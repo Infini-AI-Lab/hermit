@@ -849,6 +849,10 @@ class CliAgent(BaseAgent):
         report = result.extra.pop("plan_report", None)
         if report is not None:
             codex_login.note_usage(plan, None, report)
+            if report["using_credits"] and not codex_login.opted_in(self.settings.get("usage_credits")):
+                # as run()'s: a session that drew the account's usage credits holds the sessions to come
+                codex_login.hold(plan, report.get("credits_resets_at") or report["resets_at"], "usage_credits",
+                                 cancel=self.settings.get("cancel"), max_s=0.0)
         refused = not result.extra.get("served") and result.extra.get("refused") and \
             not result.extra.get("login_failed")
         if refused:
@@ -1197,11 +1201,13 @@ class CliAgent(BaseAgent):
                     gone = environment.exec(["rm", "-f", *left], cwd="/", timeout=120)
                 except Exception as exc:                 # noqa: BLE001 - reported below
                     gone = ExecResult(-1, f"{type(exc).__name__}: {exc}")
-            if s.get("login") == "chatgpt":
-                codex_login.keep_refreshed(Path(s.get("login_root") or codex_login.ROOT), home)
-                codex_login.note_usage(codex_login.plan_dir(s.get("plan_dir")), home)
-            for path in copied:
-                path.unlink(missing_ok=True)
+            try:
+                if s.get("login") == "chatgpt":
+                    codex_login.keep_refreshed(Path(s.get("login_root") or codex_login.ROOT), home)
+                    codex_login.note_usage(codex_login.plan_dir(s.get("plan_dir")), home)
+            finally:                                     # the local copies go however the take-back went
+                for path in copied:
+                    path.unlink(missing_ok=True)
         if gone is not None and gone.code != 0:
             raise RuntimeError(f"{self.name}: the sign-in could not be removed from the environment: "
                                f"{gone.output[-300:]}")

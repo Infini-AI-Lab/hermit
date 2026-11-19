@@ -215,6 +215,7 @@ class Driver:
         workdir = marked[-1]
         return {"workdir": workdir, "user": self.user, "agent_timeout_sec": trial.agent_timeout_sec,
                 "setup_timeout_sec": trial.agent_setup_timeout_sec,
+                "verifier_timeout_sec": trial.verifier_timeout_sec,
                 "trial_dir": str(trial.paths.trial_dir), "os": str(trial.task.config.environment.os.value),
                 "verifier_mode": resolve_task_verifier_mode(trial.task.config).value,
                 "instruction": trial.task.instruction,    # Harbor's own, as its agents are given it
@@ -313,11 +314,22 @@ class Driver:
         return self.has_timeout
 
     async def exec(self, req: dict) -> dict:
-        env = self.env
         command = str(req["command"])
         timeout = req.get("timeout_sec")
         user = req.get("user", None)
-        await self.agent_allowed.wait()                  # never while an install opens the setup network
+        mark = f"{self.mark}-{uuid.uuid4().hex[:8]}"
+        while True:                     # admitted and counted at once: an install waits for every admitted command
+            await self.agent_allowed.wait()
+            if self.agent_allowed.is_set():
+                self.running.add(mark)
+                break
+        try:
+            return await self._run_command(req, command, timeout, user, mark)
+        finally:
+            self.running.discard(mark)
+
+    async def _run_command(self, req: dict, command: str, timeout, user, mark: str) -> dict:
+        env = self.env
         staged = None
         if req.get("stdin") is not None:
             staged = f"/tmp/hermit-stdin-{uuid.uuid4().hex}"
@@ -342,8 +354,6 @@ class Driver:
         else:
             command = f"bash -c {shlex.quote(command)}"
         started = time.time()
-        mark = f"{self.mark}-{uuid.uuid4().hex[:8]}"
-        self.running.add(mark)
         try:
             result = await self._exec(command, cwd=req.get("cwd"), env={**(req.get("env") or {}), MARK: mark},
                                       by_fd=req.get("by_fd") or {}, timeout=outer, user=user)
@@ -354,7 +364,6 @@ class Driver:
                 raise
             code, output = -1, f"{type(exc).__name__}: {exc}"
         finally:
-            self.running.discard(mark)
             if staged is not None:
                 with contextlib.suppress(Exception):
                     await env.exec(f"rm -f {shlex.quote(staged)}", user="root")
@@ -442,19 +451,20 @@ class Driver:
         phase's (a task whose agent may not reach the network still installs its CLI), then back."""
         plan, env = self.plan, self.env
         switch = plan is not None and self.agent_phase is not None and plan.agent_phase != plan.agent_env_baseline
-        if switch:                     # no agent command runs under the wider policy: new ones wait, running ones end
-            self.agent_allowed.clear()
+        if not switch:
+            yield
+            return
+        self.agent_allowed.clear()     # no agent command runs under the wider policy: new ones wait, running ones end
+        try:
             while self.running:
                 await asyncio.sleep(0.2)
             await env.set_network_policy(plan.agent_env_baseline)
-        try:
-            yield
+            try:
+                yield
+            finally:
+                await env.set_network_policy(plan.agent_phase)
         finally:
-            if switch:
-                try:
-                    await env.set_network_policy(plan.agent_phase)
-                finally:
-                    self.agent_allowed.set()
+            self.agent_allowed.set()
 
     def _installer(self, name: str, version=None):
         logs = self.trial.paths.trial_dir / "install" / name

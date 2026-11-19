@@ -26,7 +26,10 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   refuses (a failed run, never the agent's 0). A session in a task's environment is not resumed (refused: its home
   there is made anew for each call). Eval rows of such a task keep its `outcome` (the runner's status); a setting
   of `environment.harbor` is overridden on the command line by its path. The CLI agent's usage now counts every
-  attempt it ran (a provider it ran again on, as the runner counted a trial's runs). What the runner read of a
+  attempt it ran (a provider it ran again on, as the runner counted a trial's runs); a provider that could not serve
+  runs the task again in a fresh environment (`environment.harbor.busy_retries`, `busy_wait_s`, the runner's).
+  An acting agent's model a CLI reaches (`agent.params.model: {cli: ...}`) is refused for a task in Harbor's
+  environments (its plan's wait would fall inside the task's time). What the runner read of a
   session (a lost sign-in or a bill refused: the run ends; a configuration refused: `model_rejected`; the plan's
   refusal: run again once it allows) is read the same way (`hermit/agent/base/codex_stream.py`, ported). Not carried
   over: multi-step tasks (streams), the adapter's tools in a task's environment, the `<cli>_bin` mount (a config

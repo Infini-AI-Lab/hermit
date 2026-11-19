@@ -373,6 +373,27 @@ def _infra_run(cause: str, message: str, usages: list, log: Path, started: float
                      extra={"infra": cause, "infra_final": final, "exception_message": message[-2000:]})
 
 
+def _copy_files(params: dict, base: Path, work: Path) -> None:
+    """The config's `files`, copied into the workspace before the run."""
+    for item in params.get("files") or []:
+        source = Path(base) / item
+        target = work / source.name
+        shutil.copytree(source, target) if source.is_dir() else shutil.copy2(source, target)
+
+
+class AdapterContextTooLong(ValueError):
+    """The adapter's context with the image's own over the CLI's cap: the adapter's result (context_over_limit)."""
+
+
+def _adapter_failed(cause: str, message: str, usages: list, log: Path, started: float) -> RunOutput:
+    """The adapter failed before any session (its deployment, its per-task context, its context over the CLI's cap):
+    the agent's result, scored 0 with its message (`extra.adapter_failed`, which the run reads)."""
+    (log / "adapter_failed.txt").write_text(message, encoding="utf-8")
+    return RunOutput(output=None, log=log, cost_usd=0.0, wall_s=round(time.time() - started, 1), tokens=0,
+                     api_speed={"model_calls": 0}, extra={"adapter_failed": cause, "exception_message": message[-2000:],
+                                                         "session_failed": message[-600:]})
+
+
 def _upload_staging(environment: Environment, work: Path, backend: str, deployed: dict, params: dict,
                     image: dict | None = None) -> None:
     """The staging folder's files into a remote environment's workspace. A context file the image already has there
@@ -386,27 +407,30 @@ def _upload_staging(environment: Environment, work: Path, backend: str, deployed
         if "text" not in image:
             image["text"] = None
             if environment.exec(["test", "-e", name], timeout=60).code == 0:
-                theirs = work.parent / f"image-{name}"
-                try:
-                    environment.download(name, theirs)
-                    image["text"] = theirs.read_text(encoding="utf-8", errors="replace")
-                except Exception as exc:
+                # read there, a link followed there (AGENTS.md -> CLAUDE.md), as the runner read it in the container
+                got = environment.exec(["sh", "-c", f'printf "{IMAGE_MARK}"; cat -- {name}'], timeout=120)
+                if got.code != 0 or IMAGE_MARK not in got.output:
                     del image["text"]
-                    raise RuntimeError(f"{IMAGE_CONTEXT_UNREAD} ({name}): {type(exc).__name__}: {exc}") from None
+                    raise RuntimeError(f"{IMAGE_CONTEXT_UNREAD} ({name}): {got.output[-300:]}")
+                image["text"] = got.output.split(IMAGE_MARK, 1)[1]
         if image["text"] is not None:
             mine.write_text(mine.read_text(encoding="utf-8") + "\n\n" + image["text"], encoding="utf-8")
+            # the merge replaces a link there, never writes through it to the file it names
+            environment.exec(["sh", "-c", f"if [ -L {name} ]; then rm -f -- {name}; fi"], timeout=60)
         if backend == "codex":
             from hermit.hosts.codex import DOC_BYTES
             limit = int(params.get("project_doc_max_bytes") or DOC_BYTES)
             size = len(mine.read_bytes())
             if size > limit:
-                raise ValueError(f"the adapter's context with the image's own {name} is {size} bytes, over Codex's "
-                                 f"limit of {limit} (project_doc_max_bytes): the session would not read all of it")
+                raise AdapterContextTooLong(f"the adapter's context with the image's own {name} is {size} bytes, over "
+                                            f"Codex's limit of {limit} (project_doc_max_bytes): the session would not "
+                                            "read all of it")
     for entry in sorted(work.iterdir()):
         environment.upload(entry, entry.name)
 
 
 IMAGE_CONTEXT_UNREAD = "the image's own context file could not be read"
+IMAGE_MARK = "hermit-image-context:"        # what precedes the file's text in the reading command's output
 
 
 def _ensure_python3(environment: Environment) -> bool:
@@ -547,7 +571,10 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
     own_budget = given.limits.timeout_s if remote else None
     default_s = float(own_budget) if own_budget else 3600.0
     timeout_s = float(params.get("timeout_s") or default_s)
-    retries = max(1, int(params.get("retries", 3)))
+    # In a task's own environment a provider that could not serve is run again by the run, in a fresh environment
+    # (the Harbor runner's busy_retries, one allowance over the task's runs: environment.harbor.busy_retries), never
+    # here in the environment the session already changed
+    retries = 1 if remote else max(1, int(params.get("retries", 3)))
     usages: list = []                   # every attempt's usage: a run again spends too
     image_context: dict = {}            # a task environment's own context file, read before the first deployment
     started = time.time()
@@ -560,7 +587,27 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
         for d in (work, home, log):
             shutil.rmtree(d, ignore_errors=True)
             d.mkdir(parents=True)
-        deployed, context_tool = _deploy(task, adapter, work, backend, params, remote=remote)
+        if remote:
+            # the adapter's own failure (its deployment, its per-task context, a context over the CLI's cap) is the
+            # agent's result, scored 0 with its message, as the runner graded adapter_failed and context_over_limit;
+            # the environment's failing under it stays infra
+            row = task if any(isinstance(task.get(f), str) for f in INPUT_FIELDS) or params.get("context_query") \
+                else {**task, "instruction": given.instruction} if given.instruction is not None else task
+            try:
+                deployed, context_tool = _deploy(row, adapter, work, backend, params, remote=True)
+                _copy_files(params, base, work)
+                _upload_staging(given, work, backend, deployed, params, image_context)
+            except AdapterContextTooLong as exc:
+                return _adapter_failed("context_over_limit", str(exc), usages, log, started)
+            except (OSError, Unsupported):
+                raise
+            except Exception as exc:
+                said = type(exc).__name__ + str(exc)
+                if IMAGE_CONTEXT_UNREAD in said or "EnvironmentUnavailable" in said:
+                    raise
+                return _adapter_failed("adapter_failed", f"{type(exc).__name__}: {exc}", usages, log, started)
+        else:
+            deployed, context_tool = _deploy(task, adapter, work, backend, params, remote=False)
         where = Path(str(given.workspace)) if remote else work       # the workspace as the session sees it
         session = agent.configured(args=[*(agent.settings.get("args") or []), *_session_args(backend, deployed, where)],
                                    **({"tools_name": deployed["harness_tools"].replace("-", "_")}
@@ -571,14 +618,10 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
                                    **({"skills_dir": deployed["skills_dir"]}
                                       if backend == "hermes" and deployed.get("skills_dir") else {}))
         memory = _memory(work, deployed)
-        for item in params.get("files") or []:
-            source = Path(base) / item
-            target = work / source.name
-            shutil.copytree(source, target) if source.is_dir() else shutil.copy2(source, target)
-        if remote:
-            _upload_staging(given, work, backend, deployed, params, image_context)
-            if deployed.get("hooks"):
-                _ensure_python3(given)
+        if not remote:
+            _copy_files(params, base, work)
+        if remote and deployed.get("hooks"):
+            _ensure_python3(given)
         mounts = [] if remote else _mounts(task, work, params, base)
         prompt = _prompt(params, base, task, given if remote else None) + (
             "\n" + MEMORY_NOTE.format(path=memory.relative_to(work).as_posix()) if memory else "")
@@ -619,6 +662,10 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
                 return _infra_run(MODEL_REJECTED, f"agent {backend}: the provider refused the run's configuration: "
                                   f"{result.extra.get('failure')}", usages, log, started, final=True)
             if result.extra.get("refused") and not result.extra["served"] and not result.timed_out:
+                if not LOGINS.get(params.get("login")):
+                    # no plan of the run's to wait for (the user's own sign-in): nothing later can be served
+                    raise LoginFailed(f"agent {backend}: usage_limit: the account refused the session for its usage "
+                                      f"limit and the run holds no plan to wait for: {result.extra.get('failure')}")
                 # the login's plan refused it (its window): run again once the plan allows, never counted
                 return _infra_run("usage_limit", f"agent {backend}: the plan refused the session: "
                                   f"{result.extra.get('failure')}", usages, log, started, final=False)
@@ -633,11 +680,12 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
                     return _infra_run("session_failed", said, usages, log, started, final=False)
                 raise RuntimeError(said)
             break
+        if remote:                      # the run runs it again in a fresh environment (busy_retries)
+            return _infra_run("model_provider_failed", f"agent {backend}: the provider could not serve the session: "
+                              f"{result.extra['output_tail']}", usages, log, started, final=False)
         if attempt == retries:
-            said = f"agent {backend} could not be served after {retries} attempts: {result.extra['output_tail']}"
-            if remote:                  # the rollout's one provider allowance spent: never run again there
-                return _infra_run("model_provider_failed", said, usages, log, started, final=True)
-            raise RuntimeError(said)
+            raise RuntimeError(f"agent {backend} could not be served after {retries} attempts: "
+                               f"{result.extra['output_tail']}")
         wait = float(params.get("retry_wait_s", 120))
         time.sleep(wait if budget is None else max(0.0, min(wait, budget - (time.time() - started) - 1)))
     code, timed_out, last, usage = result.exit_code, result.timed_out, result.reply, usages

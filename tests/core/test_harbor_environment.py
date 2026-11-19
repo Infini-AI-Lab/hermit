@@ -482,6 +482,17 @@ def test_a_real_harbor_environment_runs_the_agents_commands_and_harbors_verifier
                             by_fd={"SECRET": "SECRET_FD"}, timeout=60)
             assert said.output.split() == ["host=tcp://127.0.0.1:9", "s3cr3t-value", "0"], said.output
             assert env.exec(["true"], timeout=60).code == 0
+            if script != "true":
+                # an image whose AGENTS.md is a link to its CLAUDE.md: the adapter's text goes first in a file of its
+                # own there, the image's text (read through the link there) after it, CLAUDE.md untouched
+                from hermit.agent.acting import workspace
+                assert env.exec(["sh", "-c", "echo IMAGE-CLAUDE > CLAUDE.md && ln -sf CLAUDE.md AGENTS.md"]).code == 0
+                staging = tmp_path / "staging"
+                staging.mkdir(exist_ok=True)
+                (staging / "AGENTS.md").write_text("ADAPTER")
+                workspace._upload_staging(env, staging, "codex", {"adapter_id": "a"}, {}, {})
+                said = env.exec(["sh", "-c", "test -L AGENTS.md && echo link; cat AGENTS.md; echo ---; cat CLAUDE.md"])
+                assert said.output == "ADAPTER\n\nIMAGE-CLAUDE\n---\nIMAGE-CLAUDE\n", said.output
             ended = []
 
             def still_running():
@@ -763,8 +774,11 @@ def test_the_session_takes_harbors_instruction_and_the_tasks_budget_and_counts_e
     out = CliAgent({"backend": "codex", "web_search": False, "bin": "codex", "workspaces": str(tmp_path / "ws")},
                    tmp_path).run({"id": "t", "question": "Fix?", "instruction": "Fix the repo."}, None,
                                  environment=env)
-    assert seen == [("Fix the repo.\n\n  keep this  \n", 28800.0)] * 2
-    assert out.extra["attempts"] == 2 and out.tokens == 120 and out.cost_usd == 1.0       # both attempts' usage
+    assert seen == [("Fix the repo.\n\n  keep this  \n", 28800.0)]
+    # the provider could not serve it: never run again in this environment, the run runs it in a fresh one, its
+    # spend kept
+    assert out.extra["infra"] == "model_provider_failed" and out.extra["infra_final"] is False
+    assert out.tokens == 105 and out.cost_usd == 0.5
     capped = CliAgent({"backend": "codex", "web_search": False, "bin": "codex", "timeout_s": 600,
                        "workspaces": str(tmp_path / "ws")}, tmp_path)
     seen.clear()
@@ -790,7 +804,7 @@ def test_hooks_get_python3_their_audit_comes_back_and_the_image_context_is_check
             raise OSError("docker cp failed")
 
     env = Env(tmp_path, lambda c: ExecResult(1, "") if c[:2] == ["sh", "-c"] else ExecResult(0, ""))
-    assert workspace._ensure_python3(env) is False and calls == [("ensure", ["python3"])]
+    assert workspace._ensure_python3(env) is False and calls == [("ensure", ["python3"])]   # its cat fails too
     workspace._collect_hooks(env, log)
     assert (log / "hook-calls.jsonl").is_file() and (log / "hook-state").is_dir()
     work = tmp_path / "work"
@@ -801,13 +815,10 @@ def test_hooks_get_python3_their_audit_comes_back_and_the_image_context_is_check
     from hermit.environment.harbor_errors import pipeline_cause
     assert pipeline_cause(f"RuntimeError: {workspace.IMAGE_CONTEXT_UNREAD} (AGENTS.md)") == ("harbor_failed", True)
 
-    class Big(Recorded):
-        def download(self, source, target):
-            Path(target).write_text("x" * 40000)
-            return Path(target)
-
-    with pytest.raises(ValueError, match="over Codex's limit"):            # the merged text within Codex's cap
-        workspace._upload_staging(Big(tmp_path), work, "codex", {"adapter_id": "a"}, {})
+    big = Recorded(tmp_path, lambda c: ExecResult(0, workspace.IMAGE_MARK + "x" * 40000) if c[:2] == ["sh", "-c"]
+                   else ExecResult(0, ""))
+    with pytest.raises(workspace.AdapterContextTooLong, match="over Codex's limit"):   # the merge within the cap
+        workspace._upload_staging(big, work, "codex", {"adapter_id": "a"}, {})
 
 
 def test_the_answer_agent_writes_to_harbors_default_file_unless_told_none(tmp_path, monkeypatch):
@@ -862,11 +873,21 @@ def test_a_run_that_ends_stops_the_pause_before_a_run_again(tmp_path):
     from hermit.trainer import rollout
     environments = Environments(tmp_path, fails=["sandbox_failed"])
     environments.stopping = threading.Event()
-    environments.stopping.set()
     environments.infra_wait_s = 3600.0
     task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
+    session = environments.session
+
+    def failing(task_dir, name=None):                           # another task ends the run while this one fails
+        environments.stopping.set()
+        return session(task_dir, name)
+
+    environments.session = failing
     out = rollout.environment_rollout(task, task.given(), None, lambda *a, **k: None, environments, 0.0)
     assert environments.starts == 1 and out.extra["unscored"] == "sandbox_failed"
+    from hermit.agent.base.interface import LoginFailed
+    with pytest.raises(LoginFailed):                            # and no environment starts for a task after it
+        rollout.environment_rollout(task, task.given(), None, lambda *a, **k: None, environments, 0.0)
+    assert environments.starts == 1
 
 
 def test_the_harbor_task_directories_are_run_secrets_and_a_login_reaches_its_hosts(tmp_path):
@@ -976,34 +997,22 @@ def test_a_provider_retry_reuses_the_images_own_context_and_a_failed_attempt_kee
     from hermit.agent.acting import workspace
     reads = []
 
-    class Env(Recorded):
-        def download(self, source, target):
-            reads.append(source)
-            Path(target).write_text("IMAGE TEXT")
-            return Path(target)
+    def answer(c):
+        if c[:2] == ["sh", "-c"] and "cat" in c[2]:
+            reads.append(c[2])
+            return ExecResult(0, workspace.IMAGE_MARK + "IMAGE TEXT")
+        return ExecResult(0, "")
 
     work = tmp_path / "work"
     work.mkdir()
-    env, cache = Env(tmp_path), {}
-    for _ in range(3):                                          # three attempts in one environment
+    env, cache = Recorded(tmp_path, answer), {}
+    for _ in range(3):                                          # three deployments into one environment
         (work / "CLAUDE.md").write_text("ADAPTER")
         workspace._upload_staging(env, work, "claude", {"adapter_id": "a"}, {}, cache)
         assert env.uploads["/app/CLAUDE.md"] == "ADAPTER\n\nIMAGE TEXT"
-    assert reads == ["CLAUDE.md"]                               # read once, never the merge back
-    from hermit.agent.acting.workspace import CliAgent
-    from hermit.agent.base import cli
-    from hermit.agent.base.interface import Result
-    from hermit.agent.model.usage import Usage
-    monkeypatch.setenv("HERMIT_HOMES", str(tmp_path / "homes"))
-    monkeypatch.setattr("time.sleep", lambda s: None)
-    monkeypatch.setattr(cli.Codex, "run", lambda self, prompt, **k: Result(
-        reply="", usage=[Usage(model="m", input_tokens=10, output_tokens=2, cost_usd=0.01, calls=1)],
-        exit_code=0, extra={"served": False, "unavailable": True, "started": True, "failed": False,
-                            "output_tail": "503"}))
-    out = CliAgent({"backend": "codex", "web_search": False, "bin": "codex", "workspaces": str(tmp_path / "ws"),
-                    "retries": 2}, tmp_path).run({"id": "t", "instruction": "x"}, None, environment=Recorded(tmp_path))
-    assert out.extra["infra"] == "model_provider_failed" and out.extra["infra_final"] is True
-    assert out.tokens == 24 and out.cost_usd == pytest.approx(0.02)          # both attempts' spend, kept
+    assert len(reads) == 1                                      # read once, never the merge back
+    removal = [c["command"] for c in env.calls if c["command"][:2] == ["sh", "-c"] and "-L" in c["command"][2]]
+    assert removal and "rm -f -- CLAUDE.md" in removal[0][2]    # a link there replaced, never written through
 
 
 def test_harbor_settings_override_on_the_command_line_and_eval_rows_keep_the_outcome(tmp_path):
@@ -1083,3 +1092,267 @@ def test_an_environment_failing_under_the_agent_or_this_machine_is_infra(harbor,
     assert raised.value.cause == "host_failed"
     from hermit.environment.harbor_errors import NO_RETRY
     assert "host_failed" in NO_RETRY
+
+
+# --- review round 3 ---------------------------------------------------------------------------------------------------
+
+def test_a_cli_sessions_provider_failure_runs_again_in_a_fresh_environment_on_its_own_allowance(tmp_path):
+    """The runner's busy_retries: the provider's allowance over the task's runs (not infra_retries), the n-th after
+    n x busy_wait_s, each run in a fresh environment; every run's spend kept."""
+    from hermit.task import Task
+    from hermit.trainer import rollout
+    environments, pauses = Environments(tmp_path, infra_retries=0), []
+    environments.busy_retries, environments.busy_wait_s = 2, 10.0
+    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
+    down = lambda t, a, environment=None: RunOutput(output=None, cost_usd=0.01, tokens=5, api_speed={"model_calls": 1},
+                                                    extra={"infra": "model_provider_failed", "infra_final": False})
+    out = rollout.environment_rollout(task, task.given(), None, down, environments, 0.0, pause=pauses.append)
+    assert environments.starts == 3 and pauses == [10.0, 20.0]
+    assert out.extra["unscored"] == "model_provider_failed" and out.cost_usd == pytest.approx(0.03)
+
+
+def test_an_adapter_that_failed_is_scored_zero_not_left_out(tmp_path, monkeypatch):
+    """The runner's adapter_failed and context_over_limit: the agent's result, scored 0 with its message (no
+    verifier), so a candidate's broken adapter stays in pass@1's denominator."""
+    from hermit.agent.acting import workspace
+    from hermit.harbor.report import kind
+    from hermit.task import Task
+    from hermit.task.verify import environment as judge
+    from hermit.trainer import rollout
+    monkeypatch.setattr(workspace, "_deploy", lambda *a, **k: (_ for _ in ()).throw(KeyError("the context tool broke")))
+    agent = workspace.CliAgent({"backend": "codex", "web_search": False, "bin": "codex",
+                                "workspaces": str(tmp_path / "ws")}, tmp_path)
+    environments = Environments(tmp_path)
+    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo", "instruction": "x"})
+    record = rollout.run_one(task, tmp_path, agent.run, judge, environments)
+    assert record["status"] == "ok" and record["judge"]["score"] == 0.0 and kind(record) == "scored"
+    assert "the context tool broke" in record["judge"]["feedback"]
+    assert not [e for e in environments.events if e[0] == "verify"]          # no verifier for it
+
+
+def test_a_refused_session_without_a_plan_ends_the_run(tmp_path, monkeypatch):
+    from hermit.agent.acting.workspace import CliAgent
+    from hermit.agent.base import cli
+    from hermit.agent.base.interface import LoginFailed, Result
+    monkeypatch.setenv("HERMIT_HOMES", str(tmp_path / "homes"))
+    monkeypatch.setattr(cli.Codex, "run", lambda self, prompt, **k: Result(
+        reply="", exit_code=1, extra={"served": False, "refused": True, "unavailable": False, "started": True,
+                                      "failed": True, "output_tail": "", "failure": "You've hit your usage limit"}))
+    with pytest.raises(LoginFailed, match="no plan"):
+        CliAgent({"backend": "codex", "web_search": False, "bin": "codex", "workspaces": str(tmp_path / "ws")},
+                 tmp_path).run({"id": "t", "instruction": "x"}, None, environment=Recorded(tmp_path))
+
+
+def test_an_admitted_claude_session_that_drew_credits_holds_the_plan(tmp_path, monkeypatch):
+    from hermit.agent.base import cli, login
+    from hermit.agent.base.interface import Result
+    held, noted = [], []
+    monkeypatch.setattr(login, "hold", lambda plan, until=None, why="session_refused", **k: held.append(why))
+    monkeypatch.setattr(login, "note_usage", lambda *a, **k: noted.append(1))
+    monkeypatch.setattr(cli.CliAgent, "_session", lambda self, prompt, **k: Result(
+        reply="done", extra={"served": True, "plan_report": {"using_credits": True, "resets_at": 99.0}}))
+    env = Recorded(tmp_path)
+    env.plan_admitted = True
+    monkeypatch.setenv(login.TOKEN_ENV, "t")
+    cli.Claude({"web_search": False, "login": "claude", "model": "claude-haiku-5-5",
+                "plan_dir": str(tmp_path / "plan")}).run("x", environment=env)
+    assert noted and held == ["usage_credits"]
+
+
+def test_a_local_sign_in_copy_goes_though_its_take_back_failed(tmp_path, monkeypatch):
+    from hermit.agent.base import login
+    from hermit.agent.base.interface import make
+    monkeypatch.setenv("HERMIT_HOMES", str(tmp_path / "homes"))
+    copies = []
+
+    def prepare(root, home):
+        (Path(home) / login.FILE).write_text("{}")
+        copies.append(Path(home) / login.FILE)
+
+    monkeypatch.setattr(login, "prepare", prepare)
+    monkeypatch.setattr(login, "keep_refreshed", lambda *a: (_ for _ in ()).throw(OSError(28, "No space left")))
+    env = Recorded(tmp_path, lambda c: ExecResult(0, CODEX_STREAM) if session_of(c) else ExecResult(0, ""))
+    env.plan_admitted = True
+    with pytest.raises(OSError):
+        make("codex", {"web_search": False, "login": "chatgpt", "model": "m", "bin": "codex",
+                       "home": str(tmp_path / "kept"), "plan_dir": str(tmp_path / "plan")}).run("x", environment=env)
+    assert copies and not copies[0].exists()                     # removed however the take-back went
+
+
+def test_a_react_timeout_keeps_what_the_loop_spent_and_asks_no_follow_up(tmp_path, monkeypatch):
+    import time
+    from hermit.agent.acting.react import ReactAgent, tool
+    from hermit.agent.model import llm
+    from hermit.agent.model.usage import Usage
+    calls = []
+
+    class Model:
+        model = "m"
+
+        def chat(self, messages, abort=None, **kwargs):
+            calls.append(1)
+            return ({"role": "assistant", "content": "", "tool_calls": [
+                {"id": "c", "type": "function", "function": {"name": "slow", "arguments": "{}"}}]},
+                Usage(model="m", input_tokens=100, output_tokens=10, calls=1, cost_usd=0.5))
+
+    monkeypatch.setattr(llm.ChatClient, "from_spec", staticmethod(lambda spec: Model()))
+
+    class Agent(ReactAgent):
+        @tool
+        def slow(self) -> str:
+            """Takes longer than the budget."""
+            time.sleep(0.5)
+            return "done"
+
+    env = Recorded(tmp_path)
+    env.limits = Limits(timeout_s=0.2)
+    out = Agent({"model": {"base_url": "https://x", "model": "m"}, "logs": str(tmp_path / "l"),
+                 "answer_tag": "FINAL"}, tmp_path).run({"id": "t", "instruction": "go"}, None, environment=env)
+    assert out.extra["timed_out"] is True and out.tokens == 110 and out.cost_usd == 0.5 and len(calls) == 1
+
+
+def test_the_answer_agents_fd_retries_attachments_and_http_refusals(tmp_path, monkeypatch):
+    import os as os_mod
+    from hermit.agent.acting import answer as answer_mod
+    from hermit.agent.base.interface import LoginFailed
+    from hermit.agent.model.llm import ChatHTTPError
+    from hermit.agent.model.usage import Usage
+    made, sent = [], []
+
+    class Model:
+        model, max_retries = "m", 4
+
+        def __init__(self):
+            made.append(self)
+
+        def chat(self, messages, **kwargs):
+            sent.append(messages)
+            return {"role": "assistant", "content": "A"}, Usage(model="m", calls=1)
+
+    monkeypatch.setattr(answer_mod.ChatClient, "from_spec", staticmethod(lambda spec: Model()))
+    fds = len(os_mod.listdir("/proc/self/fd"))
+
+    class Env(Recorded):
+        def download(self, source, target):
+            Path(target).write_bytes(b"\x89PNG")
+            return Path(target)
+
+    env = Env(tmp_path, lambda c: ExecResult(0, "/app/a.png\n/app/a.png\n"))
+    agent = answer_mod.AnswerAgent({"model": {"base_url": "https://x", "model": "m", "max_retries": 0},
+                                    "attachments": ["/app/*.png", "/app/a.png"], "logs": str(tmp_path / "l")},
+                                   tmp_path)
+    for _ in range(3):
+        agent.run({"id": "q", "instruction": "Which?"}, None, environment=env)
+    assert len(os_mod.listdir("/proc/self/fd")) == fds                     # no descriptor left per task
+    assert made[0].max_retries == 0                                       # the model's own setting honoured
+    assert sum(1 for part in sent[0][-1]["content"] if part["type"] == "image_url") == 1   # each image once
+
+    def refused(code, body):
+        class Refusing(Model):
+            def chat(self, messages, **kwargs):
+                raise ChatHTTPError(code, body.encode(), {})
+        monkeypatch.setattr(answer_mod.ChatClient, "from_spec", staticmethod(lambda spec: Refusing()))
+        return answer_mod.AnswerAgent({"model": {"base_url": "https://x", "model": "m"}, "logs": str(tmp_path / "l")},
+                                      tmp_path).run({"id": "q", "instruction": "Which?"}, None,
+                                                    environment=Recorded(tmp_path))
+    with pytest.raises(LoginFailed, match="usage_limit"):
+        refused(402, "payment required")
+    with pytest.raises(LoginFailed, match="usage_limit"):
+        refused(429, '{"error": {"code": "insufficient_quota"}}')
+    with pytest.raises(RuntimeError, match="model_rejected"):
+        refused(400, '{"error": {"message": "Unsupported parameter: max_tokens"}}')
+    assert refused(400, '{"error": {"message": "prompt is too long"}}').output["answer"] == ""   # the agent's
+
+
+def test_the_verifier_watchdog_follows_harbors_own_timeout(harbor, monkeypatch):
+    environments, _, _ = harbor
+    asked = []
+    with environments.session(environments.task_dir({"harbor_task": "demo"})) as env:
+        env.started["verifier_timeout_sec"] = 14400.0
+        original = env.driver.request
+        env.driver.request = lambda op, timeout, **f: asked.append((op, timeout)) or original(op, timeout, **f)
+        env.verify()
+    assert ("verify", 14400.0 + harbor_mod.VERIFY_ALLOWANCE_S) in asked
+
+
+def test_a_teardown_failure_keeps_the_tasks_verdict_and_a_host_failure_is_not_run_again(tmp_path):
+    import contextlib
+    from hermit.task import Task
+    from hermit.trainer import rollout
+    environments = Environments(tmp_path)
+    session = environments.session
+
+    @contextlib.contextmanager
+    def breaking(task_dir, name=None):
+        with session(task_dir, name) as env:
+            yield env
+        raise OSError(28, "No space left on device: the cleanup lock")
+
+    environments.session = breaking
+    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
+    out = rollout.environment_rollout(task, task.given(), None, lambda t, a, environment=None: RunOutput(
+        output="x", cost_usd=0.5, tokens=100), environments, 0.0)
+    assert out.extra["verified"]["reward"] == 1.0 and out.cost_usd == 0.5      # the verdict and its spend kept
+
+    def host(t, a, environment=None):
+        raise OSError(24, "Too many open files")
+
+    out = rollout.environment_rollout(task, task.given(), None, host, Environments(tmp_path), 0.0,
+                                      pause=lambda s: None)
+    assert out.extra["unscored"] == "host_failed" and len(out.extra.get("attempts", [1])) == 1
+
+
+def test_a_lost_sign_in_stops_new_work_before_the_tasks_teardown(tmp_path):
+    import contextlib
+    import threading
+    from hermit.agent.base.interface import LoginFailed
+    from hermit.task import Task
+    from hermit.trainer import rollout
+    environments = Environments(tmp_path)
+    environments.stopping = threading.Event()
+    seen = []
+    session = environments.session
+
+    @contextlib.contextmanager
+    def watched(task_dir, name=None):
+        try:
+            with session(task_dir, name) as env:
+                yield env
+        finally:
+            seen.append(environments.stopping.is_set())         # at the teardown: the run already ended
+
+    environments.session = watched
+
+    def lost(t, a, environment=None):
+        raise LoginFailed("agent codex: 401")
+
+    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
+    with pytest.raises(LoginFailed):
+        rollout.environment_rollout(task, task.given(), None, lost, environments, 0.0)
+    assert seen == [True]
+
+
+def test_a_minimal_rows_context_is_computed_from_harbors_instruction(tmp_path, monkeypatch):
+    from hermit.agent.acting import workspace
+    asked = []
+    monkeypatch.setattr(workspace, "_deploy", lambda task, *a, **k: asked.append(task) or
+                        (_ for _ in ()).throw(KeyError("stop here")))
+    env = Recorded(tmp_path)
+    env.instruction = "What is 6 x 7?"
+    workspace.CliAgent({"backend": "codex", "web_search": False, "bin": "codex", "workspaces": str(tmp_path / "w")},
+                       tmp_path).run({"id": "t#1", "harbor_task": "t"}, tmp_path, environment=env)
+    assert asked[0]["instruction"] == "What is 6 x 7?"
+
+
+def test_rrsi_sees_a_harbor_rollouts_failure_and_a_cli_model_is_refused_for_harbor(tmp_path):
+    from types import SimpleNamespace
+    from hermit import isolate
+    from hermit.agent.evolver.methods.rrsi_adapter.domain import AdapterDomain
+    domain = AdapterDomain.__new__(AdapterDomain)
+    assert domain.smoke_failure({"output": "done", "outcome": {"status": "agent_error"}}) is True
+    assert domain.smoke_failure({"output": "done", "outcome": {"status": "ok"}}) is False
+    (tmp_path / "tasks").mkdir()
+    data = {"environment": {"harbor": {"tasks_dir": "tasks", "harbor": sys.executable}},
+            "agent": {"params": {"model": {"cli": "codex", "model": "m", "login": "chatgpt"}}}}
+    with pytest.raises(ValueError, match="a model a CLI reaches"):
+        isolate.task_environments(SimpleNamespace(data=data, base=tmp_path))

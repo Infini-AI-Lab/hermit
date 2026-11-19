@@ -86,6 +86,8 @@ NO_RETRY = ("disk", "model_rejected", "host_failed")   # and this machine's own 
                                                       # again (an OSError starting the environment's driver)
 INFRA_RETRIES = 2                                                # environment.harbor.infra_retries' default
 INFRA_WAIT_S = 300.0                                             # infra_wait_s'
+BUSY_RETRIES = 3                                                 # busy_retries' default: the provider's allowance
+BUSY_WAIT_S = 120.0                                              # busy_wait_s'
 # An exception Harbor does not list whose message shows the host failing, not the agent: the agent's setup could not
 # exec in the container (the host's /tmp full, where runc writes each exec's process file; the daemon gone), or the
 # task's environment did not come up: Harbor's Docker environment raises a plain RuntimeError "Docker compose command

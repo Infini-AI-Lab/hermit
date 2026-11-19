@@ -332,7 +332,10 @@ agent's 0: an environment that did not start (its pull or build, Docker, the hea
 reward, or ran no test (its tools never arrived, the host's disk full: `verifier_failed`), a session that never
 started or that the provider could not serve (`session_failed`, `model_provider_failed`), a provider that refused the run's configuration before serving anything
 (`model_rejected`, never run again; a prompt too long or the model's own refusal stays the agent's result), and a
-provider that does not bill the account (its quota or credit spent: the run ends, as a lost sign-in does). It runs
+provider that does not bill the account (its quota or credit spent: the run ends, as a lost sign-in does; so does a
+session the account refused for its usage limit when the run holds no plan to wait for). An adapter that failed
+before any session (its deployment, its per-task context, its context over Codex's cap: `adapter_failed`,
+`context_over_limit`) is the agent's result, scored 0 with its message, as the runner graded it. It runs
 again, the whole task
 in a fresh environment, up to `infra_retries` times (default 2), each after `infra_wait_s` (300 s), unless its cause
 runs no better again (a disk gate that waited its time out, `disk`; `model_rejected`); every run's usage is the
@@ -413,6 +416,7 @@ network limit of Hermit's (the task's task.toml says what its environment reache
 | `docker_cleanup`, `rmi_threshold_gb`, `disk_gate_gb`, `disk_gate_wait_s`, `tmp_gate_gb`, `image_sizes` | the warm start: `images_keep`, `rmi_task_image` or `rmi_over_gb`; the gates; the images' compressed sizes |
 | `jobs_dir`, `harbor` | where each environment's trial goes; Harbor's command, beside which (or beside the file a link to it names) is the python the driver runs under |
 | `start_timeout_s`, `verify_timeout_s` | how long Hermit waits for the driver's start and its verifier |
+| `busy_retries`, `busy_wait_s` | how many times a session the provider could not serve runs the task again in a fresh environment, over all of its runs (default 3, not counted in `infra_retries`), the n-th after n x `busy_wait_s` (120 s) |
 | `infra_retries`, `infra_wait_s` | how many times a rollout that is not the agent's result runs again in a fresh environment (default 2), each after how long (300 s); never one whose cause runs no better again (`disk`, `model_rejected`) |
 | `verifier_timeout`, `pass_reward`, `reward_key` | a verifier that ran out of its time: `agent` (scored 0) or `infra`; the reward that passes (1.0; null: a scale); the reward's key |
 
