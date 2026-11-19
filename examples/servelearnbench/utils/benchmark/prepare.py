@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Write one ServeLearnBench scenario as a framework task: tasks.jsonl, the splits, windows.json, and the
-learner's read-only copy of the reference documents.
+"""Write one ServeLearnBench scenario as a framework task: its tasks (task directories in Harbor's format, tasks/<id>/),
+the splits, windows.json, and the learner's read-only copy of the reference documents.
 
     python prepare.py --scenario retail_l3 [--block 12] [--smoke 12]
 
@@ -13,6 +13,11 @@ block a serving task belongs to (position // block + 1), which names its evidenc
 category, family) are not in the rows: windows.json maps them on the host side, and nothing a learner reads says
 where a window begins.
 
+A task directory has the stamped instruction as instruction.md and the other fields under task.toml's [metadata], in
+the row's order (utils/agent/slb_fields.py reads it back as that row); it asks for no network (the benchmark's client
+reaches its model through the launcher's meter) and has no tests/: the judge (judge.py) reads the benchmark's own
+reward from the agent's output. Each task is one episode; what carries across the stream is the method's adapter.
+
 `--smoke N` also writes `splits/smoke_serving.txt` (the first N serving tasks) and `splits/smoke_test.txt` (the
 first 4 test tasks of window 0), for a short end-to-end check.
 
@@ -24,6 +29,9 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import shutil
+
+from hermit.task.directory import write_task as write_task_dir
 
 HERE = Path(__file__).resolve().parent
 
@@ -61,6 +69,14 @@ def export_docs(bundle, dest: Path) -> int:
     return n
 
 
+def write_task(tasks: Path, row: dict) -> Path:
+    """One episode as a task directory: the instruction as instruction.md, the other fields (scenario, phase,
+    timestamp, block) under [metadata] in the row's order; no network."""
+    meta = {k: v for k, v in row.items() if k not in ("id", "instruction")}
+    return write_task_dir(tasks / row["id"], row["instruction"], metadata=meta,
+                          environment={"network_mode": "no-network"})
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--scenario", default="retail_l3")
@@ -96,7 +112,10 @@ def main() -> None:
     ids = [r["id"] for r in rows]
     if len(set(ids)) != len(ids):
         raise SystemExit("task ids are not unique across serving and test")
-    (HERE / "tasks.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    if (HERE / "tasks").exists():                    # this script's own output: rewritten whole
+        shutil.rmtree(HERE / "tasks")
+    for row in rows:
+        write_task(HERE / "tasks", row)
     (HERE / "windows.json").write_text(json.dumps({"scenario": a.scenario, "block": a.block, "windows": windows},
                                                   indent=1))
     if a.smoke:

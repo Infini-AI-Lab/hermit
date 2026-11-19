@@ -34,6 +34,14 @@ import sys
 HERE = Path(__file__).resolve().parent
 
 
+def task_rows(tasks: Path) -> dict[str, dict]:
+    """Every task's row by id (the task directories prepare.py writes, as utils/agent/slb_fields.py reads them)."""
+    from hermit.task import Benchmark
+    sys.path.insert(0, str(HERE.parent / "agent"))
+    from slb_fields import slb_task
+    return {tid: t.given() for tid, t in Benchmark.load(tasks, view=slb_task).tasks.items()}
+
+
 def _steps(run_dir: Path) -> list[dict]:
     p = run_dir / "steps.jsonl"
     if not p.exists():
@@ -98,7 +106,7 @@ def main() -> None:
     from hermit.tree import ROOT_TAG
 
     windows = json.loads((HERE / "windows.json").read_text())
-    tasks = {json.loads(l)["id"]: json.loads(l) for l in (HERE / "tasks.jsonl").read_text().splitlines() if l.strip()}
+    tasks = task_rows(HERE / "tasks")
     stream_pos = {tid: int(r["timestamp"]) for tid, r in tasks.items() if r["phase"] == "serving"}
     base = Config.load(a.config, [f"trainer.run_name={a.run}", *a.overrides])
     run_dir = base.run_dir()
