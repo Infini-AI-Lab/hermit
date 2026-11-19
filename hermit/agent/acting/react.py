@@ -44,7 +44,7 @@ from hermit.agent.base.react import React, total as usage_total
 from hermit.agent.base.tool import Tool
 from hermit.agent.model.direct import Direct
 from hermit.agent.model.llm import ChatClient
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 
 CONTEXT_HEADING = "# Instructions from the harness adapter"
 USER_FIELDS = ("prompt", "question", "instruction", "input")
@@ -129,7 +129,7 @@ class ReactAgent(Agent):
         return result.reply
 
     def environment_for(self, task: dict):
-        """The environment the task's tools work in (hermit.agent.environment), or None: the loop needs none."""
+        """The environment the task's tools work in (hermit.environment), or None: the loop needs none."""
         return None
 
     # ---------- the loop's hooks (React's), forwarded ----------

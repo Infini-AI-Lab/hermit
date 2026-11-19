@@ -18,7 +18,7 @@ import threading
 
 import pytest
 
-from hermit.agent.environment import Container, placed
+from hermit.environment import Container, placed
 import yaml
 
 from hermit.agent.base import cli as base_cli

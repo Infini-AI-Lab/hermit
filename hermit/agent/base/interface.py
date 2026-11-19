@@ -5,7 +5,7 @@
     result.reply, result.trajectory, result.usage, result.session
 
 Layer 3 hands everything for one call through `run`: what to do (`prompt`), where and within what (`environment`:
-hermit.agent.environment, its workspace, limits and isolation; a path is a Local environment there), with what
+hermit.environment, its workspace, limits and isolation; a path is a Local environment there), with what
 (`tools`), whether to continue an earlier call (`session`), and named sub-agents (`roles`). A Base Agent enforces every
 limit with the environment's isolation, or refuses the call (`Unsupported`); it never ignores one. What an agent can be
 given of an adapter is its `exports` (`supports`).
@@ -20,7 +20,7 @@ from typing import Any, Sequence
 
 from hermit.agent.base.tool import Tool
 from hermit.agent.base.trajectory import Step
-from hermit.agent.environment.base import (Environment, Limits, Mount, Unsupported,  # noqa: F401 (re-exported)
+from hermit.environment.base import (Environment, Limits, Mount, Unsupported,  # noqa: F401 (re-exported)
                                            as_environment)
 from hermit.agent.model.usage import Usage
 

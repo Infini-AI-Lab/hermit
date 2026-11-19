@@ -28,7 +28,7 @@ from hermit.config import Config, layered
 from hermit.sandbox import Sandbox
 
 from claude_stand import INDEX, ROOT, STREAMS, TOKEN, bwrap_works, stand  # noqa: F401 (stand: the fixture)
-from hermit.agent.environment import Container, Local, Sandboxed
+from hermit.environment import Container, Local, Sandboxed
 
 EXAMPLE = ROOT / "examples" / "claude_subscription"
 
@@ -492,7 +492,7 @@ def test_a_container_session_reaches_its_tool_server_directly(tmp_path, monkeypa
 def test_the_agent_checks_the_images_claude_code_and_its_sandbox_before_a_session(tmp_path, monkeypatch):
     """Before the first session: Claude Code in the image, recent enough for the settings checked here, and its sandbox
     able to start there (else every command would fail and the session still count as served)."""
-    from hermit.agent.environment import docker as container
+    from hermit.environment import docker as container
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (bin_dir / "docker").write_text(FAKE_DOCKER)
@@ -514,7 +514,7 @@ def test_the_agent_checks_the_images_claude_code_and_its_sandbox_before_a_sessio
 
 
 def test_a_secret_by_descriptor_is_one_env_passes_and_named_plainly(tmp_path):
-    from hermit.agent.environment import docker as container
+    from hermit.environment import docker as container
     kw = dict(conf={"image": "i", "network": "n", "proxy": "p"}, work=tmp_path, home=tmp_path, mounts=[],
               timeout=1, stdout=tmp_path / "out")
     with pytest.raises(ValueError, match="does not pass"):
@@ -1981,7 +1981,7 @@ def real_container(real_cli):
     container settings, the network's gateway, where a scripted model listens for the container). The model's URL is
     plain HTTP on the gateway, as the tools' server is, so the sessions are told to reach it directly (NO_PROXY), and
     to try once (the host's variables do not reach a container)."""
-    from hermit.agent.environment import docker as container
+    from hermit.environment import docker as container
     conf = container.settings({}, "claude")
     if not shutil.which("docker") or container.check(conf, "claude"):
         pytest.skip("needs docker, Claude Code's image and its network (HERMIT_CLAUDE_IMAGE, HERMIT_CLAUDE_NETWORK)")

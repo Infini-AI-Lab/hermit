@@ -377,7 +377,7 @@ def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = 
     own["writable"] = [*(agent.settings.get("writable") or ()), str(work)]   # a sandbox shows it no other way
     try:
         session, prompt = agent.configured(**own).instructed(system, prompt)
-        from hermit.agent.environment import Local
+        from hermit.environment import Local
         result = session.run(prompt, environment=(place or Local)(work))
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -468,7 +468,7 @@ def cli_problems(spec: dict) -> list[str]:
                    "(a Docker container of its own, with container: {image, network, proxy}); without bubblewrap, "
                    "sandbox.enforce: best_effort runs it unconfined and records that")
     elif isolation == "container":
-        from hermit.agent.environment import docker as container
+        from hermit.environment import docker as container
         try:
             container.settings(spec, "claude")
         except ValueError as e:
@@ -492,7 +492,7 @@ def cli_endpoint(spec: dict, log_dir=None, *, sandbox=None) -> ChatEndpoint:
     problems = cli_problems(spec)
     if problems:
         raise ValueError("; ".join(problems))
-    from hermit.agent.environment import Container, Local, Sandboxed
+    from hermit.environment import Container, Local, Sandboxed
     settings = {k: v for k, v in spec.items() if k not in ("cli", "timeout", "isolation", "container")}
     isolation = spec.get("isolation") or "sandbox"      # where each session runs: its environment, not a setting
     if isolation == "sandbox":

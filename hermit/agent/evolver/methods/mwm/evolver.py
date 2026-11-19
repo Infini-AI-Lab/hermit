@@ -56,7 +56,7 @@ import time
 import uuid
 
 from hermit.agent.base.interface import LoginFailed, make
-from hermit.agent.environment import Sandboxed
+from hermit.environment import Sandboxed
 from hermit.agent.evolver.base import Context, Evolver, FinalResult, StepContext, StepResult, Usage
 
 HERE = Path(__file__).resolve().parent

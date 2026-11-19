@@ -36,7 +36,7 @@ environment:                   # the task sandbox, where the acting agent runs (
                                # code isolates what it runs (AgentDyn's hooks in containers); warned
   image: null                  # a Docker image: a CLI acting agent runs in a container of its own (Codex or
                                # Claude Code)
-  container: {}                # with image: the container's network and proxy (hermit/agent/environment/docker.py)
+  container: {}                # with image: the container's network and proxy (hermit/environment/docker.py)
   packages: []                 # no image: Python distributions shown besides the framework's environment (an editable
                                # install's package, one on PYTHONPATH), with their dependencies
   read: []                     # no image: task paths shown read-only (relative to this file); never the data, the

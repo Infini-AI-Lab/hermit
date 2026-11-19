@@ -9,7 +9,7 @@ import sys
 import pytest
 
 from hermit.agent.base.interface import Unsupported, make
-from hermit.agent.environment import Container, Limits, Local, Sandboxed, as_environment, placed
+from hermit.environment import Container, Limits, Local, Sandboxed, as_environment, placed
 from hermit.agent.model.usage import Usage
 
 
@@ -83,7 +83,7 @@ def test_a_sandboxed_environment_writes_only_its_workspace(tmp_path):
 
 @pytest.mark.skipif(shutil.which("bwrap") is None, reason="needs bubblewrap")
 def test_a_sandboxed_command_reads_its_mounts_read_only_within_its_clock(tmp_path):
-    from hermit.agent.environment import Mount
+    from hermit.environment import Mount
     from hermit.sandbox import Sandbox
     data, work = tmp_path / "data", tmp_path / "w"
     data.mkdir()
@@ -363,7 +363,7 @@ def test_a_download_keeps_a_link_as_the_link_it_is(tmp_path):
 
 
 def test_a_local_command_stays_within_the_environments_limits(tmp_path):
-    from hermit.agent.environment import Mount, Unsupported
+    from hermit.environment import Mount, Unsupported
     data = tmp_path / "data"
     data.mkdir()
     (data / "fact.txt").write_text("42")
@@ -419,7 +419,7 @@ def test_a_cli_endpoints_sessions_keep_their_isolation_whether_or_not_they_are_l
 def test_a_sandboxed_command_is_refused_a_limit_its_sandbox_cannot_keep(tmp_path):
     """What the run's sandbox grants (a readable path, an allowed host, a forwarded port) it shows to every command,
     and a sandbox that fell back to running unisolated keeps no limit: such a limit is refused, never ignored."""
-    from hermit.agent.environment import Unsupported
+    from hermit.environment import Unsupported
 
     class Box:
         enabled, network, allow, forward, sockets, binds = True, "isolated", (), (), {}, ()
@@ -444,7 +444,7 @@ def test_a_sandboxed_command_is_refused_a_limit_its_sandbox_cannot_keep(tmp_path
 
 
 def test_a_local_mount_replaces_an_earlier_link_and_refuses_the_workspaces_own_file(tmp_path):
-    from hermit.agent.environment import Mount, Unsupported
+    from hermit.environment import Mount, Unsupported
     old, new, work = tmp_path / "old", tmp_path / "new", tmp_path / "w"
     for d, text in ((old, "old"), (new, "new")):
         d.mkdir()
@@ -482,7 +482,7 @@ def test_an_upload_keeps_a_link_to_a_folder_as_the_link_it_is(tmp_path):
 
 
 def test_a_limited_network_is_refused_where_the_sandbox_has_a_proxy(tmp_path):
-    from hermit.agent.environment import Unsupported
+    from hermit.environment import Unsupported
 
     class Box:
         enabled, network, allow, forward, sockets, binds, readable, writable = True, "isolated", (), (), {}, (), (), ()
@@ -572,7 +572,7 @@ def test_a_folder_upload_never_writes_through_a_link_in_the_workspace(tmp_path):
 
 @pytest.mark.skipif(shutil.which("bwrap") is None, reason="needs bubblewrap")
 def test_a_sandboxed_command_can_start_in_a_folder_only_the_sandbox_shows(tmp_path):
-    from hermit.agent.environment import Mount
+    from hermit.environment import Mount
     from hermit.sandbox import Sandbox
     data, work = tmp_path / "data", tmp_path / "w"
     data.mkdir()

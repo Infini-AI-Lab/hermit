@@ -36,7 +36,7 @@ import subprocess
 import threading
 import time
 
-from hermit.agent.environment.base import Mount   # noqa: F401 (re-exported)
+from hermit.environment.base import Mount   # noqa: F401 (re-exported)
 
 DEFAULTS = {"image": ("HERMIT_CODEX_IMAGE", "hermit-codex:0.162.0"),
             "network": ("HERMIT_CODEX_NETWORK", "hermit-sandbox"),

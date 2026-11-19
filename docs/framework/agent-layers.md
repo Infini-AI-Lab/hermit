@@ -10,9 +10,9 @@ layers. Each layer uses the one below it through a single API and treats it as a
 The code follows the layers:
 
 ```text
+hermit/environment/  where an agent works: the Environment API and its implementations (Local, Sandboxed, Container)
 hermit/agent/
 ├── model/        Layer 1: model references, backends, the chat client, a single model call (Direct)
-├── environment/  where an agent works: the Environment API and its implementations (Local, Sandboxed, Container)
 ├── base/         Layer 2: the Base Agent API and its implementations, tools, the tool server, login
 ├── acting/       Layer 3: the Acting Agent API and the built-in Acting Agents
 └── evolver/    Layer 3: the Evolver API and the agent Evolver
@@ -112,14 +112,15 @@ runs before a call waits).
 
 ## Environments
 
-Where an agent works, and what it may reach from there (`hermit/agent/environment/`). Every Base Agent takes its
+Where an agent works, and what it may reach from there (`hermit/environment/`, beside the agents: a task declares
+what it needs of one and a judge may run in one too, so it belongs to no layer of the agents). Every Base Agent takes its
 environment from the call; nothing about where it runs is a setting.
 
 | Environment | Isolation | What it is |
 |---|---|---|
 | `Local(path, limits)` | none | A directory of this machine, as it is: no path can be hidden, the network is not limited |
 | `Sandboxed(path, limits, sandbox=...)` | sandbox | The directory inside the run's sandbox (`hermit.sandbox.Sandbox`), which decides what the agent reads, writes and reaches |
-| `Container(path, limits, settings=...)` | container | A Docker container of the session's own (`hermit/agent/environment/docker.py`: image, network, proxy); a CLI's session runs there |
+| `Container(path, limits, settings=...)` | container | A Docker container of the session's own (`hermit/environment/docker.py`: image, network, proxy); a CLI's session runs there |
 
 API: `exec(command, cwd=, env=, timeout=, stdin=) → ExecResult(code, output, timed_out)` runs a command there (a
 tool of the agent's, a check) within the environment's limits: its readable mounts in place, its `timeout_s` unless
@@ -328,7 +329,7 @@ Configurations that name an agent, an Evolver or a template (`agent.name: codex`
 | `agent.run(prompt, workspace=path, limits=Limits(...))` | `agent.run(prompt, environment=Local(path, Limits(...)))` (a path alone is a `Local`) |
 | `isolation`, `sandbox`, `container` in a Base Agent's settings | the environment: `Sandboxed(path, sandbox=box)`, `Container(path, settings={...})`; given as settings, refused |
 | `make("direct", settings, model)`, `hermit.agent.base.direct` | `Direct(settings, model)`, `hermit.agent.model.direct` (Layer 1); `make("direct")` is refused; the old module path forwards for one release |
-| `hermit.agent.base.container` | `hermit.agent.environment.docker` (the old path forwards for one release) |
-| `Mount`, `Limits` from `hermit.agent.base.interface` | `hermit.agent.environment` (still importable from the interface) |
+| `hermit.agent.base.container` | `hermit.environment.docker` (the old path forwards for one release) |
+| `Mount`, `Limits` from `hermit.agent.base.interface` | `hermit.environment` (still importable from the interface) |
 | a benchmark's own copy of the tool loop | a `ReactAgent` subclass with `@tool` methods and hooks |
 | `@tool(description, parameters)` | also `@tool` alone: the description from the docstring, the schema from the signature |

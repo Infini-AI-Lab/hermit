@@ -38,7 +38,7 @@ the current `train` and `eval` commands require a configured scoring callable.
 
 Only `output` is required when constructing `RunOutput`:
 
-```{literalinclude} ../../hermit/task.py
+```{literalinclude} ../../hermit/common.py
 :language: python
 :pyobject: RunOutput
 ```
@@ -57,10 +57,15 @@ log paths available until the Trainer has collected them.
 
 ### Feedback result
 
-```{literalinclude} ../../hermit/task.py
+```{literalinclude} ../../hermit/task/data.py
 :language: python
 :pyobject: JudgeResult
 ```
+
+Inside the framework each row becomes a `Task` (`hermit/task/task.py`): its public half is the row, what the acting
+agent is handed and what a run records as its input; its private half, a row's `_private` mapping when it has one,
+only the judge reads. The run (`hermit/trainer/rollout.py`) gives the agent the public half and the judge the whole
+task; the agent and the task set never import each other.
 
 The scoring function decides what feedback to reveal. Reference answers placed in feedback become visible to the
 learner. The numeric score can be task-specific; the current `eval` report counts a task as solved at least once

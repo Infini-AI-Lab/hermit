@@ -47,7 +47,7 @@ from hermit.redact import redact_name, redact_path, redact_tree, redact_value
 from hermit.sandbox import (AllowlistProxy, Bind, Sandbox, drop_unsafe, hidden_paths, inside_tools, model_access,
                             set_hidden)
 from hermit.spec import check_spec, repair
-from hermit.task import TaskData
+from hermit.task import Benchmark
 from hermit.tools import FunctionTool, ToolServer, assemble, evolver_agent
 from hermit.trainer import card
 from hermit.trainer.budget import Budget, BudgetExceeded
@@ -208,8 +208,7 @@ class Trainer:
         self.run_name = config.run_name()
         self.run_dir = config.run_dir()
         self.branch = self.run_name
-        self.data = TaskData(config.path(d["data"]["tasks"]), config.path(d["data"]["train"]),
-                             config.path(d["data"]["val"]), config.path(d["data"]["test"]))
+        self.data = Benchmark.from_config(config)
         # The spec checks run the adapter's modules in a strict sandbox, as strictly as the run asks; None: the run's
         # sandbox is off and they run unconfined like everything else.
         self.enforce = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] else None
@@ -293,8 +292,8 @@ class Trainer:
             val = self.run_dir / "access" / "validation"
             val.mkdir(parents=True, exist_ok=True)
             with open(val / "tasks.jsonl", "w") as f:
-                for row in self.data.rows("val"):
-                    f.write(json.dumps(row, ensure_ascii=False) + "\n")
+                for task in self.data.split("val"):     # each task's public half, never the judge's own
+                    f.write(json.dumps(task.given(), ensure_ascii=False) + "\n")
         env = tuple(config_paths(self.config, "evolver_access.environment", d["evolver_access"]["environment"]))
         self.access = Access(validation=val, environment=env)
         self._recheck_grants = Recheck([*env, self.ws.task_info], own=self.run_dir)

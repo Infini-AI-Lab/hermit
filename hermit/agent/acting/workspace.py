@@ -28,7 +28,7 @@ adds only what is its own.
         collect: utils/task.py:collect       # optional: (task, workspace, log) -> facts, after the run
         context_query: question              # the task field an adapter's context tool retrieves for
         # (the CLI, Codex or Claude Code, in a Docker container of its own: the run config's environment.image and
-        #  environment.container, not these params; hermit.agent.environment.docker)
+        #  environment.container, not these params; hermit.environment.docker)
         project_doc_max_bytes: null          # Codex's cap on AGENTS.md; null: Codex's default
         shell_env: core                      # the variables Codex's commands get: core (no keys, no PYTHONPATH) or all
         web_search: false                    # web search, set explicitly either way: Codex's hosted search (it runs
@@ -69,9 +69,9 @@ import uuid
 
 from hermit.agent.acting.agent import ALL, Agent
 from hermit.agent.base.interface import BaseAgent, LoginFailed, make
-from hermit.agent.environment import Container, Environment, Limits, Mount, Local, docker as container
+from hermit.environment import Container, Environment, Limits, Mount, Local, docker as container
 from hermit.agent.base.login import LOGINS, NO_LOGIN
-from hermit.task import RunOutput, load_callable
+from hermit.common import RunOutput, load_callable
 
 BACKENDS = ("codex", "claude", "pi", "mini-swe-agent", "opencode", "dsh", "hermes")
 DEPLOYS = ("host",)

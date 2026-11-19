@@ -30,7 +30,7 @@ import inspect
 from pathlib import Path
 from typing import Callable
 
-from hermit.task import RunOutput, load_callable
+from hermit.common import RunOutput, load_callable
 
 
 EXPORTS = ("context", "context_tool", "tools", "skills", "agents", "hooks")   # an adapter's, as exports.yaml names them

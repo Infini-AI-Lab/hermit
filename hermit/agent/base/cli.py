@@ -96,9 +96,9 @@ Settings (given once; `configured(...)` for a call's own):
   hermit's plugin turns off; default true). Hermes takes no roles, has no web search, takes a prompt of one
   argument (ARG_MAX bytes) at most and runs under isolation none or sandbox.
 
-The isolation is the call's environment's (hermit.agent.environment), never a setting: none (Local: the CLI on
+The isolation is the call's environment's (hermit.environment), never a setting: none (Local: the CLI on
 this machine), sandbox (Sandboxed: inside the run's hermit.sandbox.Sandbox) or container (Container: a Docker container
-of its own, its settings image, network, proxy: hermit.agent.environment.docker, where the CLI's own sandbox holds the
+of its own, its settings image, network, proxy: hermit.environment.docker, where the CLI's own sandbox holds the
 session's commands: Codex's `codex_sandbox`, Claude Code's CLAUDE_SANDBOX). Limits are the environment's, enforced by
 its isolation, or the call is refused (Unsupported):
 
@@ -128,8 +128,8 @@ from typing import Any, Sequence
 import urllib.parse
 
 from hermit.agent.base import login as codex_login
-from hermit.agent.environment import docker as container
-from hermit.agent.environment.base import Environment, _descendants, as_environment
+from hermit.environment import docker as container
+from hermit.environment.base import Environment, _descendants, as_environment
 from hermit.agent.base.interface import BaseAgent, Limits, Mount, Result, Unsupported
 from hermit.agent.base.records import (parse_claude, parse_codex, parse_dsh, parse_hermes, parse_mini_swe_agent,
                                        parse_opencode, parse_pi, price_usage)
@@ -139,7 +139,7 @@ from hermit.agent.base.trajectory import (claude_steps, codex_steps, dsh_steps, 
 from hermit.agent.model.backends import CLAUDE_ENV
 
 ISOLATIONS = ("none", "sandbox", "container")
-ENVIRONMENT_KEYS = ("isolation", "sandbox", "container")    # the environment's (hermit.agent.environment), not settings
+ENVIRONMENT_KEYS = ("isolation", "sandbox", "container")    # the environment's (hermit.environment), not settings
 # The CLI's own reports of a provider it could not reach (it retries those itself first), and of a container that
 # could not start, not the session's text
 UNAVAILABLE = re.compile(r"unexpected status (?:429|5\d\d)|exceeded retry limit|stream disconnected|"
@@ -740,7 +740,7 @@ class CliAgent(BaseAgent):
         given = sorted(k for k in ENVIRONMENT_KEYS if k in self.settings)
         if given:            # never ignored: a session that took them for settings would run without its isolation
             raise ValueError(f"{self.name}: {', '.join(given)} belong to the call's environment "
-                             "(hermit.agent.environment: Local, Sandboxed, Container), not to the agent's settings")
+                             "(hermit.environment: Local, Sandboxed, Container), not to the agent's settings")
         self = copy.copy(self)                      # this call's agent: it holds the call's environment
         self.environment = env
         s = self.settings
