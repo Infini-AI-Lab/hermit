@@ -1,6 +1,6 @@
-"""The Docker daemon as the Harbor runner sees it: the data root's free space (the disk gate), a task's prebuilt
-image and its removal, a trial's compose projects (its environment's, its separate verifiers') taken down after a
-kill.
+"""The Docker daemon as a Harbor environment sees it (hermit.environment.harbor): the data root's free space (the disk
+gate), a task's prebuilt image and its removal, a trial's compose projects (its environment's, its separate
+verifiers') taken down after a kill.
 
 Nothing here touches an image or a container that is not the task's own: every removal names the exact image
 reference a task.toml declares, runs under a per-image file lock, and is a quiet no-op when Docker refuses it
