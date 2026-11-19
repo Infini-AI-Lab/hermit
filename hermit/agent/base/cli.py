@@ -1090,8 +1090,8 @@ class CliAgent(BaseAgent):
         if s.get("text_only") and (tools or roles):
             raise Unsupported(f"{self.name}: a session with text_only has no tools or roles")
         if tools:
-            raise Unsupported(f"{self.name} in a remote environment cannot reach the call's tools (the framework's tool "
-                              "server runs on this machine)")
+            raise Unsupported(f"{self.name} in a remote environment cannot reach the call's tools (the framework's "
+                              "tool server runs on this machine)")
         self._isolation(PurePosixPath(str(environment.workspace)), limits)
         prompt = self.prompt_text(prompt)
         workspace = PurePosixPath(str(environment.workspace))

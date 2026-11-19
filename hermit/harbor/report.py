@@ -4,8 +4,8 @@
 
 `hermit eval` scores a trial that is not the agent's result (infra: the task's environment could not be given, or it
 failed under the verifier) as a failed run: its judge (hermit.task.verify.environment) gives it no score, so it counts
-among the summary's `errors` and as 0 in its `mean_score`. A benchmark's own figure leaves such trials out. This reads the eval's results.jsonl (`<run dir>/eval/<adapter>/`) and
-gives, over all its repeats and for each repeat:
+among the summary's `errors` and as 0 in its `mean_score`. A benchmark's own figure leaves such trials out. This reads
+the eval's results.jsonl (`<run dir>/eval/<adapter>/`) and gives, over all its repeats and for each repeat:
 
     trials        the rows of the eval
     scored        the trials the judge scored (status ok): the agent's results

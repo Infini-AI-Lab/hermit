@@ -3,12 +3,12 @@
 
     python worker.py          # the job arrives as JSON on stdin; HA_RESULT_FD names the pipe the result leaves by
 
-A job is {"kind": "agent", "name", "params", "base", "task", "adapter", "environment"} (what
-`load_agent(...).run(task, adapter)` takes; `environment`, when the task gives one, the spec of the server the host
-serves it from, hermit.environment.remote: the agent gets a ProxyEnvironment of it), {"kind": "judge", "spec", "base", "task", "output"} (the judge on an output record, in a sandboxed judge
-mode) or {"kind": "tool", "entrypoint", "base", "arguments", "bound"} (a template's or task's declared tool). The
-result is {"ok": true, "output": <RunOutput record>} / {"ok": true, "result": ...} or {"ok": false, "error",
-"traceback"}.
+A job is {"kind": "agent", "name", "params", "base", "task", "adapter", "environment"} (what `load_agent(...).run(task,
+adapter)` takes; `environment`, when the task gives one, the spec of the server the host serves it from,
+hermit.environment.remote: the agent gets a ProxyEnvironment of it), {"kind": "judge", "spec", "base", "task", "output"}
+(the judge on an output record, in a sandboxed judge mode) or {"kind": "tool", "entrypoint", "base", "arguments",
+"bound"} (a template's or task's declared tool). The result is {"ok": true, "output": <RunOutput record>} / {"ok": true,
+"result": ...} or {"ok": false, "error", "traceback"}.
 
 The result pipe is made non-inheritable before anything else runs, so a program the agent starts cannot write a
 result of its own (a score it did not earn, a cost it did not spend). Whatever the agent prints goes to its own

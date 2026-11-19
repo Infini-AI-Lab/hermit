@@ -146,7 +146,7 @@ def every_config():
 
 @pytest.mark.parametrize("bench", METHODS)
 def test_every_learner_is_sandboxed_and_no_agent_searches_the_web(bench):
-    assert "web_search" not in read(EXAMPLES / bench / "utils" / "benchmark.yaml")       # the agent's, not the task set's
+    assert "web_search" not in read(EXAMPLES / bench / "utils" / "benchmark.yaml")       # the agent's, not the tasks'
     for path in sorted((EXAMPLES / bench).glob("*/*.yaml")):
         if path.parent.name == "utils":
             continue

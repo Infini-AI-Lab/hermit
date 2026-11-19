@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""OfficeQA in the SkillOpt paper's setting as a task set in Harbor's format: one task directory per question, run by
-`agent.name: harbor` (the Codex harness in a container Harbor starts, instead of one the acting agent's environment.image starts).
+"""OfficeQA in the SkillOpt paper's setting as a task set in Harbor's format: one task directory per question, each run
+in its own Harbor environment (`environment.harbor`: the Codex harness in a container Harbor starts, instead of one the
+acting agent's environment.image starts).
 
     python examples/officeqa/utils/harbor/build_tasks.py                 # after utils/benchmark/prepare.py
         [--out utils/benchmark/.private/harbor_tasks] [--ids utils/benchmark/splits/test.txt] [--limit N] [--base-image

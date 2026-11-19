@@ -87,8 +87,8 @@ class FunctionAgent(Agent):
     def run(self, task: dict, adapter: Path | None, environment=None) -> RunOutput:
         if environment is not None:
             if not self.takes_environment:
-                raise TypeError(f"{getattr(self.fn, '__name__', self.fn)} takes no environment, and the task gives one: "
-                                "add an `environment` parameter")
+                name = getattr(self.fn, "__name__", self.fn)
+                raise TypeError(f"{name} takes no environment, and the task gives one: add an `environment` parameter")
             return self.fn(task, adapter, environment=environment, **self.extra)
         return self.fn(task, adapter, **self.extra)
 

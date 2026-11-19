@@ -342,15 +342,12 @@ def test_no_shipped_config_runs_a_method_on_an_agent_that_lacks_what_it_needs():
     assert checked >= 10                                    # MWM, ASPIRE, ReHarness and AHE's examples
 
 
-def test_harbor_takes_what_its_acting_agent_takes(tmp_path):
-    from hermit.agent.acting.agent import supports_of
-    tasks = tmp_path / "tasks"
-    tasks.mkdir()
-    for acting, expected in (({"cli": "codex"}, "all"), ({"cli": "answer"}, ("context", "context_tool")),
-                             ({"name": "oracle"}, ())):
-        supports = supports_of("harbor", tmp_path, {"tasks_dir": str(tasks), "acting_agent": acting},
-                               may_import=False)
-        assert (len(supports) == 6 and "hooks" in supports) if expected == "all" else supports == expected, acting
+def test_the_answer_agent_takes_the_context_and_harbor_is_no_agent_any_more(tmp_path):
+    import pytest
+    from hermit.agent.acting.agent import load_agent, supports_of
+    assert supports_of("answer", tmp_path, {}, may_import=False) == ("context", "context_tool")
+    with pytest.raises(ValueError, match="agent.name: harbor is gone"):
+        load_agent("harbor", {}, tmp_path)
 
 
 def test_a_download_keeps_a_link_as_the_link_it_is(tmp_path):
@@ -501,15 +498,6 @@ def test_a_list_argument_says_what_its_items_are():
     assert schema_of(lookup)["properties"] == {
         "paths": {"type": "array", "items": {"type": "string"}}, "ids": {"type": "array", "items": {"type": "integer"}},
         "raw": {"type": "array", "items": {}}, "later": {"type": "array", "items": {"type": "string"}}}
-
-
-def test_harbor_reads_its_acting_agent_as_the_runner_merges_it(tmp_path):
-    from hermit.agent.acting.agent import supports_of
-    (tmp_path / "tasks").mkdir()
-    (tmp_path / "benchmark.yaml").write_text("acting_agent: {cli: answer}\n")
-    given = {"tasks_dir": str(tmp_path / "tasks"), "benchmark": "benchmark.yaml"}
-    assert supports_of("harbor", tmp_path, given, may_import=False) == ("context", "context_tool")
-    assert "hooks" in supports_of("harbor", tmp_path, {**given, "acting_agent": None}, may_import=False)  # the default
 
 
 def test_an_endpoint_entered_after_it_was_started_serves_once_and_stops_on_close():

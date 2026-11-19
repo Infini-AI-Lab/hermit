@@ -60,9 +60,7 @@ import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
-import time
 import uuid
 
 import yaml
@@ -232,7 +230,8 @@ class HarborEnvironments:
         tmp_gate = self._gate("tmp_gate_gb", TMP_GATE_GB)
         if tmp_gate > 0 and docker.free_gb(HOST_TMP) < tmp_gate:
             return f"the host's {HOST_TMP} stayed under {tmp_gate:g} GB free"
-        held = f"the Docker data root {self.docker_root()} stayed under {self._gate('disk_gate_gb', DISK_GATE_GB):g} GB free"
+        gate = self._gate("disk_gate_gb", DISK_GATE_GB)
+        held = f"the Docker data root {self.docker_root()} stayed under {gate:g} GB free"
         image = docker.task_image(task_dir)
         image_gb = self.image_gb(image) if image else 0.0
         if image_gb and docker.image_size(image) is None:
@@ -496,7 +495,8 @@ class HarborEnvironment(Environment):
         line = command if isinstance(command, str) else shlex.join([str(c) for c in command])
         timeout = timeout if timeout is not None else self.limits.timeout_s
         reply = self._live().request("exec", None if timeout is None else float(timeout) + 300, command=line,
-                                     cwd=str(self.path(cwd or "")), env={str(k): str(v) for k, v in (env or {}).items()},
+                                     cwd=str(self.path(cwd or "")),
+                                     env={str(k): str(v) for k, v in (env or {}).items()},
                                      timeout_sec=timeout, stdin=stdin, user=user)
         return ExecResult(code=int(reply.get("code", -1)), output=str(reply.get("output") or ""),
                           timed_out=bool(reply.get("timed_out")))
