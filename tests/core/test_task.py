@@ -87,3 +87,21 @@ def test_the_names_imported_from_hermit_task_before_the_package_still_import():
                              normalise_judge, output_record, read_ids)
     from hermit import common
     assert RunOutput is common.RunOutput and load_callable is common.load_callable
+
+
+def test_a_bare_judge_still_reads_the_private_half_and_records_keep_the_rows_id():
+    """As before tasks were typed: a judge `score(row, output)` is called with the whole row, `_private` included (the
+    agent is not); a numeric id stays a number in the record; `judge=` is still the keyword."""
+    seen = {}
+
+    def agent(given, adapter):
+        seen["agent"] = given
+        return RunOutput(output="4")
+
+    def score(row, output):
+        return float(output.output == row["_private"]["answer"])
+    row = {"id": 7, "question": "2+2?", "_private": {"answer": "4"}}
+    record = run_one(row, None, agent, judge=score)
+    assert record["judge"]["score"] == 1.0 and "_private" not in seen["agent"]
+    assert record["id"] == 7 and json.loads(json.dumps(record))["id"] == 7
+    assert run_tasks([row], None, agent, judge=score, concurrency=1)[0]["judge"]["score"] == 1.0

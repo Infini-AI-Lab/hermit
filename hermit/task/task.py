@@ -44,6 +44,11 @@ class Task:
         """What the acting agent is handed: a copy of the public half."""
         return dict(self.public)
 
+    def row(self) -> dict:
+        """The task as a row again, what a judge is called with: the public half and, if any, the private one under
+        `_private`."""
+        return {**self.public, PRIVATE: dict(self.private)} if self.private else dict(self.public)
+
 
 def as_task(value) -> Task:
     """A Task as it is, or one made from a row (what callers held before tasks were typed)."""

@@ -10,9 +10,9 @@ layers. Each layer uses the one below it through a single API and treats it as a
 The code follows the layers:
 
 ```text
+hermit/environment/  where an agent works: the Environment API and its implementations (Local, Sandboxed, Container)
 hermit/agent/
 ├── model/        Layer 1: model references, backends, the chat client, a single model call (Direct)
-├── environment/  where an agent works: the Environment API and its implementations (Local, Sandboxed, Container)
 ├── base/         Layer 2: the Base Agent API and its implementations, tools, the tool server, login
 ├── acting/       Layer 3: the Acting Agent API and the built-in Acting Agents
 └── evolver/    Layer 3: the Evolver API and the agent Evolver

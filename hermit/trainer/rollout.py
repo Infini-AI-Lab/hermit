@@ -16,11 +16,12 @@ from hermit.task import Task, as_task, judge_verifier
 from hermit.trainer.budget import Budget, BudgetExceeded
 
 
-def run_one(task: Task | dict, adapter: Path | None, pipeline, verifier) -> dict:
-    """One task: the agent (`pipeline(given, adapter) -> RunOutput`) on the task's public half, then the verifier
-    (`verifier(task, output) -> JudgeResult`, hermit.task.verify) on its answer; the record the run keeps."""
+def run_one(task: Task | dict, adapter: Path | None, pipeline, judge) -> dict:
+    """One task: the agent (`pipeline(given, adapter) -> RunOutput`) on the task's public half, then the judge on
+    its answer: a verifier (`verifier(task, output) -> JudgeResult`, hermit.task.verify) or a bare judge
+    (`score(row, output)`); the record the run keeps."""
     task = as_task(task)
-    verify = verifier if getattr(verifier, "takes_task", False) else judge_verifier(verifier)
+    verify = judge if getattr(judge, "takes_task", False) else judge_verifier(judge)
     given = task.given()                                 # what the agent is handed, and what the record shows
     started = time.time()
     try:
@@ -31,14 +32,14 @@ def run_one(task: Task | dict, adapter: Path | None, pipeline, verifier) -> dict
         why = login_failure(exc)                     # as text from a sandbox's worker, or from a chat endpoint
         if why is not None:
             raise LoginFailed(why) from None
-        return {"id": task.id, "input": given, "status": "error", "error": f"{type(exc).__name__}: {exc}",
+        return {"id": given.get("id", task.id), "input": given, "status": "error", "error": f"{type(exc).__name__}: {exc}",
                 "traceback": traceback.format_exc()[-3000:], "output": None,
                 "judge": {"score": 0.0, "feedback": f"the pipeline failed: {type(exc).__name__}: {exc}"},
                 "cost_usd": None, "wall_s": round(time.time() - started, 2), "api_speed": None, "tokens": None,
                 "log": None, "messages": None}
     failed = (out.extra or {}).get("session_failed")
     if failed:                                           # no answer to judge; what it spent and its log still count
-        return {"id": task.id, "input": given, "status": "error", "error": f"the agent's session failed: {failed}",
+        return {"id": given.get("id", task.id), "input": given, "status": "error", "error": f"the agent's session failed: {failed}",
                 "output": None, "judge": {"score": 0.0, "feedback": f"the agent's session failed: {failed}"},
                 "cost_usd": out.cost_usd, "wall_s": round(out.wall_s or (time.time() - started), 2),
                 "api_speed": out.api_speed, "tokens": out.tokens, "log": str(out.log) if out.log else None,
@@ -50,13 +51,13 @@ def run_one(task: Task | dict, adapter: Path | None, pipeline, verifier) -> dict
     except Exception as exc:
         judged = {"score": 0.0, "feedback": f"the judge failed: {type(exc).__name__}: {exc}"}
         status, error = "judge_error", f"{type(exc).__name__}: {exc}"
-    return {"id": task.id, "input": given, "status": status, "error": error, "output": out.output,
+    return {"id": given.get("id", task.id), "input": given, "status": status, "error": error, "output": out.output,
             "judge": judged, "cost_usd": out.cost_usd, "wall_s": round(out.wall_s or (time.time() - started), 2),
             "api_speed": out.api_speed, "tokens": out.tokens, "log": str(out.log) if out.log else None,
             "messages": out.messages, "pipeline_extra": out.extra}
 
 
-def run_tasks(tasks: list[Task | dict], adapter: Path | None, pipeline, verifier, *, concurrency: int,
+def run_tasks(tasks: list[Task | dict], adapter: Path | None, pipeline, judge, *, concurrency: int,
               budget: Budget | None = None, part: str = "rollout") -> list[dict]:
     """All tasks, in the given order. Raises BudgetExceeded (after in-flight tasks end) when a hard budget is hit."""
     results: dict[str, dict] = {}
@@ -66,7 +67,7 @@ def run_tasks(tasks: list[Task | dict], adapter: Path | None, pipeline, verifier
         if stop.is_set():
             return None
         try:
-            record = run_one(task, adapter, pipeline, verifier)
+            record = run_one(task, adapter, pipeline, judge)
         except LoginFailed:
             stop.set()                                   # the tasks waiting would fail the same way
             raise
@@ -81,11 +82,11 @@ def run_tasks(tasks: list[Task | dict], adapter: Path | None, pipeline, verifier
 
     tasks = [as_task(t) for t in tasks]
     with ThreadPoolExecutor(max_workers=max(1, int(concurrency))) as pool:
-        futures = [pool.submit(work, t) for t in tasks]
+        futures = {pool.submit(work, t): t.id for t in tasks}
         for future in as_completed(futures):
             record = future.result()
             if record is not None:
-                results[record["id"]] = record
+                results[futures[future]] = record        # by the task's id: a record keeps the row's own (7, not "7")
     if stop.is_set() and budget is not None:
         raise BudgetExceeded(budget.exceeded() or "budget reached")
     return [results[t.id] for t in tasks if t.id in results]

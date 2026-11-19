@@ -16,14 +16,18 @@ from hermit.task.task import Task
 
 
 class Verifier(Protocol):
+    """Called with the whole Task. `takes_task = True` tells hermit.trainer.rollout so (a callable without it is taken
+    for a bare judge and wrapped by judge_verifier)."""
+    takes_task: bool
+
     def __call__(self, task: Task, output: RunOutput) -> JudgeResult: ...
 
 
 def judge_verifier(judge: Callable) -> Verifier:
-    """A verifier over a judge as a task set writes it: called with the task's row (its public half and nothing the
-    agent was not given) and the agent's output; whatever it returns, normalised."""
+    """A verifier over a judge as a task set writes it: called with the task's row (Task.row: its public half and, under
+    `_private`, what only the judge reads) and the agent's output; whatever it returns, normalised."""
     def verify(task: Task, output: RunOutput) -> JudgeResult:
-        return normalise_judge(judge(task.given(), output))
+        return normalise_judge(judge(task.row(), output))
     verify.judge = judge                       # the judge it wraps (a sandboxed one keeps its own state)
     verify.takes_task = True                   # called with a Task (hermit.trainer.rollout tells it from a bare judge)
     return verify
