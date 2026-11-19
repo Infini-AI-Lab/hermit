@@ -837,3 +837,17 @@ def test_a_link_follows_its_directory_through_a_name_collision(tmp_path, monkeyp
     redact_tree(tmp_path)
     assert (tmp_path / "current" / "mine.txt").read_text() == "mine"
     assert key not in os.readlink(tmp_path / "current")
+
+
+def test_eval_scores_a_task_set_with_numeric_ids(tmp_path):
+    """Rows whose ids are numbers (as a tasks.jsonl may hold them) are evaluated and recorded with the same ids."""
+    path = make_task(tmp_path)
+    rows = [json.loads(l) for l in (tmp_path / "tasks.jsonl").read_text().splitlines()]
+    (tmp_path / "tasks.jsonl").write_text("".join(json.dumps({**r, "id": int(r["id"][1:])}) + "\n" for r in rows))
+    for split in ("train", "val", "test"):
+        ids = (tmp_path / f"{split}.txt").read_text().split()
+        (tmp_path / f"{split}.txt").write_text("".join(i[1:] + "\n" for i in ids))
+    result = evaluate(load(path), "none", log=lambda *_: None)
+    assert result["tasks"] == 3 and result["errors"] == 0
+    results = tmp_path / "runs" / "toy-run" / "eval" / "none" / "results.jsonl"
+    assert [json.loads(l)["id"] for l in results.read_text().splitlines()] == [7, 8, 9]

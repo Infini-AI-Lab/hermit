@@ -59,7 +59,7 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
                 log(f"eval {label}: repeat {r}/{repeats} on {len(tests)} test tasks")
                 for rec in run_tasks(tests, target, pipeline, judge, concurrency=int(d["agent"]["concurrency"]),
                                      budget=budget, part="rollout"):
-                    per_task[rec["id"]].append(rec["judge"]["score"])
+                    per_task[str(rec["id"])].append(rec["judge"]["score"])      # Task.id: the row's id as text
                     errors += rec["status"] != "ok"
                     row = {"repeat": r, **{k: rec[k] for k in ("id", "status", "error", "output", "judge",
                                                                "cost_usd", "wall_s", "api_speed", "tokens", "log")}}
