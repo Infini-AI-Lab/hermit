@@ -121,6 +121,8 @@ environment from the call; nothing about where it runs is a setting.
 | `Local(path, limits)` | none | A directory of this machine, as it is: no path can be hidden, the network is not limited |
 | `Sandboxed(path, limits, sandbox=...)` | sandbox | The directory inside the run's sandbox (`hermit.sandbox.Sandbox`), which decides what the agent reads, writes and reaches |
 | `Container(path, limits, settings=...)` | container | A Docker container of the session's own (`hermit/environment/docker.py`: image, network, proxy); a CLI's session runs there |
+| `HarborEnvironment` | remote | A task's own Harbor environment (`hermit/environment/harbor.py`): Harbor starts it, runs the agent's commands there and verifies; the run gives it to the agent ([Benchmarks](task.md#benchmarks)) |
+| `ProxyEnvironment` | remote | That environment served to an agent's worker in the task sandbox (`hermit/environment/remote.py`): its operations only |
 
 API: `exec(command, cwd=, env=, timeout=, stdin=) → ExecResult(code, output, timed_out)` runs a command there (a
 tool of the agent's, a check) within the environment's limits: its readable mounts in place, its `timeout_s` unless
@@ -129,15 +131,17 @@ refused (`Unsupported`: a `Local` one hides no path and limits no network). `upl
 `download(source, target)` move files in and out of the workspace (a link is copied as the link it is),
 `path(relative)` names a path of the workspace and refuses one outside it, and `with_limits(limits)` is a copy with
 other limits. `placed(path, sandbox)` is the environment an Evolver's own sessions work in: `Sandboxed` when the run's
-sandbox is on, `Local` otherwise. The operations follow Harbor's environments (`exec`, `upload`, `download`), so that
-a later adapter can give an agent a Harbor environment the same way; that adapter is not in Hermit yet, and a
-`Container` runs a CLI's session but no other command yet (its `exec` is not implemented).
+sandbox is on, `Local` otherwise. The operations follow Harbor's environments (`exec`, `upload`, `download`), and a
+task's Harbor environment is one (isolation `remote`: a path there is the environment's, not this machine's; Codex and
+Claude Code run in it through its `exec`, their home uploaded). A `Container` runs a CLI's session but no other command
+yet (its `exec` is not implemented).
 
 ## Layer 3: Agent
 
 What the Base Agent is used for. Two kinds:
 
-- The **Acting Agent** answers a task. Its API to the Trainer is `run(task, adapter) → output + trajectory`. It
+- The **Acting Agent** answers a task. Its API to the Trainer is `run(task, adapter, environment=None) → output +
+  trajectory` (`environment`: the task's own, when its task set gives one, as a Harbor task set does). It
   places the task and the adapter in the workspace, calls a Base Agent, and reads the answer from the reply. A task
   supplies what is its own as **task functions** named in the configuration: `prepare` (the task's files and
   mounts), `prompt`, `answer` (the output from the last message) and `collect` (the task's artifacts into the
@@ -151,7 +155,7 @@ What the Base Agent is used for. Two kinds:
   CLI has a place and names the rest in the context); `react` takes the context, the context tool and tools. A method
   says what its adapter needs the acting agent to take (`needs` in its `evolver.yaml`); a run whose agent does not
   take it is refused before it starts, never run with the export silently dropped. What is checked: the built-in
-  agents (Harbor's by its acting agent) and a task's own class or function that runs on this machine; a task's class
+  agents and a task's own class or function that runs on this machine; a task's class
   that runs only inside its sandbox is not imported to check it, and an agent that declares no `supports` is not
   checked.
 - The **Evolver Agent** learns. Its API to the Trainer is `step(ctx)` and `finalize(ctx)`. It reads the acting runs'
@@ -330,6 +334,7 @@ Configurations that name an agent, an Evolver or a template (`agent.name: codex`
 | `isolation`, `sandbox`, `container` in a Base Agent's settings | the environment: `Sandboxed(path, sandbox=box)`, `Container(path, settings={...})`; given as settings, refused |
 | `make("direct", settings, model)`, `hermit.agent.base.direct` | `Direct(settings, model)`, `hermit.agent.model.direct` (Layer 1); `make("direct")` is refused; the old module path forwards for one release |
 | `hermit.agent.base.container` | `hermit.environment.docker` (the old path forwards for one release) |
+| `agent.name: harbor` (Hermit's agents injected into `harbor run`) | any acting agent in the task's Harbor environment (`environment.harbor`), verified by Harbor's verifier (`judge: {path: hermit.task.verify, name: environment}`) |
 | `Mount`, `Limits` from `hermit.agent.base.interface` | `hermit.environment` (still importable from the interface) |
 | a benchmark's own copy of the tool loop | a `ReactAgent` subclass with `@tool` methods and hooks |
 | `@tool(description, parameters)` | also `@tool` alone: the description from the docstring, the schema from the signature |

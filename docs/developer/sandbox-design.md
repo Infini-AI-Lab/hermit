@@ -95,10 +95,9 @@ nested bubblewrap; where it cannot nest, a required sandbox runs no such session
 With `environment.image` a Codex or Claude Code acting agent runs in a container of its own (the Base Agent's container
 isolation; `docker/codex/` and `docker/claude/` build the images), started from a worker on the host, one per call; the
 worker puts the adapter's code the agent renders or serves in the strict sandbox below. The pipeline runs in the host
-process instead in three cases, each recorded: `sandbox.enabled: false`; a Harbor task set (`agent.name: harbor`, whose
-environment is Harbor's container); and `environment.runner: host`, for a task whose own code isolates the adapter's
-code it runs (AgentDyn runs learned hooks in containers of their own); a task's declared tools still run in their
-sandbox.
+process instead in two cases, each recorded: `sandbox.enabled: false`; and `environment.runner: host`, for a task whose
+own code isolates the adapter's code it runs (AgentDyn runs learned hooks in containers of their own); a task's
+declared tools still run in their sandbox.
 
 Inside the task sandbox the adapter's modules (its tools, its renders) still run in a nested strict sandbox of their
 own (`HA_ADAPTER_SANDBOX`, set by the worker for the code the agent starts), which only narrows what the task sandbox
@@ -114,8 +113,11 @@ The run config's `judge.mode` says where the judge runs.
 | `shared` | the task sandbox, a new exec over the agent's work directory, with the judge's file and `judge.tests` shown to it alone | the judge reads state in place |
 | `separate` | a sandbox holding only the paths `judge.collect` names, copied from the agent's work through a sanitized archive and shown at the agent's own path | the result can be extracted and must be graded clean |
 
-With the sandbox off every mode runs the judge on the host. A Harbor task set keeps Harbor's own verifier (shared or
-separate as its `task.toml` says), read back on the host.
+With the sandbox off every mode runs the judge on the host. A task in its own Harbor environment (`environment.harbor`)
+keeps Harbor's own verifier (shared or separate as its `task.toml` says), run by the host after the agent; its verdict
+is read on the host. The agent's worker stays in the task sandbox and reaches that environment only through a server
+of its operations on the host's loopback (exec, upload, download: `hermit/environment/remote.py`), forwarded into the
+sandbox; the environment's driver, Docker and the task's tests stay outside.
 What a judge's result contains is the task's decision; which splits' results reach the learner is the method's.
 
 ## Evolver sandbox

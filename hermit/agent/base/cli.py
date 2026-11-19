@@ -1063,14 +1063,16 @@ class CliAgent(BaseAgent):
         return Path(path).is_file()
 
     def _remote_program(self, environment: Environment) -> None:
-        """The CLI in a remote environment: `bin` as it is, else the program found there, else installed by the
-        environment's own installer (Harbor's installed agent of the CLI)."""
+        """The CLI in a remote environment: `bin` as it is, else the program found there (with `version` set, the
+        installer is asked anyway: Harbor's keeps a CLI already at that version), else installed by the environment's
+        own installer (Harbor's installed agent of the CLI)."""
         s = self.settings
         if s.get("bin"):
             return
-        found = environment.exec(["sh", "-c", f"command -v {self.program}"], timeout=60)
-        if found.code == 0 and found.output.strip():
-            return
+        if not s.get("version"):
+            found = environment.exec(["sh", "-c", f"command -v {self.program}"], timeout=60)
+            if found.code == 0 and found.output.strip():
+                return
         installer = REMOTE_INSTALL.get(self.backend)
         if installer is None or not hasattr(environment, "install"):
             raise Unsupported(f"{self.label} is not in the environment and the environment installs none: give its "

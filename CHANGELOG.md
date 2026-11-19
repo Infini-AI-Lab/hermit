@@ -6,6 +6,26 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Breaking
 
+- Harbor gives a task set its data, its environments and its verifier; every agent is Hermit's
+  ([Benchmarks](docs/framework/task.md#benchmarks)). `agent.name: harbor` is gone, with `hermit/harbor/runner.py`,
+  `hermit/harbor/harborside/` (the HermitXXX classes, the scripted agent, the stream driver) and the runner's parts
+  (`clis`, `launch`, `staging`, `context`, `curate`, `errors`, `judge`, `signin`, `stream`, `tools`). A run config
+  names the task set's environments as `environment.harbor` (the settings that were `agent.params`: `benchmark`,
+  `tasks_dir`, `environment`, `verifier`, the multipliers, `agent_timeout_sec`, `docker_cleanup` and the disk gates,
+  `jobs_dir`, `harbor`, `pass_reward`, `reward_key`, `verifier_timeout`), its acting agent as any other
+  (`agent.base: codex` or `claude` with `agent.model` and `agent.<cli>.web_search`; `agent.name: answer` for the
+  answer-only agent that replaces HermitAnswer), and its judge as `{path: hermit.task.verify, name: environment}`.
+  Each task's environment is Harbor's own trial of it driven by Hermit (`hermit/environment/harbor.py` and its driver
+  under Harbor's venv): the run starts it behind the disk gate, hands it to the agent (`run(task, adapter,
+  environment=...)`), runs Harbor's verifier and stops it; `hermit/harbor/docker.py` moved unchanged to
+  `hermit/environment/harbor_docker.py`. Codex and Claude Code run in it through its `exec` (isolation `remote`); in
+  the task sandbox the agent reaches it through a server of its operations (`hermit/environment/remote.py`). Not
+  carried over: infra retries and the runner's finer failure causes (an environment that fails is a failed run),
+  multi-step tasks (streams), the adapter's tools in a task's environment, the `<cli>_bin` mount (a config mounts a
+  binary through `environment.harbor.environment.mounts` and names it as `agent.<cli>.bin`), Harbor's own agents
+  (`acting_agent: {name}`), the Pi, OpenCode, dsh and mini-swe-agent CLIs in a task's environment, and the curated
+  trial log (the trial's directory under `jobs_dir` is kept as Harbor writes it). Every example config moved.
+
 - OfficeQA's task set is task directories in Harbor's format under `examples/officeqa/utils/benchmark/` (with its
   `prepare.py`, `judge.py`, `task-info/`, splits, `data.json` and seed adapter): run `prepare.py` again. The agents read
   each task as the row they always read, so prompts are unchanged.

@@ -271,8 +271,9 @@ checkout, so no repository instructions reach the session; each rollout's events
 ### Through Harbor
 
 The same Codex harness runs through [Harbor](../framework/task.md#benchmarks) instead of a container of the
-acting agent's own (`environment.image`): each question is a Harbor task, and Harbor starts the container, installs Codex, deploys the
-skill and runs the judge inside, after the session. Build the task set once (private: it holds the answers), then
+acting agent's own (`environment.image`): each question is a Harbor task in its own Harbor environment, where Harbor
+starts the container and installs Codex, Hermit's Codex agent deploys the skill and runs the session, and Harbor runs
+the judge inside, after the session. Build the task set once (private: it holds the answers), then
 run a method's `run_codex_harbor.yaml` with the corpus mounted where the tasks expect it:
 
 ```bash
@@ -286,11 +287,11 @@ hermit eval  --config examples/officeqa/gepa/run_codex_harbor.yaml --adapter fin
 
 What differs from the Codex route above: the container is Harbor's (`ubuntu:24.04` with python3 and ripgrep;
 `build_tasks.py --base-image` takes one with Codex installed, which saves Harbor's install per trial only when its
-`codex --version` is exactly the config's `codex_version`, `0.134.0`: with another, Harbor still installs that one in
-each trial), its network is the task's (no egress proxy: the model's endpoint and key reach Codex through Harbor), the
+`codex --version` is exactly the config's `agent.codex.version`, `0.134.0`: with another, Harbor still installs that
+one for each task), its network is the task's (no egress proxy: the model's endpoint and key reach Codex by name), the
 question and its parsed pages are the instruction rather than a `task.md`, and the judge
 (`utils/harbor/judge.py`, SkillOpt's exact match) reads the `<answer>` from the session's final message, in the
-Codex stream the trial keeps (`/logs/agent/agent-codex.jsonl`; `codex.txt` for Harbor's own Codex agent), or
+Codex stream Hermit hands the verifier (`/logs/agent/agent-codex.jsonl`; `codex.txt` for Harbor's own Codex agent), or
 `/app/answer.txt`, inside the container. The build copies the judge into each task's `tests/`: a task set built
 before a change to it needs building again. The scores of this route are not in the results table: a run through it
 is a different setting and is reported as one.
