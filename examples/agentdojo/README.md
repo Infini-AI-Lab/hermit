@@ -6,7 +6,7 @@ tool loop, environments and utility/security judges. This integration replays
 existing frozen indirect injections; it does not generate or optimize attacks.
 
 The integration reuses [AgentDyn's runtime](../agentdyn/utils/bridge.py): shared
-`direct` Base Agent model calls, usage accounting, the episode supervisor and
+`Direct` model calls (Layer 1), usage accounting, the episode supervisor and
 timeouts, native tool interception, Docker hook isolation, trajectory logs and
 EvoSafe scoring. The thin [task entry point](utils/task.py) selects AgentDojo;
 AgentDyn's default suites and behavior remain available in its own environment.

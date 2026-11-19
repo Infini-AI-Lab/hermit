@@ -114,7 +114,7 @@ def record_usage(total, result=None):
 
 def make_victim(params: dict, base: Path, on_call=None):
     from openai.types.chat import ChatCompletion
-    from hermit.agent.base.interface import make
+    from hermit.agent.model.direct import Direct
     from hermit.agent.model.llm import ChatClient
     from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
     from agentdojo.agent_pipeline.llms.openai_llm import (
@@ -134,7 +134,7 @@ def make_victim(params: dict, base: Path, on_call=None):
     client = ChatClient(settings["base_url"], params["model"], price=params.get("price"),
                         timeout=float(params.get("request_timeout_s", 120)),
                         max_retries=int(params.get("max_retries", 1)), extra_body=params.get("extra_body"))
-    agent = make("direct", {}, client)
+    agent = Direct({}, client)
     # A key that is optional and not set sends no Authorization header, as the shared client does.
     headers = {"Authorization": "Bearer " + settings["api_key"]} if settings.get("api_key") else {}
 

@@ -174,8 +174,9 @@ class Role(CodexSession):
         super().__init__(settings)
         self.reply, self.extra, self.usage = reply, extra, list(usage)
 
-    def run(self, prompt, *, workspace=None, tools=(), limits=None, session=None, roles=()):
-        ROLE_CALLS.append({"settings": self.settings, "workspace": workspace, "limits": limits, "prompt": prompt})
+    def run(self, prompt, *, environment=None, tools=(), session=None, roles=()):
+        ROLE_CALLS.append({"settings": self.settings, "workspace": environment.workspace, "limits": environment.limits,
+                           "environment": environment, "prompt": prompt})
         text = self.reply(instructions(self.settings, prompt), prompt)
         return Result(reply=text, exit_code=0, usage=list(self.usage),
                       extra=dict(self.extra if self.extra is not None else SERVED))
@@ -212,8 +213,9 @@ class Proposer(BaseAgent):
         super().__init__(settings)
         self.script = script
 
-    def run(self, prompt, *, workspace=None, tools=(), limits=None, session=None, roles=()):
-        self.script.sessions.append({"settings": self.settings, "workspace": workspace, "limits": limits,
+    def run(self, prompt, *, environment=None, tools=(), session=None, roles=()):
+        self.script.sessions.append({"settings": self.settings, "workspace": environment.workspace,
+                                     "limits": environment.limits, "environment": environment,
                                      "tools": [t.name if hasattr(t, "name") else t for t in tools]})
         return self.script.run(prompt, session, Path(self.settings["log"]))
 
@@ -1195,10 +1197,10 @@ def test_the_proposer_and_the_roles_each_see_only_their_own_directory(tmp_path, 
     assert len(a["tools"]) == 1 and a["tools"][0] is not ctx.tools["check_spec"]   # check_spec bound to its view;
                                                                                    # no run_agent (the Evolver's)
     # A proposer's view: its own variant directory (writable) and the task description, nothing else the run keeps.
-    view = a["settings"]["sandbox"]
+    view = a["environment"].sandbox
     assert view.writable == [work] and view.readable == [ws.task_info]
-    assert b["settings"]["sandbox"].writable == [ws.scratch / "rrsi" / "r0B"]    # B never sees A's directory
-    role = ROLE_CALLS[-1]["settings"]["sandbox"]                   # the last critic's, after both drafts
+    assert b["environment"].sandbox.writable == [ws.scratch / "rrsi" / "r0B"]    # B never sees A's directory
+    role = ROLE_CALLS[-1]["environment"].sandbox                   # the last critic's, after both drafts
     assert role.readable == [] and len(role.writable) == 1 and role.writable[0].parent.name == "rrsi_roles"
 
 
@@ -1245,7 +1247,8 @@ def test_the_roles_are_codex_sessions_with_upstreams_generate_contract(tmp_path,
     call_dir = tmp_path / "roles" / "00002"
     assert s["home"] == call_dir / "home" and s["log"] == call_dir / "events.jsonl"
     assert call["workspace"] == tmp_path / "roles" / "00002" / "work"          # not a digester: an empty directory
-    assert s["sandbox"].writable == [call_dir] and s["sandbox"].readable == []    # its own call directory only
+    box = call["environment"].sandbox
+    assert box.writable == [call_dir] and box.readable == []                      # its own call directory only
     assert (tmp_path / "roles" / "00002" / "reply.txt").read_text() == 'Here: {"a": 1}'
     r.generate("p", system="You are a trajectory digester: a read-only investigator")
     assert ROLE_CALLS[-1]["workspace"] == traces                             # a digester runs in the traces
@@ -1335,7 +1338,7 @@ def test_a_role_call_sees_neither_other_calls_nor_traces_it_is_not_given(tmp_pat
     r.generate("p", system="the analyst")
     r.generate("p", system="the critic")
     r.generate("p", system="You are a trajectory digester")
-    analyst, critic, digester = (c["settings"]["sandbox"] for c in ROLE_CALLS)
+    analyst, critic, digester = (c["environment"].sandbox for c in ROLE_CALLS)
     calls = tmp_path / "roles"
     assert analyst.writable == [calls / "00001"] and analyst.readable == []
     assert critic.writable == [calls / "00002"] and critic.readable == []

@@ -9,7 +9,7 @@ The adapter is the shared skill library: its context (ADAPTER.md, and the skills
 library" section of the actor's instructions, the only thing that carries from one task to the next. adapter=None
 runs without one.
 
-Every model call is one call of the `direct` Base Agent (docs/framework/agent-layers.md); the loop is this file's.
+Every model call is one Direct call (Layer 1, docs/framework/agent-layers.md); the loop is this file's.
 The robot execution engine is ASPIRE's harness in its own venv (sim.py), started in this process: this actor needs
 the GPU, so its configs run it on the host (environment.runner: host), a comparison, not the method.
 
@@ -84,6 +84,7 @@ class AspireActor(Agent):
     evo {k, rounds, threshold, qualify_below, parents}, workers, max_steps, failed_shown, keyframes, evidence_chars,
     unserved_retries, sweep_timeout_s, scratch, logs.
     """
+    supports = ("context", "context_tool")    # the skill library section
 
     def __init__(self, params=None, base=None):
         super().__init__(params, base)
@@ -94,7 +95,7 @@ class AspireActor(Agent):
     def _base_agent(self):
         with self._lock:
             if self._agent is None:
-                from hermit.agent.base.interface import make
+                from hermit.agent.model.direct import Direct
                 from hermit.agent.model.backends import registry, resolve
                 from hermit.agent.model.llm import ChatClient
                 model = self.params.get("model") or DEFAULT_MODEL
@@ -103,7 +104,7 @@ class AspireActor(Agent):
                 extra = dict(base.get("extra_body") or {})
                 extra["reasoning_effort"] = self.params.get("effort") or extra.get("reasoning_effort") or "medium"
                 spec = {**base, "extra_body": extra}
-                self._agent = make("direct", {"max_tokens": int(self.params.get("max_tokens", 32000))},
+                self._agent = Direct({"max_tokens": int(self.params.get("max_tokens", 32000))},
                                    ChatClient.from_spec(spec, max_retries=4, retry_wait=4.0, retry_wait_max=60.0))
             return self._agent
 

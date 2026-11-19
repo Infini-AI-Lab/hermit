@@ -2249,7 +2249,7 @@ def test_closing_the_answer_agents_endpoint_cancels_its_sessions_and_waits_for_t
         served.agent = SimpleNamespace(settings={"model": spec["model"]})
         return served
 
-    def session(agent, request, abort=None):                  # each request one stand-in session (cli_answer)
+    def session(agent, request, abort=None, place=None):      # each request one stand-in session (cli_answer)
         if agent.settings["model"] == "stuck":                 # a session that does not hear its cancel
             release.wait(30)
             return endpoint_mod._DROP
@@ -4228,7 +4228,7 @@ def test_a_relayed_codex_session_that_lost_its_sign_in_is_a_401_whose_login_fail
                'invalidated."}}\n')
     streams = iter([refused, UNSERVED])
 
-    def answer(agent, request, abort=None):
+    def answer(agent, request, abort=None, place=None):
         (logs / f"t{len(list(logs.iterdir()))}-codex.jsonl").write_text(next(streams))
         return 502, json.dumps({"error": {"message": "the codex session gave no reply (exit 1)"}}).encode(), {}
     monkeypatch.setattr(endpoint, "cli_answer", answer)

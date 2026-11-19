@@ -22,7 +22,7 @@ hermit train --config run.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8  
 
 | Setting | Who calls the model | Dialect it speaks |
 |---|---|---|
-| `llm` (or `evolver.model` with `evolver.base: direct`) | the Evolver's `direct` agent and the run's `llm` tool: the `gepa`, `skillopt`, `ace`, `reharness` and `continual_harness` Evolvers | chat completions |
+| `llm` (or `evolver.model` with `evolver.base: direct`) | the Evolver's model calls (`Direct`, `ctx.agent`) and the run's `llm` tool: the `gepa`, `skillopt`, `ace`, `reharness` and `continual_harness` Evolvers | chat completions |
 | `agent.params.model` (or `agent.model`) with `agent.name: react` | the built-in tool-calling agent | chat completions |
 | `agent.params.model` (or `agent.model`) with `agent.name: codex` / `claude-code` | the CLI acting agent | Responses API / Messages API |
 | `agent.params.model` (or `agent.model`) with `agent.name: mini-swe-agent` | mini-swe-agent, through litellm | chat completions |

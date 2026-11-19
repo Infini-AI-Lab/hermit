@@ -14,7 +14,9 @@ from hermit.agent.base import trajectory
 from hermit.agent.acting import workspace as cli
 from hermit.agent.base import cli as base_cli
 from hermit.agent.base.interface import Limits as LIMITS
-from hermit.agent.base import container, login
+from hermit.agent.base import login
+from hermit.agent.environment import docker as container
+from hermit.agent.environment import Sandboxed
 from hermit.agent.base.interface import make
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -278,11 +280,11 @@ def test_a_new_cli_keeps_its_home_variable_in_the_sandbox_and_its_isolations(fak
         return real(command, **kw)
     monkeypatch.setattr(box, "wrap", wrap)
     (fake / "w").mkdir()
-    result = Other({"web_search": False, "model": "gpt-x", "home_files": [], "isolation": "sandbox",
-                    "sandbox": box}).run("go", workspace=fake / "w")
+    result = Other({"web_search": False, "model": "gpt-x", "home_files": []}).run(
+        "go", environment=Sandboxed(fake / "w", sandbox=box))
     assert result.extra["served"] and seen and "OTHER_CLI_HOME" in seen[0]
     with pytest.raises(base_cli.Unsupported, match="takes isolation sandbox"):
-        Other({"web_search": False, "isolation": "none"})._isolation(fake / "w", LIMITS())
+        Other({"web_search": False}).run("go", environment=fake / "w")          # a Local: isolation none
 
 
 def test_web_search_is_set_explicitly_either_way(fake, tmp_path):
@@ -533,7 +535,7 @@ def test_a_login_session_waits_for_the_plan_and_runs_again_when_refused(fake, mo
         return result
     monkeypatch.setattr(type(agent), "_session", session)
     (tmp_path / "w").mkdir()
-    result = agent.run("go", workspace=tmp_path / "w")
+    result = agent.run("go", environment=tmp_path / "w")
     assert seen == {"waits": 2, "sessions": 2, "holds": 1} and result.reply.endswith("<answer>44,463</answer>")
 
 
@@ -567,7 +569,7 @@ def test_a_session_waiting_for_a_slot_waits_again_if_paused_meanwhile(fake, monk
     (tmp_path / "w").mkdir()
     agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
                            "plan_dir": str(plan)})
-    result = agent.run("go", workspace=tmp_path / "w")
+    result = agent.run("go", environment=tmp_path / "w")
     assert calls["held"] == 2 and result.reply.endswith("<answer>44,463</answer>")
     assert (plan / "SLOTS").is_file() and [p.name for p in plan.iterdir() if p.is_dir()] == [L.LOCKS]   # apart
 
@@ -736,7 +738,7 @@ def test_the_longest_wait_counts_over_every_wait_of_a_session(fake, monkeypatch)
         return result
     monkeypatch.setattr(type(agent), "_session", refused)
     (tmp_path / "w").mkdir()
-    result = agent.run("go", workspace=tmp_path / "w")
+    result = agent.run("go", environment=tmp_path / "w")
     assert result.extra["unavailable"] and given[0] <= 1000 and given[1] < given[0] + 1 and given[1] <= 1000
 
 
@@ -782,15 +784,15 @@ def test_only_the_clis_own_reports_say_unavailable_or_refused(fake, monkeypatch)
     (fake / "w").mkdir()
     agent = make("codex", {"web_search": False, "model": "gpt-x", "home_files": []})
     monkeypatch.setenv("FAKE_OWN_TEXT", "ERROR: unexpected status 429 Too Many Requests; You've hit your usage limit")
-    quoted = agent.run("go", workspace=fake / "w")
+    quoted = agent.run("go", environment=fake / "w")
     assert quoted.extra["served"] and not quoted.extra["unavailable"] and not quoted.extra["refused"]
     monkeypatch.delenv("FAKE_OWN_TEXT")
     monkeypatch.setenv("FAKE_REFUSED", "1")
-    refused = agent.run("go", workspace=fake / "w")
+    refused = agent.run("go", environment=fake / "w")
     assert not refused.extra["served"] and refused.extra["refused"] and refused.extra["started"]
     monkeypatch.delenv("FAKE_REFUSED")
     monkeypatch.setenv("FAKE_UNAVAILABLE", "100")                  # the CLI's own line, beside no event
-    assert agent.run("go", workspace=fake / "w").extra["unavailable"]
+    assert agent.run("go", environment=fake / "w").extra["unavailable"]
     failed = json.dumps({"type": "result", "subtype": "error_during_execution", "is_error": False,
                          "errors": ["API Error: 503 Service unavailable"]})    # Claude Code's error result
     assert base_cli.UNAVAILABLE.search(base_cli.notices("claude", failed))
@@ -809,7 +811,7 @@ def test_a_refused_session_is_returned_when_plan_rerun_is_off(fake, monkeypatch)
     agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
                            "plan_dir": str(fake / "plan"), "plan_rerun": False})
     (fake / "w").mkdir()
-    result = agent.run("go", workspace=fake / "w")
+    result = agent.run("go", environment=fake / "w")
     assert result.extra["refused"] and not result.extra["served"] and holds == [1]
     assert int((fake / "calls").read_text()) == 1                   # not run again in the same workspace
 
@@ -835,7 +837,7 @@ def test_links_a_session_leaves_in_its_home_are_never_followed(fake, monkeypatch
     agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
                            "plan_dir": str(fake / "plan"), "home": str(home)})
     (fake / "w").mkdir()
-    result = agent.run("go", workspace=fake / "w")
+    result = agent.run("go", environment=fake / "w")
     assert result.reply.endswith("<answer>44,463</answer>") and result.usage
     assert "else" not in master.read_text()                          # the shared login is not the linked file
     assert not list(outside.iterdir())                               # nothing written through the link
@@ -860,12 +862,12 @@ def test_a_kept_home_is_not_written_through_what_the_last_session_left(fake, mon
     (fake / "w").mkdir()
     monkeypatch.setenv("FAKE_LEAVE", str(outside))
     done = []
-    worker = threading.Thread(target=lambda: done.append(agent.run("go", workspace=fake / "w")), daemon=True)
+    worker = threading.Thread(target=lambda: done.append(agent.run("go", environment=fake / "w")), daemon=True)
     worker.start()
     worker.join(60)
     assert done, "the usage ledger blocked on the pipe the session left"
     monkeypatch.delenv("FAKE_LEAVE")
-    result = agent.run("go", workspace=fake / "w", session="th1")
+    result = agent.run("go", environment=fake / "w", session="th1")
     assert result.reply.endswith("<answer>44,463</answer>")
     assert not list(outside.iterdir())                               # nothing written through the links
     assert not (home / "config.toml").is_symlink() and (home / "usage" / "th1.json").is_file()
@@ -878,7 +880,7 @@ def test_a_stream_replaced_by_a_link_is_not_read_as_the_sessions(fake, monkeypat
     monkeypatch.setenv("FAKE_LINK_STREAM", str(other))
     (fake / "w").mkdir()
     result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": [],
-                            "log": str(fake / "logs" / "agent-codex.jsonl")}).run("go", workspace=fake / "w")
+                            "log": str(fake / "logs" / "agent-codex.jsonl")}).run("go", environment=fake / "w")
     assert "forged" not in result.reply and not result.trajectory and not result.extra["served"]
 
 
@@ -989,7 +991,7 @@ def test_what_a_session_left_on_the_way_to_its_log_is_never_followed_by_the_next
         ws.mkdir()
         leave()
         result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": [],
-                                "log": str(log)}).run("go", workspace=ws)
+                                "log": str(log)}).run("go", environment=ws)
         assert result.extra["served"] and log.is_file()
     assert list(outside.iterdir()) == []                    # nothing made outside through the link
     alias = tmp_path / "ws-alias"                               # a workspace given by a link's name
@@ -998,7 +1000,7 @@ def test_what_a_session_left_on_the_way_to_its_log_is_never_followed_by_the_next
     ws.mkdir()
     (ws / "a").symlink_to(outside)
     result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": [],
-                            "log": str(alias / "a" / "b" / "agent-codex.jsonl")}).run("go", workspace=alias)
+                            "log": str(alias / "a" / "b" / "agent-codex.jsonl")}).run("go", environment=alias)
     assert result.extra["served"] and list(outside.iterdir()) == []
     extra = tmp_path / "extra"                                  # a writable path given by a link's name, the log
     extra.mkdir()                                               # below its real one
@@ -1006,7 +1008,7 @@ def test_what_a_session_left_on_the_way_to_its_log_is_never_followed_by_the_next
     (extra / "a").symlink_to(outside)
     result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": [],
                             "writable": [str(tmp_path / "extra-alias")],
-                            "log": str(extra / "a" / "b" / "agent-codex.jsonl")}).run("go", workspace=ws)
+                            "log": str(extra / "a" / "b" / "agent-codex.jsonl")}).run("go", environment=ws)
     assert result.extra["served"] and list(outside.iterdir()) == []
     real_home = tmp_path / "real-home"                          # a home given by a link's name (macOS's /var and
     real_home.mkdir()                                           # /private/var), the log below that name
@@ -1017,7 +1019,7 @@ def test_what_a_session_left_on_the_way_to_its_log_is_never_followed_by_the_next
     for log in ("logs/agent-codex.jsonl", "deep/a/b/agent-codex.jsonl"):
         result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": [],
                                 "home": str(tmp_path / "home-alias"),
-                                "log": str(tmp_path / "home-alias" / log)}).run("go", workspace=ws)
+                                "log": str(tmp_path / "home-alias" / log)}).run("go", environment=ws)
         assert result.extra["served"] and (real_home / log).is_file()
     assert list(outside.iterdir()) == []
 
@@ -1037,7 +1039,7 @@ def test_a_home_the_session_replaced_by_a_link_is_not_read_or_written_through(fa
     ws.mkdir()
     monkeypatch.setenv("FAKE_LINK_HOME", str(victim))
     result = make("codex", {"web_search": False, "model": "gpt-x", "home": str(ws / ".codex-home"),
-                            "home_files": ["auth.json"]}).run("go", workspace=ws)
+                            "home_files": ["auth.json"]}).run("go", environment=ws)
     assert (victim / "auth.json").read_text() == "{}" and "forged" not in result.reply
     assert not (ws / ".codex-home").is_symlink()
     monkeypatch.delenv("FAKE_LINK_HOME")
@@ -1045,13 +1047,13 @@ def test_a_home_the_session_replaced_by_a_link_is_not_read_or_written_through(fa
     (victim / "home" / "auth.json").write_text("{}")
     monkeypatch.setenv("FAKE_LINK_UP", str(victim))
     result = make("codex", {"web_search": False, "model": "gpt-x", "home": str(ws / "session" / "home"),
-                            "home_files": ["auth.json"]}).run("go", workspace=ws)
+                            "home_files": ["auth.json"]}).run("go", environment=ws)
     assert (victim / "home" / "auth.json").read_text() == "{}" and not (ws / "session").is_symlink()
     monkeypatch.delenv("FAKE_LINK_UP")
     (tmp_path / "real-home").mkdir()
     (tmp_path / "home-link").symlink_to(tmp_path / "real-home")   # a home the caller gives by a link stays one
     make("codex", {"web_search": False, "model": "gpt-x", "home": str(tmp_path / "home-link"),
-                   "home_files": []}).run("go", workspace=ws)
+                   "home_files": []}).run("go", environment=ws)
     assert (tmp_path / "home-link").is_symlink()
 
 
@@ -1061,25 +1063,25 @@ def test_a_callers_own_output_paths_are_left_as_they_are(fake):
     (fake / "w").mkdir()
     for path in (os.devnull, "/dev/stderr"):
         result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": [],
-                                "stderr_log": path}).run("go", workspace=fake / "w")
+                                "stderr_log": path}).run("go", environment=fake / "w")
         assert result.reply.endswith("<answer>44,463</answer>") and os.path.exists(path)
     (fake / "logs").mkdir()
     (fake / "logs" / "kept.jsonl").write_text("")
     (fake / "logs" / "agent-codex.jsonl").symlink_to(fake / "logs" / "kept.jsonl")
     result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": [],
-                            "log": str(fake / "logs" / "agent-codex.jsonl")}).run("go", workspace=fake / "w")
+                            "log": str(fake / "logs" / "agent-codex.jsonl")}).run("go", environment=fake / "w")
     assert (fake / "logs" / "agent-codex.jsonl").is_symlink() and result.trajectory and result.extra["served"]
     home = fake / "kept-home"
     (home / "agent-codex.jsonl").mkdir(parents=True)        # what a session left at its stream's path
     result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": [],
-                            "home": str(home)}).run("go", workspace=fake / "w")
+                            "home": str(home)}).run("go", environment=fake / "w")
     assert result.extra["served"] and (home / "agent-codex.jsonl").is_file()
 
 
 def test_a_session_the_plan_served_is_not_refused(fake, monkeypatch):
     monkeypatch.setenv("FAKE_LATE_LIMIT", "1")
     (fake / "w").mkdir()
-    result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": []}).run("go", workspace=fake / "w")
+    result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": []}).run("go", environment=fake / "w")
     assert result.extra["served"] and not result.extra["refused"] and result.reply.endswith("<answer>44,463</answer>")
 
 
@@ -1173,8 +1175,8 @@ def test_a_session_whose_bwrap_exits_before_the_relay_closes_its_report_listener
     monkeypatch.setattr(box, "abandon", lambda args: (abandoned.append(1), real(args)))
     monkeypatch.setattr(base_cli, "run_process", lambda *a, **k: (1, False, False))
     try:
-        make("codex", {"model": "gpt-x", "web_search": False, "isolation": "sandbox", "sandbox": box}).run(
-            "Sum it.", workspace=fake / "ws")
+        make("codex", {"model": "gpt-x", "web_search": False}).run(
+            "Sum it.", environment=Sandboxed(fake / "ws", sandbox=box))
     finally:
         box.close()
     assert abandoned
@@ -1199,7 +1201,9 @@ def test_a_stopped_session_takes_a_descendant_in_a_session_of_its_own(tmp_path, 
     import subprocess
     import time
     if not proc_fs:
-        monkeypatch.setattr(base_cli, "Path", lambda p: Path("/no-proc") if p == "/proc/self/stat" else Path(p))
+        from hermit.agent.environment import base as environment_base       # where _parents reads /proc
+        monkeypatch.setattr(environment_base, "Path",
+                            lambda p: Path("/no-proc") if p == "/proc/self/stat" else Path(p))
     pid_file = tmp_path / "pid"
     proc = subprocess.Popen([sys.executable, "-c", "import subprocess, sys, time; p = subprocess.Popen([sys.executable, "
                              "'-c', 'import time; time.sleep(60)'], start_new_session=True); "

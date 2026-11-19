@@ -4,6 +4,12 @@ Answer each item in the PR with links to supporting files or records.
 
 - [ ] **Core changes.** Does the pull request change shared or core code? If so,
   what changes, and why are they needed?
+- [ ] **Agent layers.** Does every agent the change adds or changes follow
+  [the agent layers](../../../../docs/framework/agent-layers.md)? Model calls go through Layer 1 (a client, or
+  `Direct` for one call); where an agent runs is the call's environment (`Local`, `Sandboxed`, `Container`), never
+  a setting; a benchmark's own agent is a subclass of a core agent in its example folder (a `ReactAgent` with
+  `@tool` methods and hooks), never a copy of a loop; a different prompt or model is configuration, not a new
+  agent; an agent declares what it takes of an adapter (`supports`) and a method what it needs (`needs`).
 - [ ] **Implementation correctness and failures.** Trace affected execution paths,
   including configuration propagation, errors, timeouts and cancellation where
   relevant. Verify that failed or incomplete execution is reported accurately

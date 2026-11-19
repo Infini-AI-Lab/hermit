@@ -14,6 +14,8 @@ import threading
 
 import pytest
 
+from hermit.agent.environment import Container, placed
+
 from hermit.agent.base import cli as base_cli
 from hermit.agent.base import trajectory
 from hermit.agent.base.interface import Unsupported, make
@@ -105,7 +107,7 @@ def test_pi_runs_offline_in_its_home_with_its_model_and_the_tools_offered_direct
     work.mkdir()
     monkeypatch.setenv("PI_CODING_AGENT_SESSION_DIR", str(tmp_path / "elsewhere"))   # the caller's: not taken
     agent = make("pi", {**bound(), "web_search": False, "home": str(home), "log": str(tmp_path / "agent-pi.jsonl")})
-    result = agent.run("-a prompt that starts with a dash", workspace=work, tools=[echo()])
+    result = agent.run("-a prompt that starts with a dash", environment=work, tools=[echo()])
     [call] = seen(tmp_path)
     assert call["args"][:6] == ["--mode", "json", "--provider", "hermit", "--model", "m-1"]
     assert call["args"][-2:] == ["--", "-a prompt that starts with a dash"]
@@ -136,7 +138,7 @@ def test_a_failed_request_fails_the_session_although_pi_exits_zero(fake, monkeyp
     monkeypatch.setenv("FAKE_PI_STREAM", str(STREAMS / "failure.jsonl"))
     work = fake / "work"
     work.mkdir()
-    result = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+    result = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", environment=work)
     assert result.exit_code == 0 and result.extra["failed"]
     assert not result.extra["served"] and result.extra["unavailable"]
     assert result.usage == []                              # retried requests that used no tokens are no calls
@@ -157,7 +159,7 @@ def test_a_cut_or_aborted_session_fails_although_pi_exits_zero(fake, monkeypatch
     monkeypatch.setenv("FAKE_PI_STREAM", str(fake / "changed.jsonl"))
     work = fake / "work"
     work.mkdir()
-    result = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+    result = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", environment=work)
     assert result.exit_code == 0 and result.extra["failed"]
 
 
@@ -169,7 +171,7 @@ def test_a_model_bound_to_anthropic_costs_its_price_not_pis_figure(fake, monkeyp
     work.mkdir()
     for price, cost in ((None, None), ({"input": 3.0, "cached_input": 0.3, "output": 15.0}, 0.00888)):
         params = bind_agent_params({"model": "anthropic/claude-sonnet-4-5", "price": price}, "pi", registry())
-        result = make("pi", {**params, "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+        result = make("pi", {**params, "web_search": False, "home": str(fake / "home")}).run("go", environment=work)
         assert result.usage[0].cost_usd == (pytest.approx(cost) if cost else None)
 
 
@@ -190,12 +192,12 @@ def test_a_resumed_session_is_opened_by_its_file_and_counts_only_its_new_usage(f
     kept.parent.mkdir(parents=True)
     kept.write_text("{}\n")
     agent = make("pi", {**bound(), "web_search": False, "home": str(home)})
-    result = agent.run("again", workspace=work, session=SESSION)
+    result = agent.run("again", environment=work, session=SESSION)
     args = seen(fake)[0]["args"]
     assert args[args.index("--session") + 1] == str(kept)
     [usage] = result.usage
     assert (usage.input_tokens, usage.calls) == (1000, 1)
-    agent.run("again", workspace=work, session="*")       # no file of that session: a new one, no glob
+    agent.run("again", environment=work, session="*")       # no file of that session: a new one, no glob
     assert "--session" not in seen(fake)[1]["args"]
 
 
@@ -206,11 +208,11 @@ def test_pi_refuses_roles_web_search_and_a_container(fake):
     agent = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")})
     role = {"name": "reviewer", "description": "Review.", "instructions": "Check it."}
     with pytest.raises(Unsupported, match="no sub-agents"):
-        agent.run("go", workspace=work, roles=[role])
+        agent.run("go", environment=work, roles=[role])
     with pytest.raises(Unsupported, match="no web search"):
-        agent.configured(web_search=True).run("go", workspace=work)
+        agent.configured(web_search=True).run("go", environment=work)
     with pytest.raises(Unsupported, match="takes isolation none or sandbox"):
-        agent.configured(isolation="container").run("go", workspace=work)
+        agent.run("go", environment=Container(work))
 
 
 def test_system_instructions_are_appended_and_a_long_one_goes_in_a_file(fake):
@@ -219,11 +221,11 @@ def test_system_instructions_are_appended_and_a_long_one_goes_in_a_file(fake):
     agent = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")})
     own, prompt = agent.system_settings("Be exact.", "go")
     assert own == {"append_system_prompt": "Be exact."} and prompt == "go"
-    agent.configured(**own).run(prompt, workspace=work)
+    agent.configured(**own).run(prompt, environment=work)
     args = seen(fake)[0]["args"]
     assert args[args.index("--append-system-prompt") + 1] == "Be exact."
     long = "x" * (base_cli.ARG_MAX + 1)
-    agent.configured(append_system_prompt=long).run("go", workspace=work)
+    agent.configured(append_system_prompt=long).run("go", environment=work)
     args = seen(fake)[1]["args"]
     path = Path(args[args.index("--append-system-prompt") + 1])
     assert path.parent == fake / "home" and path.read_text() == long
@@ -297,7 +299,7 @@ def test_a_model_that_takes_images_is_declared_so_to_pi(fake):
     work.mkdir()
     for image_input, declared in ((True, ["text", "image"]), (False, None)):
         make("pi", {**bound(), "web_search": False, "home": str(fake / "home"), "image_input": image_input}).run(
-            "go", workspace=work)
+            "go", environment=work)
         [model] = json.loads(seen(fake)[-1]["files"]["models.json"])["providers"]["hermit"]["models"]
         assert model.get("input") == declared
 
@@ -307,22 +309,22 @@ def test_a_session_that_only_replies_is_given_nothing_else_and_one_that_ran_a_to
     work = fake / "work"
     work.mkdir()
     agent = make("pi", {**bound(), "web_search": False, "home": str(fake / "home"), "text_only": True, "stdin": True})
-    result = agent.run("go", workspace=work)
+    result = agent.run("go", environment=work)
     args = seen(fake)[0]["args"]
     assert {"--no-tools", "--no-mcp", "--no-extensions", "--no-skills", "--no-prompt-templates",
             "--no-context-files"} <= set(args)
     assert result.extra["failed"] and not result.extra["served"] and "no tools" in result.extra["failure"]
     monkeypatch.setenv("FAKE_PI_STREAM", str(STREAMS / "resume.jsonl"))
-    assert agent.run("go", workspace=work).extra["served"]
+    assert agent.run("go", environment=work).extra["served"]
 
 
 def test_allowed_tools_are_pis_own_and_keep_the_calls_tools(fake):
     work = fake / "work"
     work.mkdir()
     agent = make("pi", {**bound(), "web_search": False, "home": str(fake / "home"), "allowed_tools": ["read", "grep"]})
-    agent.run("go", workspace=work)
-    agent.run("go", workspace=work, tools=[echo()])
-    agent.configured(allowed_tools=[]).run("go", workspace=work, tools=[echo()])
+    agent.run("go", environment=work)
+    agent.run("go", environment=work, tools=[echo()])
+    agent.configured(allowed_tools=[]).run("go", environment=work, tools=[echo()])
     alone, beside, none = [c["args"] for c in seen(fake)]
     assert alone[alone.index("--tools") + 1] == "read,grep"
     assert beside[beside.index("--tools") + 1] == "read,grep,mcp__hermit_tools__*"
@@ -336,13 +338,13 @@ def test_pi_refuses_an_effort_it_does_not_take_and_keeps_no_session_when_told(fa
     work.mkdir()
     agent = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")})
     with pytest.raises(Unsupported, match="Pi takes effort .*not 'bogus'"):
-        agent.configured(effort="bogus").run("go", workspace=work)
-    agent.configured(persist_session=False, effort="max").run("go", workspace=work)
+        agent.configured(effort="bogus").run("go", environment=work)
+    agent.configured(persist_session=False, effort="max").run("go", environment=work)
     args = seen(fake)[0]["args"]
     assert "--no-session" in args and args[args.index("--thinking") + 1] == "max"
     own = make("pi", {"model": "its-own", "web_search": False, "home": str(fake / "own"), "home_files": []})
     with pytest.raises(Unsupported, match="Pi takes effort .*not 'bogus'"):     # a model of Pi's own catalog
-        own.configured(effort="bogus").run("go", workspace=work)
+        own.configured(effort="bogus").run("go", environment=work)
 
 
 def test_the_sessions_effort_is_sent_as_named_and_over_the_backends_extra_body(fake):
@@ -359,20 +361,21 @@ def test_the_sessions_effort_is_sent_as_named_and_over_the_backends_extra_body(f
     chat = bound(extra_body={"reasoning_effort": "low", "top_k": 20})
     for effort in (None, "high", "xhigh", "max", "off"):
         make("pi", {**chat, "web_search": False, "home": str(fake / "home"),
-                    **({"effort": effort} if effort else {})}).run("go", workspace=work)
+                    **({"effort": effort} if effort else {})}).run("go", environment=work)
     plain, high, xhigh, top, off = [model_of(c) for c in seen(fake)]
     assert plain["samplingParams"] == {"reasoning_effort": "low", "top_k": 20} and "thinkingLevelMap" not in plain
     assert high["samplingParams"] == off["samplingParams"] == {"top_k": 20} and "thinkingLevelMap" not in high
     assert xhigh["thinkingLevelMap"] == {"xhigh": "xhigh"} and top["thinkingLevelMap"] == {"max": "max"}
     responses = bound(apis=["responses"], extra_body={"reasoning_effort": "low", "top_k": 20})
-    make("pi", {**responses, "web_search": False, "home": str(fake / "home"), "effort": "max"}).run("go", workspace=work)
+    make("pi", {**responses, "web_search": False, "home": str(fake / "home"), "effort": "max"}).run(
+        "go", environment=work)
     model = model_of(seen(fake)[-1])
     assert "samplingParams" not in model and model["thinkingLevelMap"] == {"max": "max"}
     messages = make("pi", {**bound(apis=["messages"]), "web_search": False, "home": str(fake / "home")})
     for effort in ("xhigh", "max"):
         with pytest.raises(Unsupported, match=f"Messages API high's thinking budget for effort {effort}"):
-            messages.configured(effort=effort).run("go", workspace=work)
-    messages.configured(effort="high").run("go", workspace=work)
+            messages.configured(effort=effort).run("go", environment=work)
+    messages.configured(effort="high").run("go", environment=work)
     assert "thinkingLevelMap" not in model_of(seen(fake)[-1])
 
 
@@ -460,7 +463,7 @@ def test_a_failed_requests_status_says_whether_a_retry_can_help(fake, monkeypatc
     work = fake / "work"
     work.mkdir()
     agent = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")})
-    result = agent.run("go", workspace=work)
+    result = agent.run("go", environment=work)
     assert result.extra["failed"] and (result.extra["unavailable"], result.extra["rejected"]) == (unavailable, rejected)
     assert not result.extra["model_refusal"] and _no_reply(agent, result)[0] == (
         503 if unavailable else 400 if rejected else 502)
@@ -486,7 +489,7 @@ def test_an_answer_the_provider_declined_is_a_refusal_no_retry_can_help(fake, mo
     for stream in (ended(fake, "declined.jsonl", stopReason="error", errorMessage=error, rawStopReason=raw),
                    given_up(fake, error, raw)):
         monkeypatch.setenv("FAKE_PI_STREAM", stream)
-        result = agent.run("go", workspace=work)
+        result = agent.run("go", environment=work)
         assert result.extra["failed"] and result.extra["rejected"] and result.extra["model_refusal"]
         assert not result.extra["unavailable"] and _no_reply(agent, result)[0] == 400
 
@@ -505,7 +508,7 @@ def test_command_timeout_s_from_the_config_reaches_the_acting_agents_and_the_lea
     work.mkdir()
     acting = base_agent("pi", {**data["agent"]["params"], **bound(), "web_search": False})
     assert acting.settings["command_timeout_s"] == 0
-    acting.configured(home=str(fake / "acting")).run("go", workspace=work)
+    acting.configured(home=str(fake / "acting")).run("go", environment=work)
     evolver, params = instantiate(find("pi", ROOT), data["evolver"]["params"], default_model="fake/m-1",
                                   backends=registry({"fake": {"base_url": "http://127.0.0.1:9/v1",
                                                               "api_key_env": "FAKE_KEY", "apis": ["chat"]}}))
@@ -513,7 +516,7 @@ def test_command_timeout_s_from_the_config_reaches_the_acting_agents_and_the_lea
     ws.output.mkdir()
     settings = evolver.settings(NS(params=params, sandbox=None, workspace=ws, cancel=None), "pi")
     assert settings["command_timeout_s"] == 0
-    make("pi", settings).run("go", workspace=work)
+    make("pi", settings).run("go", environment=work)
     assert [call["extensions"] for call in seen(fake)] == [{}, {}]
 
 
@@ -526,9 +529,9 @@ def test_a_command_the_model_gives_no_time_limit_gets_the_sessions_and_only_herm
     (home / "extensions").mkdir(parents=True)
     (home / "extensions" / "left.js").write_text("export default function () {}\n")
     agent = make("pi", {**bound(), "web_search": False, "home": str(home)})
-    agent.run("go", workspace=work)
-    agent.configured(command_timeout_s=30).run("go", workspace=work)
-    agent.configured(command_timeout_s=0).run("go", workspace=work)
+    agent.run("go", environment=work)
+    agent.configured(command_timeout_s=30).run("go", environment=work)
+    agent.configured(command_timeout_s=0).run("go", environment=work)
     default, thirty, none = [c["extensions"] for c in seen(fake)]
     assert list(default) == ["hermit-command-limit.js"]
     assert 'event.toolName === "bash" && !(event.input.timeout > 0)) event.input.timeout = 600;' in \
@@ -536,7 +539,7 @@ def test_a_command_the_model_gives_no_time_limit_gets_the_sessions_and_only_herm
     assert "event.input.timeout = 30;" in thirty["hermit-command-limit.js"]
     assert none == {} and not (home / "extensions").exists()
     (home / "extensions").write_text("a file, not a folder")
-    agent.run("go", workspace=work)
+    agent.run("go", environment=work)
     assert list(seen(fake)[-1]["extensions"]) == ["hermit-command-limit.js"]
 
 
@@ -572,7 +575,7 @@ def test_a_reply_cut_at_the_output_limit_comes_back_through_the_chat_endpoint_ma
         assert status == 200 and choice["finish_reason"] == "length" and choice["message"]["content"] == content
     work = fake / "work"
     work.mkdir()
-    result = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+    result = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", environment=work)
     assert result.finish_reason == "length" and result.extra["failed"]
 
 
@@ -750,13 +753,13 @@ def test_with_the_pi_cli_a_session_reaches_its_model_and_its_tools(tmp_path, mon
                                registry({"mock": {"base_url": url, "api_key_env": "MOCK_KEY", "apis": ["chat"]}}))
     work = tmp_path / "work"
     work.mkdir()
-    settings = {**params, "web_search": False, "home": str(tmp_path / "home"), "isolation": isolation,
-                "timeout_s": 300}
+    settings = {**params, "web_search": False, "home": str(tmp_path / "home"), "timeout_s": 300}
+    box = None
     if isolation == "sandbox":
-        settings["sandbox"] = Sandbox(network="isolated", env_allow=[], writable=[work], role="agent",
-                                      record_dir=tmp_path / "records")
+        box = Sandbox(network="isolated", env_allow=[], writable=[work], role="agent",
+                      record_dir=tmp_path / "records")
     try:
-        result = make("pi", settings).run("Do the task.", workspace=work, tools=[echo()])
+        result = make("pi", settings).run("Do the task.", environment=placed(work, box), tools=[echo()])
     finally:
         server.shutdown()
     assert result.exit_code == 0 and result.extra["served"] and result.reply == "the answer"
@@ -793,7 +796,8 @@ def test_with_the_pi_cli_a_limited_session_is_offered_only_what_it_may_use(tmp_p
     work.mkdir()
     settings = {**params, "web_search": False, "home": str(tmp_path / "home"), "timeout_s": 300, **limit}
     try:
-        result = make("pi", settings).run("Do the task.", workspace=work, tools=[] if limit.get("text_only") else [echo()])
+        result = make("pi", settings).run("Do the task.", environment=work,
+                                          tools=[] if limit.get("text_only") else [echo()])
     finally:
         server.shutdown()
     assert result.extra["served"] and result.reply == "the answer" and asked == [offered]
@@ -822,14 +826,14 @@ def test_with_the_pi_cli_a_command_without_a_limit_stops_at_the_sessions_and_one
                                registry({"mock": {"base_url": url, "api_key_env": "MOCK_KEY", "apis": ["chat"]}}))
     work = tmp_path / "work"
     work.mkdir()
-    settings = {**params, "web_search": False, "home": str(tmp_path / "home"), "isolation": isolation,
-                "timeout_s": 300, "command_timeout_s": 2}
+    settings = {**params, "web_search": False, "home": str(tmp_path / "home"), "timeout_s": 300, "command_timeout_s": 2}
+    box = None
     if isolation == "sandbox":
-        settings["sandbox"] = Sandbox(network="isolated", env_allow=[], writable=[work], role="agent",
-                                      record_dir=tmp_path / "records")
+        box = Sandbox(network="isolated", env_allow=[], writable=[work], role="agent",
+                      record_dir=tmp_path / "records")
     start = time.monotonic()
     try:
-        result = make("pi", settings).run("Do the task.", workspace=work)
+        result = make("pi", settings).run("Do the task.", environment=placed(work, box))
     finally:
         server.shutdown()
     assert result.extra["served"] and result.reply == "the answer" and time.monotonic() - start < 45
@@ -917,7 +921,7 @@ def test_with_the_pi_cli_the_last_requests_status_or_stop_reason_says_whether_a_
     agent = make("pi", {**params, "web_search": False, "home": str(tmp_path / "home"), "timeout_s": 300,
                         "log": str(tmp_path / "agent-pi.jsonl")})
     try:
-        result = agent.run("Do the task.", workspace=work)
+        result = agent.run("Do the task.", environment=work)
     finally:
         server.shutdown()
     events = [json.loads(line) for line in (tmp_path / "agent-pi.jsonl").read_text().splitlines() if line.strip()]

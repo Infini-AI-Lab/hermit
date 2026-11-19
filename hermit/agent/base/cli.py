@@ -26,10 +26,6 @@ Settings (given once; `configured(...)` for a call's own):
                     refused session's rerun come off its timeout (a caller stopped at that time: a container session's)
   effort            Codex's model_reasoning_effort
   web_search        the CLI's web search, on or off (required: set either way)
-  isolation         none: the CLI on this machine; sandbox: inside `sandbox` (the run's hermit.sandbox.Sandbox);
-                    container: in a Docker container of its own (`container`: image, network, proxy;
-                    hermit.agent.base.container), where the CLI's own sandbox holds the session's commands (Codex's
-                    `codex_sandbox`; Claude Code's CLAUDE_SANDBOX)
   codex_sandbox     Codex's own sandbox mode (default workspace-write)
   permission_mode   Claude Code's (default bypassPermissions)
   shell_env         Codex's shell_environment_policy.inherit for the session's commands (default core: no keys)
@@ -100,7 +96,11 @@ Settings (given once; `configured(...)` for a call's own):
   hermit's plugin turns off; default true). Hermes takes no roles, has no web search, takes a prompt of one
   argument (ARG_MAX bytes) at most and runs under isolation none or sandbox.
 
-Limits are enforced by the isolation, or the call is refused (Unsupported):
+The isolation is the call's environment's (hermit.agent.environment), never a setting: none (Local: the CLI on
+this machine), sandbox (Sandboxed: inside the run's hermit.sandbox.Sandbox) or container (Container: a Docker container
+of its own, its settings image, network, proxy: hermit.agent.environment.docker, where the CLI's own sandbox holds the
+session's commands: Codex's `codex_sandbox`, Claude Code's CLAUDE_SANDBOX). Limits are the environment's, enforced by
+its isolation, or the call is refused (Unsupported):
 
   isolation   readable                          hidden                         network
   none        linked into the workspace          refused                        refused (any list)
@@ -110,6 +110,7 @@ Limits are enforced by the isolation, or the call is refused (Unsupported):
 from __future__ import annotations
 
 import contextlib
+import copy
 import dataclasses
 import json
 import os
@@ -126,7 +127,9 @@ import time
 from typing import Any, Sequence
 import urllib.parse
 
-from hermit.agent.base import container, login as codex_login
+from hermit.agent.base import login as codex_login
+from hermit.agent.environment import docker as container
+from hermit.agent.environment.base import Environment, _descendants, as_environment
 from hermit.agent.base.interface import BaseAgent, Limits, Mount, Result, Unsupported
 from hermit.agent.base.records import (parse_claude, parse_codex, parse_dsh, parse_hermes, parse_mini_swe_agent,
                                        parse_opencode, parse_pi, price_usage)
@@ -136,6 +139,7 @@ from hermit.agent.base.trajectory import (claude_steps, codex_steps, dsh_steps, 
 from hermit.agent.model.backends import CLAUDE_ENV
 
 ISOLATIONS = ("none", "sandbox", "container")
+ENVIRONMENT_KEYS = ("isolation", "sandbox", "container")    # the environment's (hermit.agent.environment), not settings
 # The CLI's own reports of a provider it could not reach (it retries those itself first), and of a container that
 # could not start, not the session's text
 UNAVAILABLE = re.compile(r"unexpected status (?:429|5\d\d)|exceeded retry limit|stream disconnected|"
@@ -491,36 +495,6 @@ def _stop(proc) -> None:
             continue
 
 
-def _descendants(pid: int) -> list[int]:
-    children: dict[int, list[int]] = {}
-    for child, parent in _parents():
-        children.setdefault(parent, []).append(child)
-    out, todo = [], [pid]
-    while todo:
-        for child in children.get(todo.pop(), []):
-            out.append(child)
-            todo.append(child)
-    return out
-
-
-def _parents() -> list[tuple[int, int]]:
-    """Every process with its parent: from /proc, else (macOS) from `ps`."""
-    if Path("/proc/self/stat").is_file():
-        pairs = []
-        for entry in Path("/proc").glob("[0-9]*/stat"):
-            try:
-                pairs.append((int(entry.parent.name), int(entry.read_text().rsplit(")", 1)[1].split()[1])))
-            except (OSError, IndexError, ValueError):
-                continue
-        return pairs
-    try:
-        out = subprocess.run(["ps", "-A", "-o", "pid=", "-o", "ppid="], capture_output=True, text=True,
-                             timeout=10).stdout
-    except (OSError, subprocess.SubprocessError):
-        return []
-    return [(int(p), int(q)) for p, q in (line.split() for line in out.splitlines() if len(line.split()) == 2)]
-
-
 class CliAgent(BaseAgent):
     """One CLI's session as a Base Agent: the shared run, and the hooks each CLI's subclass fills in."""
     backend = ""                                  # the CLI's name (make, CLIS, its stream agent-<backend>.jsonl)
@@ -621,7 +595,8 @@ class CliAgent(BaseAgent):
         """The isolation and its settings: (name, container settings or None, sandbox or None). Refuses limits the
         isolation cannot keep."""
         s = self.settings
-        isolation = s.get("isolation") or "none"
+        env = self.environment
+        isolation = env.isolation if env is not None else "none"
         if isolation not in ISOLATIONS:
             raise ValueError(f"isolation must be one of {ISOLATIONS}, not {isolation!r}")
         if isolation not in self.isolations:
@@ -645,9 +620,9 @@ class CliAgent(BaseAgent):
             raise Unsupported(f"{self.name} under isolation {isolation} reaches its model only; it cannot be given "
                               f"more hosts ({network})")
         if isolation == "sandbox":
-            sandbox = s.get("sandbox")
+            sandbox = env.sandbox
             if sandbox is None:
-                raise Unsupported("isolation: sandbox needs the run's sandbox (settings.sandbox)")
+                raise Unsupported("isolation: sandbox needs the run's sandbox (a Sandboxed environment)")
             if not getattr(sandbox, "enabled", True) and (limits.hidden or network is not None):
                 raise Unsupported("the run's sandbox is off: it cannot hide paths or limit the network")
             if network is not None:
@@ -682,7 +657,7 @@ class CliAgent(BaseAgent):
         for path in limits.hidden:
             if any(Path(path).resolve().is_relative_to(Path(p).resolve()) for p in shown):
                 raise Unsupported(f"{path} is to be hidden but lies in what the container is given")
-        conf = container.settings(s, self.backend)
+        conf = container.settings({"container": env.container}, self.backend)
         key = (self.backend, *sorted(conf.items()))
         if key not in _ready:
             problems = container.check(conf, self.backend)
@@ -753,17 +728,28 @@ class CliAgent(BaseAgent):
         return Binding.from_spec(self.settings["binding"]).key_env_if_set()
 
     # ---------- one call ----------
-    def run(self, prompt, *, workspace=None, tools: Sequence[Tool] = (), limits: Limits | None = None,
+    environment: Environment | None = None   # the call's, on the copy of this agent that runs it (run)
+
+    def run(self, prompt, *, environment: Environment | Path | None = None, tools: Sequence[Tool] = (),
             session: Any = None, roles: Sequence[dict] = ()) -> Result:
-        """One session. On a login it first waits while the plan holds sessions back, runs in one of the machine's
-        session slots, and is run again when the plan refused it (hermit.agent.base.login's plan)."""
+        """One session in `environment`. On a login it first waits while the plan holds sessions back, runs in one of
+        the machine's session slots, and is run again when the plan refused it (hermit.agent.base.login's plan)."""
+        env = as_environment(environment)
+        if env is None:
+            raise Unsupported(f"{self.name} works in a workspace: give it an environment")
+        given = sorted(k for k in ENVIRONMENT_KEYS if k in self.settings)
+        if given:            # never ignored: a session that took them for settings would run without its isolation
+            raise ValueError(f"{self.name}: {', '.join(given)} belong to the call's environment "
+                             "(hermit.agent.environment: Local, Sandboxed, Container), not to the agent's settings")
+        self = copy.copy(self)                      # this call's agent: it holds the call's environment
+        self.environment = env
         s = self.settings
         login = s.get("login")
         if not login:
-            limits = self._within(limits)
+            limits = self._within(env.limits)
             if limits is False:
                 return self._not_run("deadline", None)
-            return self._session(prompt, workspace=workspace, tools=tools, limits=limits, session=session,
+            return self._session(prompt, environment=env.with_limits(limits), tools=tools, session=session,
                                  roles=roles)
         if codex_login.LOGINS.get(login) != self.backend:
             raise Unsupported(f"{self.name} does not sign in with login: {login}")
@@ -786,10 +772,10 @@ class CliAgent(BaseAgent):
                     return self._not_run(got, max_s)
                 if codex_login.held(plan, credits):  # paused or held while it waited for a slot: wait again
                     continue
-                left = self._within(limits)              # what the waits left of the caller's deadline
+                left = self._within(env.limits)          # what the waits left of the caller's deadline
                 if left is False:
                     return self._not_run("deadline", None)
-                result = self._session(prompt, workspace=workspace, tools=tools, limits=left, session=session,
+                result = self._session(prompt, environment=env.with_limits(left), tools=tools, session=session,
                                        roles=roles)
                 # What the session says of the plan is written before its slot is given back: a session waiting for
                 # the slot reads the plan the moment it has it, so with SLOTS: 1 the one after a session that drew
@@ -847,13 +833,13 @@ class CliAgent(BaseAgent):
                                                      "refused": False, "started": False, "failed": why == "login",
                                                      "login_failed": why == "login", "rejected": False,
                                                      "cancelled": why == "cancelled", "isolation":
-                                                     self.settings.get("isolation") or "none", "wall_s": 0.0,
+                                                     self.environment.isolation if self.environment else "none",
+                                                     "wall_s": 0.0,
                                                      "failure": tail, "output_tail": tail})
 
-    def _session(self, prompt, *, workspace=None, tools: Sequence[Tool] = (), limits: Limits | None = None,
-                 session: Any = None, roles: Sequence[dict] = ()) -> Result:
-        if workspace is None:
-            raise Unsupported(f"{self.name} works in a workspace")
+    def _session(self, prompt, *, environment: Environment, tools: Sequence[Tool] = (), session: Any = None,
+                 roles: Sequence[dict] = ()) -> Result:
+        workspace, limits = environment.workspace, environment.limits
         if not isinstance(prompt, str):
             raise Unsupported(f"{self.name} takes a prompt, not chat messages")
         if not isinstance(self.settings.get("web_search"), bool):
@@ -1217,7 +1203,8 @@ class Claude(CliAgent):
         text = bool(s.get("text_only"))
         args = [str(a) for a in (s.get("args") or [])]
         locked = s.get("login") == "claude"
-        sandboxed = s.get("isolation") == "container" and not text      # its commands in Claude Code's own sandbox
+        contained = self.environment is not None and self.environment.isolation == "container"
+        sandboxed = contained and not text                              # its commands in Claude Code's own sandbox
         last = {**(json.loads(CLAUDE_LOCK) if locked else {}),
                 **({"sandbox": CLAUDE_SANDBOX, "permissions": CLAUDE_OWN_SETTINGS} if sandboxed else {})}
         if last and any(a == "--settings" or a.startswith("--settings=") for a in args):
@@ -1663,8 +1650,8 @@ class MiniSweAgent(CliAgent):
             return Path.home() / ".config" / "mini-swe-agent"
         return Path(user_config_dir("mini-swe-agent"))
 
-    def run(self, prompt, *, workspace=None, tools: Sequence[Tool] = (), limits: Limits | None = None,
-            session: Any = None, roles: Sequence[dict] = ()) -> Result:
+    def run(self, prompt, *, environment=None, tools: Sequence[Tool] = (), session: Any = None,
+            roles: Sequence[dict] = ()) -> Result:
         if session is not None:
             raise Unsupported("mini-swe-agent cannot resume a session")
         if roles:
@@ -1686,7 +1673,7 @@ class MiniSweAgent(CliAgent):
             raise Unsupported(f"mini-swe-agent's model_class {model_class!r}: Hermit reads "
                               f"{' and '.join(self.binding_classes)} only; another provider's model goes through "
                               "litellm (openrouter/<model>, ...)")
-        return super().run(prompt, workspace=workspace, tools=tools, limits=limits, session=session, roles=roles)
+        return super().run(prompt, environment=environment, tools=tools, session=session, roles=roles)
 
     def prepare_home(self, home, roles, tools_url, tools_name):
         """The task's settings for the runner, in its home: no key (the runner reads the key's variable), of `env`

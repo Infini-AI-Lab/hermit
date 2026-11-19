@@ -24,6 +24,7 @@ from harness2.core.proposer import SYSTEM_ARG_MAX, Proposer, _DROP_ENV, _parse_j
 
 from hermit.agent.base.cli import PI_PARAMS
 from hermit.agent.base.interface import LoginFailed, make
+from hermit.agent.environment import placed
 from hermit.agent.base.records import price_usage
 from hermit.agent.evolver.base import Usage
 
@@ -86,13 +87,12 @@ class FrameworkProposer(Proposer):
                     "append_system_prompt": system or None, "home": home, "home_files": [],
                     "log": Path(cwd) / ".session.out", "stderr_log": err, "env": {**QUIET, **own},
                     "env_drop": sorted(_DROP_ENV),
-                    "isolation": "sandbox" if self.sandbox is not None else "none", "sandbox": self.sandbox,
                     "writable": [Path(cwd)], "timeout_s": wall, "cancel": self.cancel}
         if self.params.get("login"):      # the user's subscription: its model by name, its plan's waits (Base Agent)
             keys = ("login", "model", "plan_dir", "plan_max_wait_s", "plan_rerun", "usage_credits")
             settings.update({k: self.params[k] for k in keys      # plan_max_wait_s: null is no limit
                              if self.params.get(k) is not None or (k == "plan_max_wait_s" and k in self.params)})
-        result = make("claude", settings).run(stdin, workspace=Path(cwd))
+        result = make("claude", settings).run(stdin, environment=placed(Path(cwd), self.sandbox))
         if result.extra.get("login_failed"):
             raise LoginFailed(f"a Harness² session: {result.extra.get('failure')}")
         if result.extra["cancelled"]:
@@ -141,10 +141,9 @@ class FrameworkProposer(Proposer):
                     "codex_sandbox": "danger-full-access",      # the run's sandbox is the boundary, as for Claude Code
                     "home": Path(cwd) / ".codex-home", "home_files": [], "log": Path(cwd) / ".session.out",
                     "stderr_log": err, "env": {**QUIET, **own}, "env_drop": sorted(_DROP_ENV),
-                    "isolation": "sandbox" if self.sandbox is not None else "none", "sandbox": self.sandbox,
                     "writable": [Path(cwd)], "timeout_s": wall, "cancel": self.cancel}
         settings = {k: v for k, v in settings.items() if v is not None or k == "plan_max_wait_s" and k in self.params}
-        result = make("codex", settings).run(mission, workspace=Path(cwd))     # plan_max_wait_s: null is no limit
+        result = make("codex", settings).run(mission, environment=placed(Path(cwd), self.sandbox))   # wait: null, none
         return self._reply("codex", result, err, wall)
 
     def _pi_cli(self, cwd: Path, mission: str, system: str, wall: int) -> tuple[str, float, str]:
@@ -162,9 +161,9 @@ class FrameworkProposer(Proposer):
                     "append_system_prompt": system or None, "persist_session": False,
                     "home": Path(cwd) / ".pi-home", "home_files": [], "log": Path(cwd) / ".session.out",
                     "stderr_log": err, "env": {**QUIET, **own}, "env_drop": sorted(set(_DROP_ENV) - {key}),
-                    "isolation": "sandbox" if self.sandbox is not None else "none", "sandbox": self.sandbox,
                     "writable": [Path(cwd)], "timeout_s": wall, "cancel": self.cancel}
-        result = make("pi", {k: v for k, v in settings.items() if v is not None}).run(mission, workspace=Path(cwd))
+        result = make("pi", {k: v for k, v in settings.items() if v is not None}).run(
+            mission, environment=placed(Path(cwd), self.sandbox))
         return self._reply("pi", result, err, wall)
 
     def _reply(self, program: str, result, err: Path, wall: int) -> tuple[str, float, str]:

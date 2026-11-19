@@ -1,5 +1,5 @@
-"""Layer 2's API (docs/framework/agent-layers.md): direct, react and the CLIs behind one `run`, limits enforced or
-refused, tools served over MCP."""
+"""Layer 2's API (docs/framework/agent-layers.md): react and the CLIs behind one `run` (and Layer 1's single model
+call, Direct), limits enforced or refused, tools served over MCP."""
 import asyncio
 import json
 from pathlib import Path
@@ -10,6 +10,8 @@ from fakes import FunctionModel
 from hermit.agent.base.interface import Limits, Mount, Unsupported, make
 from hermit.agent.base.tool import Tool
 from hermit.agent.base.tool_server import ToolServer
+from hermit.agent.environment import Container, Local, Sandboxed
+from hermit.agent.model.direct import Direct
 
 
 def add(a: int, b: int) -> dict:
@@ -27,16 +29,16 @@ def test_direct_offers_tools_and_returns_the_calls_unrun():
     def reply(messages, **kwargs):
         seen.append(kwargs)
         return {"content": "", "finish_reason": "tool_calls"}
-    agent = make("direct", {"max_tokens": 10}, FunctionModel(reply))
+    agent = Direct({"max_tokens": 10}, FunctionModel(reply))
     result = agent.run("hi", tools=[ADD])
     assert seen[0]["tools"][0]["function"]["name"] == "add" and seen[0]["tool_choice"] == "auto"
     assert seen[0]["max_tokens"] == 10 and result.session[-1]["role"] == "assistant"
     other = agent.configured(max_tokens=99, temperature=None)
     other.run("again")
     assert seen[1]["max_tokens"] == 99 and agent.settings["max_tokens"] == 10      # the agent itself is unchanged
-    with pytest.raises(Unsupported):
-        agent.run("hi", workspace=Path("."))
-    with pytest.raises(Unsupported):
+    with pytest.raises(TypeError):                   # one model call: no environment, no sub-agents
+        agent.run("hi", environment=Path("."))
+    with pytest.raises(TypeError):
         agent.run("hi", roles=[{"name": "r", "description": "d", "instructions": "i"}])
 
 
@@ -72,13 +74,13 @@ def test_a_cli_refuses_limits_it_cannot_keep(tmp_path, backend):
     agent = make(backend, {"web_search": False}, None)
     for limits in (Limits(hidden=[tmp_path / "secret"]), Limits(network=[]), Limits(network=["example.com"])):
         with pytest.raises(Unsupported):
-            agent.run("go", workspace=tmp_path, limits=limits)
-    with pytest.raises(Unsupported):                                       # sandbox isolation needs the sandbox
-        agent.configured(isolation="sandbox").run("go", workspace=tmp_path)
+            agent.run("go", environment=Local(tmp_path, limits))
+    with pytest.raises(ValueError, match="needs the run's sandbox"):       # sandbox isolation needs the sandbox
+        Sandboxed(tmp_path, sandbox=None)
     with pytest.raises(Unsupported):
         agent.run("go")                                                    # a CLI works in a workspace
     with pytest.raises(ValueError, match="web_search"):
-        make(backend, {}, None).run("go", workspace=tmp_path)
+        make(backend, {}, None).run("go", environment=tmp_path)
 
 
 def test_a_container_hides_nothing_it_is_given(tmp_path):
@@ -86,13 +88,13 @@ def test_a_container_hides_nothing_it_is_given(tmp_path):
     data.mkdir()
     for backend in ("codex", "claude"):                  # Claude Code's container is held to the same as Codex's
         with pytest.raises(Unsupported, match="lies in what the container is given"):
-            make(backend, {"web_search": False, "isolation": "container"}).run(
-                "go", workspace=tmp_path / "work", limits=Limits(readable=[Mount(data, Path("docs"))],
-                                                                 hidden=[data / "answers"]))
+            make(backend, {"web_search": False}).run(
+                "go", environment=Container(tmp_path / "work", Limits(readable=[Mount(data, Path("docs"))],
+                                                                 hidden=[data / "answers"])))
     home = tmp_path / "home"                                               # the session's home is bound in too
     with pytest.raises(Unsupported, match="lies in what the container is given"):
-        make("codex", {"web_search": False, "isolation": "container", "home": home}).run(
-            "go", workspace=tmp_path / "work", limits=Limits(hidden=[home / "secret"]))
+        make("codex", {"web_search": False, "home": home}).run(
+            "go", environment=Container(tmp_path / "work", Limits(hidden=[home / "secret"])))
 
 
 def test_the_tool_server_serves_mcp_and_json_behind_its_token():
@@ -120,10 +122,10 @@ def test_the_tool_server_serves_mcp_and_json_behind_its_token():
             urllib.request.urlopen(server.url.rsplit("/", 1)[0] + "/wrong-token/tools")
 
 
-def test_direct_and_react_refuse_a_time_limit_they_cannot_keep():
-    for name in ("direct", "react"):
-        with pytest.raises(Unsupported, match="time limit"):
-            make(name, {}, FunctionModel(lambda **_: {"content": "x"})).run("hi", limits=Limits(timeout_s=1))
+def test_react_refuses_a_time_limit_it_cannot_keep(tmp_path):
+    with pytest.raises(Unsupported, match="time limit"):
+        make("react", {}, FunctionModel(lambda **_: {"content": "x"})).run(
+            "hi", environment=Local(tmp_path, Limits(timeout_s=1)))
 
 
 def test_a_sandboxed_cli_refuses_what_its_sandbox_cannot_keep(tmp_path):
@@ -136,28 +138,29 @@ def test_a_sandboxed_cli_refuses_what_its_sandbox_cannot_keep(tmp_path):
 
         def wrap(self, command, **kw):
             return command, kw["env"]
-    agent = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Box()})
+    agent = make("codex", {"web_search": False})
     with pytest.raises(Unsupported, match="allowed hosts"):
-        agent.run("go", workspace=tmp_path, limits=Limits(network=[]))
+        agent.run("go", environment=Sandboxed(tmp_path, Limits(network=[]), sandbox=Box()))
     with pytest.raises(Unsupported, match="lies in what the sandbox shows"):    # an allowlist shows what it grants
-        agent.run("go", workspace=tmp_path, limits=Limits(hidden=[shown / "secret"]))
+        agent.run("go", environment=Sandboxed(tmp_path, Limits(hidden=[shown / "secret"]), sandbox=Box()))
     home = tmp_path / "home"
-    agent = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Box(), "home": str(home)})
+    agent = make("codex", {"web_search": False, "home": str(home)})
     for hidden in (home / "private", tmp_path / "work" / "private", Path("/usr/bin/true")):   # its own, the system
         with pytest.raises(Unsupported, match="lies in what the sandbox shows"):
-            agent.run("go", workspace=tmp_path / "work", limits=Limits(hidden=[hidden]))
+            agent.run("go", environment=Sandboxed(tmp_path / "work", Limits(hidden=[hidden]), sandbox=Box()))
     from hermit.sandbox import PACKAGE, Sandbox
-    framework = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Sandbox(framework=True)})
+    framework = make("codex", {"web_search": False})
     with pytest.raises(Unsupported, match="lies in what the sandbox shows"):    # the framework it shows
-        framework.run("go", workspace=tmp_path / "work", limits=Limits(hidden=[PACKAGE / "config.py"]))
+        framework.run("go", environment=Sandboxed(tmp_path / "work", Limits(hidden=[PACKAGE / "config.py"]),
+                                                  sandbox=Sandbox(framework=True)))
     install = tmp_path / "opt" / "private-cli"
     (install / "bin").mkdir(parents=True)
     (install / "bin" / "codex").write_text("#!/bin/sh\n")
     (install / "bin" / "codex").chmod(0o755)
-    cli = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Sandbox(framework=True),
-                         "bin": str(install / "bin" / "codex")})
+    cli = make("codex", {"web_search": False, "bin": str(install / "bin" / "codex")})
     with pytest.raises(Unsupported, match="lies in what the sandbox shows"):    # the CLI's own installation
-        cli.run("go", workspace=tmp_path / "work", limits=Limits(hidden=[install / "secret.txt"]))
+        cli.run("go", environment=Sandboxed(tmp_path / "work", Limits(hidden=[install / "secret.txt"]),
+                                            sandbox=Sandbox(framework=True)))
 
 
 def test_an_interrupted_caller_stops_the_session(tmp_path):
@@ -318,7 +321,7 @@ def test_the_chat_endpoint_relays_a_request_as_it_is():
         request = urllib.request.Request(url + "/v1/chat/completions", data=json.dumps(body).encode(),
                                          headers={"Content-Type": "application/json", "Authorization": auth})
         return json.loads(urllib.request.urlopen(request).read())
-    with ChatEndpoint(make("direct", {}, client)) as endpoint:
+    with ChatEndpoint(Direct({}, client)) as endpoint:
         body = {"model": "fw/glm", "messages": [{"role": "user", "content": "q"}], "max_tokens": 7,
                 "reasoning_effort": "high", "tools": [{"type": "function", "function": {"name": "f", "parameters": {}}}]}
         reply = post(endpoint.url, body)
@@ -367,7 +370,7 @@ def test_the_chat_endpoint_streams_a_whole_reply_as_chunks(monkeypatch):
     up = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
     threading.Thread(target=up.serve_forever, daemon=True).start()
     client = ChatClient(f"http://127.0.0.1:{up.server_address[1]}/v1", "ignored", max_retries=0)
-    with module.ChatEndpoint(make("direct", {}, client)) as endpoint:
+    with module.ChatEndpoint(Direct({}, client)) as endpoint:
         sdk = openai.OpenAI(base_url=endpoint.url + "/v1", api_key="k", max_retries=0)
         tools = [{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}]
         stream = sdk.chat.completions.create(model="fw/glm", messages=[{"role": "user", "content": "q"}], stream=True,
@@ -445,7 +448,7 @@ def test_the_chat_endpoint_passes_errors_on_as_the_upstream_gave_them():
             handler.wfile.flush()
             handler.connection.shutdown(2)
     up = _Upstream(reply)
-    with ChatEndpoint(make("direct", {}, ChatClient(up.url, "x", max_retries=0))) as endpoint:
+    with ChatEndpoint(Direct({}, ChatClient(up.url, "x", max_retries=0))) as endpoint:
         sdk = openai.OpenAI(base_url=endpoint.url + "/v1", api_key="k", max_retries=0)
         messages = [{"role": "user", "content": "q"}]
         for stream in (False, True):
@@ -476,7 +479,7 @@ def test_the_chat_endpoint_says_it_closes_each_connection():
                 {"index": 0, "message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}]}).encode(),
                 {"Content-Type": "application/json"})
     up = _Upstream(reply)
-    with ChatEndpoint(make("direct", {}, ChatClient(up.url, "x", max_retries=0))) as endpoint:
+    with ChatEndpoint(Direct({}, ChatClient(up.url, "x", max_retries=0))) as endpoint:
         host, port = "127.0.0.1", endpoint.port
         token = endpoint.url.rsplit("/", 1)[-1]
         for content, status in (("bad", 400), ("q", 200)):           # an error, and an answer (streamed: SSE)
@@ -548,7 +551,7 @@ def test_a_client_that_hangs_up_gives_the_call_up_upstream():
         if data == b"":
             upstream.closed.set()
     up = _Upstream(reply)
-    with ChatEndpoint(make("direct", {}, ChatClient(up.url, "x", max_retries=0))) as endpoint:
+    with ChatEndpoint(Direct({}, ChatClient(up.url, "x", max_retries=0))) as endpoint:
         body = json.dumps({"model": "slow", "messages": [{"role": "user", "content": "q"}], "stream": True}).encode()
         client = socket.create_connection(("127.0.0.1", endpoint.port))
         client.sendall(f"POST /{endpoint.token}/v1/chat/completions HTTP/1.1\r\nHost: x\r\n"
@@ -605,7 +608,7 @@ def test_without_isolation_data_is_linked_inside_the_workspace_only(tmp_path):
         d.mkdir()
     agent = make("codex", {"web_search": False})
     with pytest.raises(Unsupported, match="links data into the workspace"):
-        agent.run("go", workspace=work, limits=Limits(readable=[Mount(new, tmp_path / "elsewhere")]))
+        agent.run("go", environment=Local(work, Limits(readable=[Mount(new, tmp_path / "elsewhere")])))
     (work / "docs").symlink_to(old)                                        # left by an earlier call
     _link([Mount(new, work / "docs")])
     assert (work / "docs").resolve() == new
@@ -633,7 +636,7 @@ def test_without_isolation_claude_code_gets_data_bound_inside_the_workspace(tmp_
     monkeypatch.setenv("HOME", str(user))                                  # no sign-in of the user's to copy
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     result = make("claude", {"web_search": False}).run(
-        "go", workspace=work, limits=Limits(readable=[Mount(data, Path("docs"))]))
+        "go", environment=Local(work, Limits(readable=[Mount(data, Path("docs"))])))
     assert result.reply == "ok" and result.exit_code == 0 and result.extra["mounts"] == {str(work / "docs"): "bound"}
     assert (work / "found.txt").read_text().split() == ["docs/deep/a.txt"]      # descended into; no link; read-only
     assert (work / "docs").is_dir() and not (work / "docs").is_symlink() and not list((work / "docs").iterdir())
@@ -658,7 +661,7 @@ def test_without_bubblewrap_claude_codes_data_is_linked_and_said_so(tmp_path, mo
     monkeypatch.setattr(base_cli, "_WARNED", set())
     for _ in range(2):
         result = make("claude", {"web_search": False}).run(
-            "go", workspace=work, limits=Limits(readable=[Mount(data, Path("docs"))]))
+            "go", environment=Local(work, Limits(readable=[Mount(data, Path("docs"))])))
         assert result.extra["mounts"] == {str(work / "docs"): "linked"} and (work / "docs").is_symlink()
     assert capsys.readouterr().err.count("linked, not bound") == 1
 
@@ -677,8 +680,9 @@ def test_the_sandbox_shows_a_mount_at_its_target(tmp_path):
     data, work = tmp_path / "data", tmp_path / "work"
     data.mkdir()
     work.mkdir()
-    make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Box(), "bin": "true"}).run(
-        "go", workspace=work, limits=Limits(readable=[Mount(data, Path("docs")), Mount(data, Path("/data"))]))
+    make("codex", {"web_search": False, "bin": "true"}).run(
+        "go", environment=Sandboxed(work, Limits(readable=[Mount(data, Path("docs")), Mount(data, Path("/data"))]),
+                                    sandbox=Box()))
     assert (data, str(work.resolve() / "docs"), False) in seen["binds"] and (data, "/data", False) in seen["binds"]
     assert seen["chdir"] == work.resolve()
 
@@ -712,7 +716,7 @@ def test_without_isolation_a_target_cannot_climb_out_of_the_workspace(tmp_path):
     (tmp_path / "work").mkdir()
     with pytest.raises(Unsupported, match="links data into the workspace"):
         make("codex", {"web_search": False}).run(
-            "go", workspace=tmp_path / "work", limits=Limits(readable=[Mount(tmp_path / "data", Path("../escaped"))]))
+            "go", environment=Local(tmp_path / "work", Limits(readable=[Mount(tmp_path / "data", Path("../escaped"))])))
     assert not (tmp_path / "escaped").exists()
 
 
@@ -726,7 +730,8 @@ def test_a_model_only_network_limit_holds_where_the_sandbox_allows_just_that_mod
              (["api.example.com"], [], {3130: tmp_path / "svc.sock"}, True))     # a service through a socket
     for allow, forward, sockets, refused in cases:
         box = Sandbox(network="allowlist", allow=allow, forward=forward, sockets=sockets)
-        agent = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": box, "binding": binding}, None)
+        agent = make("codex", {"web_search": False, "binding": binding}, None)
+        agent.environment = Sandboxed(tmp_path, sandbox=box)           # what `run` gives the call's agent
         if refused:
             with pytest.raises(Unsupported, match="more than the model"):
                 agent._isolation(tmp_path, Limits(network=[]))
@@ -746,14 +751,15 @@ def test_a_login_sessions_plan_waits_come_off_its_callers_deadline(tmp_path, mon
     monkeypatch.setattr(base_cli.codex_login, "held", lambda plan, *_: False)
     agent = make("codex", {"web_search": False, "login": "chatgpt", "plan_dir": str(tmp_path / "plan"),
                            "deadline": _time.time() + 10}, None)
-    monkeypatch.setattr(type(agent), "_session", lambda self, prompt, **kw: given.append(kw["limits"].timeout_s)
+    monkeypatch.setattr(type(agent), "_session",
+                        lambda self, prompt, **kw: given.append(kw["environment"].limits.timeout_s)
                         or base_cli.Result(reply="ok", extra={"served": True}))
-    agent.run("go", workspace=tmp_path, limits=Limits(timeout_s=3600))
+    agent.run("go", environment=Local(tmp_path, Limits(timeout_s=3600)))
     assert given and given[0] <= 8.1
     far = agent.configured(deadline=_time.time() + 7200)            # a distant deadline keeps the default hour
     assert far._within(None).timeout_s == 3600
     late = agent.configured(deadline=_time.time() + 1)
-    result = late.run("go", workspace=tmp_path, limits=Limits(timeout_s=3600))
+    result = late.run("go", environment=Local(tmp_path, Limits(timeout_s=3600)))
     assert result.extra["unavailable"] and "deadline passed" in result.extra["output_tail"] and len(given) == 1
 
 
@@ -762,9 +768,9 @@ def test_a_session_without_limits_or_deadline_runs(tmp_path, monkeypatch):
     from hermit.agent.base import cli as base_cli
     ran = []
     agent = make("codex", {"web_search": False}, None)
-    monkeypatch.setattr(type(agent), "_session", lambda self, prompt, **kw: ran.append(kw["limits"])
+    monkeypatch.setattr(type(agent), "_session", lambda self, prompt, **kw: ran.append(kw["environment"].limits)
                         or base_cli.Result(reply="ok", extra={"served": True}))
-    assert agent.run("go", workspace=tmp_path).reply == "ok" and ran == [None]
+    assert agent.run("go", environment=tmp_path).reply == "ok" and ran == [Limits()]
 
 
 def test_the_sessions_preparation_comes_off_its_callers_deadline(tmp_path, monkeypatch):
@@ -776,10 +782,10 @@ def test_the_sessions_preparation_comes_off_its_callers_deadline(tmp_path, monke
     monkeypatch.setattr(base_cli.CliAgent, "_sign_in", lambda self, home: _time.sleep(1.5) or [])
     monkeypatch.setattr(base_cli, "run_process", lambda command, **kw: given.append(kw["timeout"]) or (0, False, False))
     agent = make("codex", {"web_search": False, "deadline": _time.time() + 5}, None)
-    agent.run("go", workspace=tmp_path, limits=Limits(timeout_s=3600))
+    agent.run("go", environment=Local(tmp_path, Limits(timeout_s=3600)))
     assert given and given[0] <= 3.6
     late = agent.configured(deadline=_time.time() + 1)
-    assert late.run("go", workspace=tmp_path, limits=Limits(timeout_s=3600)).extra["unavailable"] and len(given) == 1
+    assert late.run("go", environment=Local(tmp_path, Limits(timeout_s=3600))).extra["unavailable"] and len(given) == 1
 
 
 def test_a_slow_sandbox_wrap_comes_off_the_deadline_too(tmp_path, monkeypatch):
@@ -792,9 +798,8 @@ def test_a_slow_sandbox_wrap_comes_off_the_deadline_too(tmp_path, monkeypatch):
     box = Sandbox(enabled=False)
     monkeypatch.setattr(Sandbox, "wrap", lambda self, command, **kw: (_time.sleep(1.5), (command, kw["env"]))[1])
     monkeypatch.setattr(base_cli, "run_process", lambda command, **kw: given.append(kw["timeout"]) or (0, False, False))
-    agent = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": box,
-                           "deadline": _time.time() + 5}, None)
-    agent.run("go", workspace=tmp_path, limits=Limits(timeout_s=3600))
+    agent = make("codex", {"web_search": False, "deadline": _time.time() + 5}, None)
+    agent.run("go", environment=Sandboxed(tmp_path, Limits(timeout_s=3600), sandbox=box))
     assert given and given[0] <= 3.6
 
 
@@ -824,13 +829,15 @@ def test_hiding_a_path_under_the_interpreters_prefix_that_no_grant_shows_is_kept
     if Path(sys.prefix).resolve().is_relative_to("/usr"):
         pytest.skip("a system Python: its prefix lies in /usr, which every sandbox shows")
     box = Sandbox(network="isolated")
-    agent = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": box}, None)
+    agent = make("codex", {"web_search": False}, None)
+    agent.environment = Sandboxed(tmp_path, sandbox=box)
     assert agent._isolation(tmp_path, Limits(hidden=[Path(sys.prefix) / "private-data" / "answers.json"]))[0] == \
         "sandbox"
 
 
 def test_a_system_file_every_sandbox_shows_cannot_be_hidden(tmp_path):
     from hermit.sandbox import Sandbox
-    agent = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Sandbox(network="isolated")}, None)
+    agent = make("codex", {"web_search": False}, None)
+    agent.environment = Sandboxed(tmp_path, sandbox=Sandbox(network="isolated"))
     with pytest.raises(Unsupported, match="lies in what the sandbox shows"):
         agent._isolation(tmp_path, Limits(hidden=[Path("/etc/passwd")]))

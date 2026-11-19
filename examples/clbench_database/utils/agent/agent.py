@@ -18,6 +18,7 @@ from clbench_host import run_host  # noqa: E402
 
 class CLBenchDatabaseAgent(Agent):
     """`agent.name: ../utils/agent/agent.py:CLBenchDatabaseAgent`"""
+    supports = ("context", "context_tool", "tools")    # its system prompt and tools
 
     def run(self, task: dict, adapter: Path | None) -> RunOutput:
         if adapter is None:

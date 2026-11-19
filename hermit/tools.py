@@ -2,9 +2,10 @@
 
 check_spec is always present. Template tools come from .hermit/adapter.yaml `evolver_tools`, task tools from the run config's
 `evolver_access.tools`, run tools are `budget` and (when the run config has an `llm` section) `llm`. Every call is
-logged to the run's tool log. The run's model reaches an Evolver as a Base Agent too (`ctx.agent`, a metered
-`direct`; hermit.agent.evolver.base.ask), and the `llm` tool is that agent for programs outside the process. Delivery: in-process (`ctx.tools`) for class Evolvers, and an HTTP endpoint that the
-CLI agents (MCP) and external programs (JSON) use: hermit.agent.base.tool_server.
+logged to the run's tool log. The run's model reaches an Evolver as single metered calls (`ctx.agent`, Direct, Layer 1;
+hermit.agent.evolver.base.ask), and the `llm` tool serves those calls to programs outside the process. Delivery:
+in-process (`ctx.tools`) for class Evolvers, and an HTTP endpoint that the CLI agents (MCP) and external programs (JSON)
+use: hermit.agent.base.tool_server.
 """
 from __future__ import annotations
 
@@ -130,8 +131,8 @@ def failed_usage(error: ChatHTTPError, model: str) -> Usage | None:
 
 
 def evolver_agent(client, budget, metered: list | None = None, cancel=None, log_path: Path | None = None):
-    """The Evolver's `direct` Base Agent (`ctx.agent`): the run's model, metered."""
-    from hermit.agent.base.direct import Direct
+    """The run's model for the Evolver (`ctx.agent`): one model call at a time (hermit.agent.model.direct), metered."""
+    from hermit.agent.model.direct import Direct
     return Direct({}, MeteredModel(client, budget, metered, cancel, log_path))
 
 
@@ -141,7 +142,7 @@ def assemble(*, adapter: Path, root: Path, template_decls: list, task_decls: lis
              snapshot=None) -> dict[str, FunctionTool]:
     """One toolset for one call. `adapter` is the workspace copy the tools act on; `root` the template's files;
     `within` are the learner's other writable directories (scratch, state), where an Evolver keeps a candidate.
-    `agent` is the call's metered `direct` Base Agent (evolver_agent); the `llm` tool calls it. `enforce` is the run's
+    `agent` is the call's metered model call (Direct, evolver_agent); the `llm` tool calls it. `enforce` is the run's
     sandbox.enforce for the spec check (None: the run's sandbox is off). `resolve` turns a path the learner names
     (inside its sandbox) into the path outside. `snapshot` copies what is checked where the learner cannot change it
     while it is checked (the Trainer's copy, made inside the learner's sandbox); the copy is removed after."""

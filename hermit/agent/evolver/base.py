@@ -57,7 +57,7 @@ class Context:
     cancel: Any = None            # threading.Event set by the Trainer when the call must stop (budget, timeout)
     tool_url: str | None = None   # HTTP endpoint serving the same tools (for agents and external programs)
     base: Path | None = None      # the run config's directory: relative paths in params resolve against it
-    agent: Any = None             # the run's model as a `direct` Base Agent, metered like the tools (see `ask`)
+    agent: Any = None             # the run's model, one call at a time (Direct, Layer 1), metered (see `ask`)
 
 
 @dataclass(frozen=True)
@@ -67,7 +67,7 @@ class StepContext(Context):
 
 
 def ask(agent, messages: list[dict], **sampling) -> dict:
-    """One call of the run's model through the Evolver's Base Agent (`ctx.agent`): {content, reasoning,
+    """One call of the run's model (`ctx.agent`, Direct): {content, reasoning,
     finish_reason, usage}. `sampling` is the request's (max_tokens, temperature, ...); None leaves a setting as it
     is."""
     if agent is None:

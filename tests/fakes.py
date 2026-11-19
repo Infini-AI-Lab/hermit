@@ -1,7 +1,7 @@
 """Stand-ins for the run's model in Evolver tests."""
 from __future__ import annotations
 
-from hermit.agent.base.direct import Direct
+from hermit.agent.model.direct import Direct
 from hermit.agent.model.usage import Usage
 
 
@@ -18,5 +18,5 @@ class FunctionModel:
 
 
 def agent_of(reply) -> Direct:
-    """The Evolver's `direct` Base Agent (ctx.agent) over a scripted reply function."""
+    """The Evolver's model call (ctx.agent, Direct) over a scripted reply function."""
     return Direct({}, FunctionModel(reply))

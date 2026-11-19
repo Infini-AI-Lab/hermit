@@ -1,13 +1,14 @@
 """Layer 2's one API (docs/framework/agent-layers.md#layer-2-base-agent).
 
     agent = make("codex", settings, model)            # a Base Agent: its settings are given here, once
-    result = agent.run(prompt, workspace=..., tools=[...], limits=Limits(...), session=None, roles=())
+    result = agent.run(prompt, environment=Local(path, Limits(...)), tools=[...], session=None, roles=())
     result.reply, result.trajectory, result.usage, result.session
 
-Layer 3 hands everything for one call through `run`: what to do (`prompt`), where (`workspace`), with what
-(`tools`), within what (`limits`), whether to continue an earlier call (`session`), and named sub-agents (`roles`).
-A Base Agent enforces every limit with its own isolation, or refuses the call (`Unsupported`); it never ignores
-one.
+Layer 3 hands everything for one call through `run`: what to do (`prompt`), where and within what (`environment`:
+hermit.agent.environment, its workspace, limits and isolation; a path is a Local environment there), with what
+(`tools`), whether to continue an earlier call (`session`), and named sub-agents (`roles`). A Base Agent enforces every
+limit with the environment's isolation, or refuses the call (`Unsupported`); it never ignores one. What an agent can be
+given of an adapter is its `exports` (`supports`).
 """
 from __future__ import annotations
 
@@ -19,11 +20,9 @@ from typing import Any, Sequence
 
 from hermit.agent.base.tool import Tool
 from hermit.agent.base.trajectory import Step
+from hermit.agent.environment.base import (Environment, Limits, Mount, Unsupported,  # noqa: F401 (re-exported)
+                                           as_environment)
 from hermit.agent.model.usage import Usage
-
-
-class Unsupported(ValueError):
-    """A Base Agent cannot do what the call asks (a limit it cannot enforce, a setting that does not combine)."""
 
 
 LOGIN_FAILED = "hermit_login_failed"     # in a failure's text: it crosses a sandbox's worker and an endpoint as text
@@ -55,23 +54,6 @@ class LoginFailed(SystemExit):
 
 
 @dataclass
-class Mount:
-    """Read-only data in the workspace: `source` on the machine, seen at `target` (absolute, or under the
-    workspace when relative)."""
-    source: Path
-    target: Path
-    readonly: bool = True
-
-
-@dataclass
-class Limits:
-    readable: Sequence[Mount] = ()     # data the agent may read, at its target
-    hidden: Sequence[Path] = ()        # paths the agent must not see
-    network: Sequence[str] | None = None   # hosts besides the model's it may reach; None: the network is not limited
-    timeout_s: float | None = None     # the call's wall clock; None: the Base Agent's setting
-
-
-@dataclass
 class Result:
     reply: str                                         # the agent's last message
     trajectory: list[Step] = field(default_factory=list)
@@ -95,10 +77,11 @@ class BaseAgent(ABC):
         self.model = model
 
     @abstractmethod
-    def run(self, prompt: str | list[dict], *, workspace: Path | None = None, tools: Sequence[Tool] = (),
-            limits: Limits | None = None, session: Any = None, roles: Sequence[dict] = ()) -> Result:
-        """`prompt` is the instruction, or chat messages. `roles` are named sub-agents (name, description,
-        instructions) the agent may delegate to, where it can."""
+    def run(self, prompt: str | list[dict], *, environment: Environment | Path | None = None,
+            tools: Sequence[Tool] = (), session: Any = None, roles: Sequence[dict] = ()) -> Result:
+        """`prompt` is the instruction, or chat messages; `environment` where the agent works (a path: a Local
+        there). `roles` are named sub-agents (name, description, instructions) the agent may delegate to, where it
+        can."""
 
     def instructed(self, system: str, prompt: str) -> tuple["BaseAgent", str]:
         """(this agent for a call that takes `system` as its instructions, the prompt to give it): where a caller's
@@ -108,17 +91,17 @@ class BaseAgent(ABC):
 
 
 def make(name: str, settings: dict | None = None, model: Any = None) -> BaseAgent:
-    """A Base Agent by name: direct, react, codex or claude (claude-code)."""
-    if name == "direct":
-        from hermit.agent.base.direct import Direct
-        return Direct(settings, model)
+    """A Base Agent by name: react, or a CLI (codex, claude, pi, ...). A single model call is no agent:
+    hermit.agent.model.direct.Direct."""
     if name == "react":
         from hermit.agent.base.react import React
         return React(settings, model)
     from hermit.agent.base.cli import CLIS
     if name in CLIS:
         return CLIS[name](settings, model)
-    known = ["direct", "react", *dict.fromkeys(c.backend for c in CLIS.values())]
+    known = ["react", *dict.fromkeys(c.backend for c in CLIS.values())]
+    if name == "direct":
+        raise ValueError("direct is a single model call, not a Base Agent: hermit.agent.model.direct.Direct")
     raise ValueError(f"no Base Agent {name!r}: {', '.join(known[:-1])} or {known[-1]}")
 
 
@@ -133,6 +116,4 @@ def configured(agent: BaseAgent, **settings) -> BaseAgent:
 BaseAgent.configured = configured
 
 
-def as_messages(prompt: str | list[dict]) -> list[dict]:
-    """A prompt as chat messages: a string is one user message."""
-    return list(prompt) if isinstance(prompt, list) else [{"role": "user", "content": prompt}]
+from hermit.agent.model.direct import as_messages   # noqa: E402,F401 (re-exported)

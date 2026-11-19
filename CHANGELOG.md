@@ -6,6 +6,16 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Breaking
 
+- One agent abstraction (#111, [agent layers](docs/framework/agent-layers.md#from-the-one-agent-refactor)): where an
+  agent works is an environment given with each call. `BaseAgent.run(prompt, environment=..., tools=, session=,
+  roles=)` replaces `run(prompt, workspace=, limits=)` (a path is a `Local` environment), and a CLI Base Agent
+  refuses `isolation`, `sandbox` or `container` given as settings (use `Sandboxed(path, sandbox=...)` or
+  `Container(path, settings=...)`). A single model call is Layer 1: `Direct(settings, model)` in
+  `hermit.agent.model.direct` returns a `Reply`, and `make("direct")` is refused. `hermit.agent.base.direct` and
+  `hermit.agent.base.container` (now `hermit.agent.environment.docker`) forward for one release. A run whose acting
+  agent does not take what its method needs of an adapter (`supports` against `evolver.yaml` `needs`) is refused
+  before it starts.
+
 - One sandbox design replaces every earlier sandbox mode ([design](docs/developer/sandbox-design.md)); no old
   configuration keeps working, and an old key fails with where it went:
 

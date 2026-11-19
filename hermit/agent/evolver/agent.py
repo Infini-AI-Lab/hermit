@@ -40,7 +40,8 @@ import subprocess
 
 import time
 
-from hermit.agent.base.interface import Limits, LoginFailed, make
+from hermit.agent.base.interface import LoginFailed, make
+from hermit.agent.environment import placed
 from hermit.agent.base.records import parse_log, price_usage   # noqa: F401 (re-exported)
 from hermit.agent.evolver.base import Context, Evolver, StepContext, StepResult, Usage
 
@@ -100,8 +101,8 @@ class AgentEvolver(Evolver):
         ctx = dataclasses.replace(ctx, message=message)
         prompt_file = params.get("resume_prompt") if ctx.session and params.get("resume_prompt") else params["prompt"]
         prompt = _fill((directory / prompt_file).read_text(), ctx)
-        result = make(backend, self.settings(ctx, backend)).run(prompt, workspace=ctx.workspace.adapter.parent,
-                                                                tools=tools, limits=Limits(), session=ctx.session)
+        result = make(backend, self.settings(ctx, backend)).run(
+            prompt, environment=placed(ctx.workspace.adapter.parent, ctx.sandbox), tools=tools, session=ctx.session)
         if result.extra.get("login_failed"):          # before a stop: a session that then hung is no step's failure
             raise LoginFailed(f"evolver {backend}: {result.extra.get('failure')}")
         if ctx.cancel is not None and ctx.cancel.is_set():
@@ -131,7 +132,6 @@ class AgentEvolver(Evolver):
                                           *(p for p in HERMES_PARAMS if p != "skills_dir"))
                    if params.get(k) is not None or (k == "plan_max_wait_s" and k in params)},   # None: no limit
                 "web_search": params["web_search"], "env": env,
-                "isolation": "sandbox" if ctx.sandbox is not None else "none", "sandbox": ctx.sandbox,
                 "codex_sandbox": "danger-full-access", "shell_env": "all",
                 # dsh's own sandbox off, as Codex's; and no instruction file of the evolver workspace: dsh adds a
                 # folder's AGENTS.md when its file tools touch it (an adapter's is the acting agent's policy), which

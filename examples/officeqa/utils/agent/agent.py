@@ -8,11 +8,11 @@ when its manifest declares one (ReHarness's retrieved reflections; Session.conte
 whole result is recorded in the output's extra["context_tool"]). adapter=None runs without one. The run's SkillOpt
 prediction files (conversation.json, target_*_prompt.txt) are its log.
 
-The target model (`agent.params.model`, a `<backend>/<model>` reference, see hermit.agent.model.backends; default GLM 5.3
-Flash on Fireworks, FIREWORKS_API_KEY) answers at medium reasoning effort, as the paper runs its student: SkillOpt's
-chat_target_messages is one call of the `direct` Base Agent (docs/framework/agent-layers.md); the loop is SkillOpt's. A rollout the API could not serve raises, so it is recorded as an error
-rather than a wrong answer (so does a question whose parsed pages SkillOpt cannot find under data.json's docs:
-without them the rollout is not the paper's setting).
+The target model (`agent.params.model`, a `<backend>/<model>` reference, see hermit.agent.model.backends; default GLM
+5.3 Flash on Fireworks, FIREWORKS_API_KEY) answers at medium reasoning effort, as the paper runs its student: SkillOpt's
+chat_target_messages is one Direct call (Layer 1, docs/framework/agent-layers.md); the loop is SkillOpt's. A rollout the
+API could not serve raises, so it is recorded as an error rather than a wrong answer (so does a question whose parsed
+pages SkillOpt cannot find under data.json's docs: without them the rollout is not the paper's setting).
 """
 from __future__ import annotations
 
@@ -65,24 +65,24 @@ class _Call:
 
 
 def _base_agent():
-    """The Base Agent of every call: `direct` on the target's endpoint at the paper's reasoning effort."""
+    """The model call of every turn: Direct (Layer 1) on the target's endpoint at the paper's reasoning effort."""
     global _agent
     with _lock:
         if _agent is None:
-            from hermit.agent.base.interface import make
+            from hermit.agent.model.direct import Direct
             from hermit.agent.model.llm import ChatClient
             # One request as SkillOpt's own client sent it: its tools as they are, a tool_choice only when it gives
             # one, and its retries of a request the endpoint did not serve: 5 attempts, waiting 4 s, 8 s, 16 s, 32 s
             # (doubling, at most 60 s).
             spec = {**_binding.spec(), "extra_body": {"reasoning_effort": EFFORT}}
-            _agent = make("direct", {"tool_choice": None},
+            _agent = Direct({"tool_choice": None},
                           ChatClient.from_spec(spec, max_retries=4, retry_wait=4.0, retry_wait_max=60.0))
         return _agent
 
 
 def _chat(messages, max_completion_tokens=MAX_TOKENS, retries=5, stage="rollout", reasoning_effort=None, *,
           tools=None, tool_choice=None, return_message=False, timeout=None):
-    """SkillOpt's chat_target_messages as one call of the `direct` Base Agent (Layer 2): the loop is SkillOpt's
+    """SkillOpt's chat_target_messages as one Direct call (Layer 1): the loop is SkillOpt's
     (Layer 3), which runs the tools the model asks for. Counts tokens and replies cut off at max_tokens for the
     current rollout."""
     agent = _base_agent().configured(max_tokens=min(max_completion_tokens, MAX_TOKENS), tool_choice=tool_choice)
@@ -146,6 +146,7 @@ def _messages(pred_dir: Path) -> list[dict]:
 
 class OfficeQAAgent(Agent):
     """SkillOpt's own rollout with the adapter's context as the skill. `agent.name: ../utils/agent/agent.py:OfficeQAAgent`."""
+    supports = ("context", "context_tool")    # SkillOpt's skill slot
 
     def run(self, task: dict, adapter: Path | None) -> RunOutput:
         _setup(self.params)

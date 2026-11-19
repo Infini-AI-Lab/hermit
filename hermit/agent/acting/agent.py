@@ -14,9 +14,15 @@ A config names the agent:
       concurrency: 4
       params: {...}
 
-The Trainer, `eval` and `check` call nothing but `run`; what happens inside (a tool loop, a CLI process, a
-benchmark's own loop with the adapter plugged in) is the agent's business. `Session` gives any agent the adapter's
-exports; `self.session(adapter)` builds one.
+The Trainer, `eval` and `check` call nothing but `run`; what happens inside (a tool loop, a
+CLI process, a benchmark's own loop with the adapter plugged in) is the agent's business. `Session` gives any agent the
+adapter's exports; `self.session(adapter)` builds one.
+
+What an agent can take of an adapter is its `supports`: the exports (exports.yaml: tools, context_tool, skills,
+agents, hooks; every agent takes the context) it gives the session. A method says what of these it needs (its
+evolver.yaml `needs`); a run whose agent does not take one is refused before it starts (hermit.trainer.needs_errors),
+never left to drop it silently. An agent that declares nothing (`supports = None`: a function, a task's own class
+that says nothing) is not checked.
 """
 from __future__ import annotations
 
@@ -27,7 +33,13 @@ from typing import Callable
 from hermit.task import RunOutput, load_callable
 
 
+EXPORTS = ("context", "context_tool", "tools", "skills", "agents", "hooks")   # an adapter's, as exports.yaml names them
+ALL = EXPORTS
+
+
 class Agent:
+    supports: tuple[str, ...] | None = None    # the adapter exports it takes (EXPORTS); None: not declared
+
     def __init__(self, params: dict | None = None, base: Path | str | None = None):
         self.params = dict(params or {})
         self.base = Path(base).resolve() if base is not None else Path.cwd()
@@ -60,6 +72,7 @@ class FunctionAgent(Agent):
     def __init__(self, fn: Callable, params: dict | None = None, base: Path | str | None = None):
         super().__init__(params, base)
         self.fn = fn
+        self.supports = getattr(fn, "supports", None)     # a function says what it takes as `fn.supports = (...)`
         wanted = inspect.signature(fn).parameters
         self.extra = {}
         if "params" in wanted:
@@ -108,3 +121,27 @@ def load_agent(name: str, params: dict | None, base: Path) -> Agent:
     if callable(target):
         return FunctionAgent(target, params, base)
     raise ValueError(f"{name} is neither an Agent class nor a run function")
+
+
+
+def supports_of(name: str, base: Path, params: dict | None = None, *, may_import: bool) -> tuple[str, ...] | None:
+    """What the agent `agent.name` names takes of an adapter (its `supports`), without running it: a built-in's from
+    its class (Harbor's from its acting agent, read from `params` and its benchmark file); a task's own class or
+    function only when `may_import` (it runs on this machine anyway), else None."""
+    factory = builtin(str(name))
+    if factory is not None:
+        if str(name) == "react":
+            from hermit.agent.acting.react import ReactAgent
+            return ReactAgent.supports
+        if str(name) == "harbor":
+            from hermit.harbor.runner import supports_of_params
+            try:
+                return supports_of_params(params, base)
+            except (OSError, ValueError):       # an unreadable benchmark file: its own settings check reports it
+                return None
+        from hermit.agent.acting.workspace import CliAgent
+        return CliAgent.supports
+    if not may_import:
+        return None
+    supports = getattr(load_callable(str(name), base), "supports", None)
+    return tuple(supports) if isinstance(supports, (tuple, list)) else None   # a property: known only per instance

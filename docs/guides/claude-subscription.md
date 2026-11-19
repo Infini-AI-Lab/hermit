@@ -101,7 +101,7 @@ unconfined as everything else does, and `sandbox.enforce: best_effort` runs it u
 A Codex text session can still run commands inside its sandbox; a Claude Code one has no tools at all. `cli_problems` in
 `hermit/agent/base/endpoint.py` has the rule for each.
 
-A container for Claude Code is Codex's (`hermit/agent/base/container.py`,
+A container for Claude Code is Codex's (`hermit/agent/environment/docker.py`,
 [the limits](../framework/agent-layers.md#limits)). `docker/claude/` builds the image from the machine's own Claude
 Code, one file of the version the image is named for (it does not update itself there), root's and execute-only for the
 session's user: the kernel then keeps the running CLI's memory and descriptors from every other process of that user.

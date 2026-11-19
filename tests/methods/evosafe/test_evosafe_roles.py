@@ -1077,7 +1077,7 @@ def test_role_shared_status_and_usage_survive_failure(tmp_path, monkeypatch, sta
         assert json.loads(Path(settings["args"][settings["args"].index("--output-schema") + 1]).read_text()) == schema
         def run(prompt, **kw):
             assert kw["session"] is None and kw["tools"] == ()
-            assert kw["limits"].timeout_s == 19
+            assert kw["environment"].limits.timeout_s == 19
             return Result(**{"reply": "", "exit_code": 0, "usage": usage, **status})
         return SimpleNamespace(run=run)
     monkeypatch.setattr(cli_roles, "make", make)

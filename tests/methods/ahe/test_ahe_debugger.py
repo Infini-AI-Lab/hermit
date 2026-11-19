@@ -5,6 +5,7 @@ job directory's contents and question, each attempt as one call of the codex Bas
 through `bin` (an answer, a retry, a timeout, a failure that falls back), per-job homes, per-attempt streams, usage the
 Base Agent priced, the login's shared copy, the timing breakdown of a real Harbor trial (the WP0 spike's trajectory,
 reduced), and rollback on a small git repository. No model, no network, no Docker."""
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -465,9 +466,8 @@ def test_run_jobs_answers_with_one_base_agent_call_per_attempt(tmp_path, monkeyp
     assert all(times["eps"]["end"] <= t["start"] for name, t in times.items() if name != "eps")
 
 
-def test_agent_settings_keep_the_evolve_agents_isolation_and_login_and_give_each_job_its_own_home(tmp_path):
-    sandbox = object()
-    base = {"web_search": False, "isolation": "sandbox", "sandbox": sandbox, "codex_sandbox": "danger-full-access",
+def test_agent_settings_keep_the_evolve_agents_login_and_give_each_job_its_own_home(tmp_path):
+    base = {"web_search": False, "codex_sandbox": "danger-full-access",
             "login": "chatgpt", "model": "gpt-5.6-luna", "effort": "medium", "env": {"PYTHONPATH": "/f"},
             "home": tmp_path / "agent_home", "log": tmp_path / "agent-codex.jsonl", "tools_name": "evolver_tools",
             "timeout_s": None, "stdin": True}
@@ -478,8 +478,8 @@ def test_agent_settings_keep_the_evolve_agents_isolation_and_login_and_give_each
     name = D.task_file_name("a/b")                              # a slug and a hash: no `/` in a file name
     job_dir = ctx.workspace.scratch / "debugger" / name
     s = runner.agent_settings(D.Job(task="a/b"), job_dir, 2, 30.0)
-    assert (s["isolation"], s["sandbox"], s["login"], s["codex_sandbox"], s["web_search"]) == \
-        ("sandbox", sandbox, "chatgpt", "danger-full-access", False)
+    assert (s["login"], s["codex_sandbox"], s["web_search"]) == ("chatgpt", "danger-full-access", False)
+    assert not {"isolation", "sandbox", "container"} & set(s)          # where it runs is its environment
     assert (s["model"], s["effort"], s["timeout_s"], s["cancel"], s["stdin"]) == ("gpt-5.6-luna", "low", 30.0,
                                                                                     ctx.cancel, True)
     assert s["home"] == ctx.workspace.scratch / "debugger-homes" / name and s["writable"] == [job_dir]
@@ -513,7 +513,7 @@ def test_an_attempt_reads_the_base_agents_result(tmp_path, monkeypatch, fields, 
         def __init__(self, settings):
             made.append(settings)
 
-        def run(self, prompt, *, workspace):
+        def run(self, prompt, *, environment):
             return Result(reply=fields.get("reply", ""), exit_code=fields["exit_code"],
                           timed_out=fields.get("timed_out", False), extra=fields["extra"],
                           usage=[Usage("m", input_tokens=5, calls=1)])
@@ -541,7 +541,7 @@ def test_an_attempts_clock_covers_the_wait_before_the_cli_runs(tmp_path, monkeyp
         def __init__(self, settings):
             self.cancel = settings["cancel"]
 
-        def run(self, prompt, *, workspace):
+        def run(self, prompt, *, environment):
             if order == "trainer":
                 trainer.set()
             self.cancel.wait(30)                       # the plan's wait: it ends when the cancel is set
@@ -956,3 +956,28 @@ def test_rollback_leaves_the_frameworks_own_entries_in_place(tmp_path):
     rec = R.rollback(adapter, {"changes": [{"id": "chg-9", "type": "rollback", "files": ["AGENTS.md"]}]},
                      {"chg-9": "HARMFUL"}, parent, LEARNABLE, lambda path: pytest.fail("no check"), {})
     assert rec["touched"] == [] and rec["changes"][0]["files"][0]["action"] == "left in place"
+
+
+def test_each_debugger_attempt_runs_in_the_runs_sandbox_as_the_evolve_agent(tmp_path, monkeypatch):
+    """The Debugger's session works in its job directory inside the run's sandbox (a Sandboxed environment), or on
+    this machine when the run's sandbox is off."""
+    from hermit.agent.base.interface import Result
+    seen = []
+
+    class Agent:
+        def __init__(self, settings):
+            self.settings = settings
+
+        def run(self, prompt, *, environment):
+            seen.append(environment)
+            return Result(reply="", exit_code=1, extra={"started": True})
+    monkeypatch.setattr(D, "make", lambda backend, settings: Agent(settings))
+    for sandbox, isolation in ((object(), "sandbox"), (None, "none")):
+        ctx = context(tmp_path / isolation, cancel=threading.Event())
+        ctx = dataclasses.replace(ctx, sandbox=sandbox)
+        runner = D.Runner(ctx, D.settings({}), {"web_search": False}, ctx.workspace.scratch)
+        job_dir = ctx.workspace.scratch / "debugger" / "job"
+        job_dir.mkdir(parents=True)
+        (job_dir / "question.md").write_text("why?")
+        runner.attempt(D.Job(task="a/b"), job_dir, 1, 30.0)
+        assert (seen[-1].isolation, seen[-1].sandbox, seen[-1].workspace) == (isolation, sandbox, job_dir)
