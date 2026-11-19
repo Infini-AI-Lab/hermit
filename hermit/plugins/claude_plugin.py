@@ -117,7 +117,7 @@ def _readme(bundle, output: Path, skills: list, roles: dict, omitted: list, hook
         "(`force-for-plugin`)." if bundle.has_context else "- Context: none",
         (f"- The adapter's files: under `{ADAPTER_DIR}/`, which a `SessionStart` hook names to the session"
          + (f", with the {len(bundle.other_files)} files no export connects" if bundle.other_files else ""))
-        if hooks else "- The adapter's files: under `adapter/`, for its tools; none is named to the session",
+        if hooks else f"- The adapter's files: under `{ADAPTER_DIR}/`, for its tools; none is named to the session",
         f"- Skills: {', '.join(skills) or 'none'}", f"- Roles: {', '.join(roles.values()) or 'none'}",
         f"- Tools: {', '.join(t['name'] for t in bundle.tools) or 'none'}",
         f"- Left out (--allow-lossy): {', '.join(omitted)}" if omitted else "- Left out: nothing", ""])
