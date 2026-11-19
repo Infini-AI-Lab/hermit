@@ -42,6 +42,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   one). `examples/claude_subscription/`: its nine tasks, judge, splits and task-info moved to `utils/benchmark/`.
   `examples/aspire_robosuite/` and `examples/libero/`: their launchers run `utils/benchmark/prepare.py`;
   `sim_service.py` and `stage_docs.py --tasks` take the task directories.
+  `examples/robodojo_sim/`: its launcher runs `utils/benchmark/prepare.py`; `dojo_service.py --tasks` takes the task
+  directories.
 
 - Tasks and environments are packages of their own beside the agents: `hermit/environment/` (moved from
   `hermit/agent/environment/`, which forwards for one release) and `hermit/task/` (from `hermit/task.py`: `Task` with

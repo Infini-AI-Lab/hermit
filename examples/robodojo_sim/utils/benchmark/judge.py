@@ -23,7 +23,7 @@ import os
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "agent"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
 import dojo  # noqa: E402
 
 JUDGE_TIMEOUT_S = 48 * 3600

@@ -16,7 +16,7 @@
 #                                                                  # and the judge read both from the environment
 #   ROBODOJO_OUT=/big/disk/robodojo ./launch.sh                    # the runs, the sessions, the held-out evaluations
 #
-# The launcher writes the layouts into the task rows (utils/prepare.py), installs the harness's XPolicyLab policy
+# The launcher writes the layouts into the tasks (utils/benchmark/prepare.py), installs the harness's XPolicyLab policy
 # into the checkout (utils/policy/install.py), starts the simulator service the actors reach through bin/sim
 # (utils/agent/dojo_service.py, on ROBODOJO_SIM_PORT, default 8130; stopped when the run ends) and runs hermit. The
 # model key (FIREWORKS_API_KEY), or the Claude subscription's token (CLAUDE_CODE_OAUTH_TOKEN), comes from the
@@ -37,7 +37,7 @@ ACTUAL="$(git -C "$ROBODOJO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
 [[ "$ACTUAL" == "$PINNED" ]] || echo "note: ROBODOJO_ROOT is at $ACTUAL, not the pinned $PINNED" >&2
 
 PRESET="${ROBODOJO_PRESET:-$([[ "${CONFIG##*/}" == smoke* ]] && echo smoke || echo full)}"
-(cd ../utils && "$HERMIT" prepare.py --preset "$PRESET")
+(cd ../utils/benchmark && "$HERMIT" prepare.py --preset "$PRESET")
 "$HERMIT" ../utils/policy/install.py --root "$ROBODOJO_ROOT"
 
 OUT="${ROBODOJO_OUT:-$HERE/../runs}"
@@ -51,7 +51,7 @@ export ROBODOJO_ROOT ROBODOJO_OUT="$OUT" ROBODOJO_GPU="${ROBODOJO_GPU:-0}" \
 
 PORT="${ROBODOJO_SIM_PORT:-8130}"
 NONCE="$$-$RANDOM-$(date +%s%N)"
-"$HERMIT" ../utils/agent/dojo_service.py --port "$PORT" --robodojo-root "$ROBODOJO_ROOT" --tasks ../utils/tasks.jsonl \
+"$HERMIT" ../utils/agent/dojo_service.py --port "$PORT" --robodojo-root "$ROBODOJO_ROOT" --tasks ../utils/benchmark/tasks \
   --workspaces "$OUT/actor-logs" --state "$OUT/sim-service" --gpu "$ROBODOJO_GPU" --nonce "$NONCE" \
   --policy-env "$ROBODOJO_POLICY_ENV" --eval-env "$ROBODOJO_EVAL_ENV" --env-cfg "$ROBODOJO_ENV_CFG" \
   --action-type "$ROBODOJO_ACTION_TYPE" > "$OUT/sim-service.log" 2>&1 &

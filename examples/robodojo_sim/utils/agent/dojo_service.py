@@ -10,7 +10,7 @@ RoboDojo's engine (dojo.Engine) in place of cap-harness:
                     evaluates a set's first N); a held-out set is never run here
     GET  /health
 
-    python dojo_service.py --port 8130 --robodojo-root $ROBODOJO_ROOT --tasks utils/tasks.jsonl --workspaces <logs>
+    python dojo_service.py --port 8130 --robodojo-root $ROBODOJO_ROOT --tasks utils/benchmark/tasks --workspaces <logs>
         --state <dir> [--gpu 0] [--policy-env RoboDojo] [--eval-env RoboDojo] [--env-cfg arx_x5]
         [--action-type joint] [--run-timeout 21600] [--nonce <nonce>]
 """
@@ -27,6 +27,7 @@ import sys
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import dojo  # noqa: E402
+from robodojo_fields import task_rows  # noqa: E402
 
 sys.path.append(str(HERE.parents[2] / "aspire_robosuite" / "utils" / "agent"))
 import sim_service as base  # noqa: E402  (the ASPIRE example's)
@@ -93,7 +94,8 @@ def main() -> None:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8130)
     ap.add_argument("--robodojo-root", type=Path, required=True)
-    ap.add_argument("--tasks", type=Path, required=True, help="the task rows (utils/tasks.jsonl): their layouts")
+    ap.add_argument("--tasks", type=Path, required=True,
+                    help="the tasks (utils/benchmark/tasks, or a tasks.jsonl), each read as its row: their layouts")
     ap.add_argument("--workspaces", type=Path, action="append", required=True)
     ap.add_argument("--state", type=Path, required=True)
     ap.add_argument("--gpu", default="0")
@@ -110,7 +112,7 @@ def main() -> None:
                          action_type=a.action_type, gpu=a.gpu, timeout_s=a.run_timeout)
     engine._installed()                                     # refused now rather than on a session's first run
     a.state.mkdir(parents=True, exist_ok=True)
-    tasks = {r["id"]: r for r in (json.loads(line) for line in a.tasks.read_text().splitlines() if line.strip())}
+    tasks = task_rows(a.tasks)
     service = Service(engine, tasks, a.workspaces, base.Ledger(a.state / "ledger.json"), run_timeout=a.run_timeout)
     service.nonce = a.nonce
 

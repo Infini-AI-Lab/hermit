@@ -1,10 +1,15 @@
 """Write RoboDojo-Sim's forty-two tasks (RoboDojo `scripts/internal/task_inventory.py`, its five capability
-dimensions) as hermit tasks: one row per task with the layouts it is developed and scored on.
+dimensions) as hermit tasks: one task directory (Harbor's format) per task with the layouts it is developed and scored
+on.
 
     python prepare.py                      # development: layout set 2, its first 10 layouts; held-out: sets 0 and 1,
                                            # as many of each as RoboDojo evaluates (50, or the task's own 25)
     python prepare.py --preset smoke       # development: 2 layouts; held-out: set 0, 2 layouts
-    # tasks.jsonl, splits/{all,<dimension>,smoke,sample}.txt
+    # tasks/<id>/, splits/{all,<dimension>,smoke,sample}.txt
+
+A task directory's task.toml holds the row's fields but its id under [metadata], in the row's order, and asks for no
+network (the actor reaches only its model and the simulator service's forwarded port); it has no tests/: the judge
+(judge.py) runs on the host, where the simulator is. utils/agent/robodojo_fields.py reads each back as its row.
 
 RoboDojo's saved layouts come in sets (`--seed`: `Assets/Eval_Layout/RoboDojo/<config>/<seed>/<task>_<n>.json`;
 its protocol evaluates sets 0, 1 and 2) and an evaluation runs a set's first N. A row keeps the two apart by set:
@@ -16,8 +21,10 @@ from here is on two of them, and the third was developed on.
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
+import shutil
+
+from hermit.task.directory import write_task as write_task_dir
 
 HERE = Path(__file__).resolve().parent
 BENCHMARK = "robodojo"
@@ -47,6 +54,15 @@ PRESETS = {"full": {"dev_set": 2, "dev": 10, "eval_sets": "0,1", "eval": None}, 
            "smoke": {"dev_set": 2, "dev": 2, "eval_sets": "0", "eval": 2}}
 
 
+def write_task(tasks: Path, row: dict) -> Path:
+    """One row as a task directory: its fields but the id under [metadata], in the row's order; no network."""
+    instruction = (f"Write the program that controls the bimanual robot in RoboDojo-Sim's `{row['suite']}` "
+                   f"({row['dimension']}): developed on layout set {row['layout_set']}, scored on the held-out sets "
+                   f"{', '.join(map(str, row['eval_layout_sets']))}.")
+    return write_task_dir(tasks / row["id"], instruction, metadata={k: v for k, v in row.items() if k != "id"},
+                          environment={"network_mode": "no-network"})
+
+
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--preset", choices=sorted(PRESETS), default="full")
@@ -67,7 +83,10 @@ def main(argv=None) -> None:
              "eval_layout_sets": eval_sets,
              "eval_layouts": min(chosen["eval"] or EVAL_NUMS, 25 if task in EVAL_25 else EVAL_NUMS)}
             for dimension, tasks in DIMENSIONS.items() for task in tasks]
-    (HERE / "tasks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    if (HERE / "tasks").exists():                    # this script's own output: rewritten whole
+        shutil.rmtree(HERE / "tasks")
+    for row in rows:
+        write_task(HERE / "tasks", row)
     splits = HERE / "splits"
     splits.mkdir(exist_ok=True)
     of = lambda dimension: [r["id"] for r in rows if r["dimension"] == dimension]
@@ -75,7 +94,7 @@ def main(argv=None) -> None:
     for name, members in {"all": ids, **{d: of(d) for d in DIMENSIONS}, "smoke": ids[:2],
                           "sample": [f"robodojo-{t}" for t in SAMPLE]}.items():
         (splits / f"{name}.txt").write_text("".join(f"{i}\n" for i in members))
-    print(f"{len(rows)} tasks -> {HERE / 'tasks.jsonl'}")
+    print(f"{len(rows)} tasks -> {HERE / 'tasks'}")
 
 
 if __name__ == "__main__":
