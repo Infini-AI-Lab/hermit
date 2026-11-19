@@ -48,7 +48,7 @@ and GPT-6 Sol with high effort for the learner roles. It uses 57 training cases 
 held-out cases from `full-test-v1`, grouped by user task. Candidate selection uses the training cascade.
 The [Claude recipe](run_nemotron_claude.yaml) uses the same Lightning victim and TEST set, with a disjoint
 validation split for candidate confirmation. Both recipes keep `max_iters: 25`.
-The dataset revision, construction and split hashes are in [DATA.md](../utils/DATA.md).
+The dataset revision, construction and split hashes are in [DATA.md](../utils/benchmark/DATA.md).
 
 The experiment runner evaluates `none`, `root`, and `final` on the same test split
 with the same victim settings. Clean utility is measured on completed clean cases.

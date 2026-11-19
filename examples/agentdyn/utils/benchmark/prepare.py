@@ -1,11 +1,16 @@
-"""Normalize fixed replay cases; split by user task, never by injection variant."""
+"""Normalize fixed replay cases; split by user task, never by injection variant. Writes the protocol's cases as task
+directories (cases.py), its splits and its manifest."""
 import argparse
 import hashlib
 import json
 from pathlib import Path
 import random
+import sys
 
-from bridge import benchmark_settings, case_fields, validate_case
+sys.path[:0] = [str(Path(__file__).resolve().parents[1]),       # AgentDyn's runtime (bridge.py)
+                 str(Path(__file__).resolve().parent)]           # cases.py
+from bridge import benchmark_settings, case_fields, validate_case  # noqa: E402
+from cases import write_cases  # noqa: E402
 
 
 def read_logs(directory, suite):
@@ -59,13 +64,13 @@ def prepare(cases, output, seed=0, *, benchmark="agentdyn"):
             raise ValueError(f"{name} has no injected cases; provide coverage for more user tasks")
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
-    (output / "tasks.jsonl").write_text("".join(json.dumps(case_fields(r)) + "\n" for r in rows))
+    tasks_sha256 = write_cases(output, [case_fields(r) for r in rows], benchmark=benchmark)
     for name, members in splits.items():
         (output / f"{name}.txt").write_text("".join(r["id"] + "\n" for r in members))
     manifest = {"seed": seed, "benchmark": benchmark, "reference_revision": revision,
                 "groups": [{"suite": s, "user_task_id": u, "split": assignment[(s,u)]} for s,u in ordered],
                 "counts": {k: len(v) for k,v in splits.items()},
-                "tasks_sha256": hashlib.sha256((output / "tasks.jsonl").read_bytes()).hexdigest()}
+                "tasks_sha256": tasks_sha256}
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2))
     return manifest
 

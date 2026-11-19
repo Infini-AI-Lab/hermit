@@ -1,10 +1,11 @@
 data:
-  tasks: ../utils/data/comparison-v1/tasks.jsonl
-  train: ../utils/data/comparison-v1/train.txt
-  test: ../utils/data/comparison-v1/test.txt
+  tasks: ../utils/benchmark/data/comparison-v1/tasks
+  view: ../../agentdyn/utils/benchmark/cases.py:case_row   # each case as the row it always was
+  train: ../utils/benchmark/data/comparison-v1/train.txt
+  test: ../utils/benchmark/data/comparison-v1/test.txt
   step_size: 57
   shuffle: false
-task_info: ../utils/task-info
+task_info: ../utils/benchmark/task-info
 template: she@1.0
 agent:
   name: ../utils/task.py:run
@@ -26,7 +27,7 @@ agent:
       max_tokens: 1024
       timeout_s: 45
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 evolver:
   name: she
   params:

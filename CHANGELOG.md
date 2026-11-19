@@ -48,6 +48,10 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   too).
   `examples/clbench_database/` and `examples/clbench_poker/`: run `utils/benchmark/prepare.py` again (`task-info/`
   moved there too).
+  `examples/agentdyn/` and `examples/agentdojo/`: prepare each protocol again under `utils/benchmark/data/` (each
+  writes `tasks/`, `cases.txt` with every case in its order, the splits and the manifest, whose `tasks_sha256` is still
+  that of the rows as JSON lines, as `DATA.md` lists them); `report.py` and `compare.py --tasks` take a protocol's
+  `tasks/`.
 
 - Tasks and environments are packages of their own beside the agents: `hermit/environment/` (moved from
   `hermit/agent/environment/`, which forwards for one release) and `hermit/task/` (from `hermit/task.py`: `Task` with

@@ -12,10 +12,12 @@ from pathlib import Path
 import random
 import sys
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2] / 'agentdyn/utils'),     # AgentDyn's runtime
-                 str(Path(__file__).resolve().parents[3])]                       # hermit from this checkout
-from bridge import AGENTDOJO_REVISION, case_fields, validate_case
-from prepare_expanded import audit_native
+sys.path[:0] = [str(Path(__file__).resolve().parents[3] / 'agentdyn/utils'),     # AgentDyn's runtime
+                 str(Path(__file__).resolve().parents[3] / 'agentdyn/utils/benchmark'),   # its prepare scripts
+                 str(Path(__file__).resolve().parents[4])]                       # hermit from this checkout
+from bridge import AGENTDOJO_REVISION, case_fields, validate_case  # noqa: E402
+from cases import write_cases  # noqa: E402
+from prepare_expanded import audit_native  # noqa: E402
 
 SUITES = ('banking', 'slack', 'travel', 'workspace')
 VERSION = 'v1.2.2'
@@ -110,8 +112,7 @@ def prepare(source, output, *, attack='tool_knowledge', seed=20261117, train_gro
     inventory, audit = audit_native(cases, suite_names=SUITES, benchmark_version=VERSION)
     rows, splits, assignments, selected = select(cases, audit, seed, train_groups, val_groups)
     output.mkdir(parents=True)
-    tasks = output / 'tasks.jsonl'
-    tasks.write_text(''.join(json.dumps(row, sort_keys=True) + '\n' for row in rows))
+    tasks_sha256 = write_cases(output, rows, benchmark='agentdojo', sort_keys=True)
     for split, ids in splits.items():
         (output / f'{split}.txt').write_text('\n'.join(ids) + '\n')
     manifest = {'protocol': 'AgentDojo frozen replay comparison v1; local split, not official benchmark score',
@@ -123,7 +124,7 @@ def prepare(source, output, *, attack='tool_knowledge', seed=20261117, train_gro
                 'source_cases': len(cases), 'eligible_cases': sum(row['eligible'] for row in audit.values()),
                 'selected_sources': {key: sources[key] for key in selected},
                 'audit_scope': 'native IDs, vectors, environment initialization and false no-op verdicts; no model outcomes',
-                'tasks_sha256': hashlib.sha256(tasks.read_bytes()).hexdigest(),
+                'tasks_sha256': tasks_sha256,
                 'split_sha256': {s: hashlib.sha256((output / f'{s}.txt').read_bytes()).hexdigest() for s in splits}}
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2))
     (output / 'source-audit.json').write_text(json.dumps(audit, indent=2))

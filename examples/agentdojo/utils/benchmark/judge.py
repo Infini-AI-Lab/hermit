@@ -2,7 +2,7 @@
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "agentdyn/utils"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "agentdyn/utils"))
 from bridge import score
 
 __all__ = ["score"]

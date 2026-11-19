@@ -5,12 +5,12 @@ import json
 from pathlib import Path
 import sys
 
-REPLAY = Path(__file__).resolve().parents[2] / "agentdyn/utils"
+REPLAY = Path(__file__).resolve().parents[3] / "agentdyn/utils"
 sys.path[:0] = [str(REPLAY), str(REPLAY.parents[2])]     # AgentDyn's runtime; hermit from this checkout
 from bridge import BENCHMARKS
 
 # AgentDyn's prepare.py, by its path: this file has the same name.
-_spec = importlib.util.spec_from_file_location("agentdyn_prepare", REPLAY / "prepare.py")
+_spec = importlib.util.spec_from_file_location("agentdyn_prepare", REPLAY / "benchmark" / "prepare.py")
 _replay = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_replay)
 prepare_replay, read_logs = _replay.prepare, _replay.read_logs

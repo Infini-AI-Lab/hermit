@@ -7,12 +7,15 @@ chosen by a fixed seed. --full-test adds all frozen variants in TEST-owned group
 Reads only the inventory and split files, never model outcomes.
 """
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import random
+import sys
 
-from bridge import case_fields
+sys.path[:0] = [str(Path(__file__).resolve().parents[1]),       # AgentDyn's runtime (bridge.py)
+                 str(Path(__file__).resolve().parent)]           # cases.py
+from bridge import case_fields  # noqa: E402
+from cases import read_cases, write_cases  # noqa: E402
 
 SPLITS = ('train', 'val', 'test')
 
@@ -23,7 +26,7 @@ def prepare(inventory, base, output, goals=2, seed=20261102, *, full_test=False)
         raise ValueError('goals must be a positive integer')
     if output.exists():
         raise FileExistsError(output)
-    rows = [json.loads(s) for s in (inventory / 'full/tasks.jsonl').read_text().splitlines() if s.strip()]
+    rows = read_cases(inventory / 'full')
     by_id = {r['id']: r for r in rows}
     owners = {(g['suite'], g['user_task_id']): g['split']
               for g in json.loads((inventory / 'full/manifest.json').read_text())['groups']}
@@ -54,7 +57,8 @@ def prepare(inventory, base, output, goals=2, seed=20261102, *, full_test=False)
         splits[split] = selected
     output.mkdir(parents=True)
     used = {i for ids in splits.values() for i in ids}
-    (output / 'tasks.jsonl').write_text(''.join(json.dumps(case_fields(by_id[i]), sort_keys=True) + '\n' for i in sorted(used)))
+    tasks_sha256 = write_cases(output, [case_fields(by_id[i]) for i in sorted(used)], benchmark='agentdyn',
+                               sort_keys=True)
     for split, ids in splits.items():
         (output / f'{split}.txt').write_text('\n'.join(ids) + '\n')
     clean = {s: sum(not by_id[i].get('injection_task_id') for i in ids) for s, ids in splits.items()}
@@ -67,7 +71,7 @@ def prepare(inventory, base, output, goals=2, seed=20261102, *, full_test=False)
               'counts': {s: len(ids) for s, ids in splits.items()}, 'clean': clean,
               'groups': [{'suite': s, 'user_task_id': t, 'split': owners[(s, t)]}
                          for s, t in sorted({group(by_id[i]) for i in used})],
-              'tasks_sha256': hashlib.sha256((output / 'tasks.jsonl').read_bytes()).hexdigest()}
+              'tasks_sha256': tasks_sha256}
     (output / 'manifest.json').write_text(json.dumps(report, indent=2) + '\n')
     return report
 

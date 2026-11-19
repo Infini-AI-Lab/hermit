@@ -28,11 +28,12 @@ unrecorded goals are not synthesized. “All goals” below means all eligible
 From the repository root:
 
 ```bash
-python examples/agentdojo/utils/prepare_benchmark.py \
-  ../agentdojo/runs/gpt-4o-2024-05-13 examples/agentdojo/utils/data/comparison-v1
+python examples/agentdojo/utils/benchmark/prepare_benchmark.py \
+  ../agentdojo/runs/gpt-4o-2024-05-13 examples/agentdojo/utils/benchmark/data/comparison-v1
 ```
 
-The command refuses to overwrite an output directory. It writes task rows and
+The command refuses to overwrite an output directory. It writes the cases as task
+directories (`tasks/`, the row as `task.toml`'s `[metadata]`; `cases.txt` keeps their order) and
 split ID files, a source audit, and a manifest with hashes, native inventory,
 source file paths/hashes and group ownership. Generated cases and audit logs stay
 ignored; public tool schemas in `task-info/tools.json` are reusable interfaces.
@@ -61,7 +62,7 @@ variant independently of outcomes.
 | Workspace | 8 / 16 | 8 / 16 | 24 / 144 |
 | Total | **19 / 38** | **18 / 36** | **55 / 351** |
 
-The task JSONL SHA-256 is
+The SHA-256 of the rows as JSON lines (the manifest's `tasks_sha256`; what `tasks.jsonl` held) is
 `d50945a77e81afb21a7556a10b29d1989a99c4822eabd45f81c4d67013f0d65e`.
 Both Codex recipes select on TRAIN only and leave validation unused, following
 the corresponding AgentDyn Codex protocols. TEST is evaluated only with frozen

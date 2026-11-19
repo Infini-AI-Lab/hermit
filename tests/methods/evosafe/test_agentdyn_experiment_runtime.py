@@ -17,6 +17,45 @@ sys.path.insert(0, str(UTILS))
 from experiment_runtime import snapshot, verify_snapshot
 
 
+def test_a_task_set_of_task_directories_is_frozen_and_hashed_whole(tmp_path, monkeypatch):
+    """A protocol's tasks/ (task directories) is copied into the snapshot, not read as a file, and digest() hashes
+    every file of it: a changed case changes the digest."""
+    from experiment_runtime import digest
+    root = tmp_path / 'repo'
+    for name in ['template', 'task-info']:
+        (root / name).mkdir(parents=True)
+        (root / name / 'info').write_text('committed context')
+    (root / 'worker.py').write_text('def run(task, adapter):\n    pass\n')
+    import yaml
+    config_data = {'data': {'tasks': 'data/tasks', **{k: 'data/split.txt' for k in ('train', 'val', 'test')}},
+                   'agent': {'name': 'worker.py:run', 'params': {}}, 'judge': {'path': 'worker.py'},
+                   'trainer': {}, 'task_info': 'task-info', 'template': 'template', 'evolver': {'name': 'she'}}
+    (root / 'run.yaml').write_text(yaml.safe_dump(config_data))
+    (root / '.gitignore').write_text('data/\n')
+    subprocess.run(['git', 'init', '-q', str(root)], check=True)
+    subprocess.run(['git', '-C', str(root), 'add', '.'], check=True)
+    subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                    'commit', '-qm', 'fixture'], check=True)
+    case = root / 'data/tasks/case-1'
+    case.mkdir(parents=True)
+    (case / 'task.toml').write_text('[metadata]\nid = "case-1"\n')
+    (case / 'instruction.md').write_text('A case.\n')
+    (root / 'data/split.txt').write_text('case-1\n')
+    before = digest(root / 'data/tasks')
+    config = SimpleNamespace(data=config_data, run_dir=lambda: tmp_path / 'output/run',
+        run_name=lambda: 'run', path=lambda value: (root / value).resolve(),
+        template_dir=lambda: root / 'template', tree_dir=lambda method: tmp_path / ('tree-' + method))
+    monkeypatch.setenv('HA_BACKENDS', str(tmp_path / 'none.yaml'))
+    meta = snapshot(root, root / 'run.yaml', config)
+    frozen_tasks = Path(yaml.safe_load(Path(meta['config']).read_text())['data']['tasks'])
+    assert frozen_tasks.is_dir() and (frozen_tasks / 'case-1/task.toml').read_text() == '[metadata]\nid = "case-1"\n'
+    assert digest(frozen_tasks) == before
+    (case / 'task.toml').write_text('[metadata]\nid = "case-2"\n')
+    assert digest(root / 'data/tasks') != before
+    with pytest.raises(FileNotFoundError):
+        digest(root / 'data/missing.jsonl')
+
+
 @pytest.mark.parametrize('with_validation', [True, False])
 @pytest.mark.parametrize('disable_sandbox', [True, False])
 def test_snapshot_survives_changes_to_original_code_config_and_data(tmp_path, monkeypatch, with_validation, disable_sandbox):

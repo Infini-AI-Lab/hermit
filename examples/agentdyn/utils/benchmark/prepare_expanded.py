@@ -11,8 +11,12 @@ import hashlib
 import json
 from pathlib import Path
 import random
+import sys
 
-from bridge import AGENTDYN_REVISION, case_fields, validate_case
+sys.path[:0] = [str(Path(__file__).resolve().parents[1]),       # AgentDyn's runtime (bridge.py)
+                 str(Path(__file__).resolve().parent)]           # cases.py
+from bridge import AGENTDYN_REVISION, case_fields, validate_case  # noqa: E402
+from cases import write_cases  # noqa: E402
 
 SUITES = ("shopping", "github", "dailylife")
 # Source-level judge discrepancies, fixed before any model-backed expanded run.
@@ -139,7 +143,7 @@ def export_full(output, cases, audit, assignments, seed):
         rows.extend({"id": f"{s}-{t}-{c['injection_task_id']}-{k[:8]}", **c}
                     for k, c in sorted(eligible.items()) if (c["suite"], c["user_task_id"]) == (s, t))
     output.mkdir(parents=True, exist_ok=False)
-    (output / "tasks.jsonl").write_text("".join(json.dumps(case_fields(r), sort_keys=True) + "\n" for r in rows))
+    tasks_sha256 = write_cases(output, [case_fields(r) for r in rows], benchmark="agentdyn", sort_keys=True)
     counts = {}
     for split in ("train", "val", "test"):
         buckets = {s: [r["id"] for r in rows if r["suite"] == s
@@ -151,7 +155,7 @@ def export_full(output, cases, audit, assignments, seed):
     manifest = {"protocol": "full eligible frozen inventory; not a completed live evaluation",
                 "reference_revision": AGENTDYN_REVISION, "seed": seed, "counts": counts,
                 "groups": [{"suite": s, "user_task_id": t, "split": owners[(s, t)]} for s, t in groups],
-                "tasks_sha256": hashlib.sha256((output / "tasks.jsonl").read_bytes()).hexdigest()}
+                "tasks_sha256": tasks_sha256}
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2))
     return manifest
 
@@ -175,11 +179,11 @@ def prepare(source, output, seed=20261101, groups_per_split=2, goals_per_group=2
         "audit_scope": "native ID/vector/environment initialization and no-op verdicts; not semantic pairing certification",
     }
     output.mkdir(parents=True)
-    (output / "tasks.jsonl").write_text("".join(json.dumps(case_fields(r), sort_keys=True) + "\n" for r in rows))
+    tasks_sha256 = write_cases(output, [case_fields(r) for r in rows], benchmark="agentdyn", sort_keys=True)
     for split, ids in splits.items():
         (output / f"{split}.txt").write_text("\n".join(ids) + "\n")
     (output / "source-audit.json").write_text(json.dumps({"inventory": inventory, "cases": audit}, indent=2))
-    manifest["tasks_sha256"] = hashlib.sha256((output / "tasks.jsonl").read_bytes()).hexdigest()
+    manifest["tasks_sha256"] = tasks_sha256
     manifest["split_sha256"] = {s: hashlib.sha256((output / f"{s}.txt").read_bytes()).hexdigest() for s in splits}
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2))
     export_full(output / "full", cases, audit, assignments, seed)

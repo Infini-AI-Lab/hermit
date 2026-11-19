@@ -46,8 +46,10 @@ Other tasks were inspected at the source level but are not certified free of def
 ## Inventory and split ownership
 
 `prepare_expanded.py` (seed `20261101`) writes `full/`: 569 cases from 55 eligible user groups, 55 clean plus 514
-injected. Each group is owned by exactly one split: 19 train, 18 validation, 18 test. The SHA-256 of
-`full/tasks.jsonl` is `4cc68ea19e1adc518b0a0965641b75c174853396231b55770006b5ac8fac791e`.
+injected. Each group is owned by exactly one split: 19 train, 18 validation, 18 test. Every protocol directory holds
+its cases as task directories (`tasks/`, the row as `task.toml`'s `[metadata]`) and `cases.txt`, their order; a
+SHA-256 below, the manifest's `tasks_sha256`, is that of the rows as JSON lines in that order (what `tasks.jsonl`
+held before the task directories). The SHA-256 of `full/`'s rows is `4cc68ea19e1adc518b0a0965641b75c174853396231b55770006b5ac8fac791e`.
 
 All variants of a user task stay in their owner's split, and a larger protocol never moves a group to another
 split.
@@ -67,7 +69,7 @@ Three steps build it, each keeping the cases of the previous one:
 | Test | 18 | 18 | 36 | 54 |
 
 The two injection goals per group are chosen by a fixed seed from the goals that group has. The SHA-256 of
-`all-groups-v1/tasks.jsonl` is `2f5d3943caf7d56d0d50c1998c6a2154f524fb2178ca4119fe89d7b2846d69f4`.
+`all-groups-v1`'s rows is `2f5d3943caf7d56d0d50c1998c6a2154f524fb2178ca4119fe89d7b2846d69f4`.
 Validation cases serve only to confirm a candidate. Test cases are used only by `hermit eval` and are never shown
 to the roles.
 
@@ -78,7 +80,7 @@ owned by the existing TEST groups.
 This produces 186 TEST cases: 18 clean and 168 injected across the same 18 groups, including the original
 54 cases plus 132 additional injected variants. TRAIN (57 cases), validation (54 cases), split ownership and
 injection payloads are unchanged. Unselected variants in TRAIN and validation groups remain excluded.
-Selection does not use model outcomes. The SHA-256 of `full-test-v1/tasks.jsonl` is
+Selection does not use model outcomes. The SHA-256 of `full-test-v1`'s rows is
 `b529dfa72103fe8c55972e1960dcf492adda2be7dfdd6b1c0a87433007e043fb`.
 
 The Codex EvoSafe recipe uses TRAIN for search and TEST for frozen evaluation, with no validation gate.
