@@ -1,11 +1,12 @@
 """Write LIBERO's tasks (`cap-harness --benchmark libero-pro`, the suites of the LIBERO it pins) as hermit tasks: one
-row per (suite, task id) with its seeds, which the simulator service and the judge take from the row (ASPIRE's
+task per (suite, task id) with its seeds, which the simulator service and the judge take from its row (ASPIRE's
 LIBERO defaults: development 51-65, unseen-check 66-80, held-out 1-50; every run with `--init-mode seeded`, which
 the engine sets, so that a seed is a scene of its own).
 
     python prepare.py                                  # ASPIRE's seeds
     python prepare.py --preset smoke                   # the smoke's: three development seeds, one unseen, three held-out
-    # tasks.jsonl, splits/{all,libero,libero_90,libero_pro,libero_pro_long,<suite>,smoke,smoke_pro,libero_sample}.txt,
+    # tasks/<id>/ (task directories),
+    # splits/{all,libero,libero_90,libero_pro,libero_pro_long,<suite>,smoke,smoke_pro,libero_sample}.txt,
     # their *_rerun.txt (rerun.txt for all), verify.txt
 
 LIBERO's own five suites (Liu et al., 2023): `libero_object`, `libero_spatial`, `libero_goal` and `libero_10`
@@ -17,8 +18,8 @@ task's name no longer states it: its language is the one `get_task_context()` gi
 splits/libero_pro_long.txt for LIBERO-Long-Pro (`libero_10_swap`, `libero_10_task`). A suite and its perturbations
 share task ids, so a row's id carries the suite.
 
-The rows, the verifier's and the reruns are written by the Robosuite example's prepare.py (`write`), whose engine
-this benchmark runs on.
+The tasks, the verifier's and the reruns are written by the Robosuite example's prepare.py (`write`), whose engine
+this benchmark runs on: one task directory each, read back as its row by its utils/agent/aspire_fields.py.
 """
 from __future__ import annotations
 
@@ -26,7 +27,7 @@ from pathlib import Path
 import sys
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parents[1] / "aspire_robosuite" / "utils"))
+sys.path.insert(0, str(HERE.parents[2] / "aspire_robosuite" / "utils" / "benchmark"))
 from prepare import seeds_from, write  # noqa: E402
 
 BENCHMARK = "libero-pro"                 # cap-harness's name for its LIBERO adapter

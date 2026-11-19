@@ -19,9 +19,10 @@ only if a fresh verifier re-solves the task from the library and the proposals a
 | `utils/agent/sim.py` | The robot execution engine from the harness's side (the held-out run) and the trace digest |
 | `utils/agent/prompts/` | The pages that map ASPIRE's fix-loop, verifier and evolutionary-search templates onto the workspace (and the direct actor's prompts) |
 | `utils/agent/agent.py` | The structured direct-chat actor of `aspire/run_direct.yaml` (a comparison, not the method) |
-| `utils/prepare.py` | The seven Robosuite tasks with their seeds; the verifier's rows; the reruns with the final library |
+| `utils/benchmark/prepare.py` | The seven Robosuite tasks with their seeds, as task directories in Harbor's format (`tasks/`, each read as its row through `utils/agent/aspire_fields.py`, the configs' `data.view`); the verifier's tasks; the reruns with the final library; `splits/` |
 | `utils/seg_service/` | A SAM3-wire-compatible segmentation service from ungated models (optional) |
-| `utils/judge.py` | Stage 2 on the host: the selected program on the held-out seeds (a verifier's on its own), its success rate |
+| `utils/benchmark/judge.py` | Stage 2 on the host: the selected program on the held-out seeds (a verifier's on its own), its success rate |
+| `utils/benchmark/task-info/` | What a task and its record are, for the learner |
 | `aspire/` | `run.yaml` (ASPIRE's seeds), `smoke.yaml`, the `*_direct.yaml` comparison, `launch.sh` |
 
 ## Setup
