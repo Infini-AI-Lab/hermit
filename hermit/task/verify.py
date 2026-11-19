@@ -16,7 +16,9 @@ tail). It runs only in the judge's sandbox, which shows the task's tests and a f
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 from pathlib import Path
 import subprocess
 from typing import Callable, Protocol
@@ -57,9 +59,11 @@ def read_reward(logs: Path, output_tail: str = "") -> JudgeResult:
     rewards: dict = {}
     if (logs / "reward.json").is_file():
         value = json.loads((logs / "reward.json").read_text())
+        # As Harbor reads it (harbor/verifier/verifier.py): finite numbers, a boolean among them (Python's bool is an
+        # int, so Harbor takes `true` for 1)
         if not isinstance(value, dict) or not value or \
-                not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in value.values()):
-            raise ValueError("reward.json must be an object of named numbers")
+                not all(isinstance(v, (int, float)) and math.isfinite(v) for v in value.values()):
+            raise ValueError("reward.json must be an object of named finite numbers")
         rewards = {str(k): float(v) for k, v in value.items()}
         score = rewards.get("reward", sum(rewards.values()) / len(rewards))
     elif (logs / "reward.txt").is_file():
@@ -73,6 +77,24 @@ def read_reward(logs: Path, output_tail: str = "") -> JudgeResult:
     return JudgeResult(float(score), feedback[-FEEDBACK_CHARS:], extra)
 
 
+def resolve_env(env: dict) -> dict[str, str]:
+    """task.toml's [verifier.env] as Harbor resolves it (harbor/utils/env.py): `${NAME}` and `${NAME:-default}` from
+    this process's environment (the judge sandbox's: what environment.env lets in), anything else as written."""
+    out = {}
+    for key, value in env.items():
+        match = re.fullmatch(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-(.*))?\}", str(value))
+        if not match:
+            out[str(key)] = str(value)
+        elif match.group(1) in os.environ:
+            out[str(key)] = os.environ[match.group(1)]
+        elif match.group(2) is not None:
+            out[str(key)] = match.group(2)
+        else:
+            raise RuntimeError(f"[verifier.env] {key} needs {match.group(1)}, which the judge's sandbox does not have "
+                               "(environment.env)")
+    return out
+
+
 def script(task: dict, output: RunOutput) -> JudgeResult:
     """A task directory's own verifier, `tests/test.sh`, run in the judge's sandbox (module docstring)."""
     if os.environ.get(SANDBOX_ENV) != "1" or not Path(TESTS, "test.sh").is_file():
@@ -83,7 +105,8 @@ def script(task: dict, output: RunOutput) -> JudgeResult:
     workspace = Path(str((output.extra or {}).get("workspace") or os.getcwd()))
     answer = Path(LOGS) / "agent_output.json"
     answer.write_text(json.dumps(output.output, ensure_ascii=False, default=str))
-    env = {**os.environ, "HERMIT_OUTPUT": str(answer), "HERMIT_WORKSPACE": str(workspace)}
+    env = {**os.environ, **resolve_env((private.get("verifier") or {}).get("env") or {}),
+           "HERMIT_OUTPUT": str(answer), "HERMIT_WORKSPACE": str(workspace)}
     try:
         done = subprocess.run(["bash", f"{TESTS}/test.sh"], cwd=str(workspace if workspace.is_dir() else Path.cwd()),
                               env=env, capture_output=True, text=True, timeout=float(timeout) if timeout else None)

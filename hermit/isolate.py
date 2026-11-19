@@ -475,6 +475,19 @@ def _safe(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", str(text))[:60] or "task"
 
 
+STARTUP_S = 60          # beyond a task's own timeout: the sandbox and the worker start, the result comes back
+
+
+def _deadline(run_timeout: float | None, task: dict) -> float | None:
+    """A call's deadline: the run's (agent.timeout_min), and a task directory's own `agent_timeout_sec` (task.toml's
+    [agent] timeout_sec, which Harbor enforces) when it is stricter, with the worker's start-up beside it."""
+    own = task.get("agent_timeout_sec")
+    if not own:
+        return run_timeout
+    own = float(own) + STARTUP_S
+    return own if run_timeout is None else min(run_timeout, own)
+
+
 class SandboxedAgent:
     """The run's agent as a pipeline, every call in a worker inside the task sandbox."""
 
@@ -498,6 +511,9 @@ class SandboxedAgent:
         self.cli = _cli_kind(self.name, self.params)
         self.timeout = float(agent["timeout_min"]) * 60 if agent.get("timeout_min") else None
         self.enforce = d["sandbox"].get("enforce", "required")
+        # A task's own verifier runs in a sandbox like this one, so its network is checked with the agent's
+        judge = d.get("judge") or {}
+        self.verifies = (str(judge.get("path") or ""), judge.get("name")) == SCRIPT_VERIFIER
         self.logs = _agent_logs(self.name, self.base)
         for log_dir in self.logs:                        # the mount point of each call's own log directory
             log_dir.mkdir(exist_ok=True)
@@ -527,7 +543,7 @@ class SandboxedAgent:
         self._recheck = Recheck([*self.spec.read, *self.spec.write])
 
     def __call__(self, task: dict, adapter: Path | None) -> RunOutput:
-        problems = self.spec.problems_for(task)           # a task directory asks for its environment: never less
+        problems = self.spec.problems_for(task, verifier=self.verifies)   # a task directory asks: never less
         if problems:
             raise ValueError(f"task {task.get('id')!r} cannot run in this run's environment: {'; '.join(problems)}")
         self._recheck()
@@ -562,7 +578,8 @@ class SandboxedAgent:
         try:
             try:
                 payload = _run_worker(self.sandbox, job, work, home=home, readable=[adapter] if adapter else [],
-                                      env=env, keep=keep, forward=self.forward, timeout=self.timeout, binds=binds)
+                                      env=env, keep=keep, forward=self.forward, timeout=_deadline(self.timeout, task),
+                                      binds=binds)
             finally:
                 if self.chatgpt:
                     # Every copy the call left: its run copy, and a session's own when the worker was stopped
@@ -768,6 +785,14 @@ class SandboxedJudge:
                                        writable=[] if self.mode == "separate" else own)
         agent.others.append(self.box)
 
+    def _timeout(self, task: dict) -> float | None:
+        """The judge's deadline: the agent's; a task's verifier script gets at least its own timeout_sec and the
+        worker's start-up (its script stops itself at timeout_sec)."""
+        own = ((task.get("_private") or {}).get("verifier") or {}).get("timeout_sec") if self.script else None
+        if not own or self.agent.timeout is None:
+            return self.agent.timeout
+        return max(self.agent.timeout, float(own) + STARTUP_S)
+
     def __call__(self, task: dict, out: RunOutput) -> dict:
         work = out.extra.get("sandbox_work")
         if not work:
@@ -808,7 +833,7 @@ class SandboxedJudge:
         try:
             payload = _run_worker(self.box, job, place, home=home, readable=[*self.readable, *log_copy],
                                   writable=writable, env=env, keep=keep,
-                                  forward=self.agent.forward, timeout=self.agent.timeout, binds=binds)
+                                  forward=self.agent.forward, timeout=self._timeout(task), binds=binds)
         finally:
             for kept in (place, *writable):              # the judge holds the task's keys too: none kept
                 redact_tree(kept)

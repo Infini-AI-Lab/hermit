@@ -69,4 +69,4 @@ def collect(task: dict, workspace: Path, log: Path) -> dict:
 
 def score(task: dict, output) -> dict:
     """The question's score against its reference answer (../utils/benchmark/judge.py:score)."""
-    return utils("judge.py:score")(question(task), output)
+    return utils("benchmark/judge.py:score")(question(task), output)

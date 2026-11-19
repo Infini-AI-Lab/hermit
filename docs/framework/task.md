@@ -262,7 +262,9 @@ Each task's row (its public half, what the agent is handed) holds the instructio
 reads. Splits name the directories (`<task>`, `<task>:<step>` for a multi-step task's steps, `<task>#<k>` with
 `data.rollouts: k`). The run's `environment` must give each task what it asks: a task whose agent needs the public
 network (what a task that says nothing asks, Harbor's default) or more memory than `environment.resources.memory_mb`
-is refused, never run with less.
+is refused, never run with less; so is an allowlist task whose `allowed_hosts` the run's allowlist lacks, and, with
+the script verifier below, a task whose verifier needs a wider network. A task's `[agent] timeout_sec` bounds each of
+its calls (with a minute for the sandbox to start), unless `agent.timeout_min` is stricter.
 
 A task's own verifier runs as Harbor runs it, in the judge's sandbox:
 
@@ -277,7 +279,10 @@ judge:
 (`HERMIT_WORKSPACE`, from the output's `extra.workspace`) with the agent's output in the file `HERMIT_OUTPUT` names,
 and writes `reward.txt` (one number) or `reward.json` (named numbers: `reward` is the score, else their mean). Beyond
 Harbor, `feedback.txt` there is the feedback a learning method reads (else the script's output's tail). A task whose
-task.toml asks for `environment_mode = "separate"` is refused under `mode: shared`. Files a task places in the agent's
+task.toml asks for `environment_mode = "separate"` is refused under `mode: shared`. A step's own `[steps.verifier]`
+settings come before the task's; `[verifier.env]` is set for the script, with `${NAME}` and `${NAME:-default}` taken
+from the judge sandbox's environment (`environment.env`), as Harbor resolves them; the judge's deadline is at least the
+verifier's `timeout_sec` and a minute. Files a task places in the agent's
 workspace before it starts are not supported yet.
 
 ## Benchmarks

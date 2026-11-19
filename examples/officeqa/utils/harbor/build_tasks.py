@@ -73,13 +73,8 @@ def question_rows() -> list[dict]:
     """Every question's row as the agents read it (utils/agent/officeqa_fields.py), from the task directories of
     utils/benchmark/prepare.py, in the splits' order (train, validation, test)."""
     from hermit.common import load_callable
-    from hermit.task import read_ids
-    from hermit.task.directory import tasks_of
-    officeqa_task = load_callable(str(UTILS / "agent" / "officeqa_fields.py") + ":officeqa_task", UTILS)
-    bench = UTILS / "benchmark"
-    found = {tid: officeqa_task(task.given()) for tid, task in tasks_of(bench / "tasks").items()}
-    order = [i for name in ("train", "val", "test") for i in read_ids(bench / "splits" / f"{name}.txt")]
-    return [found[i] for i in dict.fromkeys([*order, *sorted(found)]) if i in found]
+    rows = load_callable(str(UTILS / "agent" / "officeqa_fields.py") + ":question_rows", UTILS)
+    return rows(UTILS / "benchmark" / "tasks", UTILS / "benchmark" / "splits")
 
 
 def build(out: Path, rows: list[dict], answers: dict[str, str], docs: str, base_image: str) -> list[str]:

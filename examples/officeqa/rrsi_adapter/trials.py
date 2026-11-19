@@ -5,14 +5,12 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-import sys
 
 from hermit.agent.acting.workspace import CliAgent
+from hermit.common import load_callable
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent / "utils"))
-
-import judge as _judge  # noqa: E402
+UTILS = HERE.parent / "utils"
 
 
 def question(row_id: str) -> str:
@@ -29,4 +27,5 @@ class TrialCodexAgent(CliAgent):
 
 def score(task: dict, output) -> dict:
     """`judge.path: trials.py`: SkillOpt's exact match (../utils/benchmark/judge.py) on the row's question."""
-    return _judge.score({**task, "id": question(task["id"])}, output)
+    judge = load_callable(str(UTILS / "benchmark" / "judge.py") + ":score", UTILS)
+    return judge({**task, "id": question(task["id"])}, output)

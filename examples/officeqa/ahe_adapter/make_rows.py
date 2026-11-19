@@ -14,23 +14,12 @@ from pathlib import Path
 
 from hermit.common import load_callable
 from hermit.task import read_ids
-from hermit.task.directory import tasks_of
 
 HERE = Path(__file__).resolve().parent
 UTILS = HERE.parent / "utils"
 
 
-def question_rows(tasks: Path, splits: Path) -> list[dict]:
-    """Every question's row as the agents read it (utils/agent/officeqa_fields.py), in the splits' order (train,
-    validation, test): from the task directories of utils/benchmark/prepare.py, or from a tasks.jsonl."""
-    if not Path(tasks).is_dir():
-        return [json.loads(line) for line in Path(tasks).read_text(encoding="utf-8").splitlines() if line.strip()]
-    officeqa_task = load_callable(str(UTILS / "agent" / "officeqa_fields.py") + ":officeqa_task", UTILS)
-    found = {tid: officeqa_task(task.given()) for tid, task in tasks_of(Path(tasks)).items()}
-    order = [i for name in ("train", "val", "test") for i in read_ids(Path(splits) / f"{name}.txt")
-             if (Path(splits) / f"{name}.txt").is_file()]
-    order = list(dict.fromkeys([*order, *sorted(found)]))
-    return [found[i] for i in order if i in found]
+question_rows = load_callable(str(UTILS / "agent" / "officeqa_fields.py") + ":question_rows", UTILS)
 
 
 def trials(ids: list[str], k: int) -> list[str]:

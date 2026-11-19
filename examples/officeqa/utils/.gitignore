@@ -1,0 +1,8 @@
+# Where utils/prepare.py wrote before utils/benchmark/ (answers among them): kept out of git in a checkout prepared
+# then
+.private/
+tasks.jsonl
+splits/
+data.json
+seed_adapter/
+documents

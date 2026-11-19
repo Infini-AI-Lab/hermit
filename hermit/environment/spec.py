@@ -40,14 +40,22 @@ class EnvironmentSpec:
                    resources=dict(s.get("resources") or {}), gpu=s.get("gpu"), image=s.get("image"),
                    container=dict(s.get("container") or {}))
 
-    def problems_for(self, task: Mapping[str, Any]) -> list[str]:
-        """What a task asks of its environment (a directory task's row: `network`, `memory_mb`) that this one does
-        not give: a wider network than the run declares, more memory than its limit. A row that asks nothing (a row
-        of tasks.jsonl) has none."""
+    def problems_for(self, task: Mapping[str, Any], *, verifier: bool = False) -> list[str]:
+        """What a task asks of its environment (a directory task's row: `network`, `allowed_hosts`, `memory_mb`) that
+        this one does not give: a wider network than the run declares (for its verifier too when `verifier`: a task's
+        own verifier runs in a sandbox like the agent's), hosts its allowlist lacks, more memory than its limit. A row
+        that asks nothing (a row of tasks.jsonl) has none."""
         out = []
-        asked = (task.get("network") or {}).get("agent") if isinstance(task.get("network"), Mapping) else None
-        if asked in NETWORK_ORDER and NETWORK_ORDER[asked] > NETWORK_ORDER.get(self.network, 0):
-            out.append(f"the task's agent needs network {asked}; the run's environment.network is {self.network}")
+        modes = task.get("network") if isinstance(task.get("network"), Mapping) else {}
+        for phase in ("agent", "verifier") if verifier else ("agent",):
+            asked = modes.get(phase)
+            if asked in NETWORK_ORDER and NETWORK_ORDER[asked] > NETWORK_ORDER.get(self.network, 0):
+                out.append(f"the task's {phase} needs network {asked}; the run's environment.network is "
+                           f"{self.network}")
+            elif asked == "allowlist" and self.network == "allowlist":
+                missing = [h for h in task.get("allowed_hosts") or [] if h not in self.allowed_hosts]
+                if missing:
+                    out.append(f"the task's {phase} needs to reach {missing}, which environment.allowed_hosts lacks")
         limit = self.resources.get("memory_mb")
         if limit and task.get("memory_mb") and int(task["memory_mb"]) > int(limit):
             out.append(f"the task needs {task['memory_mb']} MB of memory; environment.resources.memory_mb is {limit}")

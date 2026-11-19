@@ -134,6 +134,9 @@ def rows_of(task_dir: Path, *, rollouts: int = 1) -> list[dict]:
     return out
 
 
+VERIFIER_KEYS = ("environment_mode", "timeout_sec", "env")    # what the judge reads of [verifier]
+
+
 def tasks_of(tasks_dir: Path, *, rollouts: int = 1) -> dict[str, Task]:
     """Every task under `tasks_dir` (one directory is a set of one), by id: each row's public half, and its private
     half naming its directory and its tests (a step's own tests where it has them, else the task's)."""
@@ -145,9 +148,17 @@ def tasks_of(tasks_dir: Path, *, rollouts: int = 1) -> dict[str, Task]:
             step = row.get("step")
             tests = task_dir / "steps" / step / "tests" if step and (task_dir / "steps" / step / "tests").is_dir() \
                 else task_dir / "tests"
-            verifier = dict(task_config(task_dir).get("verifier") or {})
+            config = task_config(task_dir)
+            step_cfg = next((s for s in config.get("steps") or [] if str(s.get("name")) == str(step)), {}) \
+                if step else {}
+            verifier = {**(config.get("verifier") or {}), **(step_cfg.get("verifier") or {})}   # a step's own first
+            verifier["env"] = {**((config.get("verifier") or {}).get("env") or {}),
+                               **((step_cfg.get("verifier") or {}).get("env") or {})}
             private = {"task_dir": str(task_dir.resolve()), "tests": str(tests.resolve()) if tests.is_dir() else None,
-                       "verifier": {k: v for k, v in verifier.items() if k in ("environment_mode", "timeout_sec")}}
+                       "verifier": {k: v for k, v in verifier.items() if k in VERIFIER_KEYS}}
+            hosts = list((config.get("environment") or {}).get("allowed_hosts") or [])
+            if hosts:                                    # what an allowlist task needs to reach
+                row = {**row, "allowed_hosts": hosts}
             out[row["id"]] = Task(id=row["id"], public=row, private=private)
     if not out:
         raise ValueError(f"no task directories (with {TASK_FILE}) under {tasks_dir}")

@@ -11,7 +11,9 @@ from hermit.common import RunOutput
 from hermit.config import Config
 from hermit.task import Benchmark
 from hermit.task.directory import tasks_of
-from hermit.task.verify import read_reward, script
+from hermit.environment.spec import EnvironmentSpec
+from hermit.isolate import _deadline
+from hermit.task.verify import read_reward, resolve_env, script
 from toy_task import make_task
 
 
@@ -50,7 +52,7 @@ def test_a_directory_of_tasks_is_a_task_set_with_the_tests_kept_private(tmp_path
     assert (given["cpus"], given["memory_mb"], given["agent_timeout_sec"]) == (1, 512, 60)
     assert not any("tests" in str(v) for v in given.values())       # nothing of the tests reaches the agent
     assert task.private["tests"] == str((tmp_path / "tasks" / "write-42" / "tests").resolve())
-    assert task.private["verifier"] == {"timeout_sec": 30}
+    assert task.private["verifier"] == {"timeout_sec": 30, "env": {}}
     assert task.row()["_private"]["tests"] == task.private["tests"]  # what the judge is called with
     assert bench.tasks["flow:two"].private["tests"].endswith("flow/steps/two/tests")
     assert [t.id for t in bench.split("train")] == ["write-42", "flow:one"]
@@ -72,7 +74,10 @@ def test_a_reward_is_read_as_harbor_writes_it(tmp_path):
     (tmp_path / "reward.json").write_text(json.dumps({"a": 1, "b": 0}))
     assert read_reward(tmp_path).score == 0.5                     # no `reward`: the mean of the named numbers
     (tmp_path / "reward.json").write_text(json.dumps({"a": "yes"}))
-    with pytest.raises(ValueError, match="named numbers"):
+    (tmp_path / "reward.json").write_text(json.dumps({"reward": 1, "f1": 1, "answered": True}))
+    assert read_reward(tmp_path).score == 1.0                     # a boolean beside them, as Harbor takes it
+    (tmp_path / "reward.json").write_text(json.dumps({"a": "yes"}))
+    with pytest.raises(ValueError, match="named finite numbers"):
         read_reward(tmp_path)
     with pytest.raises(RuntimeError, match="wrote no reward"):
         read_reward(tmp_path / "missing", "tail")
@@ -143,3 +148,40 @@ def test_a_task_directory_runs_with_its_own_verifier_in_the_judges_sandbox(tmp_p
     assert wrong["judge"]["score"] == 0.0 and "found 0" in wrong["judge"]["feedback"]
     assert apart["status"] == "judge_error" and "separate verifier" in apart["error"]
     assert "_private" not in right["input"]                          # the record keeps what the agent was given
+
+
+def test_a_step_keeps_its_own_verifier_settings_and_a_task_asks_for_what_it_needs(tmp_path, monkeypatch):
+    d = a_task(tmp_path / "tasks", "flow", steps=True,
+               toml_extra='environment_mode = "shared"\n[verifier.env]\nEXPECTED = "42"\n'
+                          'KEY = "${HERMIT_T_KEY:-none}"\n')
+    text = (d / "task.toml").read_text().replace('[[steps]]\nname = "two"\n',
+                                                 '[[steps]]\nname = "two"\n[steps.verifier]\ntimeout_sec = 2\n'
+                                                 'environment_mode = "separate"\n')
+    (d / "task.toml").write_text(text.replace('network_mode = "no-network"',
+                                              'network_mode = "allowlist"\nallowed_hosts = ["data.example.com"]'))
+    tasks = tasks_of(tmp_path / "tasks")
+    assert tasks["flow:two"].private["verifier"]["timeout_sec"] == 2
+    assert tasks["flow:two"].private["verifier"]["environment_mode"] == "separate"
+    assert tasks["flow:one"].private["verifier"]["environment_mode"] == "shared"
+    env = tasks["flow:one"].private["verifier"]["env"]
+    monkeypatch.delenv("HERMIT_T_KEY", raising=False)
+    assert resolve_env(env) == {"EXPECTED": "42", "KEY": "none"}
+    monkeypatch.setenv("HERMIT_T_KEY", "k")
+    assert resolve_env(env)["KEY"] == "k"
+    with pytest.raises(RuntimeError, match="HERMIT_T_MISSING"):
+        resolve_env({"X": "${HERMIT_T_MISSING}"})
+    given = tasks["flow:one"].given()
+    assert given["allowed_hosts"] == ["data.example.com"]
+    other = EnvironmentSpec(network="allowlist", allowed_hosts=("api.example.com",))
+    assert "data.example.com" in " ".join(other.problems_for(given))
+    assert EnvironmentSpec(network="allowlist", allowed_hosts=("data.example.com",)).problems_for(given) == []
+    loud = {**given, "network": {"agent": "no-network", "verifier": "public"}}
+    assert EnvironmentSpec().problems_for(loud) == []                       # judged on the host: the agent's only
+    assert "verifier needs network public" in " ".join(EnvironmentSpec().problems_for(loud, verifier=True))
+
+
+def test_a_task_directorys_own_agent_timeout_bounds_a_call():
+    assert _deadline(None, {"agent_timeout_sec": 60}) == 120              # its own, with the worker's start-up
+    assert _deadline(90.0, {"agent_timeout_sec": 60}) == 90.0              # the run's when stricter
+    assert _deadline(600.0, {"agent_timeout_sec": 60}) == 120
+    assert _deadline(600.0, {"id": "row"}) == 600.0 and _deadline(None, {}) is None
