@@ -172,7 +172,7 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
             finally:
                 close()
         problems = [record["error"]] if record["status"] != "ok" else []
-        report("agent probe", problems, f"task {task['id']}: score {record['judge']['score']}, "
+        report("agent probe", problems, f"task {task.id}: score {record['judge']['score']}, "
                f"{time.time() - t0:.0f} s, api speed {json.dumps(record.get('api_speed'))}, cost {record['cost_usd']}")
     for w in warnings_for(config, val_given=True):
         log(f"[warning] {w}")
