@@ -420,8 +420,11 @@ there from the same source), and beside the file `tasks` (a link to them: keep i
 splits (task counts, or `in_sample`), smoke rows and, with `image_sizes: true`, the images' sizes, checked against the
 lock beside the file (`hermit/harbor/dataset.py` has the block's keys). `dataset lock` records the sha256 of every task
 directory and `dataset check` compares; `dataset splits` writes deterministic train/val/test lists by task. A benchmark
-of your own is written as task directories by your `utils/prepare.py` (the judge goes into `tests/`, uploaded after
-the agent ran, so the answer is never where the agent can read it; see `examples/officeqa/utils/harbor/build_tasks.py`).
+of your own is written as task directories by your `utils/benchmark/prepare.py` (`write_task`; a verifier of its own
+goes into `tests/`, uploaded after the agent ran, so the answer is never where the agent can read it; see
+`examples/officeqa/utils/harbor/build_tasks.py`). A task set of task directories that Hermit runs in its own sandbox or
+on the host, with a judge on the host (`judge.mode: host`, no `tests/`), is what the examples whose agent owns its loop
+use (`examples/aspire_robosuite/`, `clbench_*`, `servelearnbench/`, `agentdyn/`, ...; [Task directories](#task-directories)).
 A task set is checked without a model by running a command of a known answer in each task's environment and verifying
 it (`tests/core/test_harbor_environment.py` does this against Docker).
 
@@ -429,7 +432,7 @@ it (`tests/core/test_harbor_environment.py` does this against Docker).
 
 | Input | Purpose | Used by |
 |---|---|---|
-| `tasks.jsonl` | Task dictionaries with unique IDs. | Pipeline and scoring function. |
+| `tasks.jsonl`, or task directories | Task dictionaries with unique IDs ([Task directories](#task-directories): one each, read through `data.view`). | Pipeline and scoring function. |
 | Split files | One task ID per line for train, optional validation, and test. | Trainer and evaluation. |
 | `task-info/` | Description of the task, objective, feedback, and execution. | Evolver. |
 | Pipeline callable | Adapter integration and acting execution. | Training, evaluation, and candidate experiments. |

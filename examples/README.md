@@ -9,13 +9,16 @@ examples/<task>/
   utils/             everything the task itself needs: the agent, the data preparation, the judge, the texts
     agent/           the acting agent: a prompt for a built-in agent, or agent.py with the task's own Agent
                      class when a benchmark owns the loop; the config names it in agent.name
-    prepare.py       writes tasks.jsonl and splits/ beside itself, from the task's data (which stays where it is)
-    benchmark.yaml   a benchmark of Harbor's registry, in place of prepare.py: the params its configs share and a
+    benchmark/       the task set, in Harbor's task format, run on Hermit's own sandbox or on the host:
+      prepare.py     writes tasks/ (one task directory a task: instruction.md, task.toml, tests/ when the task
+                     has a verifier of its own) and splits/ beside itself, from the task's data (which stays where
+                     it is); the configs' data.view reads each task as the row the agents and learners read
+      judge.py       scores one output and writes the feedback (a task without tests/ is judged so)
+      task-info/     what the learner is told: README.md, and mwm/ with what MWM needs to know about the task
+    benchmark.yaml   a benchmark of Harbor's registry, in place of benchmark/: the params its configs share and a
                      dataset: block, from which python -m hermit.harbor.dataset prepare writes tasks.jsonl, splits/
                      and the rest beside it (Add an example, below)
-    judge.py         scores one output and writes the feedback
     tools.py         the task's tools for a built-in agent, where it has any
-    task-info/       what the learner is told: README.md, and mwm/ with what MWM needs to know about the task
     tests/           the task's own tests, where it has any
   <method>/          one folder per method run on the task: smoke.yaml, run.yaml, a launcher where a run needs
                      one, a trained adapter/ where included
@@ -207,8 +210,9 @@ SGLang server with one override, `model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP
 
 ## Add an example
 
-- A task: `utils/prepare.py`, the task's tools or an `utils/agent/agent.py` with an `Agent` subclass, `utils/judge.py`,
-  `utils/task-info/README.md` (see [Task integration](../docs/framework/task.md) and the
+- A task: `utils/benchmark/prepare.py` writing task directories (`hermit.task.directory.write_task`), the task's
+  tools or an `utils/agent/agent.py` with an `Agent` subclass, `utils/benchmark/judge.py`,
+  `utils/benchmark/task-info/README.md` (see [Task integration](../docs/framework/task.md) and the
   [built-in agents](../docs/framework/task.md#built-in-agents)), and a row in the table above.
 - A benchmark comes as a task set in Harbor's format, the one protocol every task enters by, not as Docker code or a
   loop of its own. A benchmark of Harbor's registry is packaged as `utils/benchmark.yaml`: the Harbor settings every
@@ -221,8 +225,11 @@ SGLang server with one override, `model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP
   directories (`task.toml`, `environment/`, `tests/test.sh` writing the reward) and indexes them into `tasks.jsonl`. The
   configs name `environment.harbor` and `judge: {path: hermit.task.verify, name: environment}`. See
   [Benchmarks](../docs/framework/task.md#benchmarks).
-  The examples that still own their loop (CL-Bench, ServeLearnBench, OfficeQA's direct harness) predate this rule
-  and are to be moved onto it; no new example drives Docker or a model loop itself.
+  The examples whose agent owns its loop (CL-Bench, ServeLearnBench, AgentDyn, AgentDojo, OfficeQA's direct
+  harness) predate this rule: their task sets are task directories in Harbor's format (`utils/benchmark/`), each
+  row of a stream one task, its state carried by the agent's own loop, and they run on Hermit's own sandbox or on
+  the host; their loops are still to be moved onto Hermit's agents. No new example drives Docker or a model loop
+  itself.
 - A method on an existing task: `<method>/smoke.yaml` and `run.yaml` (a stream's launcher may take a prefix split in
   place of a smoke config, `MW_TRAIN_SPLIT=...`, as the CL-Bench folders do), and a row in `docs/methods/<method>.md`.
 - A method: `docs/methods/<method>.md` in the shape of the others: what it does, one step, knobs, configs, commands.

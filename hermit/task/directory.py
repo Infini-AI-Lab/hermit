@@ -187,8 +187,9 @@ def toml_value(value) -> str:
     if isinstance(value, int):
         return str(value)
     if isinstance(value, float):
-        return "nan" if value != value else ("inf" if value > 0 else "-inf") if value in (float("inf"), float("-inf")) \
-            else repr(value)
+        if value != value or value in (float("inf"), float("-inf")):
+            return "nan" if value != value else "inf" if value > 0 else "-inf"
+        return repr(value)
     if isinstance(value, str):
         return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007F")
     if isinstance(value, (list, tuple)):
