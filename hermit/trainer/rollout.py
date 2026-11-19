@@ -23,6 +23,7 @@ def run_one(task: Task | dict, adapter: Path | None, pipeline, judge) -> dict:
     task = as_task(task)
     verify = judge if getattr(judge, "takes_task", False) else judge_verifier(judge)
     given = task.given()                                 # what the agent is handed, and what the record shows
+    rid = given.get("id", task.id)                       # the row's own id (7 stays 7)
     started = time.time()
     try:
         out = pipeline(dict(given), adapter)
@@ -32,14 +33,14 @@ def run_one(task: Task | dict, adapter: Path | None, pipeline, judge) -> dict:
         why = login_failure(exc)                     # as text from a sandbox's worker, or from a chat endpoint
         if why is not None:
             raise LoginFailed(why) from None
-        return {"id": given.get("id", task.id), "input": given, "status": "error", "error": f"{type(exc).__name__}: {exc}",
+        return {"id": rid, "input": given, "status": "error", "error": f"{type(exc).__name__}: {exc}",
                 "traceback": traceback.format_exc()[-3000:], "output": None,
                 "judge": {"score": 0.0, "feedback": f"the pipeline failed: {type(exc).__name__}: {exc}"},
                 "cost_usd": None, "wall_s": round(time.time() - started, 2), "api_speed": None, "tokens": None,
                 "log": None, "messages": None}
     failed = (out.extra or {}).get("session_failed")
     if failed:                                           # no answer to judge; what it spent and its log still count
-        return {"id": given.get("id", task.id), "input": given, "status": "error", "error": f"the agent's session failed: {failed}",
+        return {"id": rid, "input": given, "status": "error", "error": f"the agent's session failed: {failed}",
                 "output": None, "judge": {"score": 0.0, "feedback": f"the agent's session failed: {failed}"},
                 "cost_usd": out.cost_usd, "wall_s": round(out.wall_s or (time.time() - started), 2),
                 "api_speed": out.api_speed, "tokens": out.tokens, "log": str(out.log) if out.log else None,
@@ -51,7 +52,7 @@ def run_one(task: Task | dict, adapter: Path | None, pipeline, judge) -> dict:
     except Exception as exc:
         judged = {"score": 0.0, "feedback": f"the judge failed: {type(exc).__name__}: {exc}"}
         status, error = "judge_error", f"{type(exc).__name__}: {exc}"
-    return {"id": given.get("id", task.id), "input": given, "status": status, "error": error, "output": out.output,
+    return {"id": rid, "input": given, "status": status, "error": error, "output": out.output,
             "judge": judged, "cost_usd": out.cost_usd, "wall_s": round(out.wall_s or (time.time() - started), 2),
             "api_speed": out.api_speed, "tokens": out.tokens, "log": str(out.log) if out.log else None,
             "messages": out.messages, "pipeline_extra": out.extra}
