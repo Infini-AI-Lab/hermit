@@ -5,9 +5,10 @@
 # officeqa-codex:0.162.0) with the whole adapter deployed in its workspace; GLM 5.3 Flash acts and proposes, at
 # medium effort. No test evaluation in the demo.
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/train.txt     # the search set
-  test: ../utils/splits/test.txt
+  tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/officeqa_fields.py:officeqa_task   # each task as the row SkillOpt's loader gives
+  train: ../utils/benchmark/splits/train.txt     # the search set
+  test: ../utils/benchmark/splits/test.txt
   step_size: 50                        # the whole search set per step: each step evaluates one candidate
   shuffle: false
 task_info: task-info/
@@ -29,9 +30,9 @@ agent:
     project_doc_max_bytes: 65536       # 64 KiB: the skill (up to 40 KB) with the deployment's notes; past
                                        # Codex's default 32 KiB it would cut AGENTS.md (deploy refuses that)
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 template: meta-harness-adapter@1.0
-start_from: seed_adapter               # make_seed.py writes it from ../utils/seed_adapter
+start_from: seed_adapter               # make_seed.py writes it from ../utils/benchmark/seed_adapter
 evolver:
   name: meta_harness_adapter
   params:                              # Layer 3: the method
@@ -43,7 +44,7 @@ evolver:
     ref: fireworks/accounts/fireworks/models/glm-5p3-flash
     effort: medium
 evolver_access:
-  environment: [../utils/documents]   # what the learner reads beside its workspace
+  environment: [../utils/benchmark/documents]   # what the learner reads beside its workspace
 environment:                         # the acting agent: Codex in a container of its own
   image: "officeqa-codex:0.162.0"
   container: {"network": "oq-sandbox", "proxy": "http://oq-egress:3128"}

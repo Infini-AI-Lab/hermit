@@ -13,15 +13,16 @@
 # the task sandbox, each chat call's in one of its own. Sessions on the login share its plan: the files under
 # ~/.cache/hermit/claude-login/plan/ pause them, cap the plan's usage and the sessions at once (hermit.agent.base.login).
 data:
-  tasks: tasks.jsonl
-  train: train.txt
-  val: val.txt
-  test: test.txt
+  tasks: utils/benchmark/tasks                # one task directory a review (Harbor's format)
+  view: utils/benchmark/sentiment_fields.py:sentiment_task   # each read as the row {id, prompt} it always was
+  train: utils/benchmark/splits/train.txt
+  val: utils/benchmark/splits/val.txt
+  test: utils/benchmark/splits/test.txt
   step_size: 3
   shuffle: false
-task_info: task-info
+task_info: utils/benchmark/task-info
 judge:
-  path: judge.py
+  path: utils/benchmark/judge.py
 template: ace@1.0
 agent:
   base: claude                               # Layer 2: the Claude Code CLI, in a workspace

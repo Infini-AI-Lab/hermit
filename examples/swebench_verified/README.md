@@ -49,9 +49,8 @@ of them trains on it (DGM, SICA and HGM do, and are not ported).
 
 The gains are small at this level, and AHE gives the tokens a trial beside them, a mean over its completed trials (an
 infra or timed-out one left out, §4.1). Here a trial's tokens are `tokens` in the eval's `results.jsonl`; leave out the
-same trials (an `output.status` of `infra` or `timeout`) for a mean beside AHE's. A trial the runner ran again after
-an infra run holds the tokens of all its runs, and its row does not say so. Neither paper says how many runs a task
-had; here each runs once. With the final adapter of
+same trials (a row whose `outcome.status` is not `ok`: `infra`, `timeout` or `agent_error`) for a mean beside
+AHE's. Neither paper says how many runs a task had; here each runs once. With the final adapter of
 [Terminal-Bench 2.0's AHE run](../terminal_bench_2_0/README.md#ahe-adapter) written out as a directory (that README says
 how), the same acting agent tests it:
 
@@ -74,10 +73,9 @@ config's folder's. The Claude Code configs take `ahe-final-claude`.
   adapter is what such a statement alone adds.
 - Some tasks cannot pass on a given host whatever the agent does. `psf__requests-1724`'s tests call `httpbin.org` over
   HTTPS with the 2014 `requests` its repository pins, whose certificates no longer verify: its reference fix scores 0
-  here (`SSLError: CERTIFICATE_VERIFY_FAILED`). Harbor's oracle agent finds such tasks before a run spends model calls
-  on them: `hermit eval ... --adapter none "agent.params.acting_agent={name: oracle}" agent.params.login=null
-  agent.params.model=null agent.params.effort=null trainer.run_name=oracle` runs each task's reference fix, in
-  `runs/oracle/` (without the run name it would write over the baseline's `runs/codex-baseline/eval/none/`).
+  here (`SSLError: CERTIFICATE_VERIFY_FAILED`). Harbor's oracle agent (`harbor run -a oracle` on the task set, in
+  Harbor's own venv) finds such tasks before a run spends model calls on them; every agent of a Hermit run is
+  Hermit's.
 - Both arms of a comparison meet the same broken tasks, so differences stay comparable; absolute rates are lower
   than the leaderboard's by those tasks.
 

@@ -17,7 +17,7 @@ source .venv-agentdyn/bin/activate
 ```
 
 Follow the [shared preparation commands](../README.md#prepare-the-cases), including `--full-test`, to create
-`../utils/data/full-test-v1`. The prepared data contains 57 TRAIN, 54 reserved validation and 186 TEST cases, from disjoint
+`../utils/benchmark/data/full-test-v1`. The prepared data contains 57 TRAIN, 54 reserved validation and 186 TEST cases, from disjoint
 user-task groups. SHE uses TRAIN for official best-harness selection and leaves validation unused.
 TRAIN is unchanged; TEST has 18 clean and 168 injected cases. Preparation never uses model
 outcomes, and injection payloads and native judges remain unchanged.

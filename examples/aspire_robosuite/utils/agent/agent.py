@@ -3,7 +3,7 @@ task's development seeds, diagnose from the per-primitive traces and keyframes, 
 (ASPIRE §2.1, the iterative-debugging loop of NVlabs/ASPIRE .claude/skills/iterative-debugging/subagent-prompt.md);
 optionally continue with the evolutionary search over the program (ASPIRE §2.3, Algorithm 1;
 .claude/skills/evosearch/); then write the findings the coordinator distills skills from. The judge runs the
-selected program on the held-out seeds (utils/judge.py).
+selected program on the held-out seeds (utils/benchmark/judge.py).
 
 The adapter is the shared skill library: its context (ADAPTER.md, and the skills it exports) is the "Shared skill
 library" section of the actor's instructions, the only thing that carries from one task to the next. adapter=None

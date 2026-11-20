@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Write seed_adapter/ beside this file: SkillOpt's initial OfficeQA skill (../utils/seed_adapter/ADAPTER.md, written
-by ../utils/prepare.py) as an `ace` adapter: the skill text first, unchanged, then ACE's generator instructions and
-its empty playbook. ACE then starts from exactly the text the GEPA and SkillOpt runs start from, plus an empty
-playbook.
+"""Write seed_adapter/ beside this file: SkillOpt's initial OfficeQA skill (../utils/benchmark/seed_adapter/ADAPTER.md,
+written by ../utils/benchmark/prepare.py) as an `ace` adapter: the skill text first, unchanged, then ACE's generator
+instructions and its empty playbook. ACE then starts from exactly the text the GEPA and SkillOpt runs start from, plus
+an empty playbook.
 
     python examples/officeqa/ace/make_seed.py
 """
@@ -15,7 +15,7 @@ from hermit.spec import check_spec
 
 HERE = Path(__file__).resolve().parent
 TEMPLATE = Path(hermit.__file__).resolve().parent / "adapter" / "templates" / "ace"
-skill = (HERE.parent / "utils" / "seed_adapter" / "ADAPTER.md").read_text()
+skill = (HERE.parent / "utils" / "benchmark" / "seed_adapter" / "ADAPTER.md").read_text()
 out = HERE / "seed_adapter"
 if out.exists():
     shutil.rmtree(out)

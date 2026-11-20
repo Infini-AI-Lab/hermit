@@ -4,15 +4,16 @@
 # endpoint's local URL. A pipeline fits this route when it needs text back: `react` here has no tools to offer; a
 # request with tools is refused (docs/guides/claude-subscription.md).
 data:
-  tasks: tasks.jsonl
-  train: train.txt
-  val: val.txt
-  test: test.txt
+  tasks: utils/benchmark/tasks                # one task directory a review (Harbor's format)
+  view: utils/benchmark/sentiment_fields.py:sentiment_task   # each read as the row {id, prompt} it always was
+  train: utils/benchmark/splits/train.txt
+  val: utils/benchmark/splits/val.txt
+  test: utils/benchmark/splits/test.txt
   step_size: 3
   shuffle: false
-task_info: task-info
+task_info: utils/benchmark/task-info
 judge:
-  path: judge.py
+  path: utils/benchmark/judge.py
 template: ace@1.0
 agent:
   base: react

@@ -10,7 +10,7 @@ import re
 
 from hermit.agent.base.cli import PI_PARAMS
 from hermit.agent.base.interface import LoginFailed, make
-from hermit.agent.environment import Limits, placed
+from hermit.environment import Limits, placed
 from .experience import role_tools
 
 # The Layer 1/2 settings a configuration may give the role CLI; the rest are set per call below.

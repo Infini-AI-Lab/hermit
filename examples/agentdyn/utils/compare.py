@@ -88,6 +88,9 @@ def compare(tasks, ids, runs, repeats=1):
 
 
 if __name__ == '__main__':
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent / 'benchmark'))
+    from cases import rows as case_rows                 # a protocol's tasks/, or a tasks.jsonl
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--tasks',type=Path,required=True)
     parser.add_argument('--split',type=Path,required=True)
@@ -100,7 +103,8 @@ if __name__ == '__main__':
         name,sep,path=entry.partition('=')
         if not sep or name in runs: raise ValueError('provide unique LABEL=path')
         runs[name]=load(path)
-    result=compare(load(args.tasks),[s for s in args.split.read_text().splitlines() if s and not s.startswith('#')],runs,args.repeats)
+    result=compare(case_rows(args.tasks),
+                   [s for s in args.split.read_text().splitlines() if s and not s.startswith('#')],runs,args.repeats)
     text=json.dumps(result,indent=2)
     if args.output: args.output.write_text(text+'\n')
     print(text)

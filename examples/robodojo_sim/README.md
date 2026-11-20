@@ -27,8 +27,8 @@ what is left is listed under [Not verified](#not-verified).
 | `utils/agent/split_eval.sh` | One evaluation with the simulator in RoboDojo's container (`ROBODOJO_IMAGE`) |
 | `utils/agent/dojo_service.py`, `sim_cli.py` | The simulator service on the host and `bin/sim`, the actor's client of it (the ASPIRE example's service with this engine) |
 | `utils/agent/task.py`, `prompts/`, `docs/interface.md` | The Codex actor's task functions, its prompt and the interface page it is given |
-| `utils/prepare.py` | The forty-two tasks with their development and held-out layouts |
-| `utils/judge.py` | The program on the held-out layout sets, on the host |
+| `utils/benchmark/prepare.py` | The forty-two tasks with their development and held-out layouts, as task directories in Harbor's format (`tasks/`, each read as its row through `utils/agent/robodojo_fields.py`, the configs' `data.view`), and `splits/` |
+| `utils/benchmark/judge.py` | The program on the held-out layout sets, on the host |
 | `utils/control/press_by_number.py` | The positive control: press_by_number with one layout's digits written in (not shown to a session) |
 | `prompt_only/` | `run.yaml`, `smoke.yaml`, `run_luna.yaml` and `smoke_luna.yaml` (the same with GPT-5.6-Luna on the machine's ChatGPT login), `run_sample_luna.yaml` (three of the tasks on Luna, for a run of a day or two), `run_sample_sol.yaml` (the same on GPT-6.1-Sol), `run_sample_opus.yaml` (the same with Claude Code on Claude Opus 5.5, on a Claude subscription: `CLAUDE_CODE_OAUTH_TOKEN`), `launch.sh`: the prompt-only template with the built-in Codex Evolver |
 
@@ -37,7 +37,7 @@ what is left is listed under [Not verified](#not-verified).
 RoboDojo's saved layouts come in sets (`--seed` 0, 1, 2) and an evaluation runs a set's first N. A task's row
 keeps development and scoring apart by set: a session develops on set 2 (its first 10 layouts), and the judge
 scores on sets 0 and 1, each as RoboDojo evaluates a set: its first 50 layouts, or 25 for the twelve tasks whose
-`eval_nums` RoboDojo sets to 25 (`task/RoboDojo/config/_task.yml`; `utils/prepare.py`: `EVAL_25`). The score is the
+`eval_nums` RoboDojo sets to 25 (`task/RoboDojo/config/_task.yml`; `utils/benchmark/prepare.py`: `EVAL_25`). The score is the
 fraction of those layouts that succeeded; a layout with no result counts as failed (RoboDojo drops a layout whose
 episode raised or whose scene went unstable and scores a later one instead, which a program must not gain by, so
 the later one is not counted). An evaluation that leaves no result at all (a simulator that crashed, an environment
@@ -94,9 +94,9 @@ score is not a held-out score.
 
 ## Setup
 
-RoboDojo is not in Harbor's task format, as `examples/README.md` asks of a benchmark: a task is developed and scored
-on one Isaac Sim simulator per GPU, shared through a host service that keeps the development and held-out layout
-sets apart, which Harbor's one container per trial does not express. Where Isaac Sim does not install natively, the
+RoboDojo's task set is in Harbor's task format (`utils/benchmark/`), but its tasks do not run in Harbor's
+environments: a task is developed and scored on one Isaac Sim simulator per GPU, shared through a host service that
+keeps the development and held-out layout sets apart, which Harbor's one container per trial does not express. Where Isaac Sim does not install natively, the
 simulator runs in RoboDojo's own container image (below), the only Docker this example drives.
 
 1. RoboDojo, as its documentation installs it (Python 3.11, Isaac Sim 5.1, Isaac Lab 2.3; an NVIDIA GPU with 16 GB
@@ -132,7 +132,7 @@ ROBODOJO_GPU=0 ./launch.sh                                # the forty-two tasks
 ```
 
 Run one launch at a time on a checkout of this repository and a RoboDojo checkout: each launch rewrites the task
-rows and splits (`utils/prepare.py`) and reinstalls the policy into RoboDojo's checkout, which a running one reads.
+rows and splits (`utils/benchmark/prepare.py`) and reinstalls the policy into RoboDojo's checkout, which a running one reads.
 
 ## Not verified
 

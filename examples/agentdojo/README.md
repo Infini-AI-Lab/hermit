@@ -50,18 +50,20 @@ scores and other fields are discarded. For example, the row shape is:
 Replace the placeholder with an existing recorded payload. Prepare your collection:
 
 ```bash
-python examples/agentdojo/utils/prepare.py /path/to/frozen-cases.jsonl examples/agentdojo/utils/data
+python examples/agentdojo/utils/benchmark/prepare.py /path/to/frozen-cases.jsonl examples/agentdojo/utils/benchmark/data
 # Or import existing native benchmark logs for one suite:
-python examples/agentdojo/utils/prepare.py /path/to/native-logs examples/agentdojo/utils/data --from-logs --suite workspace
+python examples/agentdojo/utils/benchmark/prepare.py /path/to/native-logs examples/agentdojo/utils/benchmark/data --from-logs --suite workspace
 ```
 
 Preparation deduplicates rows, adds one clean case per user task, and writes
-`tasks.jsonl`, `train.txt`, `val.txt`, `test.txt` and `manifest.json`. All variants
+the cases as task directories in Harbor's format (`tasks/`, each read back as its row through AgentDyn's
+`utils/benchmark/cases.py`, the configs' `data.view`), `cases.txt`, `train.txt`, `val.txt`, `test.txt` and
+`manifest.json`. All variants
 of `(suite, user_task_id)` stay together. With seed 0 by default, the shuffled
 groups assign `max(1, groups // 5)` groups each to validation and test, and the
 rest to training. At least five groups and injected coverage in every split are
 required. The manifest records group ownership, counts, reference revision and
-task-file SHA-256. This is a local split protocol, not an official AgentDojo split.
+the SHA-256 of the rows as JSON lines. This is a local split protocol, not an official AgentDojo split.
 Native task and injection-vector IDs are checked by the suite at execution time.
 
 Prepared cases, logs, training artifacts and model credentials stay local. Do not
@@ -74,7 +76,7 @@ not case labels, judge predicates or hidden environment state.
 proposer in `llm` for training; the supplied config leaves `llm: null` deliberately.
 It uses the existing `evosafe@1.0` template and EvoSafe Evolver without algorithm
 changes. See [the example](evosafe/README.md) and
-[the domain specification](utils/task-info/README.md).
+[the domain specification](utils/benchmark/task-info/README.md).
 
 ```bash
 hermit check --config examples/agentdojo/evosafe/run.yaml
@@ -118,15 +120,15 @@ from these measured configurations.
 
 ## Shared SHE and EvoSafe comparison
 
-The [frozen comparison protocol](utils/DATA.md) matches AgentDyn's 57 TRAIN / 54
+The [frozen comparison protocol](utils/benchmark/DATA.md) matches AgentDyn's 57 TRAIN / 54
 reserved-validation budgets, uses all four official suites, and evaluates 406
 TEST cases (55 clean, 351 injected). Install the SHE dependency alongside the
 official benchmark. Use the existing upstream logs, without generating attacks:
 
 ```bash
 uv pip install --python .venv-agentdojo/bin/python -e '.[test]' --group she -e ../agentdojo
-python examples/agentdojo/utils/prepare_benchmark.py \
-  ../agentdojo/runs/gpt-4o-2024-05-13 examples/agentdojo/utils/data/comparison-v1
+python examples/agentdojo/utils/benchmark/prepare_benchmark.py \
+  ../agentdojo/runs/gpt-4o-2024-05-13 examples/agentdojo/utils/benchmark/data/comparison-v1
 ```
 
 Both `evosafe/run_nemotron_codex.yaml` and `she/run_nemotron_codex.yaml` freeze
@@ -190,6 +192,6 @@ unconditional or statistical-significance claim. SHE rounds 6 and 9 measured the
 same artifact, so their best-record promotions include repeat variability.
 Training used only the 57 TRAIN cases; TEST never feeds the search.
 
-The public tool schemas/descriptions in `utils/task-info/tools.json` are generated
+The public tool schemas/descriptions in `utils/benchmark/task-info/tools.json` are generated
 from the pinned official AgentDojo interfaces and retain the upstream
 [MIT notice](AGENTDOJO_LICENSE.txt).

@@ -24,7 +24,8 @@ def test_a_methods_own_files_run_its_group_and_core():
     assert groups_for("docs/methods/ahe_adapter.md") == {"ahe", "core"}          # its capability table is held
     # a pattern's `*` is one directory: a benchmark's shared folder named like a method, or a method's own folder
     # named like another, is not that method's
-    assert groups_for("examples/clbench_database/utils/task-info/mwm/host.json") >= {"mwm", "reharness", "core"}
+    assert groups_for("examples/clbench_database/utils/benchmark/task-info/mwm/host.json") >= {"mwm", "reharness",
+                                                                                               "core"}
     assert groups_for("examples/officeqa/rrsi_adapter/texts/ace/SKILL.md") == {"rrsi_adapter", "core"}
     assert groups_for("examples/officeqa/gepa/run.yaml") == {"optimizers", "core", "ahe"}     # read by AHE's
     assert groups_for("hermit/adapter/templates/harness2_codex/exports.yaml") == {"harness2", "core",

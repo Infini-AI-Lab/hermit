@@ -34,8 +34,8 @@ from hermit.task import RunOutput
 
 HERE = Path(__file__).resolve().parent
 
-UTILS = HERE.parent
-MWM = HERE.parent / "task-info" / "mwm"     # the venue's texts for MWM
+BENCHMARK = HERE.parent / "benchmark"       # prepare.py's: the tasks, windows.json, task-info/
+MWM = BENCHMARK / "task-info" / "mwm"       # the venue's texts for MWM
 
 
 from hermit.agent.evolver.methods.mwm.evidence import servelearnbench as evidence   # the MWM learner's records
@@ -74,7 +74,7 @@ def _setup(scenario: str, params: dict | None = None) -> dict:
         for w in range(n_windows(bundle)):
             for t in bundle["test_set"](w):
                 tasks[t.task_id] = t
-        windows = json.loads((UTILS / "windows.json").read_text())
+        windows = json.loads((BENCHMARK / "windows.json").read_text())
         if windows["scenario"] != scenario:
             raise RuntimeError(f"windows.json is for {windows['scenario']}, the task row says {scenario}")
         window_of = {}

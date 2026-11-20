@@ -15,8 +15,8 @@ from hermit.agent.acting import workspace as cli
 from hermit.agent.base import cli as base_cli
 from hermit.agent.base.interface import Limits as LIMITS
 from hermit.agent.base import login
-from hermit.agent.environment import docker as container
-from hermit.agent.environment import Sandboxed
+from hermit.environment import docker as container
+from hermit.environment import Sandboxed
 from hermit.agent.base.interface import make
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1201,7 +1201,7 @@ def test_a_stopped_session_takes_a_descendant_in_a_session_of_its_own(tmp_path, 
     import subprocess
     import time
     if not proc_fs:
-        from hermit.agent.environment import base as environment_base       # where _parents reads /proc
+        from hermit.environment import base as environment_base       # where _parents reads /proc
         monkeypatch.setattr(environment_base, "Path",
                             lambda p: Path("/no-proc") if p == "/proc/self/stat" else Path(p))
     pid_file = tmp_path / "pid"

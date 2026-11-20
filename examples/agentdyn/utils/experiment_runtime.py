@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import subprocess
 import tarfile
@@ -110,6 +111,18 @@ def run_owned(command, *, cwd, stream, registry, heartbeat=lambda: None, started
                 cleanup_containers(registry)
 
 
+def digest(path):
+    """A data input's SHA-256: a file's bytes; a directory's (a task set's task directories), every file's path and
+    bytes, in order."""
+    path = Path(path)
+    if not path.is_dir():                                   # a file (one that is missing raises)
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    h = hashlib.sha256()
+    for p in sorted(q for q in path.rglob('*') if q.is_file()):
+        h.update(str(p.relative_to(path)).encode() + b'\0' + hashlib.sha256(p.read_bytes()).digest())
+    return h.hexdigest()
+
+
 def snapshot(root, config_path, config, *, sandbox_enabled=None):
     """Archive the committed tree; never bind live repository files into a measured run."""
     root = Path(root).resolve()
@@ -144,7 +157,10 @@ def snapshot(root, config_path, config, *, sandbox_enabled=None):
             continue
         source = config.path(config.data['data'][key])
         target = inputs / (key + source.suffix)
-        target.write_bytes(source.read_bytes())
+        if source.is_dir():                                     # a task set of task directories
+            shutil.copytree(source, target, symlinks=False)
+        else:
+            target.write_bytes(source.read_bytes())
         effective['data'][key] = str(target)
     # Public instructions and the template must come from the committed tree.
     for key, source in [('task_info', config.path(config.data['task_info'])),
@@ -164,13 +180,20 @@ def snapshot(root, config_path, config, *, sandbox_enabled=None):
             if target is None or not target.exists():
                 raise ValueError(f'{name} must be committed inside the repository')
             holder[key] = str(target)
-    # File-backed application entry points must resolve inside the archived source.
-    for section, key in [('agent', 'name'), ('judge', 'path')]:
-        value = effective[section][key]
+    # File-backed application entry points must resolve inside the archived source: the agent, the judge, and the
+    # view the task set's rows are read through (data.view).
+    for section, key in [('agent', 'name'), ('judge', 'path'), ('data', 'view')]:
+        value = (effective.get(section) or {}).get(key)
+        if not value:
+            continue
         filename, separator, function = value.partition(':')
+        if section == 'data' and not filename.endswith('.py'):
+            # a module's view would be read from wherever it is installed, live and unhashed
+            raise ValueError('data.view must be a committed file entry point (<path>.py:<function>)')
         if filename.endswith('.py'):
-            target = frozen / config.path(filename).relative_to(root)
-            if not target.is_file():
+            source = config.path(filename).resolve()
+            target = frozen / source.relative_to(root) if source.is_relative_to(root) else None
+            if target is None or not target.is_file():
                 raise ValueError(f'{section}.{key} must be a committed entry point')
             effective[section][key] = str(target) + (separator + function if separator else '')
     effective['trainer']['output_dir'] = str(config.run_dir().parent)

@@ -23,7 +23,7 @@ agent:
 environment:                                  # the task sandbox: its code, ASPIRE's prompts and docs, the service
   read: [../utils/agent, $ASPIRE_DOCS, ...]
   env: [ASPIRE_SIM_URL]
-judge: {path: ../utils/judge.py}              # on the host: Stage 2
+judge: {path: ../utils/benchmark/judge.py}    # on the host: Stage 2
 sandbox: {enabled: true, enforce: required}
 evolver:
   name: aspire                                # the coordinator: a Codex session with ASPIRE's guide
@@ -46,7 +46,7 @@ the template's paths and commands onto the workspace. The sandbox shows nothing 
 shipped library, worked solutions or examples. It has no GPU, so the simulator runs on the host as a service
 (`utils/agent/sim_service.py`), which `bin/sim` reaches on a forwarded loopback port; the session registers there
 before the agent starts (its workspace and task id: one session per rollout), and the service runs only the seeds of
-the task row it reads on the host, the unseen check once and a verifier's two programs. The judge (`utils/judge.py`,
+the task row it reads on the host, the unseen check once and a verifier's two programs. The judge (`utils/benchmark/judge.py`,
 on the host) runs the selected program once on the held-out seeds: ASPIRE's Stage 2, the coordinator's in ASPIRE. The
 verifier is the same actor on the task's verifier row (`verify-<task>`, `data.val`): ASPIRE's verifier prompt, five
 seeds, two attempts, scored on its own seeds with its own verdict.
@@ -99,7 +99,7 @@ is the evaluation on the test split (`rerun-<task>` rows, the same seeds), compa
 The Codex actor's settings (`agent.params`) are `aspire_root`, `aspire_docs` (the docs as the launcher stages them), `max_steps` and
 `evosearch` (default true; false leaves out the evolutionary search: its part of the prompt, its page in the workspace, and its
 program as the scored one); its seeds are the task rows'
-(`utils/prepare.py`, which the launcher runs: `ASPIRE_EVAL_SEEDS` for the held-out ones), and the simulator's
+(`utils/benchmark/prepare.py`, which the launcher runs: `ASPIRE_EVAL_SEEDS` for the held-out ones), and the simulator's
 environment and workers are the simulator service's (`ASPIRE_SIM_ENV`). The direct comparison actor
 (`run_direct.yaml`) reads `debug_seeds`, `workers`, `aspire_root` and `sim_env` from `agent.params`, a task row's own
 seeds winning; the held-out seeds are the task rows' for both actors (the judge reads them there). The verifier's rows

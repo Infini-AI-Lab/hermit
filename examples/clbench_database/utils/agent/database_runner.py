@@ -89,7 +89,7 @@ def main() -> None:
     host_ws = workdir / "host"
     host_ws.mkdir(parents=True, exist_ok=True)
     from hermit.agent.evolver.methods.mwm import deployment as _dep
-    venue_texts = TASKS / "task-info" / "mwm"
+    venue_texts = TASKS / "benchmark" / "task-info" / "mwm"
     deployment = _dep.host_settings(venue_texts)
 
     task = dbtask.DatabaseExploration(schedule="default", run_index=order)

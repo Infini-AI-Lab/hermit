@@ -13,17 +13,17 @@ data:
   shuffle: false
 task_info: ../utils/task-info
 agent:
-  name: harbor
+  base: claude                         # Claude Code in each task's own Harbor environment, installed there by Harbor
   concurrency: 2
-  params:
-    benchmark: ../utils/benchmark.yaml
-    acting_agent: {cli: claude}
-    model: claude-haiku-5-5
-    login: claude
-    effort: medium
-    jobs_dir: ~/.cache/hermit/harbor/jobs/tb20-claude-smoke  # the smoke's trials, apart from the run's
+  model: {name: claude-haiku-5-5, login: claude, effort: medium}  # the subscription's plan, shared
+  claude: {web_search: false}           # the CLI's web search off
+environment:
+  harbor:                            # each task in its own Harbor environment, verified by Harbor's verifier
+    benchmark: ../utils/benchmark.yaml  # the settings every config of this example shares
+    jobs_dir: ~/.cache/hermit/harbor/jobs/tb20-claude-smoke  # the smoke's environments, apart from the run's
 judge:
-  path: hermit.harbor.judge
+  path: hermit.task.verify            # Harbor's verifier, in the task's environment: the verifier's reward
+  name: environment
 template: ahe@1.0
 evolver:
   name: ahe_adapter

@@ -5,13 +5,12 @@ benchmarks' splits are `hermit.harbor.dataset.split` of the locked tasks with Sk
 trains and validates on no row it is tested on, tests on the rows of the baseline beside it, shares its profile's
 jobs_dir (the smoke keeps its own, on rows no run takes) and names its profile's CLI, model, login and effort for the
 acting agent and every learner, whose wait for the plan's window has no limit of its own (AHE's clocks count it);
-every learner runs in its
-sandbox and no agent searches the web; SkillOpt sorts a rollout as its benchmark scores it; a baseline is a config for
-`hermit eval` alone (the keys every config names, a training split, a template and an Evolver, are placeholders, and
-no Evolver has the name: `hermit train` refuses it) and a method's a training config; every config loads as `hermit`
-loads it, prepared or not, which refuses a key it does not know (a block of its own for how a config runs, say); and
-the params every config hands the Harbor runner pass the runner's own checks of them at its start (no trial cache,
-say)."""
+every learner runs in its sandbox and no agent searches the web; SkillOpt sorts a rollout as its benchmark scores it;
+a baseline is a config for `hermit eval` alone (the keys every config names, a training split, a template and an
+Evolver, are placeholders, and no Evolver has the name: `hermit train` refuses it) and a method's a training config;
+every config loads as `hermit` loads it, prepared or not, which refuses a key it does not know (a block of its own for
+how a config runs, say); and the Harbor settings every config gives (its own over its benchmark file's) pass the
+Harbor environments' own checks of them (hermit.environment.harbor)."""
 from __future__ import annotations
 
 import importlib.util
@@ -23,11 +22,9 @@ import pytest
 import yaml
 
 from hermit.adapter.manifest import read_manifest
-from hermit.agent.acting.agent import load_agent
 from hermit.agent.evolver.loader import find
 from hermit.config import Config
 from hermit.harbor.dataset import split
-from hermit.harbor.runner import INFRA_RETRIES, INFRA_WAIT_S
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples"
 IN_SAMPLE = ["terminal_bench_2_0", "terminal_bench_science"]
@@ -92,11 +89,11 @@ def configs(bench: str, p: str) -> dict[str, dict]:
 def test_a_method_tests_on_its_baselines_rows_with_its_profiles_models(bench, p):
     profile, got = PROFILES[p], configs(bench, p)
     for name, config in got.items():
-        params = config["agent"]["params"]
-        assert params["acting_agent"] == {"cli": profile["cli"]}, name
-        assert (params["model"], params["login"], params["effort"]) == (profile["model"], profile["login"],
-                                                                        "medium"), name
-        assert params["benchmark"] == "../utils/benchmark.yaml", name
+        agent = config["agent"]
+        assert agent["base"] == profile["cli"], name
+        assert agent["model"] == {"name": profile["model"], "login": profile["login"], "effort": "medium"}, name
+        assert agent[profile["cli"]]["web_search"] is False, name
+        assert config["environment"]["harbor"]["benchmark"] == "../utils/benchmark.yaml", name
         if name != "baseline":                               # every learner on the acting model
             if "llm" in config:                              # SkillOpt's learner
                 llm = config["llm"]
@@ -118,8 +115,9 @@ def test_a_method_tests_on_its_baselines_rows_with_its_profiles_models(bench, p)
     run, smoke = got["run"], got["smoke"]
     assert run["data"]["test"] == base["data"]["test"]
     assert run["judge"] == base["judge"]
-    assert run["agent"]["params"]["jobs_dir"] == base["agent"]["params"]["jobs_dir"]   # the profile's trials
-    assert smoke["agent"]["params"]["jobs_dir"] != run["agent"]["params"]["jobs_dir"]
+    jobs = lambda config: config["environment"]["harbor"]["jobs_dir"]
+    assert jobs(run) == jobs(base)                                          # the profile's environments
+    assert jobs(smoke) != jobs(run)
     assert smoke["data"]["train"] == smoke["data"]["test"] == "../utils/splits/smoke.txt"
     where = EXAMPLES / bench / METHODS[bench]
     taken = {row for part in ("train", "val", "test") if run["data"].get(part)
@@ -148,12 +146,13 @@ def every_config():
 
 @pytest.mark.parametrize("bench", METHODS)
 def test_every_learner_is_sandboxed_and_no_agent_searches_the_web(bench):
-    assert read(EXAMPLES / bench / "utils" / "benchmark.yaml")["web_search"] is False    # the acting agent's, shared
+    assert "web_search" not in read(EXAMPLES / bench / "utils" / "benchmark.yaml")       # the agent's, not the tasks'
     for path in sorted((EXAMPLES / bench).glob("*/*.yaml")):
         if path.parent.name == "utils":
             continue
         config = read(path)
-        assert config["agent"]["params"].get("web_search", False) is False, path.name     # no config turns it on
+        agent = config["agent"]
+        assert agent[agent["base"]]["web_search"] is False, path.name                    # every config sets it off
         if "evolver" in config and path.parent.name != "baseline":        # a baseline's Evolver: a placeholder
             sandbox = config["sandbox"]
             assert sandbox["enabled"] is True and sandbox.get("enforce", "required") == "required", path.name
@@ -196,7 +195,9 @@ def test_a_config_loads_as_hermit_loads_it(path):
     # no download needed: a config names its benchmark's files, not its tasks
     config = Config.load(path)                           # a key hermit does not know, a `run:` block say, fails here
     d = config.data
-    assert d["agent"]["name"] == "harbor"
+    assert d["agent"]["name"] in ("codex", "claude-code") and d["environment"]["harbor"]
+    assert (d["judge"]["path"], d["judge"]["name"]) in (("hermit.task.verify", "environment"),
+                                                        ("../utils/judge.py", "score"))
     read_manifest(config.template_dir())                 # hermit eval reads the template's id (its tree's folder)
     if path.parent.name == "baseline":                   # the Trainer's lookup: hermit train refuses the config
         with pytest.raises(ValueError, match="No Evolver named 'eval-only'"):
@@ -206,24 +207,14 @@ def test_a_config_loads_as_hermit_loads_it(path):
 
 
 @pytest.mark.parametrize("path", every_config(), ids=config_id)
-def test_a_configs_params_pass_the_runners_own_checks(path, tmp_path, monkeypatch):
-    """The runner built from a config's params (its own over its benchmark file's) as hermit builds it, its startup
-    checks (check_agent) included: what the runner refuses of its params at its start (a trial cache, a count or a
-    cleanup mode it cannot read, a benchmark file's model reference, a login for another CLI, no web_search, a setting
-    the CLI's Base Agent refuses as it renders the launch plan) is refused here. This machine's own are stood in for,
-    as the run's and hermit check's: the sign-in (its check, and a stand-in for a Claude Code session's token
-    variable), bubblewrap and its start of the strict adapter sandbox, and Harbor's own `harbor` (this interpreter).
-    The runner's own infra retries apply: the configs set none."""
-    import shutil
-    from hermit.agent.base import login as subscription
-    from hermit.harbor import runner
-    which = shutil.which
-    monkeypatch.setattr(subscription, "problems_of", lambda *args, **kwargs: [])
-    monkeypatch.setattr(shutil, "which", lambda name, *args, **kwargs:
-                        "/usr/bin/bwrap" if name == "bwrap" else which(name, *args, **kwargs))
-    monkeypatch.setattr(runner, "sandbox_fault", lambda enforce, *, fresh=True: None)
-    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "stand-in-token-of-no-account")
+def test_a_configs_harbor_settings_pass_the_environments_own_checks(path, tmp_path):
+    """The run's Harbor environments built from a config's settings (its own over its benchmark file's) as a run builds
+    them: what they refuse at the start (an unknown key, a cleanup mode or a verifier_timeout they do not know, a
+    multiplier below 1, no tasks_dir) is refused here. Harbor's own command is stood in for (this interpreter, with a
+    python beside it), and the jobs directory is a temporary one; no environment is started."""
+    from hermit.environment.harbor import HarborEnvironments
     config = Config.load(path)
-    params = {**config.data["agent"]["params"], "harbor": sys.executable, "jobs_dir": str(tmp_path / "jobs")}
-    agent = load_agent(config.data["agent"]["name"], params, config.base)
-    assert (agent.infra_retries, agent.infra_wait_s) == (INFRA_RETRIES, INFRA_WAIT_S) == (2, 300.0)
+    settings = {**config.data["environment"]["harbor"], "harbor": sys.executable, "jobs_dir": str(tmp_path / "jobs")}
+    environments = HarborEnvironments(settings, base=config.base)
+    assert environments.tasks_dir.name and environments.cleanup in ("images_keep", "rmi_task_image", "rmi_over_gb")
+    assert environments.environment_config()["delete"] is True

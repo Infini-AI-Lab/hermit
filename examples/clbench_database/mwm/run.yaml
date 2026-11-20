@@ -1,16 +1,17 @@
 # MWM on the CL-Bench database venue: one order's 40-question stream, one MWM block per question (learn_every 1),
 # accuracy scoring, unlimited host queries. Started per order by `launch.sh`, which sets the per-order paths.
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/order0.txt      # launch.sh: order<i>.txt
+  tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/clbench_fields.py:clbench_task   # each task as the row it always was
+  train: ../utils/benchmark/splits/order0.txt      # launch.sh: order<i>.txt
   step_size: 1                                               # one block per question (prepare.py --step-size 1)
   shuffle: false                                             # the stream's own order
-task_info: ../utils/task-info
+task_info: ../utils/benchmark/task-info
 agent:
   name: ../utils/agent/agent.py:CLBenchDatabaseAgent
   concurrency: 1
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 template: mwm
 evolver:
   name: mwm
@@ -31,7 +32,7 @@ evolver_access:
       input_schema: {type: object, properties: {query: {type: string}}, required: [query], additionalProperties: false}
       output_schema: {type: object}
 environment:                         # the task sandbox: the host runner, clbench's checkout and venv
-  read: [../utils/agent, ../utils/task-info/mwm, $MWM_CLBENCH]
+  read: [../utils/agent, ../utils/benchmark/task-info/mwm, $MWM_CLBENCH]
   write: [$MWM_TASK_WORKDIR]       # the run's task directory: evidence, host records
   env: ["MWM_*", "CLB_*", "MW_*", "LITELLM_*"]   # the launcher's settings (launch.sh)
                                    # + the host's litellm key variable (launch.sh): the benchmark's own loop calls

@@ -4,10 +4,10 @@
     python worker.py          # the job arrives as JSON on stdin; HA_RESULT_FD names the pipe the result leaves by
 
 A job is {"kind": "agent", "name", "params", "base", "task", "adapter"} (what `load_agent(...).run(task, adapter)`
-takes), {"kind": "judge", "spec", "base", "task", "output"} (the judge on an output record, in a sandboxed judge
-mode) or {"kind": "tool", "entrypoint", "base", "arguments", "bound"} (a template's or task's declared tool). The
-result is {"ok": true, "output": <RunOutput record>} / {"ok": true, "result": ...} or {"ok": false, "error",
-"traceback"}.
+takes), {"kind": "judge", "spec", "base", "task", "output"}
+(the judge on an output record, in a sandboxed judge mode) or {"kind": "tool", "entrypoint", "base", "arguments",
+"bound"} (a template's or task's declared tool). The result is {"ok": true, "output": <RunOutput record>} / {"ok": true,
+"result": ...} or {"ok": false, "error", "traceback"}.
 
 The result pipe is made non-inheritable before anything else runs, so a program the agent starts cannot write a
 result of its own (a score it did not earn, a cost it did not spend). Whatever the agent prints goes to its own
@@ -31,7 +31,8 @@ def _run(job: dict) -> dict:
         os.environ[ENV_SANDBOX] = "1"
         os.environ[ENV_PYTHON] = sys.executable
         agent = load_agent(job["name"], job.get("params"), Path(job["base"]))
-        out = agent.run(job["task"], Path(job["adapter"]) if job.get("adapter") else None)
+        adapter = Path(job["adapter"]) if job.get("adapter") else None
+        out = agent.run(job["task"], adapter)
         if not isinstance(out, RunOutput):
             raise TypeError(f"the pipeline returned {type(out).__name__}, not RunOutput")
         return {"ok": True, "output": output_record(out)}
@@ -73,6 +74,10 @@ def main() -> None:
         except BaseException as exc:            # the host turns this into the task's error record
             payload = {"ok": False, "error": f"{type(exc).__name__}: {exc}",
                        "traceback": traceback.format_exc()[-3000:]}
+            spent = getattr(exc, "spent", None)  # what the failed call billed, counted on the host's record
+            if spent is not None:
+                payload["spent"] = {"cost_usd": spent.cost_usd, "tokens": spent.tokens,
+                                    "model_calls": (spent.api_speed or {}).get("model_calls")}
         result.write(json.dumps(payload, default=str))
 
 

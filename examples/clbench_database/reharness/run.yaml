@@ -7,17 +7,18 @@
 # Flash through the learner's meter at reasoning effort high. Started per order by `launch.sh`, which sets the
 # per-order paths, the meters and the embedding relay.
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/order0.txt      # launch.sh: order<i>.txt
+  tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/clbench_fields.py:clbench_task   # each task as the row it always was
+  train: ../utils/benchmark/splits/order0.txt      # launch.sh: order<i>.txt
   step_size: 1                           # one step per question: ReHarness learns per instance (the `block` field of
-                                         # tasks.jsonl groups questions for MWM only; it names their evidence directory)
+                                         # a task's row groups questions for MWM only; it names their evidence directory)
   shuffle: false                         # the stream's own order
-task_info: ../utils/task-info
+task_info: ../utils/benchmark/task-info
 agent:
   name: ../utils/agent/agent.py:CLBenchDatabaseAgent
   concurrency: 1
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 template: reharness
 evolver:
   name: reharness
@@ -29,7 +30,7 @@ llm:                                     # the revision and reflection agents; l
   model: fireworks/accounts/fireworks/models/glm-5p3-flash   # launch.sh: learner/<model id>
   extra_body: {reasoning_effort: high}   # launch.sh: MW_EFFORT, the host's effort
 environment:                         # the task sandbox: the host runner, clbench's checkout and venv
-  read: [../utils/agent, ../utils/task-info/mwm, $MWM_CLBENCH]
+  read: [../utils/agent, ../utils/benchmark/task-info/mwm, $MWM_CLBENCH]
   write: [$MWM_TASK_WORKDIR]       # the run's task directory: evidence, host records
   env: ["MWM_*", "CLB_*", "MW_*", "LITELLM_*", "REHARNESS_*"]   # the launcher's settings, the reader's relay
                                    # + the host's litellm key variable (launch.sh): the benchmark's own loop calls

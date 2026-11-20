@@ -39,7 +39,7 @@ import time
 
 from hermit.agent.base import login as codex_login
 from hermit.agent.base.interface import LoginFailed, Result, make
-from hermit.agent.environment import placed
+from hermit.environment import placed
 from hermit.agent.evolver.base import Usage
 
 ROLE_MODULES = ("rrsi.analyst", "rrsi.digester", "rrsi.critic")

@@ -7,13 +7,14 @@
 # (docker/codex/Dockerfile.standalone) and the egress proxy lets through chatgpt.com and auth.openai.com (the login's
 # refresh): the recipe's "The Flash row with GPT-5.6-Luna". (Ported from PR #54.)
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/train.txt
-  val: ../utils/splits/val.txt
-  test: ../utils/splits/test.txt
+  tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/officeqa_fields.py:officeqa_task   # each task as the row SkillOpt's loader gives
+  train: ../utils/benchmark/splits/train.txt
+  val: ../utils/benchmark/splits/val.txt
+  test: ../utils/benchmark/splits/test.txt
   step_size: 3
   shuffle_seed: 42
-task_info: ../utils/task-info/
+task_info: ../utils/benchmark/task-info/
 agent:
   base: codex                          # Layer 2: Codex as a Base Agent (hermit/agent/base/cli.py)
   concurrency: 8
@@ -33,9 +34,9 @@ agent:
     project_doc_max_bytes: 65536       # 64 KiB: the skill (up to 40 KB) with the deployment's notes; past
                                        # Codex's default 32 KiB it would cut AGENTS.md (deploy refuses that)
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 template: prompt-only@1.0
-start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
+start_from: ../utils/benchmark/seed_adapter  # SkillOpt's initial OfficeQA skill
 evolver:
   name: gepa
 llm:                                   # the learner: GPT-5.6-Luna at medium effort, the acting model

@@ -10,7 +10,7 @@
 #   ./launch.sh eval --adapter root                               # the same with the empty one
 #
 # The engine is the Robosuite example's (../../aspire_robosuite): its launcher runs the method folder's configs, with
-# the seeds of utils/prepare.py, and takes the same variables (ASPIRE_SIM_ENV, ASPIRE_SIM_GPU, ASPIRE_OUT,
+# the seeds of utils/benchmark/prepare.py, and takes the same variables (ASPIRE_SIM_ENV, ASPIRE_SIM_GPU, ASPIRE_OUT,
 # ASPIRE_EVAL_SEEDS, ASPIRE_SIM_PORT, HERMIT_PYTHON; see its header). ASPIRE_ROOT needs .venv-libero.
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

@@ -2,13 +2,14 @@
 # the task rows: ASPIRE_SEEDS=smoke); Codex acting (ASPIRE's fix-loop subagent and verifier prompts) and coordinating,
 # GLM 5.3 Flash. Started by launch.sh: ASPIRE_CONFIG=smoke.yaml ./launch.sh
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/smoke.txt
-  val: ../utils/splits/verify.txt   # the verifier's rows: run only by the coordinator, through run_agent
-  test: ../utils/splits/smoke_rerun.txt
+  tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/aspire_fields.py:aspire_task   # each task as the row it always was
+  train: ../utils/benchmark/splits/smoke.txt
+  val: ../utils/benchmark/splits/verify.txt   # the verifier's rows: run only by the coordinator, through run_agent
+  test: ../utils/benchmark/splits/smoke_rerun.txt
   step_size: 1
   shuffle: false
-task_info: ../utils/task-info
+task_info: ../utils/benchmark/task-info
 agent:
   base: codex
   concurrency: 1
@@ -38,7 +39,7 @@ environment:                        # the task sandbox: the actor's code, ASPIRE
     - $ASPIRE_ROOT/.claude/skills/evosearch/skills/evosearch-iteration.md
   env: [ASPIRE_SIM_URL]             # the host's simulator service (launch.sh): its 127.0.0.1 port is forwarded
 judge:
-  path: ../utils/judge.py           # on the host: Stage 2 on the held-out seeds
+  path: ../utils/benchmark/judge.py           # on the host: Stage 2 on the held-out seeds
 template: aspire
 evolver:
   name: aspire

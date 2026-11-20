@@ -11,7 +11,8 @@
 The workspace holds the question as `task.md` (the question with its oracle parsed pages and its source files as
 hints: the text SkillOpt's own Codex harness writes) and the whole corpus under `docs/` (read-only). The corpus is
 bound at its own path too, so that its links (prepare.py may link `transformed/` and `jsons/`) resolve. The corpus
-is `agent.params.docs`, else ../data.json's (utils/prepare.py writes it).
+is `agent.params.docs`, else benchmark/data.json's (utils/benchmark/prepare.py writes it). A task directory's row is
+read as the row SkillOpt's loader gives (agent/officeqa_fields.py).
 """
 from __future__ import annotations
 
@@ -20,14 +21,17 @@ import re
 import shutil
 from pathlib import Path
 
+from hermit.common import load_callable
+
 HERE = Path(__file__).resolve().parent
+officeqa_task = load_callable(str(HERE / "agent" / "officeqa_fields.py") + ":officeqa_task", HERE)
 ANSWER = re.compile(r"<answer>(.*?)</answer>", re.IGNORECASE | re.DOTALL)
 CORPUS_NOTE = ("The full OfficeQA document corpus is available under `docs/`. The candidate files below are source "
                "hints or likely starting points; search the full corpus if needed.")
 
 
 def corpus(params: dict, base: Path) -> Path:
-    docs = params.get("docs") or json.loads((HERE / "data.json").read_text())["docs"]
+    docs = params.get("docs") or json.loads((HERE / "benchmark" / "data.json").read_text())["docs"]
     path = Path(docs).expanduser()
     return (path if path.is_absolute() else Path(base) / path).resolve()
 
@@ -35,13 +39,14 @@ def corpus(params: dict, base: Path) -> Path:
 def task_text(task: dict, docs: Path) -> tuple[str, list[str]]:
     """`task.md` as SkillOpt's Codex harness writes it (its `_build_user`: the question, its oracle parsed pages,
     the corpus note, the candidate files as workspace paths, the source hints), and the corpus roots."""
+    task = officeqa_task(task)
     from skillopt.envs.officeqa.rollout import _build_user, _workspace_doc_path
     from skillopt.envs.officeqa.tool_runtime import (build_oracle_parsed_pages_context, resolve_candidate_files,
                                                      resolve_docs_roots)
     roots = resolve_docs_roots([str(docs)])
     oracle = build_oracle_parsed_pages_context(task["source_files"], task["source_docs"], roots)
     if not oracle:
-        raise RuntimeError(f"no parsed pages for {task['id']} under {docs}: see utils/prepare.py")
+        raise RuntimeError(f"no parsed pages for {task['id']} under {docs}: see utils/benchmark/prepare.py")
     files = resolve_candidate_files(task["source_files"], roots)
     item = {"id": task["id"], "question": task["question"], "task_type": task.get("category", "officeqa"),
             "source_files": task["source_files"], "source_docs": task["source_docs"]}
@@ -64,7 +69,7 @@ def prepare(task: dict, workspace: Path, params: dict, base: Path) -> list[dict]
     docs = corpus(params, base)
     for sub in ("transformed", "jsons"):
         if not (docs / sub).is_dir():
-            raise RuntimeError(f"the corpus {docs} lacks {sub}/: see utils/prepare.py")
+            raise RuntimeError(f"the corpus {docs} lacks {sub}/: see utils/benchmark/prepare.py")
     text, roots = task_text(task, docs)
     (workspace / "task.md").write_text(text, encoding="utf-8")
     for i, root in enumerate(roots[1:], start=2):

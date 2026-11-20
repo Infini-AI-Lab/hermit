@@ -1,6 +1,7 @@
 """AlgoTune's judge (utils/judge.py): a trial's score is 1 - 1/speedup, so the mean m of the scores is 1 - 1/H for the
-harmonic mean H of the speedups, AlgoTune's own score of a set of tasks. The trials are the runner's outputs as the
-Harbor judge reads them (hermit.harbor.judge): the verifier's reward is the speedup, with no pass reward."""
+harmonic mean H of the speedups, AlgoTune's own score of a set of tasks. The trials are outputs with the verdict of
+Harbor's verifier in the task's environment (hermit.task.verify.environment): the verifier's reward is the speedup,
+with no pass reward."""
 from __future__ import annotations
 
 import importlib.util
@@ -21,10 +22,11 @@ def judge():
     return module
 
 
-def trial(status="ok", reward=None, log=None):
-    """A Harbor trial's output as the runner hands it to the judge, on a benchmark with no pass reward."""
-    out = {"status": status, "reward": reward, "rewards": None if reward is None else {"reward": reward}}
-    return SimpleNamespace(output=out, log=log, extra={"judge": {"pass_reward": None}})
+def trial(status="ok", reward=None, feedback="", timed_out=False):
+    """An output as the run hands it to the judge, the environment's verdict in it, with no pass reward."""
+    verified = {"status": status, "reward": reward, "rewards": None if reward is None else {"reward": reward},
+                "passed": None, "feedback": feedback, "failure_cause": None if status == "ok" else "verifier_failed"}
+    return SimpleNamespace(output=None, log=None, extra={"verified": verified, "timed_out": timed_out})
 
 
 @pytest.mark.parametrize("speedup, score", [(None, 0.0), (0.0, 0.0), (0.5, 0.0), (1.0, 0.0), (2.0, 0.5),
@@ -33,10 +35,8 @@ def test_a_speedup_scores_one_less_its_inverse(judge, speedup, score):
     assert judge.speedup_score(speedup) == pytest.approx(score)
 
 
-def test_a_trial_keeps_its_speedup_beside_the_score(judge, tmp_path):
-    (tmp_path / "verifier").mkdir()
-    (tmp_path / "verifier" / "test-stdout.txt").write_text("100 instances valid; speedup 2.5\n")
-    record = judge.score({}, trial(reward=2.5, log=tmp_path))
+def test_a_trial_keeps_its_speedup_beside_the_score(judge):
+    record = judge.score({}, trial(reward=2.5, feedback="100 instances valid; speedup 2.5\n"))
     assert record["speedup"] == 2.5 and record["score"] == pytest.approx(0.6)
     assert record["passed"] is None                          # a speedup has no pass
     assert record["feedback"].startswith("speedup 2.5x (score 0.600): reward 2.5")
@@ -46,19 +46,19 @@ def test_a_trial_keeps_its_speedup_beside_the_score(judge, tmp_path):
 def test_no_speedup_and_a_timed_out_agent_score_their_reward(judge):
     floor = judge.score({}, trial(reward=1.0))               # invalid outputs, or not faster: AlgoTune's 1x
     assert floor["speedup"] == 1.0 and floor["score"] == 0.0
-    late = judge.score({}, trial(status="timeout", reward=3.0))   # the verifier still timed the agent's solver
+    late = judge.score({}, trial(reward=3.0, timed_out=True))   # the verifier still timed the agent's solver
     assert late["speedup"] == 3.0 and late["score"] == pytest.approx(2 / 3)
 
 
 def test_an_infra_trial_gets_no_score(judge):
-    from hermit.harbor.judge import Unscored
+    from hermit.task.verify import Unscored
     with pytest.raises(Unscored):                            # the run records a failed run, never a speedup's 0
         judge.score({}, trial(status="infra", reward=5.0))
 
 
 def infra_row(tid: str) -> dict:
     """A trial that is not the agent's result as `hermit eval` writes its row: the judge refused it."""
-    return {"id": tid, "status": "judge_error", "output": {"status": "infra", "failure_cause": "host_failed"},
+    return {"id": tid, "status": "judge_error", "error": "Unscored: the task's environment failed",
             "judge": {"score": 0.0, "feedback": "the judge failed: Unscored: ..."}}
 
 

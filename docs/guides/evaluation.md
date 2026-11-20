@@ -14,9 +14,7 @@ file-check success, and a learner's own claims are different evidence.
 | Adapter directory | That directory, resolved relative to the config | How does an included or external adapter perform? |
 
 `final` is the Evolver's final selection, defaulting to the current adapter. It is not a universal best-score
-checkpoint. GEPA and SkillOpt use their retained validation candidates for final selection. A Harbor task set whose
-acting agent is one of Harbor's own takes no adapter: only `--adapter none` evaluates it (given any other, its
-rollouts fail).
+checkpoint. GEPA and SkillOpt use their retained validation candidates for final selection.
 
 ## Keep the protocol fixed
 
@@ -39,8 +37,6 @@ hermit eval --config run.yaml --adapter final eval.repeats=3
 
 Results are written under `<output_dir>/<run_name>/eval/<selector>/`. Re-evaluating the same selector replaces its
 `results.jsonl` and `summary.json`; archive records or use separate output directories when preserving comparisons.
-On a Harbor task set each repeat runs a multi-step task's stream again from its first step, in a new environment,
-once the repeat before it has finished the stream ([Benchmarks](../framework/task.md#benchmarks)).
 
 | Summary field | Meaning |
 |---|---|
@@ -55,19 +51,16 @@ once the repeat before it has finished the stream ([Benchmarks](../framework/tas
 The `solved_once` threshold is fixed at 1.0. For a 0–100 score or a non-success metric, it is not a meaningful
 solved rate; use the benchmark's own definition and raw scores. It is also distinct from mean per-attempt accuracy.
 
-On a Harbor task set, a trial that is not the agent's result (`infra`: the host, the model provider, a session that
-never started) runs again in the runner itself (`agent.params.infra_retries`, default 2, each after `infra_wait_s`,
-default 300 s), unless its cause runs no better again: a disk gate that waited its time out, a provider's refusal of
-the run's configuration (`model_rejected`), a host failure (`host_failed`: a jobs directory that cannot be made, or
-past the trial's staging, where its session may have run), a task Harbor runs for none of Hermit's agents, or a
-multi-step task's step. One that ends `infra` all the
-same gets no score: the judge refuses it, so its record has status `judge_error`, its cost and log kept, and it counts
-in `errors` and as 0 in `mean_score`. A benchmark's own figure leaves such trials out: `python -m hermit.harbor.report
+On a task set in Harbor's environments, a run that is not the agent's result (`infra`: the task's environment did not
+start, failed under the verifier or its verifier ran no test, the session never started) runs again in a fresh
+environment (`environment.harbor.infra_retries`, default 2, each after `infra_wait_s`, default 300 s), unless its cause
+runs no better again: a disk gate that waited its time out, a provider's refusal of the run's configuration
+(`model_rejected`). One that ends `infra` all the same gets no score: the judge refuses it, so its record has status
+`judge_error`, its cost and log kept, and it counts in `errors` and as 0 in `mean_score`. A benchmark's own figure leaves such runs out: `python -m hermit.harbor.report
 <output_dir>/<run_name>/eval/<selector>` reads the eval's `results.jsonl` and gives, over all repeats and for each,
 the trials scored, infra and otherwise failed, pass@1 over the scored ones (the judge's `passed`), their mean score
-and `mean_score`. A lost sign-in, an API account's usage limit, or a provider that does not bill the account (its
-quota or credit spent), stops the eval
-([Benchmarks](../framework/task.md#benchmarks)): it writes no row of the repeat it stopped in (a repeat's rows are
+and `mean_score` ([Benchmarks](../framework/task.md#benchmarks)). A lost sign-in, or an API account's usage limit,
+stops the eval: it writes no row of the repeat it stopped in (a repeat's rows are
 written once all its trials are done), so its `results.jsonl` holds the repeats it finished, none with one repeat,
 beside the `summary.json` of the eval before, if any (the eval writes its summary when it ends). The report says such
 an eval did not finish (`unfinished`, and `finished: false` with `--json`). Run it again before reading either. Its

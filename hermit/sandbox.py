@@ -277,6 +277,32 @@ def run_in_strict_sandbox(command: list[str], *, role: str, readable, enforce: s
         box.close()
 
 
+_SANDBOX_STARTED: list[bool] = []        # a strict adapter sandbox started in this process (a run's startup)
+
+
+def sandbox_fault(enforce: str | None, *, fresh: bool = True) -> str | None:
+    """Why the strict adapter sandbox that renders each adapter does not start on this machine (bubblewrap that cannot
+    make its namespaces, say), seen from this process (the Harbor runner's, ported): None when it starts, or when it
+    is not required (`enforce` not "required"). `fresh` false (a run's startup): once it started in this process, it
+    is not tried again. Bubblewrap not installed is a fault too (the runner refused it at startup)."""
+    if enforce != "required":
+        return None
+    if not shutil.which("bwrap"):
+        return "bubblewrap (bwrap) is not installed"
+    if not fresh and _SANDBOX_STARTED:
+        return None
+    try:
+        run = run_in_strict_sandbox([sys.executable, "-c", "pass"], role="render", readable=[], enforce="required",
+                                    timeout=120)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"the strict adapter sandbox did not start: {type(exc).__name__}: {exc}"
+    if run.returncode != 0:
+        return (f"the strict adapter sandbox did not start (exit {run.returncode}): "
+                f"{(run.stderr or run.stdout or '').strip()[-300:]}")
+    _SANDBOX_STARTED.append(True)
+    return None
+
+
 NETWORK_MODES = ("no-network", "allowlist", "public")            # what a run config may name
 NETWORKS = {"no-network": ("isolated", False), "allowlist": ("isolated", True), "public": ("open", False),
             "isolated": ("isolated", True), "open": ("open", False)}       # the last two: the framework's own callers

@@ -13,7 +13,7 @@ Install the framework first ([Installation](../../docs/get-started/installation.
 
 ```bash
 pip install "git+https://github.com/Infini-AI-Lab/ServeLearnBench"      # the benchmark
-python examples/servelearnbench/utils/prepare.py --scenario retail_l3 --block 12   # tasks.jsonl, splits/, windows.json, the documents
+python examples/servelearnbench/utils/benchmark/prepare.py --scenario retail_l3 --block 12   # tasks/, splits/, windows.json, the documents
 ```
 
 Also needed for training: the Codex CLI on PATH, bubblewrap, and the key of the models' backend (`FIREWORKS_API_KEY`
@@ -31,7 +31,7 @@ examples/servelearnbench/prompt_only/launch.sh retail_l3    # prompt-only, same 
 Each launcher starts the wire meters and one `hermit train` in the background (`$MW_RUNS/<tag>/run.log`),
 then replays every window's held-out tests on the adapter the run had after that window and scores the result file
 with `slb score` (`test.log` and `task/results/retail_l3_<method>.jsonl` in the run directory). The tests can be rerun with
-`launch.sh retail_l3 test`. A smoke on the first 12 serving tasks: `MW_TRAIN_SPLIT=examples/servelearnbench/utils/splits/smoke_serving.txt`.
+`launch.sh retail_l3 test`. A smoke on the first 12 serving tasks: `MW_TRAIN_SPLIT=examples/servelearnbench/utils/benchmark/splits/smoke_serving.txt`.
 
 ## Results
 
@@ -66,10 +66,12 @@ Leaderboard rows are the benchmark's published numbers for GLM 5.3 Flash on reta
 
 ```text
 utils/agent/agent.py   ServeLearnBenchAgent: one episode through the benchmark's loop, the adapter plugged in through Session
-utils/prepare.py       exports one scenario: tasks.jsonl, splits/ (serving, test_w<w>, smoke), windows.json, the documents
-utils/judge.py         the benchmark's reward; the feedback is the one line its methods see ("Score: n/100.")
-utils/windows.py       the per-window test replay and the `slb score` result file
-utils/task-info/       the task for the learner; task-info/mwm/ is what MWM needs to know about the venue (see docs/methods/mwm.md)
+utils/agent/slb_fields.py  a task directory read back as the row the agent always read (the configs' data.view)
+utils/benchmark/       prepare.py exports one scenario: tasks/ (one task directory in Harbor's format per episode),
+                       splits/ (serving, test_w<w>, smoke), windows.json, the documents; judge.py, the benchmark's
+                       reward (the feedback is the one line its methods see, "Score: n/100."); windows.py, the
+                       per-window test replay and the `slb score` result file; task-info/, the task for the learner
+                       (task-info/mwm/ is what MWM needs to know about the venue, see docs/methods/mwm.md)
 mwm/ prompt_only/      retail_l3.yaml and launch.sh per method
 ```
 

@@ -23,9 +23,11 @@ ROOT = Path(__file__).resolve().parents[4]
 UTILS = ROOT / 'examples/agentdojo/utils'
 sys.path.insert(0, str(ROOT / 'examples/agentdyn/utils'))
 from bridge import AGENTDOJO_REVISION, validate_case
+sys.path.insert(0, str(ROOT / 'examples/agentdyn/utils/benchmark'))
+from cases import read_cases
 
 # AgentDojo's prepare.py by its path: AgentDyn's tests import AgentDyn's own as `prepare`.
-_spec = importlib.util.spec_from_file_location('agentdojo_prepare', UTILS / 'prepare.py')
+_spec = importlib.util.spec_from_file_location('agentdojo_prepare', UTILS / 'benchmark' / 'prepare.py')
 _prepare = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_prepare)
 prepare = _prepare.prepare
@@ -37,8 +39,8 @@ def test_preparation_keeps_variants_together_and_discards_old_answers(tmp_path):
                   messages=['OLD ANSWER'], utility=True)
              for i in range(5) for variant in range(2)]
     manifest = prepare(cases, tmp_path / 'data')
-    rows = [json.loads(line) for line in (tmp_path / 'data/tasks.jsonl').read_text().splitlines()]
-    assert len(rows) == 15
+    rows = read_cases(tmp_path / 'data')                    # each case's task directory, read back as its row
+    assert len(rows) == 15 and (tmp_path / 'data/tasks' / rows[0]['id'] / 'task.toml').is_file()
     assert all('messages' not in row and 'utility' not in row for row in rows)
     groups = {}
     for split in ('train', 'val', 'test'):
@@ -61,11 +63,11 @@ def test_prepare_cli_imports_native_logs_from_outside_the_checkout(tmp_path):
             'suite_name': 'workspace', 'user_task_id': f'user_task_{i}',
             'injection_task_id': 'injection_task_0', 'injections': {'vector': 'frozen'},
             'messages': ['old private answer']}))
-    result = subprocess.run([sys.executable, str(UTILS / 'prepare.py'), str(logs), str(tmp_path / 'data'),
+    result = subprocess.run([sys.executable, str(UTILS / 'benchmark' / 'prepare.py'), str(logs), str(tmp_path / 'data'),
                              '--from-logs', '--suite', 'workspace'],
                             cwd=tmp_path, capture_output=True, text=True, check=True)
     assert json.loads(result.stdout)['counts'] == {'train': 6, 'val': 2, 'test': 2}
-    assert 'old private answer' not in (tmp_path / 'data/tasks.jsonl').read_text()
+    assert not any('old private answer' in p.read_text() for p in (tmp_path / 'data/tasks').rglob('*') if p.is_file())
 
 
 def test_recipe_loads_the_task_entry_point_and_shared_template():
@@ -188,7 +190,7 @@ def test_function_agent_replays_native_tools_and_scores_attack_direction(
     case, output = replay(tmp_path, model_server, injected=injected)
     assert output.output == {'utility': True, 'attack_success': attack if injected else None,
                              'kind': 'injected' if injected else 'clean'}
-    score = load_callable(str(UTILS / 'judge.py') + ':score', tmp_path)(case, output)
+    score = load_callable(str(UTILS / 'benchmark' / 'judge.py') + ':score', tmp_path)(case, output)
     assert score.score == float(not attack)
     assert score.extra['metrics'] == output.output
     assert output.extra['benchmark'] == 'agentdojo'
@@ -221,7 +223,7 @@ def test_incomplete_native_episodes_are_errors_not_secure_verdicts(tmp_path, nat
     model_server[1]['value'] = mode
     case, output = replay(tmp_path, model_server, injected=True, max_iters=1)
     assert 'episode_error' in output.output
-    score = load_callable(str(UTILS / 'judge.py') + ':score', tmp_path)
+    score = load_callable(str(UTILS / 'benchmark' / 'judge.py') + ':score', tmp_path)
     with pytest.raises(RuntimeError):
         score(case, output)
     assert output.tokens > 0

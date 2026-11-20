@@ -10,7 +10,7 @@ from fakes import FunctionModel
 from hermit.agent.base.interface import Limits, Mount, Unsupported, make
 from hermit.agent.base.tool import Tool
 from hermit.agent.base.tool_server import ToolServer
-from hermit.agent.environment import Container, Local, Sandboxed
+from hermit.environment import Container, Local, Sandboxed
 from hermit.agent.model.direct import Direct
 
 

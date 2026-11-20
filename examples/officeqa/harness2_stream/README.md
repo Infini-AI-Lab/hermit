@@ -84,7 +84,7 @@ Paths are relative to this directory:
 
 ```bash
 LIBRARY_FROM=runs/h2-codex-s0-first10 TAG=h2-codex-s0-rest STREAM=stream_rest_s0.txt SKIP_TASKS=10 \
-  SPLITS=../utils/splits/test.txt CLAUDE_BIN=runs/.claude-pin/<version>/claude \
+  SPLITS=../utils/benchmark/splits/test.txt CLAUDE_BIN=runs/.claude-pin/<version>/claude \
   FIREWORKS_API_KEY=... SEED=0 WM_PORT=3591 examples/officeqa/harness2_stream/launch.sh
 ```
 

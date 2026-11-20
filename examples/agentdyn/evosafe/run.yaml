@@ -1,11 +1,12 @@
 data:
-  tasks: ../utils/data/tasks.jsonl
-  train: ../utils/data/train.txt
-  val: ../utils/data/val.txt
-  test: ../utils/data/test.txt
+  tasks: ../utils/benchmark/data/tasks
+  view: ../utils/benchmark/cases.py:case_row   # each case as the row it always was
+  train: ../utils/benchmark/data/train.txt
+  val: ../utils/benchmark/data/val.txt
+  test: ../utils/benchmark/data/test.txt
   step_size: 4
   shuffle: false
-task_info: ../utils/task-info
+task_info: ../utils/benchmark/task-info
 template: evosafe@1.0
 agent:
   name: ../utils/bridge.py:run
@@ -18,7 +19,7 @@ agent:
     max_iters: 15
     logs: runs/episodes
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 evolver:
   name: evosafe
   params:

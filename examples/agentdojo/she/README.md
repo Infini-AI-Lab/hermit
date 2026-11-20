@@ -10,7 +10,7 @@ No new method or replacement selector is introduced for AgentDojo.
 ## Setup and protocol
 
 Follow the [AgentDojo comparison guide](../README.md#shared-she-and-evosafe-comparison)
-and [data protocol](../utils/DATA.md). Install the additional dependency in the
+and [data protocol](../utils/benchmark/DATA.md). Install the additional dependency in the
 same resolver invocation as the benchmark and Hermit:
 
 ```bash

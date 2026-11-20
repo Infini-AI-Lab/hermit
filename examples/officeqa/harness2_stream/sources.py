@@ -8,8 +8,9 @@ HERE = Path(__file__).resolve().parent
 
 def task_files(task: dict, dest: Path) -> Path:
     from skillopt.envs.officeqa.tool_runtime import resolve_candidate_files, resolve_docs_roots
-    docs = json.loads((HERE.parent / "utils" / "data.json").read_text())["docs"]
-    files = resolve_candidate_files(task["source_files"], resolve_docs_roots([docs]))
+    docs = json.loads((HERE.parent / "utils" / "benchmark" / "data.json").read_text())["docs"]
+    meta = task.get("metadata") or {}                    # a task directory's row keeps them under its metadata
+    files = resolve_candidate_files(task.get("source_files", meta.get("source_files")), resolve_docs_roots([docs]))
     if not files:
         raise FileNotFoundError(f"no source files for {task['id']} under {docs}")
     dest.mkdir(parents=True, exist_ok=True)

@@ -24,7 +24,7 @@ from harness2.core.proposer import SYSTEM_ARG_MAX, Proposer, _DROP_ENV, _parse_j
 
 from hermit.agent.base.cli import PI_PARAMS
 from hermit.agent.base.interface import LoginFailed, make
-from hermit.agent.environment import placed
+from hermit.environment import placed
 from hermit.agent.base.records import price_usage
 from hermit.agent.evolver.base import Usage
 

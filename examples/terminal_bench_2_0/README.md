@@ -96,12 +96,12 @@ hermit eval  --config examples/terminal_bench_2_0/ahe_adapter/run_codex.yaml --a
 adapter (the baseline), the seed (`root`), the final adapter, each on rollouts #3 and #4, and the paper's own measure,
 the best iteration's pass@1 on its training rollouts (`runs/codex-ahe/workspace/state/best_ever.json`); the last is
 selected on the rollouts it reports, so it overstates what the adapter does on fresh ones. The two kinds count two
-trials differently. One that is not the agent's result (infra, still after the runner ran it again): the iteration's
+trials differently. One that is not the agent's result (infra: its environment could not be given or failed): the iteration's
 pass@1 counts it as a failure, as the paper does, and so does `hermit eval`'s `mean_score`, while
 `python -m hermit.harbor.report` leaves it out of its pass@1 and counts it (`infra`): report that pass@1 for each eval,
 and give that count beside each number. And one whose agent ran out of its hour or ended in an error while the tests
 passed: the iteration's pass@1 counts it as a failure, as the paper's counts a timed-out trial (§4.1), and `hermit eval`
-scores it by the tests' reward, as Harbor does; count those in the eval's `results.jsonl` (an `output.status` of
+scores it by the tests' reward, as Harbor does; count those in the eval's `results.jsonl` (an `outcome.status` of
 `timeout` or `agent_error` with a `judge.score` of 1) and give that count too.
 
 The learners run on the same plan as the acting agent: on the smoke's two tasks, one step's Debugger and Evolve
