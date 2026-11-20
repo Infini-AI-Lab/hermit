@@ -1093,7 +1093,11 @@ class CliAgent(BaseAgent):
         the environment's own installer (Harbor's installed agent of the CLI)."""
         s = self.settings
         if s.get("bin"):
-            return
+            served = getattr(environment, "bin_served", None) or {}
+            if served.get(REMOTE_INSTALL.get(self.backend)) is not False:
+                return
+            # the environment's setup found the mounted binary unusable there and installed the CLI instead
+            s = self.settings = {**s, "bin": None}
         if not s.get("version"):
             found = environment.exec(["bash", "-c", REMOTE_PATH + f"command -v {self.program}"], timeout=60)
             if found.code == 0 and found.output.strip():
@@ -1194,8 +1198,11 @@ class CliAgent(BaseAgent):
                 self.prepare_home(home, roles, None, s.get("tools_name") or "hermit_tools")
                 env.update(self.home_env(remote_home))
                 key_env = self._key_env()
-                if key_env:                              # by name to the environment's exec, never in a file
+                # by name to the environment's exec, never in a file; Claude Code reads its key from its own variable
+                # (session_env), as the runner's launch left the binding's out for it
+                if key_env and self.backend != "claude":
                     env[key_env] = os.environ.get(key_env, "")
+                self._remote_program(environment)       # the CLI there (the mounted one, or the installed one)
                 command = self.command(prompt, workspace, remote_home / "last_message.txt", session=session,
                                        roles=roles, tools_url=None)
                 by_fd = self.by_fd()
@@ -1205,7 +1212,6 @@ class CliAgent(BaseAgent):
                 # the installs' places on PATH (nvm's, ~/.local/bin); each by_fd secret the environment moves into a
                 # pipe before anything that outlives the move starts (its exec's by_fd)
                 command = ["bash", "-c", REMOTE_PATH + 'exec "$@"', "bash", *command]
-                self._remote_program(environment)
                 environment.exec(["rm", "-rf", str(remote_home)], cwd="/", timeout=120)
                 register = getattr(environment, "secret", None)   # removed at the phase's end, whatever ends it
                 if register is not None and copied:

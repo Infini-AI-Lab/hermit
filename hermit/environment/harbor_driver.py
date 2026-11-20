@@ -66,6 +66,24 @@ from harbor.trial.trial import Trial
 MODULE = "hermit_harbor_driver"         # this module's name for Harbor's agent import (AgentConfig.import_path)
 BRIDGE = f"{MODULE}:HermitBridge"
 UNSUPPORTED = ("does not support", "cannot forward HTTP MCP")   # Harbor's capability refusals of an agent
+VERSION_BEGIN, VERSION_END = "hermit-version-begin", "hermit-version-end"   # around a mounted binary's --version
+# Where TLS clients find the system's CA bundle (the runner's harborside.codex)
+CA_BUNDLES = ("/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/ca-bundle.pem",
+              "/etc/pki/tls/cacert.pem", "/etc/ssl/cert.pem")
+
+
+def host_ca_bundle() -> Path | None:
+    """The CA bundle OpenSSL trusts on this machine, else certifi's; None when there is neither."""
+    import ssl
+    paths = ssl.get_default_verify_paths()
+    for name in (os.environ.get(paths.openssl_cafile_env or ""), paths.cafile, paths.openssl_cafile):
+        if name and Path(name).is_file():
+            return Path(name).resolve()
+    try:
+        import certifi
+    except ImportError:
+        return None
+    return Path(certifi.where())
 
 TRIAL_FIELDS = ("verifier_timeout_multiplier", "environment_build_timeout_multiplier", "agent_timeout_multiplier",
                 "agent_setup_timeout_multiplier", "timeout_multiplier")
@@ -312,6 +330,7 @@ class Driver:
         self.run_task: asyncio.Task | None = None
         self.installs: list = []
         self.installed: dict = {}
+        self.bins: dict = {}                           # cli -> whether its mounted binary serves (setup's word)
         self.phase_started: asyncio.Future = asyncio.get_running_loop().create_future()
         self.done = asyncio.Event()
         self.agent_logs: str | None = None
@@ -378,7 +397,12 @@ class Driver:
         for, by Harbor's own installed agent of that name (unless its probe finds it there and no version is
         pinned), and the system packages asked for, by Harbor's own installer."""
         for item in self.installs:
-            if item.get("probe") and not item.get("version"):
+            if item.get("bin"):                          # a binary of this machine the environment mounts
+                served = await self._use_mounted(environment, item)
+                self.bins[str(item["agent"])] = served
+                if served:
+                    continue
+            elif item.get("probe") and not item.get("version"):
                 found = await environment.exec(str(item["probe"]))
                 if found.return_code == 0 and (found.stdout or "").strip():
                     continue
@@ -397,6 +421,51 @@ class Driver:
                         self.installed[str(package)] = True
                 except Exception as exc:                 # noqa: BLE001 - the session runs; its hooks are warned
                     log(f"setup: {', '.join(item['packages'])} could not be installed: {type(exc).__name__}: {exc}")
+
+    async def _use_mounted(self, environment, item: dict) -> bool:
+        """The mounted binary, when it runs there as the asked-for version (any, when none is asked for) and the user
+        the session runs as may execute it (the runner's _use_mounted): linked onto PATH, and for Codex the release's
+        rg when the image has none and a CA bundle when the image has none (its _after_mount); else False, and the
+        CLI is installed instead (the session then runs the installed one)."""
+        binary, version = str(item["bin"]), item.get("version")
+        q = shlex.quote
+        got = await environment.exec(f"echo {VERSION_BEGIN}; {q(binary)} --version 2>&1; c=$?; "
+                                     f"printf '\\n{VERSION_END}\\n'; exit \"$c\"", user="root")
+        text = got.stdout or ""
+        said = text.split(VERSION_BEGIN, 1)[-1].split(VERSION_END, 1)[0].strip() if VERSION_BEGIN in text else ""
+        found = self._installer(str(item["agent"])).parse_version(said) if got.return_code == 0 and said else None
+        if not found or (version and found != version):
+            log(f"setup: the mounted {binary} does not run here as {version or 'any version'} ({said[:200]!r}): "
+                "installing it")
+            return False
+        if (await environment.exec(f"test -x {q(binary)}")).return_code != 0:
+            log(f"setup: the mounted {binary} may not be executed here by the session's user: installing it")
+            return False
+        program = str(item.get("program") or Path(binary).name)
+        await environment.exec(f"mkdir -p /usr/local/bin && ln -sf {q(binary)} /usr/local/bin/{q(program)}",
+                               user="root")
+        if item["agent"] == "codex":
+            rg = q(str(Path(binary).parent.parent / "codex-path" / "rg"))
+            await environment.exec(f"if ! command -v rg >/dev/null 2>&1 && [ -x {rg} ]; then mkdir -p /usr/local/bin "
+                                   f"&& ln -sf {rg} /usr/local/bin/rg; fi", user="root")
+            await self._ensure_ca_bundle(environment)
+        self.installed[str(item["agent"])] = found
+        return True
+
+    async def _ensure_ca_bundle(self, environment) -> None:
+        """TLS roots for a mounted Codex: the image's own bundle, else this machine's copied to the Debian path (the
+        runner's: without them every request fails and the session serves nothing)."""
+        check = " || ".join(f"[ -s {path} ]" for path in CA_BUNDLES)
+        if (await environment.exec(check, user="root")).return_code == 0:
+            return
+        source = host_ca_bundle()
+        if source is None:
+            log("setup: the image has no CA bundle and neither has this machine: Codex may not reach its API")
+            return
+        target = CA_BUNDLES[0]
+        await environment.exec(f"mkdir -p {shlex.quote(str(Path(target).parent))}", user="root")
+        await environment.upload_file(source, target)
+        await environment.exec(f"chmod 644 {shlex.quote(target)}", user="root")
 
     def _installer(self, name: str, version=None):
         logs = self.trial.paths.trial_dir / "install" / name
@@ -428,7 +497,7 @@ class Driver:
             "trial_dir": str(trial.paths.trial_dir), "os": str(trial.task.config.environment.os.value),
             "verifier_mode": resolve_task_verifier_mode(trial.task.config).value, "instruction": instruction,
             "agent_network": str(getattr(plan.agent_phase.network_mode, "value", plan.agent_phase.network_mode)),
-            "installed": self.installed})
+            "installed": self.installed, "bins": self.bins})
         cancelled = False
         try:
             await self.done.wait()

@@ -383,8 +383,10 @@ only through a server of these operations on the host (`hermit/environment/remot
 **The agents.** A CLI Base Agent (Codex, Claude Code) runs where the environment runs its commands (isolation
 `remote`, `hermit/agent/base/cli.py`), as the Harbor runner's launch plan ran a session in a task's container: its home
 is rendered here and uploaded to `/installed-agent/hermit-home`, the CLI is the environment's (`agent.<cli>.bin`, a
-path there, such as a binary of this machine the environment mounts, `environment.harbor.environment.mounts`; else
-Harbor's setup installs it, `agent.<cli>.version`; nvm's and `~/.local/bin` are on PATH), the command runs
+path there, such as a binary of this machine the environment mounts, `environment.harbor.environment.mounts`, used
+when it runs there as `agent.<cli>.version` (any, when none is pinned) and the agent's user may execute it, linked onto
+PATH with, for Codex, the release's `rg` and this machine's CA bundle for an image that has none; else Harbor's setup
+installs it, `agent.<cli>.version`; nvm's and `~/.local/bin` are on PATH), the command runs
 from the workspace with the prompt (Harbor's instruction, unless the agent's `prompt` says otherwise) on its stdin, its
 output is the stream Hermit reads as it reads its own sessions (Codex's lost sign-in, provider failure, plan limit and
 refused configuration read from its own notices, as the runner read them), and the CLI's last message comes back. Its

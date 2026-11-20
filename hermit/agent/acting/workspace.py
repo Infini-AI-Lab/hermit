@@ -372,7 +372,10 @@ def installs(params: dict, adapter: Path | None) -> list[dict]:
     backend = str(params.get("backend") or "codex")
     backend = "claude" if backend == "claude-code" else backend          # as _check names it
     out = []
-    if not params.get("bin") and backend in REMOTE_INSTALL:
+    if params.get("bin") and backend in REMOTE_INSTALL:      # a mounted binary: used when it serves, else installed
+        out.append({"agent": REMOTE_INSTALL[backend], "version": params.get("version"), "bin": str(params["bin"]),
+                    "program": backend})
+    elif backend in REMOTE_INSTALL:
         out.append({"agent": REMOTE_INSTALL[backend], "version": params.get("version"),
                     "probe": "bash -c " + shlex.quote(REMOTE_PATH + f"command -v {backend}")})
     if adapter is not None and backend in REMOTE_HOOK_HOSTS:
@@ -399,9 +402,9 @@ def _infra_run(cause: str, message: str, usages: Ledger, log: Path, started: flo
     """A run in a task's own environment that is not the agent's result (`extra.infra`, which the run reads:
     hermit.trainer.rollout), with what its sessions spent: `final`, never run again (the provider allowance spent, the
     configuration refused)."""
-    ledger = usages
-    return RunOutput(output=None, log=log, cost_usd=ledger.cost(0.0), wall_s=round(time.time() - started, 1),
-                     tokens=ledger.tokens(0), api_speed={"model_calls": ledger.calls()},
+    ledger = usages                   # a session ran: none reported is not known (the runner's usage None), never 0
+    return RunOutput(output=None, log=log, cost_usd=ledger.cost(None), wall_s=round(time.time() - started, 1),
+                     tokens=ledger.tokens(None), api_speed={"model_calls": ledger.calls()},
                      extra={"infra": cause, "infra_final": final, "exception_message": message[-2000:]})
 
 

@@ -1749,7 +1749,8 @@ def test_a_cli_agent_declares_what_harbors_setup_installs_and_the_phase_installs
     assert Agent().installs(None) == []                                      # an agent that needs nothing
     codex = CliAgent({"backend": "codex", "version": "0.162.0"}, tmp_path).installs(None)
     assert codex[0]["agent"] == "codex" and codex[0]["version"] == "0.162.0" and "command -v codex" in codex[0]["probe"]
-    assert CliAgent({"backend": "claude", "bin": "/opt/claude"}, tmp_path).installs(None) == []
+    mounted = CliAgent({"backend": "claude", "bin": "/opt/claude"}, tmp_path).installs(None)
+    assert mounted == [{"agent": "claude-code", "version": None, "bin": "/opt/claude", "program": "claude"}]
     environments, _, _ = harbor
     with environments.session(environments.task_dir({"harbor_task": "demo"}), installs=codex) as env:
         sent = [json.loads(line) for line in (tmp_path / "requests.jsonl").read_text().splitlines()]
@@ -2175,3 +2176,68 @@ def test_eval_checks_the_sign_in_before_it_replaces_results(tmp_path, monkeypatc
     with pytest.raises(SystemExit, match="eval refuses to start"):
         evaluate_mod.evaluate(config, "none", log=lambda m: None)
     assert not list((tmp_path / "runs").rglob("results.jsonl"))
+
+
+@pytest.mark.skipif(not HARBOR_PYTHON.exists(), reason="needs Harbor's venv (~/.cache/hermit/harbor-venv)")
+def test_a_mounted_codex_serves_only_as_the_asked_version_and_gets_rg_and_ca_roots(tmp_path):
+    """The runner's _use_mounted and _after_mount, in the bridge's setup: a mounted binary that answers another
+    version is not used (the CLI is installed instead); one that serves is linked, with the release's rg and this
+    machine's CA bundle for an image that has none."""
+    script = tmp_path / "probe.py"
+    script.write_text(textwrap.dedent(f"""
+        import asyncio, importlib.util, sys
+        from types import SimpleNamespace
+        spec = importlib.util.spec_from_file_location("drv", {str(DRIVER_FILE)!r})
+        drv = importlib.util.module_from_spec(spec); sys.modules["drv"] = drv; spec.loader.exec_module(drv)
+
+        class Env:
+            def __init__(self, version): self.version, self.calls, self.uploads = version, [], []
+            async def exec(self, command, user=None, **kw):
+                self.calls.append(command)
+                if "--version" in command:
+                    return SimpleNamespace(return_code=0, stdout=f"hermit-version-begin\\ncodex-cli {{self.version}}"
+                                                                 f"\\nhermit-version-end\\n", stderr="")
+                if command.startswith("[ -s"):            # the image has no CA bundle
+                    return SimpleNamespace(return_code=1, stdout="", stderr="")
+                return SimpleNamespace(return_code=0, stdout="", stderr="")
+            async def upload_file(self, source, target): self.uploads.append(target)
+
+        class Installer:
+            def parse_version(self, text): return text.split()[-1]
+
+        async def main():
+            d = drv.Driver(None)
+            d._installer = lambda name, version=None: Installer()
+            item = {{"agent": "codex", "version": "0.162.0", "bin": "/opt/hermit-codex/codex", "program": "codex"}}
+            old = Env("0.170.0")
+            served_old = await d._use_mounted(old, item)
+            new = Env("0.162.0")
+            served_new = await d._use_mounted(new, item)
+            print("RESULT", [served_old, served_new, any("codex-path/rg" in c for c in new.calls),
+                             new.uploads == ["/etc/ssl/certs/ca-certificates.crt"], d.installed.get("codex")])
+        asyncio.run(main())
+    """))
+    done = subprocess.run([str(HARBOR_PYTHON), "-I", str(script)], capture_output=True, text=True, timeout=120)
+    line = next((x for x in done.stdout.splitlines() if x.startswith("RESULT")), done.stdout + done.stderr)
+    assert line == "RESULT " + str([False, True, True, True, "0.162.0"]), line
+
+
+def test_the_cli_runs_the_installed_program_when_the_mounted_one_did_not_serve_and_claude_gets_no_raw_key(
+        tmp_path, monkeypatch):
+    from hermit.agent.base.interface import make
+    monkeypatch.setenv("HERMIT_HOMES", str(tmp_path / "homes"))
+    env = Recorded(tmp_path, lambda c: ExecResult(0, CODEX_STREAM) if session_of(c) else ExecResult(0, "/usr/bin/x"))
+    env.bin_served = {"codex": False}
+    make("codex", {"web_search": False, "bin": "/opt/hermit-codex/codex"}).run("x", environment=env)
+    session = next(c for c in env.calls if session_of(c["command"]))
+    assert session["command"][4] == "codex"                       # the installed program, not the mount
+    monkeypatch.setenv("FAKE_KEY", "the-key")
+    binding = {"ref": "fake/m", "backend": "fake", "model": "m", "base_url": "https://models.example/v1",
+               "api_key_env": "FAKE_KEY", "key_required": True, "apis": ["messages"]}
+    stream = json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "done",
+                         "usage": {"input_tokens": 1, "output_tokens": 1}}) + "\n"
+    claude_env = Recorded(tmp_path, lambda c: ExecResult(0, stream) if session_of(c) else ExecResult(0, "/x"))
+    make("claude", {"web_search": False, "binding": binding, "model": "m", "bin": "claude"}).run(
+        "hi", environment=claude_env)
+    session = next(c for c in claude_env.calls if session_of(c["command"]))
+    assert "FAKE_KEY" not in session["env"]                       # its key in its own variable (session_env)

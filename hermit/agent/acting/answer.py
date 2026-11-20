@@ -31,6 +31,7 @@ import mimetypes
 from pathlib import Path
 import re
 import tempfile
+import sys
 import time
 
 from hermit.agent.acting.agent import Agent
@@ -183,7 +184,9 @@ class AnswerAgent(Agent):
             with tempfile.TemporaryDirectory(prefix="hermit-attachment-") as tmp:
                 local = Path(tmp) / Path(path).name
                 environment.download(path, local)
-                if local.stat().st_size > MAX_ATTACHMENT_BYTES:
+                if local.stat().st_size > MAX_ATTACHMENT_BYTES:   # the runner's: left out, with a warning
+                    print(f"WARNING: {path} is over {MAX_ATTACHMENT_BYTES} bytes: it is not sent", file=sys.stderr,
+                          flush=True)
                     continue
                 urls.append(f"data:{kind};base64,{base64.b64encode(local.read_bytes()).decode()}")
                 named.append(path)

@@ -572,6 +572,7 @@ class HarborEnvironment(Environment):
         self.workspace = PurePosixPath(started.get("workdir") or "/")
         self.instruction = started.get("instruction")           # Harbor's own, as its agents are given it
         self.network_public = (started.get("agent_network") or "public") == "public"
+        self.bin_served = dict(started.get("bins") or {})   # cli -> whether its mounted binary serves (setup's word)
         kind = (owner.settings.get("environment") or {}).get("type") if isinstance(
             owner.settings.get("environment"), dict) else None
         self.same_clock = kind in (None, "docker")       # a local Docker container shares this machine's clock
