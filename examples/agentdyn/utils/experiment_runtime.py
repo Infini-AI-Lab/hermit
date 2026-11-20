@@ -187,6 +187,9 @@ def snapshot(root, config_path, config, *, sandbox_enabled=None):
         if not value:
             continue
         filename, separator, function = value.partition(':')
+        if section == 'data' and not filename.endswith('.py'):
+            # a module's view would be read from wherever it is installed, live and unhashed
+            raise ValueError('data.view must be a committed file entry point (<path>.py:<function>)')
         if filename.endswith('.py'):
             source = config.path(filename).resolve()
             target = frozen / source.relative_to(root) if source.is_relative_to(root) else None

@@ -2713,7 +2713,6 @@ def test_a_sandbox_this_machine_cannot_start_is_infra_never_the_adapters_zero(tm
     from hermit.adapter.session import CONFINED
     from hermit.agent.acting import answer as answer_mod
     from hermit.agent.model.usage import Usage
-    from hermit.environment.harbor_errors import pipeline_cause
     fault = "the strict adapter sandbox did not start (exit 1): no user namespaces"
     monkeypatch.setattr(sandbox, "sandbox_fault", lambda enforce, fresh=True: fault)
     monkeypatch.setattr(isolate, "sandbox_fault", sandbox.sandbox_fault)
@@ -2740,19 +2739,27 @@ def test_a_sandbox_this_machine_cannot_start_is_infra_never_the_adapters_zero(tm
         def close(self):
             pass
 
+    def server_fails(adapter):                     # the context tool's server, started in its sandbox, did not start
+        raise RuntimeError("bwrap: setting up uid map: Permission denied")
+
     monkeypatch.setattr(answer_mod.ChatClient, "from_spec", staticmethod(lambda spec: Model()))
     agent = answer_mod.AnswerAgent({"model": {"base_url": "https://x", "model": "m"}, "logs": str(tmp_path / "l")},
                                    tmp_path)
-    monkeypatch.setattr(agent, "session", lambda adapter: Failing())
     env = Recorded(tmp_path)
     env.instruction = "Which?"
     token = CONFINED.set("required")
     try:
-        with pytest.raises(RuntimeError) as raised:
-            agent.run({"id": "q"}, tmp_path, environment=env)
+        for session in (lambda adapter: Failing(), server_fails):
+            monkeypatch.setattr(agent, "session", session)
+            out = agent.run({"id": "q"}, tmp_path, environment=env)
+            assert out.extra["infra"] == "staging_failed" and not out.extra["infra_final"]     # run again
+            assert (out.cost_usd, out.tokens) == (0.0, 0)                                      # nothing spent
+            assert "adapter_failed" not in out.extra
     finally:
         CONFINED.reset(token)
-    assert pipeline_cause(f"RuntimeError: {raised.value}") == ("staging_failed", True)
+    monkeypatch.undo()
+    monkeypatch.setattr(sandbox.shutil, "which", lambda name: None)                  # bubblewrap not installed
+    assert "not installed" in sandbox.sandbox_fault("required") and sandbox.sandbox_fault("best_effort") is None
 
 
 def test_the_usage_an_error_response_reports_is_counted(tmp_path, monkeypatch):
@@ -2787,7 +2794,11 @@ def test_the_usage_an_error_response_reports_is_counted(tmp_path, monkeypatch):
     record = rollout.environment_rollout(task, task.given(), None, lambda t, a, environment=None: agent.run(
         t, a, environment=environment), Environments(tmp_path), 0.0, pause=lambda s: None)
     calls = record.api_speed["model_calls"]                      # each run again's spend kept, its call counted
-    assert calls >= 1 and record.tokens == 140 * calls and record.extra["unscored"] == "model_provider_failed"
+    assert calls >= 2 and record.tokens == 140 * calls and record.extra["unscored"] == "model_provider_failed"
+    assert record.cost_usd == pytest.approx(1.4e-4 * calls)
+    from hermit.trainer.rollout import run_one                   # and outside a task's own environment: the record
+    failed = run_one(task, None, lambda t, a: agent.run(t, a), lambda row, out: {"score": 0.0})
+    assert failed["status"] == "error" and failed["tokens"] == 140 and failed["cost_usd"] == pytest.approx(1.4e-4)
 
 
 def test_an_unreadable_verifier_log_leaves_the_reward(tmp_path, monkeypatch):
@@ -2808,3 +2819,24 @@ def test_an_unreadable_verifier_log_leaves_the_reward(tmp_path, monkeypatch):
     envs = HarborEnvironments({"tasks_dir": str(tmp_path), "harbor": sys.executable}, base=tmp_path)
     verdict = envs.verdict({"rewards": {"reward": 1.0}, "verifier_dir": str(logs)})
     assert verdict["reward"] == 1.0 and verdict["status"] == "ok" and verdict["feedback"] == "1 passed"
+
+
+def test_a_staging_failure_is_run_again_and_spends_nothing(tmp_path):
+    """The runner's staging_failed (this machine's, before any session): infra, run again, its attempt's spend 0, so
+    the run that then passes keeps a known cost."""
+    from hermit.adapter.session import staging_failed
+    from hermit.task import Task
+    from hermit.trainer import rollout
+    runs = []
+
+    def pipeline(task, adapter, environment=None):
+        runs.append(1)
+        if len(runs) == 1:
+            return staging_failed("staging_failed: OSError: [Errno 28] No space left on device", 0.0)
+        return RunOutput(output="done", cost_usd=0.25, tokens=100, api_speed={"model_calls": 1})
+
+    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
+    out = rollout.environment_rollout(task, task.given(), None, pipeline, Environments(tmp_path), 0.0,
+                                      pause=lambda s: None)
+    assert len(runs) == 2 and out.cost_usd == pytest.approx(0.25) and out.tokens == 100
+    assert [a["unscored"] for a in out.extra["attempts"]] == ["staging_failed", None]

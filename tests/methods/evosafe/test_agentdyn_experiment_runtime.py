@@ -286,3 +286,9 @@ def test_snapshot_freezes_the_view_and_refuses_one_outside_the_repository(tmp_pa
                     'commit', '-qam', 'outside'], check=True)
     with pytest.raises(ValueError, match='data.view must be a committed entry point'):
         snapshot(root, config_path, config)
+    config_data['data']['view'] = 'some_installed_benchmark.fields:row'      # a module, read wherever it is installed
+    config_path.write_text(yaml.safe_dump(config_data))
+    subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                    'commit', '-qam', 'module'], check=True)
+    with pytest.raises(ValueError, match='data.view must be a committed file entry point'):
+        snapshot(root, config_path, config)

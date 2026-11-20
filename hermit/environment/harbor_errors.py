@@ -249,7 +249,6 @@ def start_cause(kind: str | None, message: str) -> str:
 PIPELINE_INFRA = ((re.compile(r"\bmodel_rejected\b|chat/completions HTTP 40[1-4]\b"), "model_rejected", False),
                   (re.compile(r"could not be served after"), "model_provider_failed", False),
                   (re.compile(r"before starting a session"), "session_failed", True),
-                  (re.compile(r"\bstaging_failed: "), "staging_failed", True),
                   (re.compile(r"chat/completions HTTP (?:408|409|429|5\d\d)\b|chat/completions failed: "),
                    "model_provider_failed", True),
                   (re.compile(r"\bEnvironmentUnavailable\b|the Harbor driver|the environment is not started|"

@@ -284,9 +284,11 @@ def sandbox_fault(enforce: str | None, *, fresh: bool = True) -> str | None:
     """Why the strict adapter sandbox that renders each adapter does not start on this machine (bubblewrap that cannot
     make its namespaces, say), seen from this process (the Harbor runner's, ported): None when it starts, or when it
     is not required (`enforce` not "required"). `fresh` false (a run's startup): once it started in this process, it
-    is not tried again. Bubblewrap not installed is the sandbox's own refusal (Sandbox.wrap)."""
-    if enforce != "required" or not shutil.which("bwrap"):
+    is not tried again. Bubblewrap not installed is a fault too (the runner refused it at startup)."""
+    if enforce != "required":
         return None
+    if not shutil.which("bwrap"):
+        return "bubblewrap (bwrap) is not installed"
     if not fresh and _SANDBOX_STARTED:
         return None
     try:

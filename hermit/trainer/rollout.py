@@ -30,11 +30,13 @@ def _given(pipeline, given: dict, adapter: Path | None, environment, needs: dict
 
 
 def _failed_record(task: Task, given: dict, started: float, exc: Exception, what: str) -> dict:
+    spent = getattr(exc, "spent", None)                  # what the failed call billed, when the agent said
     return {"id": given.get("id", task.id), "input": given, "status": "error", "error": f"{type(exc).__name__}: {exc}",
             "traceback": traceback.format_exc()[-3000:], "output": None,
             "judge": {"score": 0.0, "feedback": f"{what}: {type(exc).__name__}: {exc}"},
-            "cost_usd": None, "wall_s": round(time.time() - started, 2), "api_speed": None, "tokens": None,
-            "log": None, "messages": None}
+            "cost_usd": spent.cost_usd if spent is not None else None, "wall_s": round(time.time() - started, 2),
+            "api_speed": {"model_calls": (spent.api_speed or {}).get("model_calls")} if spent is not None else None,
+            "tokens": spent.tokens if spent is not None else None, "log": None, "messages": None}
 
 
 def run_one(task: Task | dict, adapter: Path | None, pipeline, judge, environments=None) -> dict:

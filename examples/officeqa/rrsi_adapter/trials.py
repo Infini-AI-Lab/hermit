@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import threading
 
 from hermit.agent.acting.workspace import CliAgent
 from hermit.common import load_callable
@@ -26,10 +27,12 @@ class TrialCodexAgent(CliAgent):
 
 
 _JUDGE: list = []                                    # the score module, loaded once (its answers with it)
+_LOADING = threading.Lock()
 
 
 def score(task: dict, output) -> dict:
     """`judge.path: trials.py`: SkillOpt's exact match (../utils/benchmark/judge.py) on the row's question."""
-    if not _JUDGE:
-        _JUDGE.append(load_callable(str(UTILS / "benchmark" / "judge.py") + ":score", UTILS))
+    with _LOADING:
+        if not _JUDGE:
+            _JUDGE.append(load_callable(str(UTILS / "benchmark" / "judge.py") + ":score", UTILS))
     return _JUDGE[0]({**task, "id": question(task["id"])}, output)

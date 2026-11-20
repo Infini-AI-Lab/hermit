@@ -463,7 +463,12 @@ def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(),
     out.close()
     payload = json.loads(data)
     if not payload.get("ok"):
-        raise RuntimeError(f"{payload.get('error')}\n{payload.get('traceback', '')}".strip())
+        failed = RuntimeError(f"{payload.get('error')}\n{payload.get('traceback', '')}".strip())
+        spent = payload.get("spent")
+        if isinstance(spent, dict):                      # what the failed call billed (an endpoint's error usage)
+            failed.spent = RunOutput(output=None, cost_usd=spent.get("cost_usd"), tokens=spent.get("tokens"),
+                                     api_speed={"model_calls": spent.get("model_calls")})
+        raise failed
     return payload
 
 
@@ -859,8 +864,9 @@ class SandboxedJudge:
             # key variable, its provider's hosts, a model server on the loopback, a login's plan, the CLI's install.
             self.box, proxy = task_sandbox(agent.spec, enforce=agent.enforce, records=agent.records,
                                            role="judge", probe_absent=[*HOME_SECRETS, *plan])
-            if self.mode == "separate":
-                self.box = dataclasses.replace(self.box, writable=[])
+            # sandbox.hide is what the agent may not read (a scoring module, say): a verifier reads it, as any judge
+            self.box = dataclasses.replace(self.box, hide=[], writable=[] if self.mode == "separate" else
+                                           self.box.writable)
             self.forward = []
             if proxy is not None:
                 agent.others.append(proxy)               # closed with the agent's sandboxes

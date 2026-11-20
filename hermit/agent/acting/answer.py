@@ -96,13 +96,18 @@ class AnswerAgent(Agent):
     def _answer(self, task, adapter, environment, model, client, caller, budget, started) -> RunOutput:
         p = self.params
         question = self.question(task, environment)
-        session = self.session(adapter)
+        session = None
         try:
+            session = self.session(adapter)               # a context tool's server starts here, in its sandbox
             system = session.context(query=question, task=task) if session is not None else ""
             record = session.last_context if session is not None else None
         except Exception as exc:          # the adapter's own (its context tool): the agent's result, scored 0
-            from hermit.adapter.session import host_fault
-            host_fault(exc)               # unless the sandbox it runs in does not start here: infra
+            from hermit.adapter.session import host_fault, staging_failed
+            fault = host_fault(exc)       # unless the sandbox it runs in does not start here: infra
+            if fault is not None:
+                if getattr(environment, "isolation", None) == "remote":     # a task's own environment: run again
+                    return staging_failed(fault, started)
+                raise RuntimeError(fault) from exc
             message = f"{type(exc).__name__}: {exc}"[-2000:]
             return RunOutput(output=None, cost_usd=0.0, tokens=0, wall_s=round(time.time() - started, 1),
                              api_speed={"model_calls": 0},
