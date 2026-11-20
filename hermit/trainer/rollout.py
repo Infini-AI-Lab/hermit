@@ -307,7 +307,8 @@ def _environment_run(task: Task, given: dict, adapter: Path | None, pipeline, en
                             return _failed_record(task, given, started, exc, "the pipeline failed")
                         cause, again = read
                         final = not again
-                        out = _infra_output(task, cause, f"{type(exc).__name__}: {exc}", begun, ran=True)
+                        out = _infra_output(task, cause, f"{type(exc).__name__}: {exc}", begun, ran=True,
+                                            spent=getattr(exc, "spent", None))   # what the agent said it spent
                 else:
                     out = _read(out, env, task, begun)
                     if out.extra.get("infra"):

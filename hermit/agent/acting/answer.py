@@ -50,6 +50,26 @@ DEFAULT_WAIT_S = 30.0
 POLL_S = 1.0
 
 
+
+def _error_usage(client, exc) -> list:
+    """The usage an endpoint's error response reports (a relay's or provider's final body), priced as a reply's
+    would be (the runner's relay priced it too); none when the body holds none."""
+    from hermit.agent.model.usage import Usage
+    try:
+        payload = json.loads(exc.body or b"null")
+    except ValueError:
+        return []
+    u = payload.get("usage") if isinstance(payload, dict) else None
+    if not isinstance(u, dict):
+        return []
+    try:
+        prompt, completion = int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
+        cached = int((u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
+    except (TypeError, ValueError, AttributeError):
+        return []
+    cost = client.cost(prompt, cached, completion) if callable(getattr(client, "cost", None)) else None
+    return [Usage(getattr(client, "model", ""), prompt, cached, completion, 1, cost)]
+
 class AnswerAgent(Agent):
     supports = ("context", "context_tool")       # the adapter's context is the call's system message
 
@@ -81,6 +101,8 @@ class AnswerAgent(Agent):
             system = session.context(query=question, task=task) if session is not None else ""
             record = session.last_context if session is not None else None
         except Exception as exc:          # the adapter's own (its context tool): the agent's result, scored 0
+            from hermit.adapter.session import host_fault
+            host_fault(exc)               # unless the sandbox it runs in does not start here: infra
             message = f"{type(exc).__name__}: {exc}"[-2000:]
             return RunOutput(output=None, cost_usd=0.0, tokens=0, wall_s=round(time.time() - started, 1),
                              api_speed={"model_calls": 0},
@@ -103,8 +125,17 @@ class AnswerAgent(Agent):
                 raise
             from hermit.agent.model.direct import Reply
             reply, timed_out = Reply(reply=""), True
-        except ChatHTTPError as exc:
-            reply, timed_out = self._refused(exc), False
+        except ChatHTTPError as exc:                     # its body's usage counted, whatever the refusal means
+            spent = _error_usage(client, exc)
+            try:
+                reply, timed_out = self._refused(exc, spent), False
+            except (ChatHTTPError, RuntimeError) as refused:
+                if spent:                                # an infra end: the rollout keeps what the call spent
+                    total = Ledger(getattr(client, "model", "")).add(spent).total()
+                    refused.spent = RunOutput(output=None, cost_usd=total.cost_usd,
+                                              tokens=total.input_tokens + total.output_tokens,
+                                              api_speed={"model_calls": total.calls})
+                raise
         answer = self.answer(reply.reply)
         # what the call spent, as soon as it answered: kept through a delivery that fails
         usage = Ledger(getattr(client, "model", "")).add(reply.usage).unreported(
@@ -232,7 +263,7 @@ class AnswerAgent(Agent):
         return urls, named
 
     @staticmethod
-    def _refused(exc):
+    def _refused(exc, spent=()):
         """The model endpoint's refusal, read as the Harbor runner read the answer agent's: a bill or a spent quota ends
         the run (usage_limit), the run's configuration refused (401-404, a request setting it does not take) is
         model_rejected (never run again), a provider that could not serve is infra; a request refused for what its
@@ -247,7 +278,7 @@ class AnswerAgent(Agent):
             raise RuntimeError(f"agent answer: model_rejected: {said}") from None
         if exc.code in (408, 409, 429) or exc.code >= 500:
             raise exc
-        return Reply(reply="")
+        return Reply(reply="", usage=list(spent))
 
     def answer(self, reply: str) -> str:
         pattern = self.params.get("answer_pattern")

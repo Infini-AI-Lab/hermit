@@ -95,7 +95,6 @@ def test_a_reward_is_read_as_harbor_writes_it(tmp_path):
                                                                {"rewards": {"reward": 1.0, "style": 0.25}})
     (tmp_path / "reward.json").write_text(json.dumps({"a": 1, "b": 0}))
     assert read_reward(tmp_path).score == 0.5                     # no `reward`: the mean of the named numbers
-    (tmp_path / "reward.json").write_text(json.dumps({"a": "yes"}))
     (tmp_path / "reward.json").write_text(json.dumps({"reward": 1, "f1": 1, "answered": True}))
     assert read_reward(tmp_path).score == 1.0                     # a boolean beside them, as Harbor takes it
     (tmp_path / "reward.json").write_text(json.dumps({"a": "yes"}))
@@ -232,6 +231,8 @@ def test_harbors_defaults_and_phase_allowlists_and_a_view_of_the_rows(tmp_path):
     viewed = view.tasks["own"]
     assert viewed.given() == {"id": "own", "question": "Write 42 to answer.txt."}
     assert viewed.private["needs"] == task.private["needs"]                  # still checked, though not shown
+    with pytest.raises(ValueError, match="keeps each task's id"):            # a legacy id would key no record
+        tasks_of(tmp_path / "tasks", view=lambda row: {"id": 7, "question": row["instruction"]})
 
 
 def test_the_run_refuses_a_task_its_environment_cannot_give_before_the_agent_starts():
@@ -289,3 +290,49 @@ def test_a_separate_verifiers_own_memory_is_checked(tmp_path):
     small = EnvironmentSpec(resources={"memory_mb": 1024})
     assert small.problems_for(needs) == []                                   # judged on the host: not asked
     assert "verifier needs 8192 MB" in " ".join(small.problems_for(needs, verifier=True))
+
+
+AGENT_SEES_KEY = """
+import os
+from pathlib import Path
+from hermit.task import RunOutput
+
+def run(task, adapter):
+    Path(os.getcwd(), "answer.txt").write_text("42")
+    return RunOutput(output="done", extra={"key": os.environ.get("HERMIT_TEST_MODEL_KEY")})
+"""
+
+TEST_SH_SPIES = """echo 1 > /logs/verifier/reward.txt
+echo "key=${HERMIT_TEST_MODEL_KEY:-absent} proxy=${HTTPS_PROXY:-${https_proxy:-none}}" > /logs/verifier/feedback.txt
+"""
+
+
+@needs_bwrap
+@pytest.mark.parametrize("mode", ["shared", "separate"])
+def test_a_tasks_own_verifier_never_gets_the_acting_models_key_or_hosts(tmp_path, monkeypatch, mode):
+    """The task author's tests/test.sh runs with the task's environment, not the acting agent's: its model's key
+    variable is not passed, nor is a proxy to its provider given (Harbor's verifier never had the agent's key)."""
+    from hermit.isolate import SandboxedAgent, judge_for
+    from hermit.trainer.rollout import run_one
+    monkeypatch.setenv("HERMIT_TEST_MODEL_KEY", "sk-model-synthetic-0123456789")
+    root = tmp_path / "run"
+    root.mkdir()
+    binding = {"ref": "x/m", "backend": "x", "model": "m", "base_url": "https://model.example.invalid/v1",
+               "api_key_env": "HERMIT_TEST_MODEL_KEY"}
+    path = make_task(root, sandbox={"enabled": True}, environment={"read": ["agent"]},
+                     agent={"name": "agent/pipeline.py:run", "concurrency": 1, "params": {"binding": binding}})
+    (root / "agent").mkdir()
+    (root / "agent" / "pipeline.py").write_text(AGENT_SEES_KEY)
+    a_task(root / "tasks", "spy", test_sh=TEST_SH_SPIES)
+    (root / "splits.txt").write_text("spy\n")
+    config = Config.load(path, ["data.tasks=tasks", "data.train=splits.txt", "data.val=null", "data.test=null",
+                                "judge.path=hermit.task.verify", "judge.name=script", f"judge.mode={mode}"])
+    bench = Benchmark.from_config(config)
+    agent = SandboxedAgent(config, "rollout", records=None)
+    try:
+        record = run_one(bench.tasks["spy"], None, agent, judge_for(config, agent))
+    finally:
+        agent.close()
+    assert record["status"] == "ok", record
+    assert record["pipeline_extra"]["key"] == "sk-model-synthetic-0123456789"     # the agent reaches its model
+    assert record["judge"]["feedback"] == "key=absent proxy=none\n", record["judge"]

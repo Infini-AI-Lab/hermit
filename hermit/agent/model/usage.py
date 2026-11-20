@@ -48,8 +48,12 @@ class Ledger:
         return None if any(u.cost_usd is None for u in self.entries) else sum(u.cost_usd for u in self.entries)
 
     def tokens(self, empty: int | None = None) -> int | None:
+        """The tokens reported; unknown (None) when no entry reported any: only sessions or calls cut off before
+        their usage (`unreported`), never a measured 0."""
         if not self.entries:
             return empty
+        if all(u.unreported_calls and not (u.input_tokens or u.output_tokens) for u in self.entries):
+            return None
         return sum(u.input_tokens + u.output_tokens for u in self.entries)
 
     def calls(self) -> int:

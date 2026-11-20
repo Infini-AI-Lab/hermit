@@ -658,6 +658,8 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
                 said = type(exc).__name__ + str(exc)
                 if IMAGE_CONTEXT_UNREAD in said or "EnvironmentUnavailable" in said or "AgentPhaseOver" in said:
                     raise                                # the environment's, or Harbor ended the phase: not the adapter
+                from hermit.adapter.session import host_fault
+                host_fault(exc)                          # this machine's, whatever the adapter (the runner's staging)
                 return _adapter_failed("adapter_failed", f"{type(exc).__name__}: {exc}", usages, log, started)
         else:
             deployed, context_tool = _deploy(task, adapter, work, backend, params, remote=False)

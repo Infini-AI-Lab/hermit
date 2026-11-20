@@ -249,3 +249,40 @@ def test_a_frozen_run_cannot_receive_an_unrecorded_sandbox_override(tmp_path):
                             capture_output=True, text=True, timeout=15)
     assert result.returncode == 2
     assert '--no-sandbox must be applied before source freezing' in result.stderr
+
+
+def test_snapshot_freezes_the_view_and_refuses_one_outside_the_repository(tmp_path, monkeypatch):
+    """data.view is read code like the agent and the judge: the snapshot's own copy, never a live file elsewhere."""
+    import yaml
+    root = tmp_path / 'repo'
+    for name in ['template', 'task-info']:
+        (root / name).mkdir(parents=True)
+        (root / name / 'info').write_text('committed')
+    (root / 'worker.py').write_text('')
+    (root / 'view.py').write_text('def row(task):\n    return task\n')
+    outside = tmp_path / 'outside.py'
+    outside.write_text('def row(task):\n    return {}\n')
+    config_data = {'data': {**{k: 'cases.txt' for k in ('tasks', 'train', 'test')}, 'view': 'view.py:row'},
+                   'agent': {'name': 'worker.py:run', 'params': {}}, 'judge': {'path': 'worker.py'},
+                   'trainer': {}, 'task_info': 'task-info', 'template': 'template'}
+    config_path = root / 'run.yaml'
+    config_path.write_text(yaml.safe_dump(config_data))
+    subprocess.run(['git', 'init', '-q', str(root)], check=True)
+    subprocess.run(['git', '-C', str(root), 'add', '.'], check=True)
+    subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                    'commit', '-qm', 'fixture'], check=True)
+    (root / 'cases.txt').write_text('cases')
+    config = SimpleNamespace(data=config_data, run_dir=lambda: tmp_path / 'output/run',
+        run_name=lambda: 'run', path=lambda value: (root / value).resolve(),
+        template_dir=lambda: root / 'template', tree_dir=lambda _: tmp_path / 'tree')
+    monkeypatch.setenv('HA_BACKENDS', str(tmp_path / 'none.yaml'))
+    meta = snapshot(root, config_path, config)
+    view = yaml.safe_load(Path(meta['config']).read_text())['data']['view']
+    assert view == str(Path(meta['snapshot_root']) / 'view.py') + ':row' and 'view.py' in meta['file_sha256']
+    config_data['data']['view'] = f'{outside}:row'
+    config_path.chmod(0o644)
+    config_path.write_text(yaml.safe_dump(config_data))
+    subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                    'commit', '-qam', 'outside'], check=True)
+    with pytest.raises(ValueError, match='data.view must be a committed entry point'):
+        snapshot(root, config_path, config)

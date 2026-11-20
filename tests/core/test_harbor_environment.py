@@ -1821,6 +1821,8 @@ def test_the_usage_ledger_sums_once_with_unknown_costs_and_empty_ledgers_as_the_
     ledger.unreported(1)                                 # a call given up in flight: counted, its cost unknown
     assert ledger.cost() is None and ledger.calls() == 2 and ledger.total().unreported_calls == 1
     assert Ledger().cost(0.0) == 0.0 and Ledger().tokens(None) is None             # nothing ran / nothing known
+    cut = Ledger("m").unreported(0, sessions=1)        # a session cut off before any usage: unknown, never 0
+    assert (cut.tokens(0), cut.cost(0.0)) == (None, None)
     attempts = Attempts()
     for tokens, cost, cause in ((10, 0.1, "sandbox_failed"), (None, None, None)):
         attempts.add(RunOutput(output=None, tokens=tokens, cost_usd=cost, api_speed={"model_calls": 1},
@@ -2700,3 +2702,109 @@ def test_a_forced_teardown_signals_only_the_drivers_own_group(tmp_path):
         harbor_mod.DRIVER = original
         other.kill()
         other.wait()
+
+
+def test_a_sandbox_this_machine_cannot_start_is_infra_never_the_adapters_zero(tmp_path, monkeypatch):
+    """The runner's preflight and staging_failed: a run whose strict adapter sandbox does not start here is refused at
+    startup, and a deployment or context that fails because it stopped starting is infra (run again), not the
+    adapter's scored zero."""
+    from types import SimpleNamespace
+    from hermit import isolate, sandbox
+    from hermit.adapter.session import CONFINED
+    from hermit.agent.acting import answer as answer_mod
+    from hermit.agent.model.usage import Usage
+    from hermit.environment.harbor_errors import pipeline_cause
+    fault = "the strict adapter sandbox did not start (exit 1): no user namespaces"
+    monkeypatch.setattr(sandbox, "sandbox_fault", lambda enforce, fresh=True: fault)
+    monkeypatch.setattr(isolate, "sandbox_fault", sandbox.sandbox_fault)
+    monkeypatch.setattr("hermit.agent.acting.agent.load_agent",
+                        lambda name, params, base: SimpleNamespace(run=lambda *a, **k: None))
+    config = SimpleNamespace(data={"sandbox": {"enabled": True, "enforce": "required", "hide": []},
+                                   "environment": {"harbor": {"tasks_dir": "x"}},
+                                   "agent": {"name": "codex", "params": {}}}, base=tmp_path)
+    with pytest.raises(ValueError, match="did not start"):
+        isolate.agent_pipeline(config, "rollout", records=None)
+
+    class Model:
+        model = "m"
+
+        def chat(self, messages, abort=None, **kwargs):
+            return {"role": "assistant", "content": "B"}, Usage(model="m", calls=1)
+
+    class Failing:
+        last_context = None
+
+        def context(self, **kw):
+            raise RuntimeError("the sandbox's server did not start")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(answer_mod.ChatClient, "from_spec", staticmethod(lambda spec: Model()))
+    agent = answer_mod.AnswerAgent({"model": {"base_url": "https://x", "model": "m"}, "logs": str(tmp_path / "l")},
+                                   tmp_path)
+    monkeypatch.setattr(agent, "session", lambda adapter: Failing())
+    env = Recorded(tmp_path)
+    env.instruction = "Which?"
+    token = CONFINED.set("required")
+    try:
+        with pytest.raises(RuntimeError) as raised:
+            agent.run({"id": "q"}, tmp_path, environment=env)
+    finally:
+        CONFINED.reset(token)
+    assert pipeline_cause(f"RuntimeError: {raised.value}") == ("staging_failed", True)
+
+
+def test_the_usage_an_error_response_reports_is_counted(tmp_path, monkeypatch):
+    """A terminal HTTP error whose body reports usage (a relay's or provider's): counted on the agent's scored result
+    (an input refused) and kept on the infra end (a provider that could not serve), as the runner's relay priced it."""
+    from hermit.agent.acting import answer as answer_mod
+    from hermit.agent.model.llm import ChatHTTPError
+    from hermit.task import Task
+    from hermit.trainer import rollout
+    body = json.dumps({"error": {"message": "nope"}, "usage": {"prompt_tokens": 120, "completion_tokens": 20}})
+
+    def model_failing(code):
+        class Model:
+            model = "m"
+
+            def cost(self, prompt, cached, completion):
+                return (prompt + completion) / 1e6
+
+            def chat(self, messages, abort=None, **kwargs):
+                raise ChatHTTPError(code, body.encode(), {})
+        return Model()
+
+    params = {"model": {"base_url": "https://x", "model": "m"}, "logs": str(tmp_path / "l")}
+    monkeypatch.setattr(answer_mod.ChatClient, "from_spec", staticmethod(lambda spec: model_failing(400)))
+    env = Recorded(tmp_path)
+    env.instruction = "Which?"
+    out = answer_mod.AnswerAgent(params, tmp_path).run({"id": "q"}, None, environment=env)
+    assert out.tokens == 140 and out.api_speed["model_calls"] == 1 and out.cost_usd == pytest.approx(1.4e-4)
+    monkeypatch.setattr(answer_mod.ChatClient, "from_spec", staticmethod(lambda spec: model_failing(503)))
+    agent = answer_mod.AnswerAgent(params, tmp_path)
+    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo", "question": "Which?"})
+    record = rollout.environment_rollout(task, task.given(), None, lambda t, a, environment=None: agent.run(
+        t, a, environment=environment), Environments(tmp_path), 0.0, pause=lambda s: None)
+    calls = record.api_speed["model_calls"]                      # each run again's spend kept, its call counted
+    assert calls >= 1 and record.tokens == 140 * calls and record.extra["unscored"] == "model_provider_failed"
+
+
+def test_an_unreadable_verifier_log_leaves_the_reward(tmp_path, monkeypatch):
+    """feedback.txt is optional (the runner's log reader tolerated one it could not read): its output's tail is read
+    instead, and a reward the verifier wrote stands."""
+    logs = tmp_path / "verifier"
+    logs.mkdir()
+    (logs / "feedback.txt").write_text("hidden")
+    (logs / "test-stdout.txt").write_text("1 passed")
+    original = Path.read_text
+
+    def read_text(self, *a, **k):
+        if self.name == "feedback.txt":
+            raise PermissionError(13, "Permission denied", str(self))
+        return original(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    envs = HarborEnvironments({"tasks_dir": str(tmp_path), "harbor": sys.executable}, base=tmp_path)
+    verdict = envs.verdict({"rewards": {"reward": 1.0}, "verifier_dir": str(logs)})
+    assert verdict["reward"] == 1.0 and verdict["status"] == "ok" and verdict["feedback"] == "1 passed"

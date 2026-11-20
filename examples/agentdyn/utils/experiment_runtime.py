@@ -180,13 +180,17 @@ def snapshot(root, config_path, config, *, sandbox_enabled=None):
             if target is None or not target.exists():
                 raise ValueError(f'{name} must be committed inside the repository')
             holder[key] = str(target)
-    # File-backed application entry points must resolve inside the archived source.
-    for section, key in [('agent', 'name'), ('judge', 'path')]:
-        value = effective[section][key]
+    # File-backed application entry points must resolve inside the archived source: the agent, the judge, and the
+    # view the task set's rows are read through (data.view).
+    for section, key in [('agent', 'name'), ('judge', 'path'), ('data', 'view')]:
+        value = (effective.get(section) or {}).get(key)
+        if not value:
+            continue
         filename, separator, function = value.partition(':')
         if filename.endswith('.py'):
-            target = frozen / config.path(filename).relative_to(root)
-            if not target.is_file():
+            source = config.path(filename).resolve()
+            target = frozen / source.relative_to(root) if source.is_relative_to(root) else None
+            if target is None or not target.is_file():
                 raise ValueError(f'{section}.{key} must be a committed entry point')
             effective[section][key] = str(target) + (separator + function if separator else '')
     effective['trainer']['output_dir'] = str(config.run_dir().parent)
