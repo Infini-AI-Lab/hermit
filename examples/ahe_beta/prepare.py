@@ -83,6 +83,8 @@ def prepare(
                 "jobs_dir": str(cohort / "jobs"),
                 "harbor": str(Path(harbor).resolve()),
                 "binding": str(binding),
+                "delivery_repo": str(Path(delivery_repo).resolve()),
+                "run_id": run_id,
                 "model": {
                     "model": actor_model,
                     "base_url": actor_url,

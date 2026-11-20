@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 
+from hermit.adapter.manifest import files_of, read_manifest, structure_of
 from hermit.agent.evolver.base import Evolver, StepResult
 from hermit.agent.model.usage import Usage
 from hermit.task import RunUnavailable
@@ -46,15 +47,9 @@ class AHEBetaEvolver(Evolver):
         (Path(cfg["root"]) / "effective-delivery.json").write_text(
             json.dumps(cfg, indent=2) + "\n"
         )
-        binding = Path(cfg["binding"])
-        if not binding.exists():
-            write(
-                binding,
-                adapter=ctx.workspace.adapter,
-                repo=cfg["repo"],
-                run_id=cfg["identity"]["run_id"],
-                round_no=1,
-            )
+        # The Trainer creates the writable adapter workspace after setup and
+        # exports the current commit immediately before the first step. Bind
+        # the delivery checkout in _step, when that workspace has content.
 
     def step(self, ctx):
         try:
@@ -82,7 +77,16 @@ class AHEBetaEvolver(Evolver):
         if len(rounds) != 1:
             raise RunUnavailable("one AHE step must contain one complete logical round")
         round_no = rounds.pop()
-        binding = json.loads(Path(cfg["binding"]).read_text())
+        binding_path = Path(cfg["binding"])
+        if not binding_path.exists():
+            write(
+                binding_path,
+                adapter=ctx.workspace.adapter,
+                repo=cfg["repo"],
+                run_id=cfg["identity"]["run_id"],
+                round_no=1,
+            )
+        binding = json.loads(binding_path.read_text())
         if binding["round"] != round_no:
             # A crash after delivery may leave the new binding but an unfinished Hermit step.
             if binding["round"] != round_no + 1:
@@ -165,10 +169,19 @@ class AHEBetaEvolver(Evolver):
                 "delivery checkout has local changes; refusing to replace them"
             )
         git(repo, "switch", "--detach", receipt["delivered_adapter"])
-        # Copy only tracked delivered files, never the repository's credentials or caches.
-        from hermit.adapter.manifest import files_of
-
-        tracked = git(repo, "ls-files", "-z").split("\0")
+        # Copy only tracked files covered by the adapter contract.  The delivery
+        # repository also carries OpenAgents' forge metadata and specification
+        # documents, which are useful to the developer side but are outside the
+        # adapter's learnable/fixed paths.
+        structure = structure_of(read_manifest(ctx.workspace.adapter))
+        tracked = [
+            relative
+            for relative in git(repo, "ls-files", "-z").split("\0")
+            if relative and (
+                structure.is_fixed(relative)
+                or structure.learnable_for(relative) is not None
+            )
+        ]
         with tempfile.TemporaryDirectory(prefix="ahe-delivery-") as tmp:
             candidate = Path(tmp)
             for relative in filter(None, tracked):

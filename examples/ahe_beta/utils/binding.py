@@ -5,15 +5,21 @@ import json
 from pathlib import Path
 import subprocess
 
-from hermit.adapter.manifest import files_of
+from hermit.adapter.manifest import files_of, read_manifest, structure_of
 
 
 def fingerprint(root):
     root = Path(root)
+    manifest = root / ".hermit/adapter.yaml"
+    structure = structure_of(read_manifest(root)) if manifest.is_file() else None
     digest = hashlib.sha256()
     for relative in files_of(root):
         # Hermit owns the card/history, not the learning method's delivery repository.
         if relative == ".hermit/CARD.md":
+            continue
+        if structure is not None and not (
+            structure.is_fixed(relative) or structure.learnable_for(relative) is not None
+        ):
             continue
         path = root / relative
         if path.is_symlink():

@@ -14,13 +14,14 @@ import uuid
 
 from hermit.harbor.runner import HarborAgent
 from hermit.task import RunOutput, RunUnavailable
-from binding import fingerprint, read
+from binding import fingerprint, read, write
 
 
 class AheHarborAgent(HarborAgent):
     def __init__(self, params=None, base=None):
         super().__init__(params, base)
         self._binding = threading.local()
+        self._binding_lock = threading.Lock()
 
     def agent_config(self, task, staging, deployed):
         config = super().agent_config(task, staging, deployed)
@@ -49,13 +50,33 @@ class AheHarborAgent(HarborAgent):
         # A completed rollout is reusable only for the same frozen assignment, adapter,
         # endpoint/model and runner settings. Credentials are deliberately not cache keys.
         binding_path = self.path(self.params["binding"])
+        if not binding_path.exists():
+            delivery_repo = self.params.get("delivery_repo")
+            run_id = self.params.get("run_id")
+            if not delivery_repo or not run_id:
+                raise RunUnavailable(
+                    "the first rollout needs delivery_repo and run_id to create its binding"
+                )
+            with self._binding_lock:
+                if not binding_path.exists():
+                    write(
+                        binding_path,
+                        adapter=adapter,
+                        repo=self.path(delivery_repo),
+                        run_id=str(run_id),
+                        round_no=int(task["ahe_session"]["round"]),
+                    )
         run_id = json.loads(binding_path.read_text())["run_id"]
         key = hashlib.sha256(
             json.dumps(
                 {
                     "task": task,
                     "adapter": fingerprint(adapter),
-                    "params": self.params,
+                    "params": {
+                        key: value
+                        for key, value in self.params.items()
+                        if key not in {"delivery_repo", "run_id"}
+                    },
                     "run_id": run_id,
                     "user_model": {
                         k: os.environ.get(k)
