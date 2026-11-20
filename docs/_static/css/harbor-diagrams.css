@@ -1,0 +1,48 @@
+/* Harbor diagrams (docs/_includes/harbor-*.html): purple for Hermit, teal for Harbor, neutral for the container. */
+.ha-hb {
+  --hb-text: #1d2430;
+  --hb-muted: #5d6676;
+  --hb-line: #c9d0da;
+  --hb-surface: #fff;
+  --hb-hermit: #8a4f9e;
+  --hb-hermit-soft: #f3e9f6;
+  --hb-harbor: #1f6f8b;
+  --hb-harbor-soft: #e3f0f5;
+  --hb-box: #f4f6f8;
+  margin: 1.5rem 0;
+  color: var(--hb-text);
+}
+html.dark .ha-hb {
+  --hb-text: #e4e8ee;
+  --hb-muted: #9aa4b2;
+  --hb-line: #3a4452;
+  --hb-surface: #1a2028;
+  --hb-hermit: #c79bd8;
+  --hb-hermit-soft: #2e2236;
+  --hb-harbor: #5fb3cf;
+  --hb-harbor-soft: #16313b;
+  --hb-box: #212833;
+}
+.ha-hb-scroll { overflow-x: auto; }
+.ha-hb svg { display: block; width: 100%; min-width: 640px; height: auto; }
+.ha-hb figcaption { margin-top: 0.5rem; font-size: 0.875em; color: var(--hb-muted); }
+.ha-hb text { fill: var(--hb-text); font-size: 12.5px; }
+.ha-hb .t-h { font-size: 14px; font-weight: 700; }
+.ha-hb .t-b { font-weight: 600; }
+.ha-hb .t-m { fill: var(--hb-muted); font-size: 11.5px; }
+.ha-hb .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; }
+.ha-hb .c-hermit { fill: var(--hb-hermit); }
+.ha-hb .c-harbor { fill: var(--hb-harbor); }
+.ha-hb .b-hermit { fill: var(--hb-hermit-soft); stroke: var(--hb-hermit); stroke-width: 1.6; }
+.ha-hb .b-harbor { fill: var(--hb-harbor-soft); stroke: var(--hb-harbor); stroke-width: 1.6; }
+.ha-hb .b-box { fill: var(--hb-box); stroke: var(--hb-line); stroke-width: 1.4; }
+.ha-hb .b-inner { fill: var(--hb-surface); stroke: var(--hb-line); stroke-width: 1.2; }
+.ha-hb .b-loop { fill: none; stroke: var(--hb-hermit); stroke-width: 1.3; stroke-dasharray: 5 4; }
+.ha-hb .lane { stroke: var(--hb-line); stroke-width: 1.2; stroke-dasharray: 4 4; }
+.ha-hb .a { fill: none; stroke-width: 1.6; }
+.ha-hb .a-hermit { stroke: var(--hb-hermit); }
+.ha-hb .a-harbor { stroke: var(--hb-harbor); }
+.ha-hb .a-plain { stroke: var(--hb-muted); }
+.ha-hb .ah-hermit { fill: var(--hb-hermit); }
+.ha-hb .ah-harbor { fill: var(--hb-harbor); }
+.ha-hb .ah-plain { fill: var(--hb-muted); }

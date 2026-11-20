@@ -297,7 +297,8 @@ which is refused.
 
 A benchmark enters Hermit as a task set in [Harbor](https://github.com/laude-institute/harbor)'s format (`task.toml`,
 `instruction.md`, `environment/` with a Dockerfile or a prebuilt `docker_image`, `tests/test.sh` writing
-`/logs/verifier/reward.txt`): what Terminal-Bench, SWE-bench and the datasets on the Harbor hub share. A task set that
+`/logs/verifier/reward.txt`): what Terminal-Bench, SWE-bench and the datasets on the Harbor hub share (the design, with
+diagrams: [How Harbor runs a task](../developer/harbor-design.md)). A task set that
 needs the environments its tasks name (an image of its own each) runs in Harbor's environments: Harbor gives the
 task's data, its environment and its verifier, and every agent is Hermit's. The run config says so in
 `environment.harbor`:
@@ -322,8 +323,9 @@ judge:
 
 **A rollout.** The run (`hermit/trainer/rollout.py`) starts the task's own Harbor environment
 (`hermit/environment/harbor.py`), hands the acting agent that environment with the task's public half
-(`run(task, adapter, environment=env)`), runs Harbor's verifier on what the agent left there, whatever its session's
-end (a timeout, a CLI that exited with an error: Harbor verifies all of them), and stops the environment. The
+(`run(task, adapter, environment=env)`), runs Harbor's verifier on what the agent left there whenever the session's
+end is the agent's result (a timeout, a CLI that exited with an error: Harbor verifies all of them; a session that is
+infra, or an adapter that failed before any session, is read without it), and stops the environment. The
 verifier's verdict is the output's `extra["verified"]`, which the judge reads: the reward is the score (the reward
 under `reward_key`; none there is infra, as the runner read it), `passed` says whether it reached `pass_reward`, the feedback is the verifier's
 `feedback.txt` (Hermit's, beyond Harbor) or its output's tail. A verifier that left no reward, or ran out of its time
@@ -350,30 +352,31 @@ over the runs that are the agent's result ([Evaluation](../guides/evaluation.md)
 (`environment.harbor.infra_retries=0`). AlgoTune's judge (`examples/algotune/utils/judge.py`) reads the same verdict
 and scores its speedup.
 
-**The environment.** Harbor runs in its own venv (Python 3.13, `harbor` 0.25.0, `~/.cache/hermit/harbor-venv`), so
-each environment is a driver process under Harbor's python (`hermit/environment/harbor_driver.py`) that speaks JSON
-lines with Hermit. Harbor runs the whole trial with its own `Trial.run()`: the prebuilt image pulled or the Dockerfile
-built (with the build timeout and its multiplier), the healthcheck, Harbor's capability check (a task with MCP servers,
-a skills folder or a Windows container is refused: `unsupported_task`, never run again), the agent's setup (within its
-setup timeout, under the baseline network policy), the agent phase (its network policy, its user, its timeout), the
-task's tests uploaded only for the verifier, the verifier's environment (`[verifier] environment_mode`: shared, or a
-separate one), its timeout and multiplier, the reward files, the scrub of credentials, the trial's `result.json`
-(under `jobs_dir/<task>__<id>/`) and the environment's stop. The agent in that trial is a bridge with no logic of its
-own (`HermitBridge`, a Harbor agent in the driver): its setup installs what the acting agent declares it needs
-(`Agent.installs`: the CLI unless `bin` names one, python3 for an adapter's hooks) with Harbor's own installers,
-Debian bullseye's archived sources repaired first; its run relays the agent's `exec`, `upload` and `download` to the
+**The environment.** Harbor runs in its own venv (Python 3.13, `harbor` 0.25.0, `~/.cache/hermit/harbor-venv`), so each
+environment is a driver process under Harbor's python (`hermit/environment/harbor_driver.py`) that speaks JSON lines
+with Hermit. Harbor runs the whole trial with its own `Trial.run()`: Harbor's capability check (a task with MCP servers,
+a skills folder or a Windows container is refused: `unsupported_task`, never run again), the prebuilt image pulled or
+the Dockerfile built (with the build timeout and its multiplier), the healthcheck, the agent's setup (within its setup
+timeout, under the baseline network policy), the agent phase (its network policy, its user, its timeout), the task's
+tests uploaded only for the verifier, the verifier's environment (`[verifier] environment_mode`: shared, or a separate
+one), its timeout and multiplier, the reward files, the environment's stop, the trial's `result.json` (under
+`jobs_dir/<task>__<id>/`) and the scrub of credentials. The agent in that trial is a bridge with no logic of its own
+(`HermitBridge`, a Harbor agent in the driver): its setup installs what the acting agent declares it needs
+(`Agent.installs`: the CLI unless `bin` names one, python3 for an adapter's hooks) with Harbor's own installers, Debian
+bullseye's archived sources repaired first; its run relays the agent's `exec`, `upload` and `download` to the
 environment until Hermit's agent is done, or Harbor's agent timeout ends the phase, then, as the runner's agents did:
 kills the process group of each command it started that still runs (each runs under `setsid`; a kill that fails is
-infra), removes the credential files the agent registered (a sign-in; one not removed is infra), and copies the
-agent's logs (a CLI's stream is also written to `/logs/agent` as it runs); what an ended command left running, a
-server the task asked for, stays. Harbor then verifies. The agent's own budget ends 60 s before Harbor's agent timeout (10% of a short one), so that its session's
-end and logs reach the trial first. Around it Hermit keeps its warm start
-(`hermit/environment/harbor_docker.py`): no environment starts while the host's /tmp or Docker's data root has less
-than its gate free (room kept for the task's image when it is not here yet, `image_sizes`, and for the images other
-environments of the run are still to pull), the task's prebuilt image is removed after it as `docker_cleanup` says,
-and a driver that had to be killed (or the process that ended without stopping it) has its trial's compose projects
-taken down by name. Every environment Harbor supports is a `type` (docker by default; e2b, modal, daytona, ... with
-Harbor's extra installed in its venv).
+infra), removes the credential files the agent registered (a sign-in; one not removed is infra), and copies the agent's
+logs (a CLI's stream is also written to `/logs/agent` as it runs, and scrubbed there at the phase's end, best effort, in
+a local Docker environment; elsewhere a shared verifier gets it as it came); what an ended command left running, a
+server the task asked for, stays. Harbor then verifies. The agent's own budget ends 60 s before Harbor's agent timeout
+(10% of a short one), so that its session's end and logs reach the trial first. Around it Hermit keeps its warm start
+(`hermit/environment/harbor_docker.py`): no environment starts while the host's /tmp or Docker's data root has less than
+its gate free (room kept for the task's image when it is not here yet, `image_sizes`, and for the images other
+environments of the run are still to pull), the task's prebuilt image is removed after it as `docker_cleanup` says, and
+a driver that had to be killed (or the process that ended without stopping it) has its trial's compose projects taken
+down by name. Every environment Harbor supports is a `type` (docker by default; e2b, modal, daytona, ... with Harbor's
+extra installed in its venv).
 
 An environment's operations are the Environment API's ([Agent layers](agent-layers.md#environments)): `exec` runs a
 command in the task's main container as the task's agent user, from its working directory (the workspace), each
@@ -419,7 +422,8 @@ Not supported in a Harbor environment yet, and refused rather than dropped: the 
 server runs on this machine), the agent's `mounts`, `prepare` and `collect`, readable mounts, hidden paths or a
 network limit of Hermit's (the task's task.toml says what its environment reaches), and a multi-step task
 (`[[steps]]`, which needs one environment across the Trainer's steps). The credentials an agent command was given are
-scrubbed from the logs handed to the verifier and from the trial's files.
+scrubbed from the logs Hermit hands the verifier (and, in a local Docker environment, from a CLI's stream there) and
+from the trial's files after the trial.
 
 | `environment.harbor` | Meaning |
 |---|---|

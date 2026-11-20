@@ -423,6 +423,14 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
+- In a task's Harbor environment, a CLI's output kept in `/logs/agent` as it ran reached a shared verifier unscrubbed
+  when Harbor's agent timeout ended the phase before Hermit's own logs were copied over it. The phase's end now scrubs
+  each such stream there of the credentials passed to the agent's commands (their variables and descriptors) before
+  the verifier runs, in a local Docker environment, whose `/logs/agent` is the trial's folder on this machine (best
+  effort: a stream this machine cannot read stays as it came). Elsewhere a shared verifier still gets it as it came;
+  the trial's files are scrubbed after the trial.
+  A multi-step task (`[[steps]]`) was refused as an environment that failed to start and run again after
+  `infra_wait_s`; it is now refused as unsupported (`unsupported_task`) and never run again.
 - `Sandbox.wrap` ran a virtual environment's interpreter (`<venv>/bin/python`, a link to its base interpreter) by
   its real path, so it started without the environment and its packages failed to import. An interpreter whose
   environment is granted (the sandbox's `readable` or `writable`, the call's, or `interpreters`) now runs by its own

@@ -4,7 +4,7 @@ Start with the extension boundary you need. A task integration normally requires
 
 | Change | Entry point | Verify |
 |---|---|---|
-| New task, acting agent, or judge | [Bring your task](../tutorials/your-own-task.md), [task contract](../framework/task.md) | No-adapter probe, adapter consumption, split isolation, logs, scoring |
+| New task, acting agent, or judge | [Bring your task](../tutorials/your-own-task.md), [task contract](../framework/task.md), [task directories](../framework/task.md#task-directories), [benchmarks](../framework/task.md#benchmarks) | No-adapter probe, adapter consumption, split isolation, answers and tests kept to the judge (a task's private half or judge-owned storage), logs, scoring |
 | New instruction/skill/tool structure | [Customize an adapter](../tutorials/customize-an-adapter.md), [adapter metadata](../framework/adapter-manifest.md) | Learnable/fixed rules, checker, exported schemas |
 | New learning method | [Evolver tutorial](../tutorials/custom-evolver.md), [full contract](../framework/custom-evolver.md) | Failure handling, state persistence, usage, final selection |
 | Reproduction of a published method | [Reproduce a published method](reproducing-a-method.md) | The adapter and the Evolver named, the differences from the authors' code, the protocol, the first evaluation on the shared settings |
@@ -77,4 +77,5 @@ component contracts are described in [Adapter](../framework/adapter.md), [Evolve
 Describe the user-visible behavior, the affected contract, how you verified it, and any environment requirements.
 Include a small reproducer for failures. Update commands, defaults, and docs together; do not describe a proposed
 feature as available. The generic [service lifecycle proposal](service-design.md) is kept separately from supported usage.
-The [sandbox design](sandbox-design.md) records how the task, judge and evolver sandboxes are built.
+The [sandbox design](sandbox-design.md) records how the task, judge and evolver sandboxes are built, and
+[How Harbor runs a task](harbor-design.md) how a task in its own Harbor environment runs.
