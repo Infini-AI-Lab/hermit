@@ -374,6 +374,43 @@ def _hook_line(when: str, hook: dict, rel: str) -> str:
                      "by the agent from the context: deploy to a host that runs it, or remove it")
 
 
+def other_files(adapter: Path, manifest: dict, exports: dict, hooks: dict | None) -> list[str]:
+    """The adapter's files that no export connects and the context is not (paths in the adapter): what a deployment's
+    context names under "Other files", and what a plugin carries without naming it (hermit.plugins.common)."""
+    adapter = adapter.resolve()
+    covered = {manifest.get("context") or "ADAPTER.md", "exports.yaml"}
+    if _skill_entries(adapter, manifest):
+        covered.add(f"{_plain(manifest['skills']).rstrip('/')}/")
+    if exports.get("agents") and isinstance(manifest.get("agents"), str):
+        covered.add(f"{_plain(manifest['agents']).rstrip('/')}/")
+    if hooks and hooks.get("hooks"):
+        covered.add(_plain(manifest["hooks"]))
+    doc = adapter / (manifest.get("context") or "ADAPTER.md")
+    context = doc.read_bytes() if doc.is_file() else None
+    others = []
+    for path in sorted(p for p in adapter.rglob("*") if p.is_file()):
+        if context is not None and path.stat().st_size == len(context) and path.read_bytes() == context:
+            continue                              # a copy of the context (a tree's AGENTS.md): already in it
+        name = path.relative_to(adapter).as_posix()
+        if (name.split("/")[0] in NOT_COPIED or any(part in CACHES for part in path.parts) or name.endswith(".pyc")
+                or name in covered or any(name.startswith(c) for c in covered if c.endswith("/"))
+                or is_internal(name, manifest)):
+            continue
+        others.append(name)
+    return others
+
+
+def other_files_section(adapter: Path, names: list[str], folder: str | None) -> str:
+    """The context's list of `names` (other_files), each with its summary, as paths under `folder` (None: as they are
+    in the adapter, for a text that names the folder itself)."""
+    prefix = f"{folder}/" if folder else ""
+    listed = [f"- `{prefix}{n}`" + (f": {s}" if (s := _summary(adapter.resolve() / n)) else "")
+              for n in names[:LISTED_FILES]]
+    if len(names) > LISTED_FILES:
+        listed.append(f"- and {len(names) - LISTED_FILES} more files" + (f" under `{folder}/`" if folder else ""))
+    return "Other files of this adapter (read one when it is relevant):\n" + "\n".join(listed)
+
+
 def resources(adapter: Path, output: Path, manifest: dict, exports: dict, hooks: dict | None,
               native: set[str], hook_types: set[str] = frozenset()) -> tuple[str, dict]:
     """The part of the context that names what the host does not connect (`native`: the exports it does, of
@@ -381,18 +418,15 @@ def resources(adapter: Path, output: Path, manifest: dict, exports: dict, hooks:
     workspace; and the record of where each export went ({export: "native" | "files" | "native and files"})."""
     adapter = adapter.resolve()
     rel = adapter_folder(output, manifest).relative_to(output).as_posix()
-    sections, record, covered = [], {}, {manifest.get("context") or "ADAPTER.md", "exports.yaml"}
+    sections, record = [], {}
     skills = _skill_entries(adapter, manifest)
     if skills:
         record["skills"] = "native" if "skills" in native else "files"
-        covered |= {f"{_plain(manifest['skills']).rstrip('/')}/"}
         if "skills" not in native:
             sections.append("Skills (this agent does not load them itself: read a skill's SKILL.md before you use "
                             "it):\n" + "\n".join(f"- `{n}`: {d} (`{rel}/{p}`)" for n, d, p in skills))
     if exports.get("agents"):
         record["agents"] = "native" if "agents" in native else "files"
-        if isinstance(manifest.get("agents"), str):
-            covered |= {f"{_plain(manifest['agents']).rstrip('/')}/"}
         if "agents" not in native:
             lines = []
             for role in exports["agents"]:
@@ -414,27 +448,12 @@ def resources(adapter: Path, output: Path, manifest: dict, exports: dict, hooks:
                     else:
                         lines.append(_hook_line(when, hook, rel))
         record["hooks"] = "native and files" if ran and lines else "native" if ran else "files"
-        covered |= {_plain(manifest["hooks"])}
         if lines:
             sections.append(f"Hooks this agent does not run by itself (from `{rel}/{_plain(manifest['hooks'])}`): "
                             "at each of these moments, do it yourself:\n" + "\n".join(lines))
-    doc = adapter / (manifest.get("context") or "ADAPTER.md")
-    context = doc.read_bytes() if doc.is_file() else None
-    others = []
-    for path in sorted(p for p in adapter.rglob("*") if p.is_file()):
-        if context is not None and path.stat().st_size == len(context) and path.read_bytes() == context:
-            continue                              # a copy of the context (a tree's AGENTS.md): already in it
-        name = path.relative_to(adapter).as_posix()
-        if (name.split("/")[0] in NOT_COPIED or any(part in CACHES for part in path.parts) or name.endswith(".pyc")
-                or name in covered or any(name.startswith(c) for c in covered if c.endswith("/"))
-                or is_internal(name, manifest)):
-            continue
-        others.append(name)
+    others = other_files(adapter, manifest, exports, hooks)
     if others:
-        listed = [f"- `{rel}/{n}`" + (f": {s}" if (s := _summary(adapter / n)) else "") for n in others[:LISTED_FILES]]
-        if len(others) > LISTED_FILES:
-            listed.append(f"- and {len(others) - LISTED_FILES} more files under `{rel}/`")
-        sections.append("Other files of this adapter (read one when it is relevant):\n" + "\n".join(listed))
+        sections.append(other_files_section(adapter, others, rel))
     text = ("### Adapter resources\n\n" + "\n\n".join(sections)) if sections else ""
     return text, record
 

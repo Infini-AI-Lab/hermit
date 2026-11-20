@@ -136,12 +136,19 @@ names the machine that produced it.
 | Tools | `.mcp.json` | `mcp.json` | generated extension, `pi.registerMcpServer` | `ctx.register_tool`, forwarding to `hermit serve` |
 | Roles | `agents/` | refused | refused | refused |
 | Hooks | refused | refused | refused | refused |
+| The adapter's folder and its other files | named by a `SessionStart` hook | not named: listed under `unnamed_files` | not named: listed under `unnamed_files` | not named: listed under `unnamed_files` |
 
 A part the target's plugin format cannot carry is refused: `convert` exits 2 and names every such part before writing
 anything. A non-empty context (`ADAPTER.md`) makes Codex and Pi refuse, and a context over 4,000 characters makes
 Hermes refuse. Hooks make every target refuse: no plugin carries them yet, and `deploy --host codex` or
 `--host claude-code` connects them in a workspace. `--allow-lossy` emits the plugin without those parts and lists them
 under `omitted` in the result.
+
+In training and in a `deploy` workspace, the agent's context says where the adapter's copy is (paths in its
+instructions, skills and roles are relative to that folder) and lists the files no export connects, such as a
+README or a tool's source. A Claude Code plugin names them with a `SessionStart` hook, which prints the installed
+folder and the same list (an output style gets no `${CLAUDE_PLUGIN_ROOT}`); the hook needs a POSIX shell (Git Bash on
+Windows). The other targets list them under `unnamed_files` and in the plugin's README.
 
 Why the refusals:
 

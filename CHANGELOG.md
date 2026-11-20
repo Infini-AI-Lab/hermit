@@ -129,6 +129,11 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- `hermit convert` names the adapter's folder and files as a deployment does: a Claude Code plugin prints, from a
+  `SessionStart` hook, where its embedded adapter is and the files no export connects (the list a deployment's
+  context gives); Codex, Pi and Hermes plugins list those files under `unnamed_files` in the result and their README.
+- A test that training deploys an adapter into a task's workspace as `hermit deploy` does, file for file on every
+  host, the tools' server entry aside (calls approved; the session's own tool server for a host that cannot start it).
 - Task directories in Harbor's format as a task set (`data.tasks: <directory>`, `data.rollouts`), read without Harbor
   (`hermit/task/directory.py`), with their own verifier script run in the judge's sandbox (`judge: {path:
   hermit.task.verify, name: script}`: `/tests`, `/logs/verifier/reward.txt` or `reward.json`, and `feedback.txt`).

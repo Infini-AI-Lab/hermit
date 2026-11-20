@@ -19,7 +19,7 @@ import json
 import shutil
 
 from hermit.plugins.common import (FRAMEWORK_VERSION, RECORD, clear, copy_skills, embed_adapter, load,
-                                           prepare_output, record, refuse)
+                                           prepare_output, record, refuse, unnamed_line)
 
 SECTION_MAX_CHARS = 4_000
 SECTION_MARKERS = ("<!-- hermes-plugin-sections:start -->", "<!-- hermes-plugin-sections:end -->")
@@ -66,9 +66,10 @@ def build(adapter: Path, output: Path, python: str, *, allow_lossy: bool = False
         f"all plugins' sections together would pass 8,000 characters." if context_file.exists() else "- Context: none",
         f"- Skills: {', '.join(skills) or 'none'}",
         f"- Tools: {', '.join(t['hermes_name'] for t in tools) or 'none'}",
+        unnamed_line(bundle, "Hermes"),
         f"- Left out (--allow-lossy): {', '.join(omitted)}" if omitted else "- Left out: nothing", ""]))
     return {"target": "hermes", "adapter_id": bundle.id, "version": bundle.version, "framework": FRAMEWORK_VERSION,
             "output": str(output),
             "install": [f"cp -r {output} ~/.hermes/plugins/{bundle.id}", f"hermes plugins enable {bundle.id}"],
             "context_chars": len(context) if context_file.exists() else 0, "skills": skills,
-            "tools": [t["hermes_name"] for t in tools], "omitted": omitted}
+            "tools": [t["hermes_name"] for t in tools], "unnamed_files": bundle.other_files, "omitted": omitted}
