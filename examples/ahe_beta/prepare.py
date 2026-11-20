@@ -8,6 +8,11 @@ from pathlib import Path
 
 import yaml
 
+try:
+    from .openagents_runtime import from_compatibility, ensure_checkout, write_manifest
+except ImportError:
+    from openagents_runtime import from_compatibility, ensure_checkout, write_manifest
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 
@@ -23,12 +28,25 @@ def prepare(
     actor_model,
     actor_url,
     http_only=False,
+    openagents_repository=None,
+    openagents_commit=None,
+    openagents_checkout=None,
 ):
     cohort = Path(cohort).resolve()
     for name in ("delivery.json", "run.yaml"):
         if (cohort / name).exists():
             raise FileExistsError(cohort / name)
     info = json.loads((cohort / "cohort.json").read_text())
+    openagents = from_compatibility(
+        ahe_root,
+        repository=openagents_repository,
+        commit=openagents_commit,
+    )
+    openagents_manifest = None
+    if openagents is not None:
+        checkout = Path(openagents_checkout or cohort / "openagents").resolve()
+        ensure_checkout(openagents, checkout)
+        openagents_manifest = write_manifest(cohort / "openagents.json", openagents, checkout)
     state = cohort / "delivery-state"
     binding = state / "binding.json"
     request = {
@@ -65,6 +83,8 @@ def prepare(
             "token_env": "GITEA_TOKEN",
         },
     }
+    if openagents_manifest is not None:
+        request["openagents"] = openagents_manifest
     config = {
         "data": {
             "tasks": "tasks.jsonl",
@@ -132,7 +152,17 @@ def prepare(
             },
         },
         "judge": {"path": str(ROOT / "hermit/harbor/judge.py"), "name": "score"},
-        "evolver": {"name": "ahe_beta", "params": {"delivery_config": "delivery.json"}},
+        "evolver": {
+            "name": "ahe_beta",
+            "params": {
+                "delivery_config": "delivery.json",
+                **(
+                    {"openagents_manifest": "openagents.json"}
+                    if openagents_manifest is not None
+                    else {}
+                ),
+            },
+        },
         "evolver_access": {"send_material_out": True},
         "sandbox": {"enforce": "required"},
         "environment": {"runner": "host"},
@@ -171,6 +201,9 @@ def main():
         "run-id",
         "actor-model",
         "actor-url",
+        "openagents-repository",
+        "openagents-commit",
+        "openagents-checkout",
     ):
         parser.add_argument("--" + name, required=True)
     parser.add_argument(

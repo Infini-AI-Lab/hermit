@@ -24,7 +24,10 @@ from hermit.task import RunUnavailable
 EXAMPLE = Path(__file__).resolve().parents[5] / "examples/ahe_beta/utils"
 if str(EXAMPLE) not in sys.path:
     sys.path.insert(0, str(EXAMPLE))
+if str(EXAMPLE.parent) not in sys.path:
+    sys.path.insert(0, str(EXAMPLE.parent))
 from binding import git, write
+from openagents_runtime import OpenAgentsSpec, ensure_checkout
 
 
 class AHEBetaEvolver(Evolver):
@@ -42,6 +45,7 @@ class AHEBetaEvolver(Evolver):
 
     def setup(self, ctx):
         cfg = self.config(ctx)
+        self._verify_openagents(cfg)
         # Resume uses the existing binding; never reset a delivered round to round one.
         Path(cfg["root"]).mkdir(parents=True, exist_ok=True)
         (Path(cfg["root"]) / "effective-delivery.json").write_text(
@@ -50,6 +54,19 @@ class AHEBetaEvolver(Evolver):
         # The Trainer creates the writable adapter workspace after setup and
         # exports the current commit immediately before the first step. Bind
         # the delivery checkout in _step, when that workspace has content.
+
+    @staticmethod
+    def _verify_openagents(cfg):
+        info = cfg.get("openagents")
+        if not info:
+            return
+        try:
+            ensure_checkout(
+                OpenAgentsSpec(str(info["repository"]), str(info["commit"])),
+                Path(info["checkout"]),
+            )
+        except (KeyError, OSError, RuntimeError, ValueError) as exc:
+            raise RunUnavailable(f"OpenAgents checkout is not pinned and ready: {exc}") from exc
 
     def step(self, ctx):
         try:

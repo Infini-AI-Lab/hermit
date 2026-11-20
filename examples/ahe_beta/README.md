@@ -98,11 +98,11 @@ task's declared budget (for example, KV's 28,800 seconds).
 ## Configure delivery and training
 
 Provision a dedicated Gitea repository containing the files from
-`hermit/adapter/templates/ahe_beta/`. Preserve hidden directories. Start the ordinary
-OpenAgents worker for that repository using your existing Gitea configuration and
-engineering gates. Keep a separate clean clone for this bridge: the OpenAgents
-worker must not share that checkout. Repository creation and the OpenAgents worker's
-lifecycle remain managed by their existing deployment tools.
+`hermit/adapter/templates/ahe_beta/`. Preserve hidden directories. The preparation
+step reads `backend/compatibility.json`, checks out its pinned OpenAgents commit into
+the cohort directory, and writes `openagents.json`. Keep a separate clean clone for
+the OpenAgents worker: the worker must not share the delivery checkout used by this
+bridge.
 
 Generate the Hermit configuration:
 
@@ -114,12 +114,58 @@ python examples/ahe_beta/prepare.py \
   --harbor "$HERMIT_ROOT/.venv-ahe/bin/harbor" \
   --delivery-repo /path/to/clean-adapter-clone \
   --run-id u8-mixed-codex --actor-model YOUR_CODEX_MODEL \
-  --actor-url https://your-responses-provider.example/v1 --http-only
+  --actor-url https://your-responses-provider.example/v1 --http-only \
+  --openagents-checkout /path/to/materials/u8-mixed/openagents
 ```
 
 Edit the generated `delivery.json` tracker URL, owner and repository. Its token is
 referenced by environment-variable name (`GITEA_TOKEN`); never write it in JSON.
+The generated `openagents.json` records the repository, full commit and checkout
+path. Start the worker from that checkout so the CLI and source use the same commit:
+
+```bash
+PYTHONPATH="$HERMIT_ROOT/examples/ahe_beta" \
+  python "$HERMIT_ROOT/examples/ahe_beta/openagents_launcher.py" \
+  --manifest /path/to/materials/u8-mixed/openagents.json -- \
+  vigil --parallel 4 --skip ci,e2e \
+  --config /path/to/clean-worker-clone/.openagents/openagents.yml
+```
+
 Configure AHE demand model variables and your OpenAgents worker's model separately.
+The launcher disables OpenAgents self-update checks so a later local checkout cannot
+silently replace the pinned source.
+
+For a local Gitea installation, `bootstrap.py` combines the repository, delivery
+clone and worker clone preparation. It never writes the token into a repository or
+generated configuration:
+
+```bash
+set -a
+source /path/to/experiment.env
+set +a
+PYTHONPATH="$HERMIT_ROOT/examples/ahe_beta" \
+  python "$HERMIT_ROOT/examples/ahe_beta/bootstrap.py" \
+  --cohort /path/to/materials/u8-mixed \
+  --ahe-root "$AHE_ROOT" --ahe-python "$AHE_ROOT/.venv/bin/python" \
+  --harbor "$HERMIT_ROOT/.venv-ahe/bin/harbor" \
+  --run-id u8-mixed-codex \
+  --actor-model YOUR_CODEX_MODEL \
+  --actor-url https://your-responses-provider.example/v1 \
+  --gitea-url http://localhost:3000 \
+  --gitea-owner designer \
+  --gitea-repo u8-mixed-codex \
+  --worker-clone /path/to/materials/u8-mixed/openagents-worker \
+  --openagents-checkout /path/to/materials/u8-mixed/openagents \
+  --http-only
+```
+
+The command creates a private Harness repository from the adapter template, clones
+it once for the Hermit delivery bridge, clones it again for the OpenAgents worker,
+and writes `.openagents/openagents.yml` only in the worker clone. Start the worker
+with the generated `worker.json` and `openagents.json` paths. For Gitea.com, replace
+`--gitea-url`, owner and repository settings and keep the same token environment
+variable. A successful bootstrap is preparation evidence. It does not start model
+tasks or claim that a full multi-round experiment has completed.
 The cohort metadata records the original experiment's models; these do not silently
 become a Codex-compatible model configuration.
 
