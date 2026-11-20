@@ -1,5 +1,5 @@
-"""A task's Harbor environment (hermit/environment/harbor.py), the environment served to an agent's worker
-(hermit/environment/remote.py), a CLI Base Agent in a remote environment, the answer-only agent, and the run that
+"""A task's Harbor environment (hermit/environment/harbor.py) and its driver, a CLI Base Agent in a remote
+environment, the answer-only agent, and the run that
 starts each task's environment, hands it to the agent and verifies with it (hermit/trainer/rollout.py).
 
 Stand-ins only at the edge: Harbor's driver process is a small script speaking the driver's protocol (JSON lines),
@@ -728,21 +728,23 @@ def test_a_remote_session_refuses_to_resume_and_turns_web_search_off_on_a_restri
 
 
 def test_every_sign_in_file_leaves_the_environment_and_an_unconfirmed_removal_fails(tmp_path, monkeypatch):
+    from hermit.agent.base import login
     from hermit.agent.base.interface import make
-    user = tmp_path / "user-codex"
-    user.mkdir()
-    (user / "auth.json").write_text('{"OPENAI_API_KEY": "sk-user"}')         # the user's own CLI home's sign-in
     monkeypatch.setenv("HERMIT_HOMES", str(tmp_path / "homes"))
-    from hermit.agent.base import cli
-    monkeypatch.setattr(cli.Codex, "user_home", classmethod(lambda cls: user))
+    monkeypatch.setattr(login, "prepare", lambda root, home: (Path(home) / login.FILE).write_text("{}"))
+    monkeypatch.setattr(login, "keep_refreshed", lambda *a: None)
+    monkeypatch.setattr(login, "note_usage", lambda *a: None)
+    params = {"web_search": False, "bin": "codex", "login": "chatgpt", "model": "m", "plan_dir": str(tmp_path / "p")}
     env = Recorded(tmp_path, lambda c: ExecResult(0, CODEX_STREAM) if session_of(c) else ExecResult(0, ""))
-    make("codex", {"web_search": False, "bin": "codex"}).run("x", environment=env)
+    env.plan_admitted = True
+    make("codex", params).run("x", environment=env)
     removal = next(c for c in env.calls if c["command"][:2] == ["rm", "-f"])
     assert removal["command"][2:] == ["/installed-agent/hermit-home/auth.json"] and removal["cwd"] == "/"
     stuck = Recorded(tmp_path, lambda c: ExecResult(1, "busy") if c[:2] == ["rm", "-f"] else
                      ExecResult(0, CODEX_STREAM) if session_of(c) else ExecResult(0, ""))
+    stuck.plan_admitted = True
     with pytest.raises(RuntimeError, match="sign-in could not be removed"):
-        make("codex", {"web_search": False, "bin": "codex"}).run("x", environment=stuck)
+        make("codex", params).run("x", environment=stuck)
 
 
 def test_codexs_lost_sign_in_and_refused_configuration_are_read_from_its_notices(tmp_path, monkeypatch):
@@ -1913,6 +1915,10 @@ def test_the_driver_stops_unblocked_kills_cancelled_clients_and_keeps_a_verdict_
             async with d.lock:                           # a start holds the lock, waiting on its trial
                 await asyncio.wait_for(d.handle({{"id": 7, "op": "stop"}}), 5)
             out.append(replies[-1]["id"] == 7 and replies[-1]["ok"])
+            live = d.run_task = asyncio.ensure_future(asyncio.sleep(30)); await asyncio.sleep(0)
+            await asyncio.wait_for(d.stop(), 5)          # a live trial (a start watchdog): cancelled, nothing raised
+            out.append(live.cancelled())
+            d.run_task = None
             async def waits():
                 p = await asyncio.create_subprocess_exec("sleep", "30", stdout=asyncio.subprocess.PIPE)
                 held.append(p)
@@ -1954,7 +1960,7 @@ def test_the_driver_stops_unblocked_kills_cancelled_clients_and_keeps_a_verdict_
     """))
     done = subprocess.run([str(HARBOR_PYTHON), "-I", str(script)], capture_output=True, text=True, timeout=120)
     line = next((x for x in done.stdout.splitlines() if x.startswith("RESULT")), done.stdout + done.stderr)
-    assert line == "RESULT " + str([True, True, True, {"reward": 1.0}, "UnsupportedTask"]), line
+    assert line == "RESULT " + str([True, True, True, True, {"reward": 1.0}, "UnsupportedTask"]), line
 
 
 def test_round_6_hermit_side(tmp_path, monkeypatch):
@@ -2155,6 +2161,8 @@ def test_a_separate_verifiers_watchdog_includes_its_start_and_a_timed_out_rollou
     assert ("done", 60.0 + 2700.0 + harbor_mod.VERIFY_ALLOWANCE_S) in asked
     kept = tmp_path / "trial-agent"
     kept.mkdir()
+    (kept / "agent-codex.jsonl").write_text(json.dumps({"type": "turn.completed", "usage": {
+        "input_tokens": 1000, "cached_input_tokens": 0, "output_tokens": 200}}) + "\n")
     timed = Environments(tmp_path, verdicts=[{"reward": 0.0, "rewards": {"reward": 0.0}, "status": "timeout",
                                               "failure_cause": "agent_exhausted_budget", "passed": False,
                                               "feedback": "", "agent_dir": str(kept)}])
@@ -2163,8 +2171,14 @@ def test_a_separate_verifiers_watchdog_includes_its_start_and_a_timed_out_rollou
         raise RuntimeError("AgentPhaseOver: exec: the agent's phase ended")
 
     task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
+    from hermit.agent.acting.workspace import CliAgent
+    timed.usage_of = CliAgent({"backend": "codex", "model": "m", "web_search": False,
+                               "price": {"input": 1.0, "output": 2.0}},
+                              tmp_path).usage_of
     out = rollout.environment_rollout(task, task.given(), None, phase_over, timed, 0.0, pause=lambda s: None)
     assert Path(out.log) == kept                                   # the stream the bridge kept, for the learner
+    # what the CLI had reported before Harbor's timeout cut it off is counted (the runner parsed the kept stream)
+    assert out.tokens == 1200 and out.api_speed["model_calls"] == 1 and out.cost_usd == pytest.approx(0.0014)
 
 
 def test_a_pipeline_error_on_a_run_again_keeps_what_the_runs_before_it_spent(tmp_path):
@@ -2339,10 +2353,10 @@ def test_a_commands_process_group_is_killed_from_its_pid_file_and_checked_gone(t
     kill = _driver_function("kill_groups", TOKEN="hermit-mark-", PIDS="/tmp/hermit-pid-")
     inner = (f'setsid bash -c "sleep 60 & sleep 60" hermit-mark-{mark} & echo $! > /tmp/hermit-pid-{mark}; '
              f"sleep 0.5; sh -c {shlex.quote(kill(f'/tmp/hermit-pid-{mark}'))}; echo killed=$?; "
-             "ps -eo pgid=,stat=,args= 2>/dev/null | grep -c 'sleep 6[0]' || true")
+             "ps -eo args= 2>/dev/null | grep -c '^sleep 6[0]' || true")
     done = subprocess.run(["unshare", "--user", "--map-root-user", "--pid", "--fork", "--mount-proc", "sh", "-c",
                            inner], capture_output=True, text=True, timeout=60)
-    assert "killed=0" in done.stdout, done.stdout + done.stderr
+    assert "killed=0" in done.stdout and done.stdout.split()[-1] == "0", done.stdout + done.stderr   # none left
     assert not os.path.exists(f"/tmp/hermit-pid-{mark}")
     fake = tmp_path / "fake"                            # a pid file naming a process without the word: left alone
     keep = subprocess.Popen(["sleep", "30"])
@@ -2383,6 +2397,8 @@ def test_the_bridge_ends_its_phase_at_the_runners_level(tmp_path):
                 if "hermit-owner:" in command:
                     return SimpleNamespace(return_code=0, stdout="hermit-owner:0:0\\n", stderr="")
                 ok = self.kill_ok if "hermit-pid-" in command else self.rm_ok if command.startswith("rm -f") else True
+                if ok == "raise":
+                    raise ConnectionError("docker's transport")
                 return SimpleNamespace(return_code=0 if ok else 1, stdout="", stderr="")
 
         def trial(tmp):
@@ -2401,7 +2417,7 @@ def test_the_bridge_ends_its_phase_at_the_runners_level(tmp_path):
         async def main():
             out = []
             for how, kill_ok, rm_ok in (("done", True, True), ("timeout", True, True), ("kill fails", False, True),
-                                        ("rm fails", True, False)):
+                                        ("rm fails", True, False), ("kill raises", "raise", True)):
                 d = drv.DRIVER = drv.Driver(Out())
                 d.trial = trial({str(tmp_path)!r} + "/" + how.replace(" ", "-"))
                 env = Env(kill_ok, rm_ok)
@@ -2445,7 +2461,8 @@ def test_the_bridge_ends_its_phase_at_the_runners_level(tmp_path):
     assert line == "RESULT " + str([["done", "Do it.", "returned", 1, 1, "key [REDACTED]\n"],
                                     ["timeout", "Do it.", "returned", 1, 1, None],
                                     ["kill fails", "Do it.", "raised", 1, 1, None],
-                                    ["rm fails", "Do it.", "raised", 1, 1, None], True]), line
+                                    ["rm fails", "Do it.", "raised", 1, 1, None],
+                                    ["kill raises", "Do it.", "raised", 1, 1, None], True]), line
 
 
 def test_a_harbor_task_sets_agent_runs_in_this_process(tmp_path):
@@ -2497,3 +2514,156 @@ def test_any_failure_of_the_phases_end_is_infra(tmp_path):
     done = subprocess.run([str(HARBOR_PYTHON), "-I", str(script)], capture_output=True, text=True, timeout=60)
     line = next((x for x in done.stdout.splitlines() if x.startswith("RESULT")), done.stdout + done.stderr)
     assert line == "RESULT " + str(["infra", "infra"]), line
+
+
+def test_a_harbor_agents_adapter_code_runs_in_the_strict_adapter_sandbox(tmp_path, monkeypatch):
+    """No worker for a Harbor task set's agent: its call in this process still confines the adapter's own code as the
+    worker did (the runner's adapter sandbox): a context tool's Session is sandboxed, its exports' render goes through
+    the strict sandbox; outside the call nothing is."""
+    from types import SimpleNamespace
+    from hermit import Session
+    from hermit import isolate
+    from hermit.hosts import inputs
+    monkeypatch.delenv("HA_ADAPTER_SANDBOX", raising=False)
+    adapter = tmp_path / "adapter"
+    shutil.copytree(Path(__file__).resolve().parents[2] / "hermit/adapter/templates/prompt_only", adapter)
+    rendered = []
+    monkeypatch.setattr(inputs, "run_in_strict_sandbox", lambda command, **kw: rendered.append(("strict", kw)) or
+                        SimpleNamespace(returncode=0, stdout="{}", stderr=""))
+    monkeypatch.setattr(inputs.subprocess, "run", lambda command, **kw: rendered.append(("host", kw)) or
+                        SimpleNamespace(returncode=0, stdout="{}", stderr=""))
+
+    def run(task, adapter_dir, environment=None):
+        inputs.render_exports(adapter_dir, sys.executable)
+        return Session(adapter_dir).sandboxed
+
+    config = SimpleNamespace(data={"sandbox": {"enabled": True, "enforce": "best_effort", "hide": []},
+                                   "environment": {"harbor": {"tasks_dir": "x"}},
+                                   "agent": {"name": "codex", "params": {}}}, base=tmp_path)
+    monkeypatch.setattr("hermit.agent.acting.agent.load_agent",
+                        lambda name, params, base: SimpleNamespace(run=run))
+    pipeline, close = isolate.agent_pipeline(config, "rollout", records=None)
+    assert pipeline({"id": "q"}, adapter) is True
+    assert rendered == [("strict", {"role": "render", "readable": [adapter], "enforce": "best_effort"})]
+    assert Session(adapter).sandboxed is False                      # outside the call: as before
+    close()
+
+
+def test_a_harbor_cli_signs_in_by_its_binding_or_a_named_login_only(tmp_path, monkeypatch):
+    """The runner's refusal: a CLI in a task's container without a model binding or a login is refused before any
+    trial; and a session in a remote environment never carries this machine's own CLI sign-in there."""
+    from types import SimpleNamespace
+    from hermit import isolate
+    from hermit.agent.base import login
+    from hermit.agent.base.interface import make
+    (tmp_path / "tasks").mkdir()
+    data = {"data": {"tasks": None}, "judge": {}, "environment": {"harbor": {"tasks_dir": "tasks",
+                                                                            "harbor": sys.executable}},
+            "agent": {"name": "codex", "params": {"model": "gpt-5.6-luna", "web_search": False}}}
+    config = SimpleNamespace(data=data, base=tmp_path)
+    with pytest.raises(ValueError, match="needs a model binding"):
+        isolate.task_environments(config)
+    own = tmp_path / "user-codex"
+    own.mkdir()
+    (own / "auth.json").write_text('{"tokens": "mine"}')
+    monkeypatch.setattr(login, "source", lambda: own / "auth.json")
+    env = Recorded(tmp_path, lambda c: ExecResult(0, CODEX_STREAM) if session_of(c) else ExecResult(0, ""))
+    out = make("codex", {"web_search": False, "model": "m", "bin": "codex",
+                         "home": str(tmp_path / "kept")}).run("x", environment=env)
+    assert out.reply == "fixed it" and env.uploads
+    assert not any("auth.json" in (files or {}) for files in env.uploads.values())
+
+
+def test_the_log_a_record_names_is_scrubbed_of_the_runs_keys(tmp_path, monkeypatch):
+    """An agent in a task's own environment runs in this process: the log its record names (results.jsonl points at
+    it) is scrubbed of the run's key values, as the worker scrubbed what it returned."""
+    from hermit.task import Task
+    from hermit.trainer import rollout
+    monkeypatch.setenv("FIREWORKS_API_KEY", AGENT_KEY)
+    log = tmp_path / "agent-codex.jsonl"
+    log.write_text(f"provider said: bad key {AGENT_KEY}\n")
+
+    def pipeline(task, adapter, environment=None):
+        return RunOutput(output="done", log=log)
+
+    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
+    rollout.environment_rollout(task, task.given(), None, pipeline, Environments(tmp_path), 0.0, pause=lambda s: None)
+    assert AGENT_KEY not in log.read_text() and "bad key" in log.read_text()
+
+
+@pytest.mark.skipif(not _own_pid_namespace(), reason="needs unshare (a PID namespace of its own, as a container's)")
+def test_a_group_not_confirmed_gone_keeps_its_pid_file_for_the_phases_end():
+    """kill_groups removes a command's pid file only once its group is confirmed gone: one that survives keeps its
+    record, so the phase's end tries again and fails the trial (infra) rather than letting the verifier run."""
+    mark = "m" + os.urandom(4).hex()
+    pidfile = f"/tmp/hermit-pid-{mark}"
+    kill = _driver_function("kill_groups", TOKEN="hermit-mark-", PIDS="/tmp/hermit-pid-")(pidfile)
+    stuck = kill.replace("kill -KILL", ": kill -KILL")                      # a group the kill does not end
+    inner = (f'setsid bash -c "sleep 60; exit" hermit-mark-{mark} & echo $! > {pidfile}; sleep 0.5; '
+             f"sh -c {shlex.quote(stuck)}; echo stuck=$?; [ -f {pidfile} ] && echo kept; "
+             f"sh -c {shlex.quote(kill)}; echo killed=$?; [ -f {pidfile} ] || echo removed")
+    try:
+        done = subprocess.run(["unshare", "--user", "--map-root-user", "--pid", "--fork", "--mount-proc", "sh", "-c",
+                               inner], capture_output=True, text=True, timeout=60)
+    finally:
+        Path(pidfile).unlink(missing_ok=True)
+    assert done.stdout.split() == ["stuck=1", "kept", "killed=0", "removed"], done.stdout + done.stderr
+
+
+@pytest.mark.skipif(not HARBOR_PYTHON.exists(), reason="needs Harbor's venv (~/.cache/hermit/harbor-venv)")
+def test_a_download_of_a_link_the_agent_left_is_refused(tmp_path):
+    """The runner refused a link at the notes' folder: a download whose source is a link (a hook audit or a notes
+    folder the agent replaced) is never copied out with Harbor's privileged copy."""
+    script = tmp_path / "probe.py"
+    script.write_text(textwrap.dedent(f"""
+        import asyncio, importlib.util, sys
+        from types import SimpleNamespace
+        spec = importlib.util.spec_from_file_location("drv", {str(DRIVER_FILE)!r})
+        drv = importlib.util.module_from_spec(spec); sys.modules["drv"] = drv; spec.loader.exec_module(drv)
+
+        class Env:
+            copied = []
+            async def exec(self, command, user=None, **kw):
+                return SimpleNamespace(return_code=0 if "/app/.hermit-hooks" in command else 1, stdout="", stderr="")
+            async def is_dir(self, path, user=None): return True
+            async def download_dir(self, source, target): self.copied.append(source)
+            async def download_file(self, source, target): self.copied.append(source)
+
+        async def main():
+            d = drv.Driver(None)
+            d.env = Env()
+            out = []
+            for source in ("/app/.hermit-hooks", "/app/notes"):
+                try:
+                    await d.download({{"source": source, "target": {str(tmp_path / "got")!r} + source}})
+                    out.append("copied")
+                except drv.Failed as exc:
+                    out.append(exc.kind)
+            print("RESULT", out, Env.copied)
+        asyncio.run(main())
+    """))
+    done = subprocess.run([str(HARBOR_PYTHON), "-I", str(script)], capture_output=True, text=True, timeout=60)
+    line = next((x for x in done.stdout.splitlines() if x.startswith("RESULT")), done.stdout + done.stderr)
+    assert line == "RESULT " + str(["PermissionError", "copied"]) + " " + str(["/app/notes"]), line
+
+
+def test_a_forced_teardown_signals_only_the_drivers_own_group(tmp_path):
+    """Killing the driver (its watchdog) signals the driver's own process group, never a group recorded earlier whose
+    pid this busy machine may since have given to another program."""
+    from hermit.environment.harbor import _Driver
+    script = tmp_path / "driver.py"
+    script.write_text("import time\ntime.sleep(60)\n")
+    other = subprocess.Popen(["sleep", "60"], start_new_session=True)       # not the driver's: left alone
+    original = harbor_mod.DRIVER
+    harbor_mod.DRIVER = script
+    try:
+        (tmp_path / "client-groups").write_text(f"{other.pid}\n")           # what the driver once recorded there
+        driver = _Driver(sys.executable, tmp_path / "driver.log", dict(os.environ))
+        driver._kill()
+        assert driver.proc.poll() is not None
+        with pytest.raises(subprocess.TimeoutExpired):                     # still running
+            other.wait(timeout=1)
+    finally:
+        harbor_mod.DRIVER = original
+        other.kill()
+        other.wait()

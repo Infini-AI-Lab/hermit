@@ -363,6 +363,21 @@ class CliAgent(Agent):
     def installs(self, adapter: Path | None) -> list[dict]:
         return installs(self.params, adapter)
 
+    def usage_of(self, logs: Path) -> list:
+        """The usage a session's stream left in `logs` (a trial's agent logs: the stream the CLI wrote there as it ran),
+        read and priced as the session's own would have been: what a session Harbor's timeout cut off had already
+        reported (the runner parsed the retained stream after its trial too)."""
+        backend = _check(self.params.get("backend", "codex"), self.params)
+        agent = base_agent(backend, self.params)
+        stream = Path(logs) / f"agent-{agent.backend}.jsonl"
+        if not stream.is_file() or stream.is_symlink():
+            return []
+        from hermit.agent.base.records import price_usage
+        s = agent.settings
+        _, usage = agent.parse(stream, (s.get("binding") or {}).get("ref") or s.get("model") or agent.backend)
+        price_usage(usage, s)
+        return list(usage)
+
 
 def installs(params: dict, adapter: Path | None) -> list[dict]:
     """What a CLI agent needs in a task's own environment before its session (Agent.installs): its CLI, unless `bin`

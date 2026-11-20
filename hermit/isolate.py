@@ -755,11 +755,28 @@ def cli_sandbox(spec: dict, *, records: Path | None = None, enabled: bool = True
     return box, proxy
 
 
+def confined_run(run, enforce: str):
+    """A Harbor task set's agent run in this process with the adapter's own code confined as an acting worker confined
+    it (the runner's too): its context tool's Session and its exports' render in the strict adapter sandbox
+    (hermit.adapter.session.CONFINED, for this call only), the agent's loop here."""
+    import functools
+    from hermit.adapter.session import CONFINED
+
+    @functools.wraps(run)
+    def call(*args, **kwargs):
+        token = CONFINED.set(enforce)
+        try:
+            return run(*args, **kwargs)
+        finally:
+            CONFINED.reset(token)
+    return call
+
+
 def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path | None = None):
     """(pipeline, close): the agent in the task sandbox; in its own container from a worker on the host
     (`environment.image`); or in this process when the pipeline runs on the host (`host_pipeline`: the sandbox off,
-    `environment.runner: host`; a Harbor task set's agent stays in the task sandbox and reaches its environment through
-    the proxy). An agent whose model only a CLI reaches (`agent.params.model:
+    `environment.runner: host`; a Harbor task set's agent, whose commands run in the task's container, with the
+    adapter's own code confined: confined_run). An agent whose model only a CLI reaches (`agent.params.model:
     {cli: ...}`) gets it as a model endpoint started here, each request one session in a sandbox of its own built as
     the Trainer builds the llm's (cli_sandbox, role agent-model); the pipeline sees a URL and an ordinary model spec,
     which is never written to the config."""
@@ -790,7 +807,10 @@ def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path |
             from hermit.agent.acting.agent import load_agent
             if endpoint is not None:
                 params["model"] = endpoint_spec(endpoint, params["model"])
-            return load_agent(d["agent"]["name"], params, config.base).run, stop
+            run = load_agent(d["agent"]["name"], params, config.base).run
+            if d["environment"].get("harbor") and d["sandbox"]["enabled"]:
+                return confined_run(run, d["sandbox"].get("enforce", "required")), stop
+            return run, stop
         agent = SandboxedAgent(config, role, records=records, work_root=work_root, model_endpoint=endpoint)
     except BaseException:
         stop()                                           # the endpoint started for a pipeline that never came
@@ -909,6 +929,11 @@ def task_environments(config, *, log=None):
                          "agent a <backend>/<model> reference, or run the CLI itself as the agent (agent.base)")
     backend = str(_cli_kind(d["agent"].get("name"), params) or "")      # the CLI the agent runs, `cli` too
     binding = params.get("binding")
+    if backend in ("codex", "claude") and not binding and not params.get("login"):
+        # the runner's refusal: a CLI in a task's container signs in by the run's model binding or a named login, never
+        # by a sign-in of this machine's own it would carry there
+        raise ValueError(f"agent {backend} in Harbor's environments needs a model binding (agent.model: <backend>/"
+                         "<model>) or a login (login: chatgpt | claude)")
     if backend in ("codex", "claude") and isinstance(binding, dict):
         # the runner's check: a CLI runs in the task's container, which cannot reach this machine's loopback
         from urllib.parse import urlsplit
@@ -938,6 +963,8 @@ def task_environments(config, *, log=None):
         declared = kind(params, Path(config.base))
         if callable(getattr(declared, "installs", None)):
             environments.installs_for = declared.installs
+        if callable(getattr(declared, "usage_of", None)):
+            environments.usage_of = declared.usage_of
     if codex_login.LOGINS.get(login):
         environments.admission = _plan_admission(codex_login.plan_dir(params.get("plan_dir"), login),
                                                  codex_login.opted_in(params.get("usage_credits")),

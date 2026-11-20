@@ -21,7 +21,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   running before Harbor verifies): the run starts it behind the disk gate, hands it to the agent (`run(task, adapter,
   environment=...)`), ends the agent phase and reads the trial's verdict; `hermit/harbor/docker.py` moved unchanged to
   `hermit/environment/harbor_docker.py`. Codex and Claude Code run in it through its `exec` (isolation `remote`); the
-  agent has no worker (its loop runs in the run's process, every command in the task's container). A rollout
+  agent has no worker (its loop runs in the run's process, every command in the task's container; the adapter's own
+  code, its context tool and its exports' render, in the strict adapter sandbox as before), and a CLI there signs in
+  by its model binding or a named `login` only (no copy of this machine's own sign-in). A rollout
   that is not the agent's result keeps the runner's semantics (`hermit/environment/harbor_errors.py`, ported from
   `hermit/harbor/errors.py`): it runs again in a fresh environment (`environment.harbor.infra_retries`, default 2,
   after `infra_wait_s`, never for `disk` or `model_rejected`), and one that stays infra is `unscored`, which the judge

@@ -116,13 +116,15 @@ def kill_groups(pattern: str) -> str:
     it started), the pid taken only when that process's command line holds the command's own word (never another
     process a file names); then one check that no process of those groups is left but as a zombie (exit 1 if one is,
     within 5 s)."""
-    return (f"t='{TOKEN[:-1]}'; groups=''; for f in {pattern}; do [ -f \"$f\" ] || continue; "
-            f"m=${{f#{PIDS}}}; p=$(tr -cd '0-9' < \"$f\"); rm -f -- \"$f\"; [ -n \"$p\" ] || continue; "
+    return (f"t='{TOKEN[:-1]}'; groups=''; files=''; for f in {pattern}; do [ -f \"$f\" ] || continue; "
+            f"m=${{f#{PIDS}}}; p=$(tr -cd '0-9' < \"$f\"); [ -n \"$p\" ] || {{ rm -f -- \"$f\"; continue; }}; "
             "c=$(tr '\\0' ' ' < /proc/$p/cmdline 2>/dev/null); "
-            "case \"$c\" in *\"$t-$m\"*) kill -KILL -- -$p 2>/dev/null; groups=\"$groups $p\";; esac; done; "
+            "case \"$c\" in *\"$t-$m\"*) kill -KILL -- -$p 2>/dev/null; groups=\"$groups $p\"; "
+            "files=\"$files $f\";; *) rm -f -- \"$f\";; esac; done; "
             "n=0; while [ $n -lt 25 ]; do left=; for s in /proc/[0-9]*/stat; do l=$(cat $s 2>/dev/null) || continue; "
             "l=${l##*) }; set -- $l; for g in $groups; do [ \"$3\" = \"$g\" ] && [ \"$1\" != Z ] && left=1; done; "
-            "done; [ -z \"$left\" ] && exit 0; sleep 0.2; n=$((n+1)); done; exit 1")
+            "done; if [ -z \"$left\" ]; then for f in $files; do rm -f -- \"$f\"; done; exit 0; fi; "
+            "sleep 0.2; n=$((n+1)); done; exit 1")   # a group not confirmed gone keeps its file: tried again
 
 
 ENV_PREFIX = "HERMIT_ENV_"
@@ -265,10 +267,6 @@ async def _tracked_spawn(*args, **kwargs):
     for known in [p for p in CLIENTS if p.returncode is not None and not group_alive(p)]:
         CLIENTS.discard(known)
     CLIENTS.add(process)
-    record = os.environ.get("HERMIT_CLIENT_GROUPS")      # a file of this machine's the host kills them from, should it
-    if record:                                           # have to kill this driver (its own group does not hold them)
-        with contextlib.suppress(OSError), open(record, "a") as f:
-            f.write(f"{process.pid}\n")
     return process
 
 asyncio.create_subprocess_exec = _tracked_spawn
@@ -585,8 +583,11 @@ class Driver:
         if self.agent_ops:
             await asyncio.gather(*self.agent_ops, return_exceptions=True)
         async with self.transfers:
-            killed = await self.env.exec(kill_groups(f"{PIDS}{self.mark}-*"), cwd="/", user="root")
-            failed = None if killed.return_code == 0 else "an agent command's process group could not be ended"
+            try:
+                killed = await self.env.exec(kill_groups(f"{PIDS}{self.mark}-*"), cwd="/", user="root")
+                failed = None if killed.return_code == 0 else "an agent command's process group could not be ended"
+            except Exception as exc:                     # noqa: BLE001 - the credentials removed all the same
+                failed = f"an agent command's process group could not be ended: {type(exc).__name__}: {exc}"
             try:
                 await self._remove_credentials()         # however the kill went
             except HarborDriverError as exc:
@@ -650,7 +651,7 @@ class Driver:
         clients of its start ended first (a compose up never outlives the down); never behind another request."""
         task = self.run_task
         if task is not None and not task.done():
-            await end_clients("lifecycle")
+            await end_clients()
             task.cancel()
             with contextlib.suppress(BaseException):
                 await task
@@ -808,6 +809,10 @@ class Driver:
     async def download(self, req: dict) -> dict:
         source, target = str(req["source"]), Path(req["target"])
         async with self.transfers:
+            # never through a link the agent left (a hook audit, its notes): the runner refused one at the notes' folder
+            link = await self.env.exec(f"[ -L {shlex.quote(source)} ]", user="root")
+            if link.return_code == 0:
+                raise Failed("PermissionError", f"{source} is a link: never followed out of the environment")
             target.parent.mkdir(parents=True, exist_ok=True)
             if await self.env.is_dir(source, user="root"):
                 await self.env.download_dir(source, target)

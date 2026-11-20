@@ -750,6 +750,8 @@ class CliAgent(BaseAgent):
             return [home / codex_login.FILE]
         if s.get("login") or s.get("binding"):         # login: claude signs in with the token in the environment
             return []
+        if self.environment is not None and self.environment.isolation == "remote":
+            return []                                  # never this machine's own sign-in carried to a task's container
         copied = []
         for name in self.home_files if s.get("home_files") is None else s["home_files"]:
             source = self.user_home() / name

@@ -190,6 +190,25 @@ class Retries:
         return INFRA, self.infra_wait_s
 
 
+def _scrub_log(out: RunOutput) -> None:
+    """The agent's log, scrubbed of this process's key values (hermit.redact) before a record names it: an agent in a
+    task's own environment runs in this process (no worker scrubs what it returns)."""
+    from hermit.redact import redact_text, redact_tree
+    log = Path(out.log) if out.log else None
+    if log is None or log.is_symlink():
+        return
+    if log.is_dir():
+        redact_tree(log)
+    elif log.is_file():
+        try:
+            text = log.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return
+        clean = redact_text(text)
+        if clean != text:
+            log.write_text(clean, encoding="utf-8")
+
+
 def environment_rollout(task: Task, given: dict, adapter: Path | None, pipeline, environments, started: float,
                         *, pause=None):
     """One task in its own environment, run again while it ends infra (not the agent's result: `unscored`) as the
@@ -218,6 +237,7 @@ def environment_rollout(task: Task, given: dict, adapter: Path | None, pipeline,
                                             "unscored": (earlier.extra or {}).get("unscored")}]}}
             return run
         out, final, said_by_agent = run
+        _scrub_log(out)                                  # the log the record names, scrubbed of the run's keys
         attempts.add(out)
         state, wait = retries.next(out, final, said_by_agent)
         if state in (DONE, STOP):
@@ -270,7 +290,14 @@ def _environment_run(task: Task, given: dict, adapter: Path | None, pipeline, en
                                     env, task, begun)
                         kept = (out.extra.get("verified") or {}).get("agent_dir")
                         if out.log is None and kept and Path(kept).is_dir():
-                            out.log = Path(kept)         # the trial's agent logs: the stream the bridge kept
+                            out.log = Path(kept)         # the trial's agent logs: the stream the CLI wrote there
+                            usage_of = getattr(environments, "usage_of", None)
+                            reported = usage_of(Path(kept)) if usage_of is not None else []
+                            if reported:                 # what the session had reported before it was cut off
+                                from hermit.agent.model.usage import Ledger
+                                ledger = Ledger().add(reported)
+                                out.cost_usd, out.tokens = ledger.cost(None), ledger.tokens(None)
+                                out.api_speed = {**(out.api_speed or {}), "model_calls": ledger.calls()}
                     elif isinstance(exc, OSError):       # this machine's (the runner's host_failed): never run again
                         out = _infra_output(task, "host_failed", f"{type(exc).__name__}: {exc}", begun, ran=True)
                         final = True

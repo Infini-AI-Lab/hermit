@@ -115,10 +115,11 @@ The run config's `judge.mode` says where the judge runs.
 
 With the sandbox off every mode runs the judge on the host. A task in its own Harbor environment (`environment.harbor`)
 keeps Harbor's own verifier (shared or separate as its `task.toml` says), which Harbor's trial runs in the task's
-environment after the agent's phase; Hermit's judge (`hermit.task.verify`'s `environment`) only reads that verdict, and
-runs where `judge.mode` puts it (a separate judge in its own sandbox, as for any task). Its agent has no worker: every
+environment after the agent's phase (`[verifier] environment_mode: separate` gives it an environment of its own);
+Hermit's judge (`hermit.task.verify`'s `environment`) only reads that verdict, on the host. Its agent has no worker: every
 command and CLI of the agent runs in the task's own container, and the agent's loop runs in the run's process with
-that environment (`host_pipeline`); the environment's driver, Docker and the task's tests stay outside the container.
+that environment (`host_pipeline`), the adapter's own code (its context tool, its exports' render) in the strict
+adapter sandbox; the environment's driver, Docker and the task's tests stay outside the container.
 What a judge's result contains is the task's decision; which splits' results reach the learner is the method's.
 
 ## Evolver sandbox

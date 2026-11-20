@@ -525,22 +525,14 @@ class _Driver:
         return done
 
     def _kill(self) -> None:
-        groups = Path(self.log.name).with_name("client-groups")   # the driver's Docker clients, each a group
         for sig in (15, 9):
             with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.killpg(self.proc.pid, sig)
             try:
                 self.proc.wait(timeout=20)
-                break
+                return
             except subprocess.TimeoutExpired:
                 continue
-        try:                                             # its clients too (a compose up), before any teardown
-            pids = [int(p) for p in groups.read_text().split() if p.isdigit()]
-        except OSError:
-            pids = []
-        for pid in pids:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(pid, 9)
 
 
 class HarborEnvironment(Environment):
@@ -592,8 +584,7 @@ class HarborEnvironment(Environment):
             self.trials_dir.mkdir(parents=True, exist_ok=True)
             tmp = owner.jobs_dir / "tmp"
             tmp.mkdir(parents=True, exist_ok=True)
-            env = {**{k: v for k, v in os.environ.items() if k not in owner.drop_env}, "TMPDIR": str(tmp),
-                   "HERMIT_CLIENT_GROUPS": str(self.trials_dir / "client-groups")}
+            env = {**{k: v for k, v in os.environ.items() if k not in owner.drop_env}, "TMPDIR": str(tmp)}
             self.driver = _Driver(owner.python, self.trials_dir / "driver.log", env)
         except OSError as exc:
             raise EnvironmentUnavailable(f"this machine could not start the environment's driver: "
