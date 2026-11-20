@@ -6,11 +6,19 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Breaking
 
-- The forwards of moved modules are gone: `hermit.agents`, `hermit.evolver`, `hermit.llm`, `hermit.backends` and
-  `hermit.trajectory` (0.2's) and `hermit.agent.base.direct`, `hermit.agent.base.container` and
-  `hermit.agent.environment` (this release's). Import `hermit.agent.acting`, `hermit.agent.evolver`,
-  `hermit.agent.model.llm`, `hermit.agent.model.backends`, `hermit.agent.base.trajectory`, `hermit.agent.model.direct`,
-  `hermit.environment.docker` and `hermit.environment`.
+- The old import paths of moved modules are gone, with no forward: 0.1's, which 0.2 forwarded (`hermit.agents`,
+  `hermit.evolver`, `hermit.llm`, `hermit.backends`, `hermit.trajectory`), and 0.2's `hermit.agent.base.direct` and
+  `hermit.agent.base.container`, and `hermit.agent.environment` (never released). Import instead:
+
+  | Old | New |
+  |---|---|
+  | `hermit.agents` (`.base`, `.cli`, `.react`, `.tools`, `.container`, `.login`) | `hermit.agent.acting` (`.agent`, `.workspace`, `.react`, `.tools`), `hermit.environment.docker`, `hermit.agent.base.login` |
+  | `hermit.evolver` (`.base`, `.agent`, `.loader`, `.dependencies`) | `hermit.agent.evolver` (the same submodules) |
+  | `hermit.llm`, `hermit.backends` | `hermit.agent.model.llm`, `hermit.agent.model.backends` |
+  | `hermit.trajectory` | `hermit.agent.base.trajectory` |
+  | `hermit.agent.base.direct` | `hermit.agent.model.direct` |
+  | `hermit.agent.base.container` | `hermit.environment.docker` |
+  | `hermit.agent.environment` (`.base`, `.docker`) | `hermit.environment` (`.base`, `.docker`) |
 
 - Harbor gives a task set its data, its environments and its verifier; every agent is Hermit's
   ([Benchmarks](docs/framework/task.md#benchmarks)). `agent.name: harbor` is gone, with `hermit/harbor/runner.py`,

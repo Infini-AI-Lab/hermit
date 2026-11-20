@@ -72,8 +72,9 @@ def test_a_bare_judge_and_a_row_still_run_as_before():
                                  "hermit.backends", "hermit.trajectory"])
 def test_the_moved_modules_old_paths_are_gone(old):
     import importlib
-    with pytest.raises(ModuleNotFoundError):
+    with pytest.raises(ModuleNotFoundError) as missing:
         importlib.import_module(old)
+    assert missing.value.name == old          # the old module itself, not a module a leftover forward imports
 
 
 def test_the_names_imported_from_hermit_task_before_the_package_still_import():
