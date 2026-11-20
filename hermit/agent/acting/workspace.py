@@ -361,10 +361,10 @@ class CliAgent(Agent):
         return _run(task, adapter, self.params, self.base, environment)
 
     def installs(self, adapter: Path | None) -> list[dict]:
-        return installs(self.params, adapter, self.base)
+        return installs(self.params, adapter)
 
 
-def installs(params: dict, adapter: Path | None, base: Path | None = None) -> list[dict]:
+def installs(params: dict, adapter: Path | None) -> list[dict]:
     """What a CLI agent needs in a task's own environment before its session (Agent.installs): its CLI, unless `bin`
     names one there (by the environment's installer of the CLI's name, unless it is on the session's PATH there and no
     `version` is pinned, as the Harbor runner installed it), and python3 when the adapter has hooks the CLI runs."""
@@ -372,19 +372,6 @@ def installs(params: dict, adapter: Path | None, base: Path | None = None) -> li
     backend = str(params.get("backend") or "codex")
     backend = "claude" if backend == "claude-code" else backend          # as _check names it
     out = []
-    if backend in REMOTE_INSTALL:                            # its home there: made by the bridge, the agent user's
-        from hermit.agent.base.cli import REMOTE_HOME
-        out.append({"home": str(params.get("remote_home") or REMOTE_HOME)})
-        # what the deployment puts in the workspace (the runner's _deploy provisioned these and gave them to the agent
-        # user): the bridge makes these names the agent user's at the phase's start, before the agent runs
-        # (an adapter's deployment's names only with an adapter: a baseline adds nothing to the workspace)
-        files = [CONTEXT_FILES[backend], ".hermit-deploy.json", *([".mcp.json"] if backend == "claude" else [])] \
-            if adapter is not None else []
-        dirs = ["hermit", ".codex" if backend == "codex" else ".claude"] if adapter is not None else []
-        for item in params.get("files") or []:       # the config's own, by what they are here
-            (dirs if (Path(base or ".") / str(item)).is_dir() else files).append(Path(str(item)).name)
-        if dirs or files:
-            out.append({"deploy": {"dirs": dirs, "files": files}})
     if params.get("bin") and backend in REMOTE_INSTALL:      # a mounted binary: used when it serves, else installed
         out.append({"agent": REMOTE_INSTALL[backend], "version": params.get("version"), "bin": str(params["bin"]),
                     "program": backend})

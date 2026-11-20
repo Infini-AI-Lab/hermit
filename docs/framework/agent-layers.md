@@ -122,7 +122,6 @@ environment from the call; nothing about where it runs is a setting.
 | `Sandboxed(path, limits, sandbox=...)` | sandbox | The directory inside the run's sandbox (`hermit.sandbox.Sandbox`), which decides what the agent reads, writes and reaches |
 | `Container(path, limits, settings=...)` | container | A Docker container of the session's own (`hermit/environment/docker.py`: image, network, proxy); a CLI's session runs there |
 | `HarborEnvironment` | remote | A task's own Harbor environment (`hermit/environment/harbor.py`): Harbor starts it, runs the agent's commands there and verifies; the run gives it to the agent ([Benchmarks](task.md#benchmarks)) |
-| `ProxyEnvironment` | remote | That environment served to an agent's worker in the task sandbox (`hermit/environment/remote.py`): its operations only |
 
 API: `exec(command, cwd=, env=, timeout=, stdin=) → ExecResult(code, output, timed_out)` runs a command there (a
 tool of the agent's, a check) within the environment's limits: its readable mounts in place, its `timeout_s` unless

@@ -708,22 +708,18 @@ class HarborEnvironment(Environment):
         except (RuntimeError, TimeoutError) as exc:
             if getattr(exc, "kind", None) == "AgentPhaseOver":
                 raise
-            if getattr(exc, "kind", None) == "PermissionError":   # the agent user's own permissions refused it
-                raise PermissionError(str(exc)) from None
             raise EnvironmentUnavailable(f"{op} failed in the task's environment: {exc}"[-3000:],
                                          errors.start_cause(getattr(exc, "kind", None), str(exc))) from None
 
-    def upload(self, source, target, *, as_agent: bool = False) -> PurePosixPath:
-        """`source` to `target`; `as_agent`: with the task's agent user's own permissions (what the agent's process
-        asks for through the sandbox's proxy), else as Hermit's provisioning (root's, given to that user)."""
+    def upload(self, source, target) -> PurePosixPath:
+        """`source` to `target` (root's copy, given to the agent user: the runner's provisioning)."""
         dest = self.path(target)
-        self._operate("upload", 1800, source=str(Path(source).absolute()), target=str(dest), as_agent=as_agent)
+        self._operate("upload", 1800, source=str(Path(source).absolute()), target=str(dest))
         return dest
 
-    def download(self, source, target, *, as_agent: bool = False) -> Path:
+    def download(self, source, target) -> Path:
         target = Path(target)
-        self._operate("download", 1800, source=str(self.path(source)), target=str(target.absolute()),
-                      as_agent=as_agent)
+        self._operate("download", 1800, source=str(self.path(source)), target=str(target.absolute()))
         return target
 
     def secret(self, paths) -> None:

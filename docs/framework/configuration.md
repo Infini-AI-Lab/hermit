@@ -127,8 +127,8 @@ its hosts are allowed. A Claude subscription (`login: claude`) copies nothing: `
 for the call and `api.anthropic.com` is allowed. What the run keeps (the learning material, the adapter) is scrubbed of
 key values. The adapter's modules, when the agent's code runs them (its tools, a CLI agent's deploy render), run in a
 nested strict sandbox. The result comes back on a pipe only the worker can write, and its `log` must lie where the call
-could write; a link is never followed. A task in its own Harbor environment (`environment.harbor`) is served to the
-worker by its operations alone (exec, upload, download: `hermit/environment/remote.py`), never its verifier.
+could write; a link is never followed. A task in its own Harbor environment (`environment.harbor`) has no worker: its
+commands and CLIs run in the task's container, the agent's loop in the run's process.
 `agent.timeout_min` stops a call that runs longer.
 
 ### The judge: `judge.mode`

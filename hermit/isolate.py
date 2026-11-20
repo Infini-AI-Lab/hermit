@@ -18,9 +18,8 @@ The data and split files, the judge, the runs and trees directories may not lie 
 refused, and the isolation check inside proves them absent. A task with `environment.image` runs its CLI agent in a
 container of its own (the Base Agent's container isolation), started from a worker on the host that keeps the
 adapter's code in the strict sandbox. A task set in Harbor's environments (`environment.harbor`) gives each task its
-own environment (hermit.environment.harbor, kept in this process with its driver and Docker); the agent's worker in
-the task sandbox reaches it only through a server of the agent's operations on it (hermit.environment.remote: exec,
-upload, download), never its verifier or the task's directory.
+own environment (hermit.environment.harbor, kept in this process with its driver and Docker), where every command
+and CLI of the agent runs: the agent's loop runs in this process with that environment (host_pipeline), no worker.
 
 The judge runs where `judge.mode` says: `host` in this process on the downloaded answer, `shared` in the task
 sandbox after the agent (a new exec over the same work directory, with `judge.tests` shown to it alone), `separate`
@@ -88,6 +87,8 @@ def host_pipeline(config) -> str | None:
         return "environment.runner: host (the task's own code isolates the adapter's code it runs, in containers)"
     if d["environment"].get("image"):
         return "environment.image: the agent runs in a container of its own"
+    if d["environment"].get("harbor"):
+        return "environment.harbor: every command and CLI of the agent runs in the task's own Harbor environment"
     return None
 
 
@@ -501,16 +502,6 @@ def _deadline(run_timeout: float | None, task: dict) -> float | None:
     return own if run_timeout is None else min(run_timeout, own)
 
 
-def _call_deadline(run_timeout: float | None, environment, needs: dict) -> float | None:
-    """A call's deadline (_deadline): for a task in its own environment, that environment's agent budget (Harbor's,
-    after its overrides: Terminal-Bench's 3,600 s over the task's 900) with its CLI's install beside it; else the
-    task's own."""
-    budget = getattr(getattr(environment, "limits", None), "timeout_s", None) if environment is not None else None
-    if budget:
-        needs = {"agent_timeout_sec": float(budget) + float(getattr(environment, "setup_budget_s", 0) or 0)}
-    return _deadline(run_timeout, needs)
-
-
 class SandboxedAgent:
     """The run's agent as a pipeline, every call in a worker inside the task sandbox."""
 
@@ -571,26 +562,18 @@ class SandboxedAgent:
         its own: a Harbor one gives what it asks)."""
         return self.spec.problems_for(needs, verifier=self.verifies)
 
-    def __call__(self, task: dict, adapter: Path | None, environment=None, needs: dict | None = None) -> RunOutput:
+    def __call__(self, task: dict, adapter: Path | None, needs: dict | None = None) -> RunOutput:
         """`needs`: what the task asks of its environment (its private half's; hermit.trainer.rollout passes it), of
-        which its agent's timeout bounds the call. A task in an environment of its own (a Harbor one): the worker's
-        sandbox reaches only the server of it."""
-        server = None
-        if environment is not None:
-            from hermit.environment.remote import EnvironmentServer
-            server = EnvironmentServer(environment).start()
-        try:
-            return self._call(task, adapter, server, needs)
-        finally:
-            if server is not None:
-                server.close()
+        which its agent's timeout bounds the call. (A task in an environment of its own, a Harbor one, never comes
+        here: its agent runs in this process, host_pipeline.)"""
+        return self._call(task, adapter, needs)
 
     def _login_root(self) -> Path:
         """The ChatGPT login's shared copy this run's preflight checked: the agent's `login_root`, else the default."""
         root = self.params.get("login_root")
         return Path(os.path.expanduser(str(root))) if root else codex_login.ROOT
 
-    def _call(self, task: dict, adapter: Path | None, server, needs: dict | None = None) -> RunOutput:
+    def _call(self, task: dict, adapter: Path | None, needs: dict | None = None) -> RunOutput:
         self._recheck()
         work = self.work_root / f"{_safe(task.get('id', 'task'))}-{uuid.uuid4().hex[:8]}"
         home = work / "home"
@@ -616,9 +599,8 @@ class SandboxedAgent:
             keep.append(var)
         binds = _log_binds(work, self.logs, [work])
         job = {"kind": "agent", "name": self.name, "params": params, "base": str(self.base), "task": task,
-               "adapter": str(adapter) if adapter else None,
-               **({"environment": server.spec()} if server is not None else {})}
-        forward = [*self.forward, *([server.port] if server is not None else [])]
+               "adapter": str(adapter) if adapter else None}
+        forward = list(self.forward)
         clean = work.parent / f"{work.name}.log"
         left: list = []
 
@@ -647,8 +629,7 @@ class SandboxedAgent:
             with held(provision, take_back, remove):
                 payload = _run_worker(self.sandbox, job, work, home=home, readable=[adapter] if adapter else [],
                                       env=env, keep=keep, forward=forward,
-                                      timeout=_call_deadline(self.timeout, server.environment if server else None,
-                                                             needs or task),
+                                      timeout=_deadline(self.timeout, needs or task),
                                       binds=binds)
             rec = payload["output"]
             # The log is copied into the learner's material outside any sandbox: it must lie where this call could

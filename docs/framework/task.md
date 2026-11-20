@@ -360,9 +360,11 @@ separate one), its timeout and multiplier, the reward files, the scrub of creden
 own (`HermitBridge`, a Harbor agent in the driver): its setup installs what the acting agent declares it needs
 (`Agent.installs`: the CLI unless `bin` names one, python3 for an adapter's hooks) with Harbor's own installers,
 Debian bullseye's archived sources repaired first; its run relays the agent's `exec`, `upload` and `download` to the
-environment until Hermit's agent is done, or Harbor's agent timeout ends the phase, and ends every command it started
-that still runs before it returns (what an ended one left running, a server the task asked for, stays); Harbor then
-verifies. The agent's own budget ends 60 s before Harbor's agent timeout (10% of a short one), so that its session's
+environment until Hermit's agent is done, or Harbor's agent timeout ends the phase, then, as the runner's agents did:
+kills the process group of each command it started that still runs (each runs under `setsid`; a kill that fails is
+infra), removes the credential files the agent registered (a sign-in; one not removed is infra), and copies the
+agent's logs (a CLI's stream is also written to `/logs/agent` as it runs); what an ended command left running, a
+server the task asked for, stays. Harbor then verifies. The agent's own budget ends 60 s before Harbor's agent timeout (10% of a short one), so that its session's
 end and logs reach the trial first. Around it Hermit keeps its warm start
 (`hermit/environment/harbor_docker.py`): no environment starts while the host's /tmp or Docker's data root has less
 than its gate free (room kept for the task's image when it is not here yet, `image_sizes`, and for the images other
@@ -376,9 +378,9 @@ command in the task's main container as the task's agent user, from its working 
 variable passed by name (never on a command line of this machine), under a timeout enforced there (its process group
 killed); `upload` and `download` move files (a relative path is in the workspace, an absolute one anywhere there);
 `install(cli)` reports the version the setup installed (nothing installs during the phase). The task's directory and tests are the task's
-private half: the agent never sees them. In the task sandbox (the default) the agent's worker reaches the environment
-only through a server of these operations on the host (`hermit/environment/remote.py`, a token in its URL, never
-`verify`); the environment, its driver and Docker stay in the run's process.
+private half: the agent never sees them. The agent has no worker in the task sandbox: every command and CLI of its
+runs in the task's container, and its loop runs in the run's process with the environment (the environment, its
+driver and Docker there too).
 
 **The agents.** A CLI Base Agent (Codex, Claude Code) runs where the environment runs its commands (isolation
 `remote`, `hermit/agent/base/cli.py`), as the Harbor runner's launch plan ran a session in a task's container: its home
@@ -413,8 +415,7 @@ verifier mode only: a separate verifier gets its own mounts and the task's confi
 
 Not supported in a Harbor environment yet, and refused rather than dropped: the adapter's tools (the framework's tool
 server runs on this machine), the agent's `mounts`, `prepare` and `collect`, readable mounts, hidden paths or a
-network limit of Hermit's (the task's task.toml says what its environment reaches; refused through the sandbox's proxy
-of the environment too), and a multi-step task
+network limit of Hermit's (the task's task.toml says what its environment reaches), and a multi-step task
 (`[[steps]]`, which needs one environment across the Trainer's steps). The credentials an agent command was given are
 scrubbed from the logs handed to the verifier and from the trial's files.
 

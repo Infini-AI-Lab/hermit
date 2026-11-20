@@ -20,8 +20,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   (`HermitBridge`: its setup installs what the agent declares, `Agent.installs`; its run ends its commands still
   running before Harbor verifies): the run starts it behind the disk gate, hands it to the agent (`run(task, adapter,
   environment=...)`), ends the agent phase and reads the trial's verdict; `hermit/harbor/docker.py` moved unchanged to
-  `hermit/environment/harbor_docker.py`. Codex and Claude Code run in it through its `exec` (isolation `remote`); in
-  the task sandbox the agent reaches it through a server of its operations (`hermit/environment/remote.py`). A rollout
+  `hermit/environment/harbor_docker.py`. Codex and Claude Code run in it through its `exec` (isolation `remote`); the
+  agent has no worker (its loop runs in the run's process, every command in the task's container). A rollout
   that is not the agent's result keeps the runner's semantics (`hermit/environment/harbor_errors.py`, ported from
   `hermit/harbor/errors.py`): it runs again in a fresh environment (`environment.harbor.infra_retries`, default 2,
   after `infra_wait_s`, never for `disk` or `model_rejected`), and one that stays infra is `unscored`, which the judge
@@ -35,8 +35,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   session (a lost sign-in or a bill refused: the run ends; a configuration refused: `model_rejected`; the plan's
   refusal: run again once it allows) is read the same way (`hermit/agent/base/codex_stream.py`, ported). Codex there
   keeps the runner's `project_doc_max_bytes` of 262144 unless the config sets one. A hook audit that cannot be read
-  back leaves the session's result and usage (`hooks_audit_missing`). The sandbox's proxy of a task's environment
-  refuses Hermit's network, hidden-path and mount limits (the task's own say what it reaches). As the runner did:
+  back leaves the session's result and usage (`hooks_audit_missing`). A task's environment refuses Hermit's network,
+  hidden-path and mount limits (the task's own say what it reaches). As the runner did:
   `verifier_redact`, the named `reward_key` only (none there is infra), a ChatGPT sign-in taken back only when valid
   (64 KiB, both tokens, its clock), a session's missing usage as an unknown cost. Not carried
   over: multi-step tasks (streams), the adapter's tools in a task's environment, the `<cli>_bin` mount (a config

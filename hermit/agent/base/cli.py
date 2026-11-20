@@ -103,8 +103,8 @@ The isolation is the call's environment's (hermit.environment), never a setting:
 this machine), sandbox (Sandboxed: inside the run's hermit.sandbox.Sandbox), container (Container: a Docker container
 of its own, its settings image, network, proxy: hermit.environment.docker, where the CLI's own sandbox holds the
 session's commands: Codex's `codex_sandbox`, Claude Code's CLAUDE_SANDBOX) or remote (an environment that runs the
-CLI where it runs its commands, through its `exec`: a task's Harbor environment, hermit.environment.harbor, or one
-served to the agent's process, hermit.environment.remote). In a remote environment (Codex and Claude Code) the
+CLI where it runs its commands, through its `exec`: a task's Harbor environment, hermit.environment.harbor). In a
+remote environment (Codex and Claude Code) the
 session's home is rendered here and uploaded to `remote_home` there, the CLI is the environment's (`bin`, else
 installed by the environment's own installer when it has none), the command runs from the workspace with the prompt
 on its stdin where the CLI reads it there, and the stream is its output. A secret the CLI reads from a descriptor
