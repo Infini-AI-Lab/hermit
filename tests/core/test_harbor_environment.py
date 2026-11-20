@@ -2757,6 +2757,12 @@ def test_a_sandbox_this_machine_cannot_start_is_infra_never_the_adapters_zero(tm
             assert "adapter_failed" not in out.extra
     finally:
         CONFINED.reset(token)
+    def disk_full(adapter):                        # the server's files not made: this machine's, whatever the sandbox
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(agent, "session", disk_full)
+    out = agent.run({"id": "q"}, tmp_path, environment=env)
+    assert out.extra["infra"] == "staging_failed" and out.cost_usd == 0.0 and "adapter_failed" not in out.extra
     monkeypatch.undo()
     monkeypatch.setattr(sandbox.shutil, "which", lambda name: None)                  # bubblewrap not installed
     assert "not installed" in sandbox.sandbox_fault("required") and sandbox.sandbox_fault("best_effort") is None
@@ -2840,3 +2846,63 @@ def test_a_staging_failure_is_run_again_and_spends_nothing(tmp_path):
                                       pause=lambda s: None)
     assert len(runs) == 2 and out.cost_usd == pytest.approx(0.25) and out.tokens == 100
     assert [a["unscored"] for a in out.extra["attempts"]] == ["staging_failed", None]
+
+
+def test_a_cli_agents_staging_folders_on_a_full_disk_are_staging_failed(tmp_path, monkeypatch):
+    """The runner guarded its job's folders with the staging: a full disk making them is staging_failed (run again,
+    nothing spent), never this machine's final host_failed."""
+    from hermit.agent.acting.workspace import CliAgent
+    monkeypatch.setenv("HERMIT_HOMES", str(tmp_path / "homes"))
+    original = Path.mkdir
+
+    def mkdir(self, *a, **k):
+        if self.name == "work":
+            raise OSError(28, "No space left on device", str(self))
+        return original(self, *a, **k)
+
+    monkeypatch.setattr(Path, "mkdir", mkdir)
+    env = Recorded(tmp_path, lambda c: ExecResult(0, CODEX_STREAM) if session_of(c) else ExecResult(0, ""))
+    out = CliAgent({"backend": "codex", "web_search": False, "bin": "codex", "workspaces": str(tmp_path / "ws")},
+                   tmp_path).run({"id": "t", "instruction": "do it"}, None, environment=env)
+    assert out.extra["infra"] == "staging_failed" and not out.extra["infra_final"]
+    assert (out.cost_usd, out.tokens, out.api_speed["model_calls"]) == (0.0, 0, 0)
+
+
+def test_a_terminal_failure_after_a_run_again_keeps_every_attempts_spend(tmp_path):
+    """A pipeline's own failure after an infra run again: the record sums the earlier attempts' spend and the failed
+    one's (what it said it billed), its cost known when each is."""
+    from hermit.task import Task
+    from hermit.trainer import rollout
+    runs = []
+
+    def pipeline(task, adapter, environment=None):
+        runs.append(1)
+        if len(runs) == 1:
+            return RunOutput(output=None, tokens=140, cost_usd=0.014, api_speed={"model_calls": 1},
+                             extra={"infra": "model_provider_failed", "infra_final": False, "exception_message": "x"})
+        failed = KeyError("a bug of the agent's own")
+        failed.spent = RunOutput(output=None, tokens=200, cost_usd=0.020, api_speed={"model_calls": 1})
+        raise failed
+
+    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
+    record = rollout.environment_rollout(task, task.given(), None, pipeline, Environments(tmp_path), 0.0,
+                                         pause=lambda s: None)
+    assert record["status"] == "error" and record["tokens"] == 340 and record["cost_usd"] == pytest.approx(0.034)
+    assert record["api_speed"]["model_calls"] == 2 and len(record["pipeline_extra"]["attempts"]) == 2
+
+
+def test_a_sessions_placeholder_usage_in_an_error_is_no_report(tmp_path, monkeypatch):
+    """A CLI endpoint's error carries all-zero usage when its session reported none: unknown, never a measured 0
+    (hermit.tools.failed_usage's rule)."""
+    from hermit.agent.acting.answer import _error_usage
+    from hermit.agent.model.llm import ChatHTTPError
+    zero = json.dumps({"error": {"message": "timed out"}, "usage": {"prompt_tokens": 0, "completion_tokens": 0,
+                                                                    "prompt_tokens_details": {"cached_tokens": 0}}})
+
+    class Client:
+        model = "m"
+
+        def cost(self, prompt, cached, completion):
+            return 0.0
+
+    assert _error_usage(Client(), ChatHTTPError(504, zero.encode(), {})) == []

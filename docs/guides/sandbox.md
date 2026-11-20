@@ -22,7 +22,7 @@ them.
 | Sandbox | Who runs inside | What is inside | Never inside |
 |---|---|---|---|
 | task | the acting agent, one worker per call; a task's declared tools; a `shared` judge after the agent | the declared task paths, packages and variables; the framework's Python environment; the acting layer; the frozen adapter; its model's key | the data and split files, the judge and its tests, the runs and trees |
-| judge | the judge in `shared` mode (a new exec in the task sandbox) or `separate` mode (a fresh sandbox) | the judge's file and `judge.tests`; `separate`: only the paths `judge.collect` names, copied through a sanitized archive | in `separate` mode, everything else the agent left |
+| judge | the judge in `shared` mode (a new exec in the task sandbox) or `separate` mode (a fresh sandbox); a task's own verifier script (`hermit.task.verify:script`) in a sandbox of its own in either mode, over the agent's work directory when `shared` | the judge's file and `judge.tests`; `separate`: only the paths `judge.collect` names, copied through a sanitized archive; a verifier script: the task's environment, none of the acting model's grants (its key, its provider's hosts, its forwarded ports) | in `separate` mode, everything else the agent left |
 | evolver | the learner's sessions, its roles, the programs it runs | the workspace under `/w`, the learner CLI, what the method declares, its models' keys | the framework's code (unless the method runs it), the data, the judge, the test split |
 
 With `judge.mode: host` (the default) the judge runs in the host process on the downloaded output. Three cases run the

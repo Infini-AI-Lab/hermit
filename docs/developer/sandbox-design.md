@@ -21,7 +21,7 @@ Three roles run in three kinds of sandbox.
 | Role | Task sandbox | Judge sandbox | Evolver sandbox | Host |
 |---|---|---|---|---|
 | acting (the agent under test) | runs inside | | | only when the pipeline runs on the host (below) |
-| judge | `shared`: after the agent, in a new exec | `separate` | | `host`: reads the answer |
+| judge | `shared`: after the agent, in a new exec (a task's own verifier script: in a sandbox of its own over the same work directory, below) | `separate` | | `host`: reads the answer |
 | evolver (the learner) | | | runs inside | |
 
 | Sandbox | Contents | Never inside | Backend |

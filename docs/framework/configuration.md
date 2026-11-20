@@ -136,7 +136,7 @@ commands and CLIs run in the task's container, the agent's loop in the run's pro
 | Mode | Where the judge runs |
 |---|---|
 | `host` (default) | the Trainer's process, on the output |
-| `shared` | the task sandbox, after the agent, over its work directory, with the judge's file and `judge.tests` shown to it alone |
+| `shared` | the task sandbox, after the agent, over its work directory, with the judge's file and `judge.tests` shown to it alone (a task's own verifier script, `hermit.task.verify:script`: a sandbox of its own over that work directory, the task's environment without the acting model's key, hosts or forwarded ports) |
 | `separate` | a sandbox holding only the paths `judge.collect` names, copied from the agent's work directory through a sanitized archive |
 
 With `sandbox.enabled: false` every mode runs the judge in the Trainer's process.

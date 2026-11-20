@@ -67,6 +67,8 @@ def _error_usage(client, exc) -> list:
         cached = int((u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
     except (TypeError, ValueError, AttributeError):
         return []
+    if not (prompt or cached or completion):             # a session's placeholder (hermit.tools.failed_usage's rule)
+        return []
     cost = client.cost(prompt, cached, completion) if callable(getattr(client, "cost", None)) else None
     return [Usage(getattr(client, "model", ""), prompt, cached, completion, 1, cost)]
 
@@ -104,6 +106,8 @@ class AnswerAgent(Agent):
         except Exception as exc:          # the adapter's own (its context tool): the agent's result, scored 0
             from hermit.adapter.session import host_fault, staging_failed
             fault = host_fault(exc)       # unless the sandbox it runs in does not start here: infra
+            if fault is None and session is None and isinstance(exc, OSError):   # its server not made: this machine's
+                fault = f"staging_failed: {type(exc).__name__}: {exc}"
             if fault is not None:
                 if getattr(environment, "isolation", None) == "remote":     # a task's own environment: run again
                     return staging_failed(fault, started)

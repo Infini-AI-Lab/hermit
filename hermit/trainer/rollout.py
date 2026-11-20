@@ -228,15 +228,13 @@ def environment_rollout(task: Task, given: dict, adapter: Path | None, pipeline,
             raise LoginFailed("the run ended (a lost sign-in or the account's limit) before the task started")
         run = _environment_run(task, given, adapter, pipeline, environments, started)
         if isinstance(run, dict):                        # the pipeline's own failure: the run's failed record, with
-            if attempts.runs:                            # what the runs before it spent
-                earlier = attempts.output() if len(attempts.runs) > 1 else attempts.runs[0]
-                run = {**run, "tokens": earlier.tokens, "cost_usd": None,
-                       "api_speed": {"model_calls": (earlier.api_speed or {}).get("model_calls")},
-                       "pipeline_extra": {**(run.get("pipeline_extra") or {}),
-                                          "attempts": (earlier.extra or {}).get("attempts") or
-                                          [{"tokens": earlier.tokens, "cost_usd": earlier.cost_usd,
-                                            "model_calls": (earlier.api_speed or {}).get("model_calls"),
-                                            "unscored": (earlier.extra or {}).get("unscored")}]}}
+            if attempts.runs:                            # what the runs before it spent, and this one's (when it said)
+                attempts.add(RunOutput(output=None, cost_usd=run.get("cost_usd"), tokens=run.get("tokens"),
+                                       api_speed={"model_calls": (run.get("api_speed") or {}).get("model_calls")}))
+                total = attempts.output()
+                run = {**run, "tokens": total.tokens, "cost_usd": total.cost_usd,
+                       "api_speed": {"model_calls": (total.api_speed or {}).get("model_calls")},
+                       "pipeline_extra": {**(run.get("pipeline_extra") or {}), "attempts": total.extra["attempts"]}}
             return run
         out, final, said_by_agent = run
         _scrub_log(out)                                  # the log the record names, scrubbed of the run's keys

@@ -637,9 +637,15 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
     if deadline.at is not None:         # and the session's own waits (a login's plan) come off it too
         agent = agent.configured(deadline=deadline.at)
     for attempt in range(1, retries + 1):
-        for d in (work, home, log):
-            shutil.rmtree(d, ignore_errors=True)
-            d.mkdir(parents=True)
+        try:
+            for d in (work, home, log):
+                shutil.rmtree(d, ignore_errors=True)
+                d.mkdir(parents=True)
+        except OSError as exc:
+            if not remote:
+                raise
+            from hermit.adapter.session import staging_failed  # this machine's (a full disk): the runner's staging
+            return staging_failed(f"staging_failed: {type(exc).__name__}: {exc}", started)
         if remote:
             # the adapter's own failure (its deployment, its per-task context, a context over the CLI's cap) is the
             # agent's result, scored 0 with its message, as the runner graded adapter_failed and context_over_limit;
