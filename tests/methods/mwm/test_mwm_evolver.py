@@ -123,7 +123,7 @@ def make(tmp: Path, monkeypatch, steps: int = 2, deployment_param: bool = False)
     (tmp / "agent" / "pipeline.py").write_text(PIPELINE)            # the task sandbox's one declared path
     (tmp / "judge.py").write_text("def score(task, output):\n    return 1.0\n")
     (tmp / "echo.py").write_text("def echo(text):\n    return {'text': text}\n")
-    deployment = Path(__file__).resolve().parents[3] / "examples/clbench_database/utils/task-info/mwm"
+    deployment = Path(__file__).resolve().parents[3] / "examples/clbench_database/utils/benchmark/task-info/mwm"
     (tmp / "task-info").mkdir()
     params = {"evidence": str(evidence), "retry_wait_s": 0, "session_timeout_s": 120}
     if deployment_param:          # the venue texts beside the config, named by params.deployment

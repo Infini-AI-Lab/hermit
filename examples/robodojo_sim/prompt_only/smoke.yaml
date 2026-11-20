@@ -5,12 +5,13 @@
 # Evolver revises the one learned ADAPTER.md, the next session's context, from the sessions' notes and scores.
 # Codex acting and learning, GLM 5.3 Flash. Started by launch.sh.
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/smoke.txt
-  test: ../utils/splits/smoke.txt     # `launch.sh eval`: the tasks again, with an adapter given
+  tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/robodojo_fields.py:robodojo_task   # each task as the row it always was
+  train: ../utils/benchmark/splits/smoke.txt
+  test: ../utils/benchmark/splits/smoke.txt     # `launch.sh eval`: the tasks again, with an adapter given
   step_size: 1
   shuffle: false
-task_info: ../utils/task-info
+task_info: ../utils/benchmark/task-info
 agent:
   base: codex
   concurrency: 1                    # one simulator: an evaluation takes a GPU
@@ -31,7 +32,7 @@ environment:                        # the task sandbox: the actor's code and the
     - ../utils/agent
   env: [ROBODOJO_SIM_URL]           # the host's simulator service (launch.sh): its 127.0.0.1 port is forwarded
 judge:
-  path: ../utils/judge.py           # on the host: the program on the held-out layout sets
+  path: ../utils/benchmark/judge.py           # on the host: the program on the held-out layout sets
 template: prompt-only@1.0
 evolver:
   name: codex                       # the built-in Codex AgentEvolver

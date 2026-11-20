@@ -15,7 +15,7 @@ import pytest
 from hermit.config import Config
 
 ROOT = Path(__file__).resolve().parents[4]
-sys.path.insert(0, str(ROOT / 'examples/agentdojo/utils'))
+sys.path.insert(0, str(ROOT / 'examples/agentdojo/utils/benchmark'))
 from prepare_benchmark import SUITES, digest, read_collection, select
 
 
@@ -107,7 +107,8 @@ def test_comparison_recipes_share_victim_and_test_data_while_retaining_method_se
     assert config['agent']['params']['benchmark'] == 'agentdojo'
     assert config['agent']['params']['max_iters'] == 25
     assert config['data']['step_size'] == 57
-    assert config.path(config['data']['test']) == ROOT / 'examples/agentdojo/utils/data/comparison-v1/test.txt'
+    assert config.path(config['data']['test']) == \
+        ROOT / 'examples/agentdojo/utils/benchmark/data/comparison-v1/test.txt'
     assert not config['data'].get('val')
     assert config['evolver']['params']['backend'] == 'codex'
     if method == 'she':
@@ -143,8 +144,9 @@ def test_the_entry_points_load_agentdyns_runtime_beside_an_installed_examples_pa
     (tmp_path / 'examples').mkdir()
     (tmp_path / 'examples/__init__.py').write_text('')
     code = ("import runpy\n"
-            "for name in ('agentdojo/utils/task.py', 'agentdojo/utils/judge.py', 'agentdojo/utils/prepare.py',\n"
-            "             'agentdojo/utils/prepare_benchmark.py', 'agentdyn/utils/prepare.py'):\n"
+            "for name in ('agentdojo/utils/task.py', 'agentdojo/utils/benchmark/judge.py',\n"
+            "             'agentdojo/utils/benchmark/prepare.py', 'agentdojo/utils/benchmark/prepare_benchmark.py',\n"
+            "             'agentdyn/utils/benchmark/prepare.py'):\n"
             "    runpy.run_path('examples/' + name)\n")
     env = {**os.environ, 'PYTHONPATH': os.pathsep.join([str(tmp_path), str(ROOT)])}
     result = subprocess.run([sys.executable, '-c', code], cwd=ROOT, env=env, capture_output=True, text=True)

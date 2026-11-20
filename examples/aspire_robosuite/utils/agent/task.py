@@ -12,7 +12,7 @@ host, as the simulator service (sim_service.py), which the session reaches only 
 
 ASPIRE's checkout comes from agent.params.aspire_root (its prompt templates and snapshot program must be
 declared readable: environment.read; its docs are read from agent.params.aspire_docs, the staged copies); the service's URL from ASPIRE_SIM_URL (environment.env). A task row carries the
-seeds: development, unseen-check and held-out (utils/prepare.py).
+seeds: development, unseen-check and held-out (utils/benchmark/prepare.py).
 """
 from __future__ import annotations
 
@@ -44,7 +44,8 @@ KEEP = ("task_analysis.md", "fix_code.py", "findings.md", "findings_report.md", 
 
 
 def settings(task: dict, params: dict) -> dict:
-    """The session's assignment, from its task row (the seeds; utils/prepare.py) and agent.params (the checkout)."""
+    """The session's assignment, from its task row (the seeds; utils/benchmark/prepare.py) and agent.params (the
+    checkout)."""
     role = "verifier" if task.get("role") == "verifier" else "actor"     # a rerun is an actor with the final library
     root = params.get("aspire_root") or os.environ.get("ASPIRE_ROOT")
     if not root:

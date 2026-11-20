@@ -600,19 +600,27 @@ def test_the_engine_takes_the_benchmarks_venv_and_refuses_one_it_does_not_run(tm
 
 
 def test_the_libero_tasks_are_liberos_five_suites_and_liberos_pros_eighty_with_aspires_seeds(tmp_path, monkeypatch):
-    """The rows and splits prepare.py writes: what the simulator service, the judge and every method's configs read."""
+    """The tasks and splits prepare.py writes, read as their rows (aspire_fields.py): what the simulator service, the
+    judge and every method's configs read."""
     from hermit.config import Config
-    P = _load("libero_prepare", LIBERO / "utils" / "prepare.py")
+    from hermit.task import Benchmark
+    P = _load("libero_prepare", LIBERO / "utils" / "benchmark" / "prepare.py")
+    F = _load("aspire_fields", EXAMPLE / "agent" / "aspire_fields.py")
     assert sum(P.SUITES.values()) == 130 and P.SUITES["libero_90"] == 90
     pro = [f"libero_{family}_{kind}" for family in ("object", "spatial", "goal", "10") for kind in ("swap", "task")]
     assert list(P.PRO_SUITES) == pro and set(P.PRO_SUITES.values()) == {10}
     monkeypatch.setattr(P, "HERE", tmp_path)
     monkeypatch.setattr(sys, "argv", ["prepare.py"])
     P.main()
-    rows = [json.loads(line) for line in (tmp_path / "tasks.jsonl").read_text().splitlines()]
-    tasks = [r for r in rows if "role" not in r]
+    found = F.task_rows(tmp_path / "tasks")                          # each task directory as its row
+    rows = list(found.values())
+    tasks = [found[i] for i in (tmp_path / "splits" / "all.txt").read_text().split()]
     assert len(tasks) == 210 and len(rows) == 630 and len({r["id"] for r in rows}) == 630    # a suite and its
     assert all(r["benchmark"] == "libero-pro" for r in rows)                  # perturbations share their task ids
+    assert list(found["libero_goal-t03"]) == ["id", "benchmark", "suite", "task_id", "debug_seeds", "unseen_seeds",
+                                              "eval_seeds"]                  # the row's keys, in its order
+    assert found["verify-libero_goal-t03"]["findings"] is False and found["rerun-libero_goal-t03"]["role"] == "rerun"
+    assert (tmp_path / "tasks" / "libero_goal-t03" / "instruction.md").is_file()
     assert all((r["debug_seeds"], r["unseen_seeds"], r["eval_seeds"]) == ("51-65", "66-80", "1-50") for r in tasks)
     split = lambda name: (tmp_path / "splits" / name).read_text().split()
     by = lambda *suites: [r["id"] for r in tasks if r["suite"] in suites]
@@ -624,10 +632,15 @@ def test_the_libero_tasks_are_liberos_five_suites_and_liberos_pros_eighty_with_a
     assert split("libero_sample.txt") == [f"{s}-t{n:02d}" for s in ("libero_object", "libero_spatial", "libero_goal")
                                           for n in (0, 5)]
     for path in sorted((LIBERO / "aspire").glob("*.yaml")) + sorted((LIBERO / "prompt_only").glob("*.yaml")):
-        data = Config.load(path).data["data"]
-        rows_file = Path(data["tasks"])
-        rows_file = rows_file if rows_file.is_absolute() else path.parent / rows_file
-        assert rows_file.resolve() == (LIBERO / "utils" / "tasks.jsonl").resolve(), path    # the benchmark's rows
+        config = Config.load(path)
+        data = config.data["data"]
+        assert config.path(data["tasks"]) == (LIBERO / "utils" / "benchmark" / "tasks").resolve(), path
+        assert config.path(data["view"].split(":")[0]) == (EXAMPLE / "agent" / "aspire_fields.py").resolve(), path
+        monkeypatch.setitem(data, "tasks", str(tmp_path / "tasks"))           # the tasks prepared here
+        for key in ("train", "val", "test"):
+            if data.get(key):
+                monkeypatch.setitem(data, key, str(tmp_path / "splits" / Path(data[key]).name))
+        assert {t.id: t.given() for t in Benchmark.from_config(config).tasks.values()} == found, path
         train, test = split(Path(data["train"]).name), split(Path(data["test"]).name)
         assert train and set(train) <= {r["id"] for r in tasks}, path
         assert test == [f"rerun-{i}" for i in train], path        # the reruns are of the tasks it trained on
@@ -1030,7 +1043,7 @@ def test_a_run_takes_the_registrations_max_steps_and_stops_at_the_timeout(tmp_pa
 
 
 def test_the_judge_runs_stage_two_on_the_rows_seeds_and_a_verifier_only_when_verified(tmp_path, monkeypatch):
-    J = _load("aspire_judge", EXAMPLE / "judge.py")
+    J = _load("aspire_judge", EXAMPLE / "benchmark" / "judge.py")
     runs, engines = [], []
 
     class Engine:
@@ -1070,9 +1083,43 @@ def test_the_judge_runs_stage_two_on_the_rows_seeds_and_a_verifier_only_when_ver
     assert J.score(ROW, out({"role": "actor"}))["score"] == 0.0                 # no program: not scored
 
 
+def test_the_robosuite_tasks_are_task_directories_read_back_as_the_rows_they_were(tmp_path, monkeypatch):
+    """prepare.py writes each task, verifier and rerun as a task directory (Harbor's format, no network, judged on the
+    host); aspire_fields.py, every config's data.view, reads each back as exactly the row tasks.jsonl held."""
+    from hermit.config import Config
+    from hermit.task import Benchmark
+    P = _load("robosuite_prepare", EXAMPLE / "benchmark" / "prepare.py")
+    F = _load("aspire_fields", EXAMPLE / "agent" / "aspire_fields.py")
+    monkeypatch.setattr(P, "HERE", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["prepare.py", "--preset", "smoke"])
+    P.main()
+    found = F.task_rows(tmp_path / "tasks")
+    seeds = {"debug_seeds": "101-103", "unseen_seeds": "126", "eval_seeds": "1-3"}
+    task = {"id": "robosuite-cube_stack", "suite": "cube_stack", "task_id": 0}
+    assert json.dumps(found["robosuite-cube_stack"]) == json.dumps({**task, **seeds})     # its keys in order, types
+    assert json.dumps(found["verify-robosuite-cube_stack"]) == json.dumps(
+        {**task, "id": "verify-robosuite-cube_stack", "role": "verifier", "debug_seeds": "101-105",
+         "eval_seeds": "none", "max_versions": 2, "search": "debug", "findings": False})
+    assert json.dumps(found["rerun-robosuite-cube_stack"]) == json.dumps(
+        {**task, "id": "rerun-robosuite-cube_stack", "role": "rerun", "findings": False, **seeds})
+    assert len(found) == 21 and (tmp_path / "splits" / "smoke.txt").read_text().split() == \
+        ["robosuite-cube_lifting", "robosuite-cube_stack"]
+    loaded = Benchmark.load(tmp_path / "tasks", view=F.aspire_task).tasks["robosuite-cube_stack"]
+    assert loaded.private["tests"] is None and loaded.private["needs"]["network"]["agent"] == "no-network"
+    for path in sorted((EXAMPLE.parent / "aspire").glob("*.yaml")):
+        config = Config.load(path)
+        data = config.data["data"]
+        assert config.path(data["tasks"]) == (EXAMPLE / "benchmark" / "tasks").resolve(), path
+        monkeypatch.setitem(data, "tasks", str(tmp_path / "tasks"))
+        for key in ("train", "val", "test"):
+            monkeypatch.setitem(data, key, str(tmp_path / "splits" / Path(data[key]).name))
+        assert {t.id: t.given() for t in Benchmark.from_config(config).tasks.values()} == found, path
+
+
 def test_prepare_refuses_held_out_seeds_a_session_could_run():
     for args in (["--eval", "1-200"], ["--unseen", "120-130"], ["--eval", "1-100", "--verify", "50-54"]):
-        done = subprocess.run([sys.executable, str(EXAMPLE / "prepare.py"), *args], capture_output=True, text=True)
+        done = subprocess.run([sys.executable, str(EXAMPLE / "benchmark" / "prepare.py"), *args], capture_output=True,
+                              text=True)
         assert done.returncode == 2 and "overlap" in done.stderr, args
 
 

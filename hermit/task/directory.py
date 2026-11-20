@@ -15,6 +15,7 @@ verifier reads.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Callable
 import tomllib
@@ -175,6 +176,58 @@ def rows_of(task_dir: Path, *, rollouts: int = 1) -> list[dict]:
                         "verifier_timeout_sec": ((step_cfg.get("verifier") or {}).get("timeout_sec")
                                                  or base["verifier_timeout_sec"])})
     return out
+
+
+def toml_value(value) -> str:
+    """A value as TOML writes it, read back by tomllib as the same value (key order kept): a string (JSON's escapes
+    are TOML's; DEL escaped too), a boolean, an integer, a float, a list, a mapping (an inline table). TOML has no
+    null: None is refused."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            return "nan" if value != value else "inf" if value > 0 else "-inf"
+        return repr(value)
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007F")
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(toml_value(v) for v in value) + "]"
+    if isinstance(value, dict):
+        return "{" + ", ".join(f"{toml_key(k)} = {toml_value(v)}" for k, v in value.items()) + "}"
+    raise ValueError(f"TOML cannot hold {value!r}")
+
+
+def toml_key(key) -> str:
+    """A key as TOML writes it: bare when it can be, else quoted."""
+    key = str(key)
+    return key if key and all(c.isascii() and (c.isalnum() or c in "-_") for c in key) else toml_value(key)
+
+
+def write_task(task_dir: Path, instruction: str, *, metadata: dict | None = None, **sections: dict) -> Path:
+    """One task directory in Harbor's format: instruction.md (the instruction, as rows_of reads it back: trimmed, so
+    it must be trimmed already) and task.toml (`version`, [metadata], then each of `sections` as a table:
+    environment={"network_mode": "no-network"}, agent=..., verifier=...). tasks_of reads it back with every value as
+    given, in its order; a value TOML cannot hold (None) is refused."""
+    if instruction != instruction.strip():
+        raise ValueError(f"{task_dir}: the instruction is read back trimmed; trim it first")
+    lines = ['version = "1.0"']
+    for name, table in {"metadata": metadata or {}, **sections}.items():
+        if not table:
+            continue
+        lines += ["", f"[{name}]"]
+        for key, value in table.items():
+            try:
+                lines.append(f"{toml_key(key)} = {toml_value(value)}")
+            except ValueError as exc:
+                raise ValueError(f"{task_dir}: [{name}] {key}: {exc}") from None
+    task_dir = Path(task_dir)
+    task_dir.mkdir(parents=True, exist_ok=True)
+    with open(task_dir / "instruction.md", "w", encoding="utf-8", newline="") as f:     # its line endings kept
+        f.write(instruction + "\n")
+    (task_dir / TASK_FILE).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return task_dir
 
 
 VERIFIER_KEYS = ("environment_mode", "timeout_sec", "env")    # what the judge reads of [verifier]

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Train, or evaluate, the ASPIRE method on Robosuite. Run it on the host that serves ASPIRE's providers.
 # (Another benchmark of ASPIRE's harness starts it from its own folder, as ASPIRE_EXAMPLE: its configs, in the
-# method folder ASPIRE_METHOD (default aspire), its utils/prepare.py and task rows, its runs; ../../libero/utils/launch.sh.)
+# method folder ASPIRE_METHOD (default aspire), its utils/benchmark/prepare.py and tasks, its runs; ../../libero/utils/launch.sh.)
 #
 #   ASPIRE_ROOT=/path/to/ASPIRE ./launch.sh                      # train run.yaml
 #   ASPIRE_CONFIG=smoke.yaml ./launch.sh                          # train the smoke (its seeds: ASPIRE_SEEDS=smoke)
@@ -12,7 +12,7 @@
 #   ASPIRE_OUT=/big/disk/aspire ./launch.sh                       # the runs, the sessions, Stage 2 (default ../runs)
 #   ASPIRE_EVAL_SEEDS=1-50 ./launch.sh                            # held-out seeds other than the preset's
 #
-# The launcher writes the seeds into the task rows (prepare.py; ASPIRE_SEEDS=smoke for the smoke's), starts the
+# The launcher writes the seeds into the tasks (prepare.py; ASPIRE_SEEDS=smoke for the smoke's), starts the
 # simulator service the actors reach through bin/sim (utils/agent/sim_service.py, on ASPIRE_SIM_PORT, default 8120;
 # stopped when the run ends), and runs hermit. ASPIRE_SIM_ENV names a YAML mapping of environment variables for the
 # simulator, e.g. {MUJOCO_GL: egl, PYOPENGL_PLATFORM: egl, EGL_PLATFORM: device, MUJOCO_EGL_DEVICE_ID: "0"}
@@ -22,7 +22,7 @@
 set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 : "${ASPIRE_ROOT:?set ASPIRE_ROOT to an ASPIRE checkout with .venv-robosuite}"
-EXAMPLE="$(cd "${ASPIRE_EXAMPLE:-$HERE/..}" && pwd)"              # the folder with <method>/<config> and utils/prepare.py
+EXAMPLE="$(cd "${ASPIRE_EXAMPLE:-$HERE/..}" && pwd)"              # the folder with <method>/<config> and utils/benchmark/
 METHOD="${ASPIRE_METHOD:-aspire}"                                 # the folder of the configs
 # Absolute, from where the launcher was called: the service, the judge and the sandboxed workers each start elsewhere
 ASPIRE_ROOT="$(cd "$ASPIRE_ROOT" && pwd)"
@@ -51,17 +51,17 @@ cd "$EXAMPLE/$METHOD"
 # The model key, for a config whose models are Fireworks' (one on the machine's ChatGPT login needs none)
 ! grep -q "ref: fireworks/" "$CONFIG" || : "${FIREWORKS_API_KEY:?set FIREWORKS_API_KEY}"
 
-# The seeds, in the task rows: the simulator service and the judge read them there. The example's prepare.py holds
-# its benchmark's (ASPIRE's defaults and the smoke's).
+# The seeds, in the tasks (task directories, each read as its row): the simulator service and the judge read them
+# there. The example's utils/benchmark/prepare.py holds its benchmark's (ASPIRE's defaults and the smoke's).
 PRESET="${ASPIRE_SEEDS:-$([[ "${CONFIG##*/}" == smoke* ]] && echo smoke || echo aspire)}"
 [[ "$PRESET" == smoke || "$PRESET" == aspire ]] || { echo "ASPIRE_SEEDS is smoke or aspire" >&2; exit 2; }
 SEEDS=(--preset "$PRESET")
 [[ -z "${ASPIRE_EVAL_SEEDS:-}" ]] || SEEDS+=(--eval "$ASPIRE_EVAL_SEEDS")
-(cd ../utils && "$HERMIT" prepare.py "${SEEDS[@]}")
+(cd ../utils/benchmark && "$HERMIT" prepare.py "${SEEDS[@]}")
 # ASPIRE's docs as the actors may read them, outside its checkout: the task sandbox is shown these, not the
 # checkout's pages, which name ASPIRE's worked programs per task.
 export ASPIRE_DOCS="$EXAMPLE/utils/aspire-docs"
-"$HERMIT" "$HERE/../utils/agent/stage_docs.py" --aspire-root "$ASPIRE_ROOT" --tasks ../utils/tasks.jsonl \
+"$HERMIT" "$HERE/../utils/agent/stage_docs.py" --aspire-root "$ASPIRE_ROOT" --tasks ../utils/benchmark/tasks \
   --out "$ASPIRE_DOCS"
 
 # Where the runs go (ASPIRE_OUT): the trainer's records, the actors' sessions (their simulator runs' records and
@@ -79,7 +79,7 @@ export ASPIRE_ROOT ASPIRE_OUT="$OUT" ASPIRE_SIM_ENV="$SIM_ENV_JSON" ASPIRE_SIM_G
 [[ -n "${ASPIRE_SIM_GPU:-}" ]] || echo "note: ASPIRE_SIM_GPU names no GPU: the simulator renders in software" >&2
 PORT="${ASPIRE_SIM_PORT:-8120}"
 NONCE="$$-$RANDOM-$(date +%s%N)"                  # this launch's service answers /health with it, another run's not
-"$HERMIT" "$HERE/../utils/agent/sim_service.py" --port "$PORT" --aspire-root "$ASPIRE_ROOT" --tasks ../utils/tasks.jsonl \
+"$HERMIT" "$HERE/../utils/agent/sim_service.py" --port "$PORT" --aspire-root "$ASPIRE_ROOT" --tasks ../utils/benchmark/tasks \
   --workspaces "$OUT/actor-logs" --state "$OUT/sim-service" --sim-env "$SIM_ENV_JSON" --nonce "$NONCE" \
   --gpu "${ASPIRE_SIM_GPU:-}" > "$OUT/sim-service.log" 2>&1 &
 SERVICE=$!

@@ -29,7 +29,7 @@ a domain plugs in through the [task contract](#the-task-contract). The first dom
 ```yaml
 template: evosafe@1.0
 agent: {name: ../utils/bridge.py:run, base: direct, model: vllm/nvidia/nvidia/nemotron-3.5-lightning}                # the domain's hook bridge
-judge: {path: ../utils/judge.py}                    # native verdicts as metrics in JudgeResult.extra
+judge: {path: ../utils/benchmark/judge.py}          # native verdicts as metrics in JudgeResult.extra
 evolver:
   name: evosafe
   base: codex

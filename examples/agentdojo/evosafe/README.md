@@ -3,7 +3,7 @@
 [`run.yaml`](run.yaml) connects the existing EvoSafeHarness method and
 `evosafe@1.0` adapter to official AgentDojo's frozen replay task.
 Follow [installation and data preparation](../README.md) first. The config's
-paths are relative to this folder; preparation writes `../utils/data/`.
+paths are relative to this folder; preparation writes `../utils/benchmark/data/`.
 
 The victim defaults to `openai/gpt-4o-mini-2024-07-18`. Configure its backend and
 credentials, and replace `llm: null` with your proposer before training. The
@@ -31,7 +31,7 @@ are errors, not successful defenses. The Lightning/Codex comparison below record
 ## Matching Lightning/Codex experiment
 
 [`run_nemotron_codex.yaml`](run_nemotron_codex.yaml) uses the shared
-[57/54/406 protocol](../utils/DATA.md) and the same fixed Lightning actor settings
+[57/54/406 protocol](../utils/benchmark/DATA.md) and the same fixed Lightning actor settings
 as SHE. TRAIN has 57 cases; reserved validation is unused. The Designer,
 Criticizer, Cascade and Analyzer use the existing `evosafe` implementation, with
 three proposals, cascade sizes 12/57, source gates, 0.07 improvement/tolerance

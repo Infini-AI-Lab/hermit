@@ -48,7 +48,7 @@ EMBED_MODEL=${MW_EMBED_MODEL:-fireworks/accounts/fireworks/models/qwen3-embeddin
 EFFORT=${MW_EFFORT:-high}
 META_PORT=$((WM_PORT+1))
 EMBED_PORT=$((WM_PORT+2))
-TASKDIR=$FRAMEWORK/examples/clbench_database/utils
+TASKDIR=$FRAMEWORK/examples/clbench_database/utils/benchmark
 export PYTHONPATH=$FRAMEWORK${PYTHONPATH:+:$PYTHONPATH}
 
 # The three models resolved on their backends (the shell form of hermit.agent.model.backends: HOST_*, EVOLVER_* and EMBED_*).
@@ -88,7 +88,7 @@ if [ "$VENUE" = database ]; then
     || { echo "REFUSING: task prompt lacks the accuracy scoring sentence"; exit 1; }
 fi
 
-[ -f "$TASKDIR/tasks.jsonl" ] || { echo "REFUSING: run $TASKDIR/prepare.py first"; exit 1; }
+[ -d "$TASKDIR/tasks" ] || { echo "REFUSING: run $TASKDIR/prepare.py first"; exit 1; }
 
 # The meters this launch starts stop within a second or two of the processes that use them ending (#82): its own and
 # those of any launch that reuses one. Each launch on a port lists its processes in the port's users file, emptied
@@ -161,7 +161,7 @@ for i in ${MW_ORDERS:-0}; do
   # The task directory keeps MWM's layout (current_db, the evidence README; the database's first question
   # registered), as ../mwm/launch.sh writes it, because the host runners are MWM's; ReHarness's learner reads the
   # framework's learning material, none of this.
-  "$PY" -m hermit.agent.evolver.methods.mwm.evidence.readme --evidence "$WD/evidence" --from "$HERE/../utils/task-info/mwm/contract/env_evidence.md"
+  "$PY" -m hermit.agent.evolver.methods.mwm.evidence.readme --evidence "$WD/evidence" --from "$HERE/../utils/benchmark/task-info/mwm/contract/env_evidence.md"
   if [ "$VENUE" = database ]; then
     "$CLBENCH/.venv/bin/python" "$FRAMEWORK/examples/clbench_database/utils/agent/database_runner.py" --register-first $i \
       --workdir "$WD" --clbench "$CLBENCH" --framework "$FRAMEWORK"

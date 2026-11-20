@@ -59,7 +59,7 @@ def _session(tmp: Path, domain: str, block: int, tick: int) -> tuple[Path, Path]
     shutil.copytree(TEMPLATE, adapter, ignore=shutil.ignore_patterns("__pycache__"))
     session = tmp / "session"
     (session / "control").mkdir(parents=True)
-    shutil.copytree(VENUES[domain] / "utils/task-info/mwm", session / "deployment")
+    shutil.copytree(VENUES[domain] / "utils/benchmark/task-info/mwm", session / "deployment")
     PROMPT.prepare_session(adapter, session, block=block, tick=tick)
     return adapter, session
 
@@ -112,7 +112,7 @@ class PackageParity(unittest.TestCase):
                              f"i=wm_iface.WorldModelInterface({str(wrepo)!r}, {str(evidence)!r}, delegation='none', "
                              "code_channel=True); print(i.package(wm_iface.transport_note()), end='')")
             from hermit.agent.evolver.methods.mwm import deployment as _dep
-            host = _dep.host_settings(TASKS / "utils/task-info/mwm")
+            host = _dep.host_settings(TASKS / "utils/benchmark/task-info/mwm")
             # The pipeline reads ADAPTER.md as the Evolver wrote it after an adopted step; write it the same way
             # first (interface.context with the venue's host.json), since no step has run on this copy.
             from hermit.adapter.loader import Adapter
@@ -169,7 +169,7 @@ class EnvironmentReadmeParity(unittest.TestCase):
         for domain in ("clbench", "poker"):
             native = _native(f"from mwm import env_surface; print(env_surface.readme({domain!r}), end='')",
                              MW_META_SQL="1")
-            ours = (VENUES[domain] / "utils/task-info/mwm/environment/README.md").read_text()
+            ours = (VENUES[domain] / "utils/benchmark/task-info/mwm/environment/README.md").read_text()
             self.assertEqual(native.strip(), ours.strip(), domain)
 
 
