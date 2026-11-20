@@ -4,7 +4,7 @@ from pathlib import Path
 
 from hermit import Session
 from hermit.agent.model.llm import ChatClient
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 
 
 def run(task: dict, adapter: Path | None) -> RunOutput:

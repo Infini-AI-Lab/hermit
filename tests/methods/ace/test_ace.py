@@ -499,7 +499,7 @@ def test_the_step_needs_the_llm_tool_and_a_playbook(tmp_path):
 PIPELINE = '''
 import re
 from pathlib import Path
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 
 def run(task, adapter):
     text = (Path(adapter) / "ADAPTER.md").read_text() if adapter else ""

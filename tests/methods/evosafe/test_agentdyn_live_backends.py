@@ -238,7 +238,7 @@ def test_cached_victim_and_classifier_usage_reaches_budget(tmp_path, usage_provi
     from victim import make_victim
     from auditor import OutputClassifier
     from bridge import metered, score
-    from hermit.task import RunOutput
+    from hermit.common import RunOutput
     from hermit.trainer.rollout import run_tasks
     from hermit.trainer.budget import Budget
     pending, params = usage_provider

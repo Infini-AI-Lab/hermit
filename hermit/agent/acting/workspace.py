@@ -79,8 +79,8 @@ import time
 import uuid
 
 from hermit.agent.acting.agent import ALL, Agent
-from hermit.agent.base.interface import BaseAgent, LoginFailed, Unsupported, make
-from hermit.environment import Container, Environment, Limits, Mount, Local, docker as container
+from hermit.agent.base.interface import BaseAgent, LoginFailed, make
+from hermit.environment import Container, Environment, Limits, Mount, Local, Unsupported, docker as container
 from hermit.agent.base.login import LOGINS, NO_LOGIN
 from hermit.agent.model.usage import Ledger
 from hermit.common import RunOutput, load_callable

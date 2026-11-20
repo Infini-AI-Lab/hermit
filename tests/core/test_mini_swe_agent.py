@@ -21,12 +21,12 @@ except ImportError:                 # mini-swe-agent brings jinja2: without eith
     StrictUndefined = Template = None
 import pytest
 
-from hermit.environment import Container, Sandboxed
+from hermit.environment import Container, Sandboxed, Unsupported
 import yaml
 
 from hermit.agent.acting.agent import load_agent
 from hermit.agent.base import mini_swe_agent as mini
-from hermit.agent.base.interface import Unsupported, make
+from hermit.agent.base.interface import make
 from hermit.agent.base.trajectory import log_steps
 from hermit.agent.model.backends import bind_agent_params, registry
 from hermit.hosts import mini_swe_agent as host

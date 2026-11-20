@@ -19,7 +19,8 @@ from hermit.spec import check_spec
 from hermit.agent.acting.agent import load_agent
 from hermit.isolate import agent_pipeline, config_paths, host_pipeline, judge_for, task_environments, \
     validate as validate_sandboxes
-from hermit.task import Benchmark, load_callable
+from hermit.task import Benchmark
+from hermit.common import load_callable
 from hermit.trainer.rollout import run_one
 from hermit.trainer.trainer import needs_errors, warnings_for
 

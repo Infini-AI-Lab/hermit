@@ -90,7 +90,7 @@ print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "cach
 PIPELINE = textwrap.dedent('''
     import os
     from pathlib import Path
-    from hermit.task import RunOutput
+    from hermit.common import RunOutput
 
     def run(task, adapter):
         evidence = Path(os.environ["MWM_TEST_EVIDENCE"])

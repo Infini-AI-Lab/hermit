@@ -13,10 +13,9 @@ import pytest
 from hermit.agent.base import trajectory
 from hermit.agent.acting import workspace as cli
 from hermit.agent.base import cli as base_cli
-from hermit.agent.base.interface import Limits as LIMITS
 from hermit.agent.base import login
 from hermit.environment import docker as container
-from hermit.environment import Sandboxed
+from hermit.environment import Limits as LIMITS, Sandboxed
 from hermit.agent.base.interface import make
 
 ROOT = Path(__file__).resolve().parents[2]

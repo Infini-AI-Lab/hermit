@@ -159,7 +159,7 @@ class ChatEndpoint:
         upstream gave no answer."""
         from hermit.agent.base.cli import CliAgent
         if isinstance(self.agent, CliAgent):
-            from hermit.agent.base.interface import Unsupported
+            from hermit.environment import Unsupported
             try:
                 return cli_answer(self.agent, request, abort, place=self.place)
             except (ValueError, Unsupported) as exc:            # the session's settings: the client reads why

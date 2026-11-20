@@ -26,7 +26,8 @@ def _run(job: dict) -> dict:
     if job["kind"] == "agent":
         from hermit.adapter.session import ENV_PYTHON, ENV_SANDBOX
         from hermit.agent.acting.agent import load_agent
-        from hermit.task import RunOutput, output_record
+        from hermit.common import RunOutput
+        from hermit.task import output_record
         # The adapter's tools never run in this process, nor in any it starts (inherited through the environment).
         os.environ[ENV_SANDBOX] = "1"
         os.environ[ENV_PYTHON] = sys.executable
@@ -38,7 +39,8 @@ def _run(job: dict) -> dict:
         return {"ok": True, "output": output_record(out)}
     if job["kind"] == "judge":
         from dataclasses import asdict
-        from hermit.task import RunOutput, load_callable, normalise_judge
+        from hermit.common import RunOutput, load_callable
+        from hermit.task import normalise_judge
         rec = dict(job["output"])
         out = RunOutput(**{**rec, "log": Path(rec["log"]) if rec.get("log") else None})
         verdict = normalise_judge(load_callable(job["spec"], Path(job["base"]))(dict(job["task"]), out))

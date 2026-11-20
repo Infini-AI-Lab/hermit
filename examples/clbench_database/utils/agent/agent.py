@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 
 from hermit.agent.acting import Agent
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from clbench_host import run_host  # noqa: E402

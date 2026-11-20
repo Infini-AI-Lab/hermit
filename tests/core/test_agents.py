@@ -165,7 +165,7 @@ def test_load_agent_builtin_class_function_and_alias(tmp_path):
     claude = load_agent("claude-code", {"model": "m"}, tmp_path)
     assert isinstance(claude, CliAgent) and claude.params["backend"] == "claude" and claude.base == tmp_path.resolve()
     (tmp_path / "agent.py").write_text(
-        "from hermit.agent.acting import Agent\nfrom hermit.task import RunOutput\n"
+        "from hermit.agent.acting import Agent\nfrom hermit.common import RunOutput\n"
         "class Mine(Agent):\n    def run(self, task, adapter):\n        return RunOutput(output=(self.params['k'], str(self.base.name), adapter))\n"
         "def plain(task, adapter):\n    return RunOutput(output='plain')\n")
     mine = load_agent("agent.py:Mine", {"k": 1}, tmp_path)

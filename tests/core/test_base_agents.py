@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 
 from fakes import FunctionModel
-from hermit.agent.base.interface import Limits, Mount, Unsupported, make
+from hermit.agent.base.interface import make
 from hermit.agent.base.tool import Tool
 from hermit.agent.base.tool_server import ToolServer
-from hermit.environment import Container, Local, Sandboxed
+from hermit.environment import Container, Limits, Local, Mount, Sandboxed, Unsupported
 from hermit.agent.model.direct import Direct
 
 

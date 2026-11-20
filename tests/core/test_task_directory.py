@@ -123,7 +123,7 @@ needs_bwrap = pytest.mark.skipif(not _bwrap_works(), reason="needs a working bub
 AGENT = """
 import json, os
 from pathlib import Path
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 
 def run(task, adapter):
     work = os.getcwd()
@@ -298,7 +298,7 @@ def test_a_separate_verifiers_own_memory_is_checked(tmp_path):
 AGENT_SEES_KEY = """
 import os
 from pathlib import Path
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 
 def run(task, adapter):
     Path(os.getcwd(), "answer.txt").write_text("42")
@@ -354,7 +354,7 @@ def test_a_tasks_own_verifier_never_gets_the_acting_models_key_or_hosts(tmp_path
 
 
 AGENT_BILLED_AND_FAILED = """
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 
 def run(task, adapter):
     failed = RuntimeError("chat/completions HTTP 503: busy")

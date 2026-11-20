@@ -8,8 +8,8 @@ import sys
 
 import pytest
 
-from hermit.agent.base.interface import Unsupported, make
-from hermit.environment import Container, Limits, Local, Sandboxed, as_environment, placed
+from hermit.agent.base.interface import make
+from hermit.environment import Container, Limits, Local, Sandboxed, Unsupported, as_environment, placed
 from hermit.agent.model.usage import Usage
 
 

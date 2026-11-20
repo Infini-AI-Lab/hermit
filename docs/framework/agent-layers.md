@@ -334,6 +334,8 @@ Configurations that name an agent, an Evolver or a template (`agent.name: codex`
 | `make("direct", settings, model)`, `hermit.agent.base.direct` | `Direct(settings, model)`, `hermit.agent.model.direct` (Layer 1); `make("direct")` is refused; the old module path forwards for one release |
 | `hermit.agent.base.container` | `hermit.environment.docker` (the old path forwards for one release) |
 | `agent.name: harbor` (Hermit's agents injected into `harbor run`) | Codex, Claude Code, `answer`, `react` or a custom agent that takes the `environment` argument, in the task's Harbor environment (`environment.harbor`; Pi, OpenCode, dsh, mini-swe-agent and Hermes refuse it), verified by Harbor's verifier (`judge: {path: hermit.task.verify, name: environment}`) |
-| `Mount`, `Limits` from `hermit.agent.base.interface` | `hermit.environment` (still importable from the interface) |
+| `Environment`, `Mount`, `Limits`, `Unsupported`, `as_environment` from `hermit.agent.base.interface` | `hermit.environment` (still importable from the interface) |
+| `as_messages` from `hermit.agent.base.interface` | `hermit.agent.model.direct` (still importable from the interface) |
+| `RunOutput`, `load_callable` from `hermit.task` | `hermit.common` (still importable from `hermit.task`) |
 | a benchmark's own copy of the tool loop | a `ReactAgent` subclass with `@tool` methods and hooks |
 | `@tool(description, parameters)` | also `@tool` alone: the description from the docstring, the schema from the signature |

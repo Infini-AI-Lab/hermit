@@ -30,7 +30,7 @@ import threading
 import time
 
 from hermit.agent.acting import Agent
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))

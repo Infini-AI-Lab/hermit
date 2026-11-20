@@ -31,10 +31,11 @@ import json
 import time
 from typing import Any, Sequence
 
-from hermit.agent.base.interface import BaseAgent, Result, Unsupported, as_environment, as_messages
+from hermit.agent.base.interface import BaseAgent, Result
 from hermit.agent.base.tool import Tool
 from hermit.agent.base.trajectory import Step
-from hermit.agent.model.direct import client_of
+from hermit.agent.model.direct import as_messages, client_of
+from hermit.environment import Unsupported, as_environment
 
 
 def message_steps(message: dict, calls: bool = True) -> list[Step]:

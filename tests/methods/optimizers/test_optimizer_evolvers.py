@@ -22,7 +22,7 @@ KINDS = ("ALPHA", "BETA", "GAMMA", "DELTA")
 
 PIPELINE = '''
 from pathlib import Path
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 
 def run(task, adapter):
     text = (Path(adapter) / "ADAPTER.md").read_text() if adapter else ""
