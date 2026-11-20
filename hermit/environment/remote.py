@@ -37,10 +37,35 @@ def _tar(path: Path) -> bytes:
     return buffer.getvalue()
 
 
-def _untar(data: bytes, into: Path) -> Path:
-    """The tar's one entry under `into` (links kept as links, nothing outside `into`: tarfile's data filter)."""
+def safe_untar(data: bytes, into: Path) -> None:
+    """An archive another process made, written under `into` (a fresh folder) member by member, whatever Python's
+    tarfile filters do: regular files and folders only (a link, a device, a fifo: left out), each name relative, with
+    no `..` and no empty or absolute part, written through folders this function made itself (no link can be on the
+    way: none is ever made), a file created anew (O_EXCL | O_NOFOLLOW)."""
+    root = os.path.realpath(into)
     with tarfile.open(fileobj=io.BytesIO(data), mode="r") as tar:
-        tar.extractall(str(into), filter="data")
+        for member in tar:
+            parts = [p for p in member.name.replace("\\", "/").split("/") if p not in ("", ".")]
+            if not parts or member.name.startswith("/") or ".." in parts or not (member.isreg() or member.isdir()):
+                continue
+            dest = os.path.join(root, *parts)
+            if os.path.commonpath([root, os.path.realpath(os.path.dirname(dest))]) != root:
+                continue
+            if member.isdir():
+                os.makedirs(dest, exist_ok=True)
+                continue
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            source = tar.extractfile(member)
+            if source is None:
+                continue
+            fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600 | (member.mode & 0o755))
+            with os.fdopen(fd, "wb") as out:
+                shutil.copyfileobj(source, out)
+
+
+def _untar(data: bytes, into: Path) -> Path:
+    """The tar's one entry under `into` (safe_untar: never written outside it, whatever made the archive)."""
+    safe_untar(data, into)
     return into / PAYLOAD
 
 

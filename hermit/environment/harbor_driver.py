@@ -166,6 +166,34 @@ def container_prologue(values: dict, by_fd: dict) -> tuple[str, dict]:
     return "".join(line + "\n" for line in lines), carried
 
 
+def safe_untar(data: bytes, into: Path) -> None:
+    """An archive another process made, written under `into` (a fresh folder) member by member, whatever Python's
+    tarfile filters do: regular files and folders only (a link, a device, a fifo: left out), each name relative, with
+    no `..` and no empty or absolute part, written through folders this function made itself (no link can be on the
+    way: none is ever made), a file created anew (O_EXCL | O_NOFOLLOW)."""
+    import io
+    import tarfile
+    root = os.path.realpath(into)
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r") as tar:
+        for member in tar:
+            parts = [p for p in member.name.replace("\\", "/").split("/") if p not in ("", ".")]
+            if not parts or member.name.startswith("/") or ".." in parts or not (member.isreg() or member.isdir()):
+                continue
+            dest = os.path.join(root, *parts)
+            if os.path.commonpath([root, os.path.realpath(os.path.dirname(dest))]) != root:
+                continue
+            if member.isdir():
+                os.makedirs(dest, exist_ok=True)
+                continue
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            source = tar.extractfile(member)
+            if source is None:
+                continue
+            fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600 | (member.mode & 0o755))
+            with os.fdopen(fd, "wb") as out:
+                shutil.copyfileobj(source, out)
+
+
 def scrubbed(data: bytes, secrets) -> bytes:
     """`data` with each of `secrets` replaced, as Harbor's trial scrubs its files (text only: a binary file is left)."""
     if not secrets or b"\0" in data[:8192]:
@@ -277,6 +305,10 @@ async def _tracked_spawn(*args, **kwargs):
     for known in [p for p in CLIENTS if p.returncode is not None and not group_alive(p)]:
         CLIENTS.pop(known, None)
     CLIENTS[process] = CLIENT_KIND.get()
+    record = os.environ.get("HERMIT_CLIENT_GROUPS")      # a file of this machine's the host kills them from, should it
+    if record:                                           # have to kill this driver (its own group does not hold them)
+        with contextlib.suppress(OSError), open(record, "a") as f:
+            f.write(f"{process.pid}\n")
     return process
 
 asyncio.create_subprocess_exec = _tracked_spawn
@@ -304,11 +336,19 @@ def kill_group(process) -> None:
 
 
 def group_alive(process) -> bool:
+    """Whether a process of the client's group still runs (a zombie, not reaped yet, does not)."""
     try:
         os.killpg(process.pid, 0)
-        return True
     except (ProcessLookupError, PermissionError):
         return False
+    for stat_file in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            fields = stat_file.read_text().rsplit(")", 1)[1].split()
+        except (OSError, IndexError):
+            continue
+        if len(fields) > 2 and fields[2] == str(process.pid) and fields[0] != "Z":   # its state, its group
+            return True
+    return False
 
 asyncio.subprocess.Process.communicate = _communicate_or_kill
 END_PHASE_S = 600                       # the end of the agent phase's own bound, all of its steps
@@ -541,6 +581,8 @@ class Driver:
         if said.return_code != 0 or not owner or not __import__("re").fullmatch(r"\d+:\d+", owner[-1]):
             raise HarborDriverError(f"the task's agent user has no uid:gid here: {said.stdout!r}"[:500])
         self.owner = None if owner[-1].split(":")[0] == "0" else owner[-1]
+        if self.owner is not None:
+            await self._provision_deployment(environment)
         for item in self.installs:                       # the homes the agent declared (Agent.installs), its own
             if item.get("home") and self.owner is not None:
                 home = shlex.quote(str(item["home"]))
@@ -608,10 +650,13 @@ class Driver:
                            ("publish logs", self._publish_logs)):
             try:
                 await asyncio.wait_for(step(), END_STEPS[name])
-            except HarborDriverError:
-                raise
             except Exception as exc:                     # noqa: BLE001 - a step not confirmed (its bound too): no
-                raise HarborDriverError(f"the agent phase's end ({name}) did not finish: "  # verifier
+                if name != "remove credentials":         # verifier; the credentials removed all the same
+                    with contextlib.suppress(Exception):
+                        await asyncio.wait_for(self._remove_credentials(), END_STEPS["remove credentials"])
+                if isinstance(exc, HarborDriverError):
+                    raise
+                raise HarborDriverError(f"the agent phase's end ({name}) did not finish: "
                                         f"{type(exc).__name__}: {exc}") from exc
 
     async def _stop_commands(self) -> None:
@@ -632,18 +677,52 @@ class Driver:
     async def _finish_transfers(self) -> None:
         transfers = [t for t, op in self.agent_ops.items() if op != "exec"]
         if transfers:
-            await asyncio.wait(transfers, timeout=END_STEPS["finish transfers"] / 2)
+            done, pending = await asyncio.wait(transfers, timeout=END_STEPS["finish transfers"] / 2)
+            failed = [t for t in done if not t.cancelled() and t.exception() is not None]
+            if pending or failed:                        # a file there may be partial: never graded
+                for task in pending:
+                    task.cancel()
+                await end_clients("agent")
+                raise HarborDriverError(f"{len(pending)} transfer(s) still running and {len(failed)} failed as the "
+                                        "agent phase ended")
         for task in list(self.agent_ops):
             task.cancel()
         if self.agent_ops:
             await asyncio.gather(*self.agent_ops, return_exceptions=True)
         await end_clients("agent")
 
+    async def _provision_deployment(self, environment) -> None:
+        """The names the agent declared its deployment puts in the workspace (Agent.installs `deploy`, computed on
+        Hermit's side), made the agent user's at the phase's start, before any command of the agent's runs (no race:
+        nothing of the agent's has run there yet), as the runner's _deploy provisioned them: a folder made or given to
+        it; a file there given to it, an image's link replaced by a file of its target's text (the image's own
+        context, which the deployment merges); a missing file made empty. Only these names, only now: no worker's
+        request is ever run as root."""
+        names = [item.get("deploy") for item in self.installs if item.get("deploy")]
+        if not names:
+            return
+        q, owner, work = shlex.quote, shlex.quote(self.owner), shlex.quote(self.workdir)
+        lines = [f"cd {work} || exit 1"]
+        for spec in names:
+            for d in spec.get("dirs") or []:
+                lines.append(f"if [ -L {q(d)} ]; then rm -f -- {q(d)}; fi; mkdir -p -- {q(d)} && chown {owner} {q(d)}")
+            for f in spec.get("files") or []:
+                lines.append(f"if [ -L {q(f)} ]; then if [ -f {q(f)} ]; then cat -- {q(f)} > {q(f)}.hermit-new; else "
+                             f": > {q(f)}.hermit-new; fi; mv -f -- {q(f)}.hermit-new {q(f)}; fi; "
+                             f"[ -e {q(f)} ] || : > {q(f)}; chown -h {owner} {q(f)}")
+        done = await environment.exec(" && ".join(f"( {line} )" for line in lines), user="root")
+        if done.return_code != 0:
+            raise HarborDriverError(f"the deployment's names could not be given to the agent user: "
+                                    f"{((done.stdout or '') + (done.stderr or ''))[-300:]}")
+
     async def _keep_streams(self) -> None:
         trial = self.trial
         for mark, (path, name) in list(self.streams.items()):
             # the agent user's file, read as that user: nothing it could link there is read with root's rights
-            got = await self.env.exec(f"cat -- {shlex.quote(path)} 2>/dev/null; rm -f -- {shlex.quote(path)}")
+            q = shlex.quote(path)
+            got = await self.env.exec(f"[ -e {q} ] || exit 0; cat -- {q} && rm -f -- {q}")
+            if got.return_code != 0:                     # a stream that began and cannot be read: not kept, not graded
+                raise HarborDriverError(f"the stream {name} could not be read: {(got.stderr or '')[-300:]}")
             if got.stdout:
                 trial.paths.agent_dir.mkdir(parents=True, exist_ok=True)
                 kept = Path(self.out_dir()) / Path(name).name
@@ -752,6 +831,9 @@ class Driver:
         self.running.add(mark)
         try:
             return await self._run_command(req, command, timeout, user, mark)
+        except Exception:                                # dispatched, its end not known: ended at the phase's end
+            self.unkilled.add(mark)
+            raise
         finally:
             self.running.discard(mark)
 
@@ -865,31 +947,10 @@ class Driver:
         if done.return_code != 0:
             raise RuntimeError(f"{command[:120]}: {(done.stdout or '')[-300:]}")
 
-    def _deployment(self, target: str) -> bool:
-        """Whether `target` is one of the names the agent declared its deployment puts in the workspace (installs:
-        `deploy`, computed on Hermit's side, never a worker's request), or below one."""
-        names = [n for item in self.installs for n in item.get("deploy") or []]
-        work = Path(self.workdir or "/")
-        try:
-            rel = Path(os.path.normpath(target)).relative_to(work)
-        except ValueError:
-            return False
-        return bool(rel.parts) and rel.parts[0] in names and ".." not in rel.parts
-
     async def upload(self, req: dict) -> dict:
         source, target = Path(req["source"]), str(req["target"])
-        if req.get("as_agent") and self.owner is not None:
-            if self._deployment(target):
-                # the deployment, provisioned as the runner's _deploy did (root's, given to the agent user), never
-                # through a link the agent left on the way
-                rel = Path(os.path.normpath(target)).relative_to(Path(self.workdir))
-                steps = [str(Path(self.workdir).joinpath(*rel.parts[:i + 1])) for i in range(len(rel.parts))]
-                checks = " || ".join(f"[ -L {shlex.quote(p)} ]" for p in steps)
-                safe = await self.env.exec(f"if {checks}; then exit 1; fi; exit 0", user="root")
-                if safe.return_code != 0:
-                    raise Failed("PermissionError", f"{target}: a link on the way, never provisioned through")
-            else:
-                return await self._upload_as_agent(source, target)
+        if req.get("as_agent") and self.owner is not None:   # a worker's request: never root's, whatever its name
+            return await self._upload_as_agent(source, target)
         parent = str(Path(target).parent)
         await self.env.exec(f"mkdir -p {shlex.quote(parent)}", user="root")
         if source.is_dir() and not source.is_symlink():
@@ -941,9 +1002,8 @@ class Driver:
     async def _download_as_agent(self, source: str, target: Path) -> dict:
         """A download the agent's process asked for, read with the agent user's own permissions: a tar of it made as
         that user in the environment (tar's own exit decides), unpacked here as data (no link out, no device, no
-        absolute path)."""
+        absolute path: safe_untar)."""
         import base64
-        import tarfile
         parent, name = str(Path(source).parent), Path(source).name
         done = await self.env.exec(
             f'out=$(mktemp) && cd {shlex.quote(parent)} && tar -cf "$out" -- {shlex.quote(name)} && base64 "$out"; '
@@ -952,10 +1012,8 @@ class Driver:
             raise Failed("PermissionError", f"the agent user may not read {source}: "
                                             f"{(done.stderr or done.stdout or '')[-300:]}")
         with tempfile.TemporaryDirectory(prefix="hermit-down-") as tmp:
-            archive = Path(tmp) / "a.tar"
-            archive.write_bytes(base64.b64decode("".join((done.stdout or "").split())))
-            with tarfile.open(archive) as tar:
-                tar.extractall(Path(tmp) / "x", filter="data")
+            (Path(tmp) / "x").mkdir()
+            safe_untar(base64.b64decode("".join((done.stdout or "").split())), Path(tmp) / "x")
             got = Path(tmp) / "x" / name
             if got.is_dir() and not got.is_symlink():
                 target.mkdir(parents=True, exist_ok=True)

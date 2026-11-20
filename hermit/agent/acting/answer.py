@@ -45,6 +45,7 @@ from hermit.common import RunOutput
 INPUT_FIELDS = ("prompt", "question", "instruction", "input")
 ANSWER_FILE = "/app/answer.txt"                  # where the answer goes in the environment unless answer_file says
 MAX_ATTACHMENT_BYTES = 20 * 2**20
+B64_BEGIN, B64_END = "hermit-attachment-begin", "hermit-attachment-end"   # around an attachment's bytes there
 DEFAULT_WAIT_S = 30.0
 POLL_S = 1.0
 
@@ -112,8 +113,11 @@ class AnswerAgent(Agent):
             timed_out = self._deliver(environment, answer, caller, budget, timed_out)
         except Exception as exc:                         # noqa: BLE001 - the environment's: infra, its spend kept
             message = f"{type(exc).__name__}: {exc}"[-2000:]
-            if "AgentPhaseOver" in message:              # Harbor ended the phase: the trial's verdict, not infra
-                raise
+            if "AgentPhaseOver" in message:              # Harbor ended the phase: the trial's verdict, its spend kept
+                return RunOutput(output=None, cost_usd=usage.cost_usd, wall_s=round(time.time() - started, 1),
+                                 tokens=usage.input_tokens + usage.output_tokens,
+                                 api_speed={"model_calls": usage.calls},
+                                 extra={"timed_out": True, "session_failed": message[-600:]})
             return RunOutput(output=None, cost_usd=usage.cost_usd, wall_s=round(time.time() - started, 1),
                              tokens=usage.input_tokens + usage.output_tokens, api_speed={"model_calls": usage.calls},
                              extra={"infra": "harbor_failed", "infra_final": False, "exception_message": message})
@@ -210,8 +214,12 @@ class AnswerAgent(Agent):
                 print(f"WARNING: {path} is over {MAX_ATTACHMENT_BYTES} bytes: it is not sent", file=sys.stderr,
                       flush=True)
                 continue
-            data = environment.exec(["sh", "-c", f"base64 < {quoted}"], timeout=120)     # its own exit decides
-            encoded = "".join(data.output.split())
+            # its own exit decides; the payload between marks of its own (the runner's), never a diagnostic line the
+            # environment's client printed beside it
+            data = environment.exec(["sh", "-c", f"echo {B64_BEGIN}; base64 < {quoted} || exit 1; echo {B64_END}"],
+                                    timeout=120)
+            framed = data.output.split(B64_BEGIN, 1)[-1].split(B64_END, 1)[0] if B64_BEGIN in data.output else ""
+            encoded = "".join(framed.split())
             try:
                 image = base64.b64decode(encoded, validate=True)
             except ValueError:

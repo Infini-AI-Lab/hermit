@@ -926,10 +926,9 @@ def task_environments(config, *, log=None):
         raise ValueError("agent.params.model: a model a CLI reaches (`cli: ...`) is not supported for a task in "
                          "Harbor's environments: its login's plan would be waited for inside the task's time; give the "
                          "agent a <backend>/<model> reference, or run the CLI itself as the agent (agent.base)")
-    name = d["agent"].get("name")
-    backend = str(params.get("backend") or {"claude-code": "claude"}.get(name, name))
+    backend = str(_cli_kind(d["agent"].get("name"), params) or "")      # the CLI the agent runs, `cli` too
     binding = params.get("binding")
-    if backend in ("codex", "claude", "claude-code") and isinstance(binding, dict):
+    if backend in ("codex", "claude") and isinstance(binding, dict):
         # the runner's check: a CLI runs in the task's container, which cannot reach this machine's loopback
         from urllib.parse import urlsplit
         from hermit.agent.model.backends import Binding

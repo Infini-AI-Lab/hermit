@@ -176,8 +176,9 @@ class HarborEnvironments:
                              f"not {self.cleanup!r}")
         env_config = s.get("environment") if isinstance(s.get("environment"), dict) else {}
         # a local Docker environment Harbor deletes after the trial (a kept one, delete false, is left as it is)
+        self.keep_containers = bool((env_config.get("kwargs") or {}).get("keep_containers"))
         self.local_docker = env_config.get("type") in (None, "docker") and env_config.get("delete", True) is not False \
-            and not (env_config.get("kwargs") or {}).get("keep_containers")   # Harbor told to keep them: kept
+            and not self.keep_containers                 # Harbor told to keep them: kept
         self.verifier_timeout = str(s.get("verifier_timeout") or "agent")
         if self.verifier_timeout not in VERIFIER_TIMEOUTS:
             raise ValueError(f"environment.harbor.verifier_timeout is agent or infra, not {self.verifier_timeout!r}")
@@ -522,14 +523,22 @@ class _Driver:
         return done
 
     def _kill(self) -> None:
+        groups = Path(self.log.name).with_name("client-groups")   # the driver's Docker clients, each a group
         for sig in (15, 9):
             with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.killpg(self.proc.pid, sig)
             try:
                 self.proc.wait(timeout=20)
-                return
+                break
             except subprocess.TimeoutExpired:
                 continue
+        try:                                             # its clients too (a compose up), before any teardown
+            pids = [int(p) for p in groups.read_text().split() if p.isdigit()]
+        except OSError:
+            pids = []
+        for pid in pids:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(pid, 9)
 
 
 class HarborEnvironment(Environment):
@@ -581,7 +590,8 @@ class HarborEnvironment(Environment):
             self.trials_dir.mkdir(parents=True, exist_ok=True)
             tmp = owner.jobs_dir / "tmp"
             tmp.mkdir(parents=True, exist_ok=True)
-            env = {**{k: v for k, v in os.environ.items() if k not in owner.drop_env}, "TMPDIR": str(tmp)}
+            env = {**{k: v for k, v in os.environ.items() if k not in owner.drop_env}, "TMPDIR": str(tmp),
+                   "HERMIT_CLIENT_GROUPS": str(self.trials_dir / "client-groups")}
             self.driver = _Driver(owner.python, self.trials_dir / "driver.log", env)
         except OSError as exc:
             raise EnvironmentUnavailable(f"this machine could not start the environment's driver: "
@@ -630,7 +640,8 @@ class HarborEnvironment(Environment):
                     driver.request("stop", timeout=STOP_TIMEOUT_S)
                     stopped = True
                 if not driver.close(30 if stopped else 60) or not stopped:
-                    docker.compose_down(self.name)
+                    if not self.owner.keep_containers:   # Harbor told to keep them: never taken down
+                        docker.compose_down(self.name)
                 elif self.owner.local_docker and docker.compose_projects(docker.compose_project(self.name)):
                     docker.compose_down(self.name)       # Harbor logged a down that failed: its projects, by name
                 self.owner.cleanup_images(self.task_dir)
