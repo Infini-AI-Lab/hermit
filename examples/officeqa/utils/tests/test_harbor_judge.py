@@ -1,9 +1,10 @@
 """OfficeQA's judge in a Harbor task's container (utils/harbor/judge.py, which build_tasks.py copies into every task's
 tests/): `find_answer` takes the `<answer>` of the final message from the Codex event stream a trial leaves in
-/logs/agent, HermitCodex's agent-codex.jsonl or the codex.txt Harbor's own Codex agent writes. The container's paths
+/logs/agent, the Codex agent's agent-codex.jsonl or the codex.txt Harbor's own Codex agent writes. The container's paths
 (the module's own ANSWER_FILE and STREAMS) are moved under tmp_path; the stream has the shape of those the OfficeQA
 GPT-5.6-Luna runs kept (Codex 0.164.0, `codex exec --json`): Codex's stderr line first, then its events. The name of
-HermitCodex's stream is checked against the launch plan Hermit renders for a Codex trial (hermit.harbor.launch)."""
+Codex agent's stream is checked against the name its log keeps it under (hermit.agent.acting.workspace), which the
+run hands the verifier in /logs/agent."""
 from __future__ import annotations
 
 import importlib.util
@@ -55,32 +56,27 @@ def write(path: Path, stream: list) -> None:
 
 @pytest.mark.parametrize("stream", ["agent-codex.jsonl", "codex.txt"])
 def test_an_answer_in_the_final_message_is_found_in_either_codex_stream(judge, stream):
-    """HermitCodex keeps the session's stream in agent-codex.jsonl; the judge read only codex.txt, which Harbor's own
-    Codex agent writes, so every answer given in a HermitCodex trial's final message scored 0."""
+    """The Codex agent keeps the session's stream in agent-codex.jsonl; the judge read only codex.txt, which Harbor's
+    own Codex agent writes, so every answer given in a Hermit session's final message scored 0."""
     found = [path for path in judge.STREAMS if path.name == stream]
     assert len(found) == 1
     write(found[0], STREAM)
     assert judge.find_answer() == ("44,463", "final message")
 
 
-def test_the_judge_reads_the_stream_the_launch_plan_names_for_a_codex_trial(tmp_path, monkeypatch):
-    """harborside writes a session's stream to /logs/agent/<the plan's stream>, a name Hermit's launch plan gives
-    (agent-<backend>.jsonl): a judge reading another name finds no final message, and every answer scores 0."""
-    from hermit.agent.model.backends import Binding
-    from hermit.harbor import launch
-    monkeypatch.setenv("FAKE_MODEL_KEY", "fake-model-key")
-    binding = Binding.from_spec({"ref": "fake/glm-5", "backend": "fake", "model": "glm-5",
-                                 "base_url": "https://models.example/v1", "api_key_env": "FAKE_MODEL_KEY",
-                                 "key_required": True, "apis": ["chat", "responses", "messages"]})
-    plan = json.loads(launch.render("codex", launch.settings_for("codex", binding=binding, web_search=False),
-                                    deploy=None, tools_url=None, job=tmp_path / "job").read_text())
-    assert load().STREAMS[0] == Path("/logs/agent") / plan["stream"]
+def test_the_judge_reads_the_stream_the_codex_agent_keeps(tmp_path):
+    """The Codex agent keeps a session's stream in its log as agent-<backend>.jsonl, the log the run hands Harbor's
+    verifier in /logs/agent: a judge reading another name finds no final message, and every answer scores 0."""
+    from hermit.agent.base.cli import Codex
+    source = (Path(__file__).resolve().parents[4] / "hermit" / "agent" / "acting" / "workspace.py").read_text()
+    assert 'log=log / f"agent-{backend}.jsonl"' in source
+    assert load().STREAMS[0] == Path("/logs/agent") / f"agent-{Codex.backend}.jsonl"
 
 
 def test_a_line_of_codexs_stderr_that_is_json_but_no_object_is_skipped(judge):
-    """Codex's stderr shares the stream's file (harborside: `> stream 2>&1`): a line of it that parses as JSON but is
-    no object, a bare number, raised AttributeError in the judge before it wrote its reward, and test.sh's fallback
-    scored the trial 0: a correct answer lost."""
+    """Codex's stderr shares the stream's file (the session's output, stdout and stderr together): a line of it that
+    parses as JSON but is no object, a bare number, raised AttributeError in the judge before it wrote its reward, and
+    test.sh's fallback scored the trial 0: a correct answer lost."""
     write(judge.STREAMS[0], ["429", "null", *STREAM])
     assert judge.find_answer() == ("44,463", "final message")
 

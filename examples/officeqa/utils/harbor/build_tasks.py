@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""OfficeQA in the SkillOpt paper's setting as a task set in Harbor's format: one task directory per question, run by
-`agent.name: harbor` (the Codex harness in a container Harbor starts, instead of one the acting agent's environment.image starts).
+"""OfficeQA in the SkillOpt paper's setting as a task set in Harbor's format: one task directory per question, each run
+in its own Harbor environment (`environment.harbor`: the Codex harness in a container Harbor starts, instead of one the
+acting agent's environment.image starts).
 
     python examples/officeqa/utils/harbor/build_tasks.py                 # after utils/benchmark/prepare.py
         [--out utils/benchmark/.private/harbor_tasks] [--ids utils/benchmark/splits/test.txt] [--limit N] [--base-image
@@ -135,7 +136,7 @@ def main(argv=None) -> int:
     dataset.write_jsonl(index, out / "tasks.jsonl")
     mounts = json.loads((out / "MOUNTS.json").read_text())
     print(f"{len(written)} tasks -> {out}  (tasks.jsonl beside them)")
-    print("the corpus mount for the config's agent.params.environment.mounts:")
+    print("the corpus mount for the config's environment.harbor.environment.mounts:")
     print("  export OFFICEQA_DOCS_ROOT=" + mounts[0]["source"])
     return 0
 

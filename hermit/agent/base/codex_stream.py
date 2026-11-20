@@ -1,49 +1,15 @@
-"""What Hermit's side reads of a sign-in in a Harbor trial, beside what the CLI's Base Agent reads of the session.
-
-The Base Agents (hermit.agent.base.cli, .login) are used as they are: a trial's stream is read with the CLI's own
-`outcome`, and a refreshed ChatGPT sign-in goes back to the shared copy through `login.take_back`. Three things a
-trial in a task's container needs beyond them are here:
-
-- `codex_signin_lost(raw)`: whether a trial's Codex stream says that its sign-in or its key was refused, which no wait
-  restores. Codex's `outcome` reports no lost sign-in (a session on this machine that met one fails on its own); a
-  Harbor trial that met one would leave every later trial on the same sign-in failing the same way, so the runner ends
-  the run (hermit.agent.base.interface.LoginFailed, which hermit.trainer.rollout passes up: `hermit train` resumes
-  after the last finished step, `hermit eval` stops). Codex's own lines are told from what its log quotes of the
-  session's work (`lines`), and only the notices since the session last worked count (a side request's 401 that the
-  session worked after is no lost sign-in).
-- `codex_unavailable(raw)`: whether a Codex session that served no turn failed on its provider (an outage, a rate
-  limit, the network). Codex's `outcome` takes any notice of its stream for one, a reconnect Codex recovered from too:
-  a trial that worked on after one and then failed on its own (its context full, say) would be run again and left
-  out of the scored trials, though it is the agent's result. Here only the session's last failure counts, or a retry
-  Codex was still making when the turn failed with the error it retried, or when the stream ended; a response the
-  provider's content filter ended is the agent's result, never an outage.
-- `codex_refused(raw)` and `codex_rejected(raw)`: the plan's usage limit (the Base Agent's words, login.LIMIT) and a
-  refusal of the run's configuration or bill (CODEX_REJECTED: a 400, 402 or 404 Codex does not retry, an API
-  account's quota), each read from Codex's own notices only (`lines`), never from what its log quotes of the session's
-  work, which the Base Agent's reading takes for its notices too.
-- `take_back(root, returned, local=...)`: the sign-in a trial's container handed back becomes the shared copy only
-  when it is a regular file of at most MAX_BYTES, a ChatGPT sign-in (its refresh and access tokens), stamped at most
-  SKEW past this machine's clock in Harbor's local Docker environment (whose containers share it; OTHER_CLOCK in any
-  other): read once, never through a link, into a private copy that `login.take_back` then takes (which keeps the
-  copy's account and takes only a later refresh). A session that can read its sign-in can also write a well-formed
-  one, which no check can tell from a refresh.
+"""What Hermit reads of a CLI session's stream beyond its Base Agent's own `outcome`, for a session in a remote
+environment (a task's Harbor environment): for Codex, a lost sign-in or key, a provider that could not serve, the
+plan's usage limit and a refusal of the run's configuration, each read from Codex's own notices only, never from what
+its log quotes of the session's work; for every CLI, whether a refusal was of the run's configuration or of the
+account's bill (`session_verdict`). Ported unchanged from Hermit's Harbor runner (hermit/harbor/signin.py's readers
+and the runner's CONFIG_REFUSED, BILLING_REFUSED, QUOTA_SAID and session_verdict), which applied them to every session
+in a task's container.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import json
-import os
-from pathlib import Path
 import re
-import shutil
-import stat
-
-FILE = "auth.json"                                       # hermit.agent.base.login.FILE: Codex's sign-in file
-MAX_BYTES = 64 << 10      # a sign-in larger than this is none, never read whole (Codex's auth.json is a few KB: two
-                          # tokens of about 2 KB each, a refresh token, the account and a time)
-SKEW = timedelta(minutes=1)          # a refresh stamped on this machine's clock (a local Docker container shares it)
-OTHER_CLOCK = timedelta(hours=1)     # ... on another machine's (a cloud sandbox): the hour login.take_back allows
-TAKEN_DIR = "taken"                  # under a job's launch/: the private copy login.take_back reads
 
 # Codex's report of a sign-in or a key the provider refused, which no wait restores (the wording of Harbor's
 # AgentAuthenticationError, harbor/agents/installed/base.py ERROR_PATTERNS, and Codex 0.164's own for no sign-in at all,
@@ -243,9 +209,76 @@ def codex_rejected(raw: str) -> str | None:
     return last if CODEX_REJECTED.search(last) else None
 
 
-def _regular_bytes(path: Path, limit: int) -> bytes | None:
+# A rejection that refused the run's configuration, which no input to the session changes, as the CLI's own notices
+# (the session's `failure`) name it: its key or token (401, unauthorized, a failed authentication, an invalid key or
+# token, a key not valid, not logged in, OpenCode's provider.auth), its permission (403, forbidden, no access), its
+# model or endpoint (404, not found, a model that does not or may not exist, an invalid or unknown model, one that is
+# not a valid model), its account's bill (402, a credit balance too low, an insufficient quota, Codex's "Quota exceeded.
+# Check your plan and billing details.", billing; not a rate limit's advice, "billing details" or a link to the billing
+# page). A status is read only where one is written: leading
+# the text or a line of it (Pi's "401 {...}"), after the prefix Hermit's endpoint gives a CLI's failure in its reply
+# ("...(exit 1): 401 {...}", "...(timed out): "; endpoint._no_reply), after "API Error: " (Claude Code's) or
+# "Error code: " (OpenAI's SDK), in "(HTTP 401)" (OpenCode's) or in "API error (401)" (Pi's), after "status" ("status
+# code", "status_code") or a JSON "code"; never another number of the text (a token count: "you requested 4402 tokens
+# (402 in the messages, ...)", "input tokens (402): 403 over"). So is a request setting the model does not take (an
+# unsupported parameter or value: max_tokens where it takes max_completion_tokens, an effort it has not; Azure's
+# unrecognized request argument; OpenCode's provider.unsupported-operation), and what Hermit's own endpoint refuses a
+# CLI session cannot take (its code, tools.UNSUPPORTED: config_refused). Any other rejection (a
+# prompt too long, an invalid request, a content filter) is what the adapter's or the task's input made the request:
+# the agent's result. (A rate limit or an overload is `unavailable`, read before any rejection.)
+CONFIG_REFUSED = re.compile(r"(?:^|\((?:exit -?\d+|timed out)\): |\bAPI error(?:: | \()|\bError code: |"
+                            r"(?:\bstatus(?:[ _]code)?|\"code\")\"?:? ?\"?)40[1-4]\b|\(HTTP 40[1-4]\)|"
+                            r"unauthori[sz]ed|forbidden|authenticat|\bauth\b|not logged in|"
+                            r"invalid[\w -]{0,20}?(?:key|token)\b|\b(?:key|token) not valid|permission|access denied|"
+                            r"not have access|not[ _]found|(?:may|does|model) not exist|(?:invalid|unknown)[ _]model|"
+                            r"not a valid model|credit balance is too low|insufficient[_ ]?quota|"
+                            r"^\s*Quota exceeded\. Check your plan and billing details\b|"
+                            r"(?<!/)\bbilling(?! details)|unsupported[ _](?:parameter|value)|model is not supported\b|"
+                            r"unrecognized request argument|unsupported[ _-]operation|" + CODEX_PLAN_REFUSED,
+                            re.I | re.M)
+# ... of them, an account the provider does not bill (its quota or its credit spent, a payment it needs): nothing later
+# can be served, as after an API account's usage limit, so it ends the run (usage_limit, a halt)
+BILLING_REFUSED = re.compile(r"(?:^|\((?:exit -?\d+|timed out)\): |\bAPI error(?:: | \()|\bError code: |"
+                             r"(?:\bstatus(?:[ _]code)?|\"code\")\"?:? ?\"?)402\b|\(HTTP 402\)|payment required|"
+                             r"credit balance is too low|insufficient[_ ]?(?:quota|balance|credits?|funds)\b|"
+                             r"^\s*Quota exceeded\. Check your plan and billing details\b|(?<!/)\bbilling(?! details)|"
+                             + CODEX_PLAN_REFUSED, re.I | re.M)
+# ... and OpenAI's code for an API account whose quota or credit is spent, which comes with a 429 (the status of a rate
+# limit, which a pause ends: `unavailable`), in the error's code or type (the answer agent's relay records it) or in
+# the words a CLI's failure quotes of the reply: nothing later can be served, so it ends the run too
+QUOTA_SPENT = "insufficient_quota"
+QUOTA_SAID = re.compile(r"\binsufficient_quota\b")
+
+
+def session_verdict(facts: dict, tokens: int | None) -> str | None:
+    """What a session that served nothing says beyond its own result, as the Harbor runner's `session_verdict` read
+    it from any CLI's facts (its Base Agent's outcome): "usage_limit" when the provider does not bill the account (a
+    refusal of the configuration that is billing's, BILLING_REFUSED, or a provider that could not serve for a quota
+    spent, QUOTA_SAID: nothing later can be served, the run ends), "model_rejected" when it refused the run's
+    configuration before serving anything (CONFIG_REFUSED, no model refusal, no tokens: never run again), else None:
+    a request refused for what the adapter's or the task's input made it (a prompt too long, an invalid request, a
+    content filter) and the model's own refusal are the agent's result."""
+    if facts.get("served"):
+        return None
+    failure = str(facts.get("failure") or "")
+    if facts.get("unavailable") and not facts.get("refused") and QUOTA_SAID.search(failure):
+        return "usage_limit"
+    if facts.get("rejected") and not facts.get("model_refusal") and not tokens and CONFIG_REFUSED.search(failure):
+        return "usage_limit" if BILLING_REFUSED.search(failure) else "model_rejected"
+    return None
+
+
+# ---- the sign-in a session hands back (ported from hermit/harbor/signin.py) ----------------------------------------
+SIGNIN_MAX_BYTES = 64 << 10   # a sign-in larger than this is none, never read whole (Codex's auth.json is a few KB)
+SKEW = 60.0                   # seconds a refresh may lie past this machine's clock: a local Docker container's
+OTHER_CLOCK = 3600.0          # ... another machine's (a cloud sandbox): the hour login.take_back allows
+
+
+def regular_bytes(path, limit: int):
     """At most `limit` bytes of `path` opened as a regular file at its own name, never through a link there
     (O_NOFOLLOW), read once; None for none there, a link, no regular file, or one larger than `limit`."""
+    import os
+    import stat
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     except OSError:
@@ -264,10 +297,11 @@ def _regular_bytes(path: Path, limit: int) -> bytes | None:
     return data if len(data) <= limit else None
 
 
-def signed_in(data: bytes, skew: timedelta) -> bool:
-    """Whether a sign-in file's bytes are a ChatGPT sign-in Codex refreshed at most `skew` past this machine's clock: a
-    JSON object whose tokens hold a refresh and an access token (each a string, not empty), and a last_refresh that
+def signed_in(data: bytes, skew_s: float) -> bool:
+    """Whether a sign-in file's bytes are a ChatGPT sign-in Codex refreshed at most `skew_s` past this machine's clock:
+    a JSON object whose tokens hold a refresh and an access token (each a string, not empty), and a last_refresh that
     parses and lies no further ahead (a file the session could write must not pin the shared copy)."""
+    from datetime import datetime, timedelta, timezone
     try:
         parsed = json.loads(data.decode("utf-8"))
     except (ValueError, UnicodeDecodeError, RecursionError):
@@ -282,32 +316,4 @@ def signed_in(data: bytes, skew: timedelta) -> bool:
         return False
     if when.tzinfo is None:
         when = when.replace(tzinfo=timezone.utc)
-    return when <= datetime.now(timezone.utc) + skew
-
-
-def take_back(root: Path, returned: Path, *, local: bool) -> bool:
-    """The sign-in a trial's container handed back (`returned`/auth.json) taken for the shared copy under `root`, when
-    it passes `signed_in` with SKEW (`local`: Harbor's local Docker environment) or OTHER_CLOCK and is at most
-    MAX_BYTES: its bytes, read once, go to a private copy beside `returned` (launch/taken/), which
-    hermit.agent.base.login.take_back takes when it is a later refresh of the copy, for the copy's account; the
-    private copy is removed after. Whether it was offered to the copy."""
-    from hermit.agent.base import login
-    data = _regular_bytes(Path(returned) / FILE, MAX_BYTES)
-    if data is None or not signed_in(data, SKEW if local else OTHER_CLOCK):
-        return False
-    taken = Path(returned).parent / TAKEN_DIR
-    if os.path.lexists(taken):
-        if taken.is_dir() and not taken.is_symlink():
-            shutil.rmtree(taken)
-        else:
-            taken.unlink()
-    taken.mkdir(mode=0o700)
-    copy = taken / FILE
-    try:
-        fd = os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-        login.take_back(Path(root), copy, within=taken)
-    finally:
-        shutil.rmtree(taken, ignore_errors=True)
-    return True
+    return when <= datetime.now(timezone.utc) + timedelta(seconds=skew_s)

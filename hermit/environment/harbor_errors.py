@@ -1,47 +1,34 @@
-"""What a Harbor trial's `result.json` (or a step's result) says about the rollout: status, failure cause, exception,
-reward, and whether the run must halt.
+"""What a task's Harbor environment says about a rollout: status, failure cause, exception, reward. Ported from Hermit's
+Harbor runner (hermit/harbor/errors.py, before the runner was retired) with its policy unchanged; the run's verdict of
+an environment (hermit.environment.harbor.HarborEnvironments.verdict) is `classify` of what Harbor's trial recorded,
+then `verifier_timeout_verdict` and `verifier_verdict`, as the runner read a trial.
 
 Harbor 0.25.0's error policy (harbor/models/trial/error_policy.py) maps exception types to failure causes. It is copied
 here so that Hermit's side never imports Harbor: Harbor lives in its own venv (Python 3.13). An unlisted exception
-type is `unclassified`. What the policy grades as the agent's result although its cause is the verifier's or the
-provider's (GRADED) is the agent's here too. Harbor grades a model provider's other failures as the agent's too, a
-refused sign-in or model aside (a rate limit, a lost connection or a server error, after its retries; a parameter, a
-response or a budget the provider refused); Hermit keeps them infra and runs them again, since a provider that could
-not serve the run, or refused its configuration, is not the agent's result.
+type is `unclassified`. What the policy grades as the agent's result although its cause is the verifier's (GRADED) is
+the agent's here too.
 
     status       condition
     ok           no exception, a verifier reward
-    timeout      AgentTimeoutError (the verifier may still have run); a verifier that ran out of its time on the
-                 agent's solution (VerifierTimeoutError: solution_timed_out, runner.verifier_timeout_verdict)
-    agent_error  unclassified (an agent exit with an unmatched message: a CLI that exited non-zero, as one does whose
-                 first request the provider refused for what the input made it, a prompt too long), a request of one
-                 of Harbor's own agents that the provider refused for what it held (BadRequestError,
-                 UnprocessableEntityError: model_provider_failed), a verifier that left no reward Harbor could read
-                 (no reward file, an empty one, one that does not parse: verifier_failed), a session the model's
-                 safeguards ended (agent_refused_task: runner.session_verdict), the adapter's context over the CLI's
-                 limit beside the image's own (context_over_limit), the adapter's deployment or per-task context
-                 failing in its child process on this machine, before any container (adapter_failed)
-    infra        a sandbox, model provider or Harbor failure; harbor killed by the wait budget; no trial directory;
-                 no exception and no reward; an unlisted exception whose message is the host's (HOST_FAILURE);
-                 harborside's launch of the session failing for a reason not the agent's (launch_failed); a verifier
+    timeout      a verifier that ran out of its time on the agent's solution (VerifierTimeoutError:
+                 solution_timed_out; infra with verifier_timeout: infra)
+    agent_error  a verifier that left no reward Harbor could read (no reward file, an empty one, one that does not
+                 parse: verifier_failed); an unclassified exception whose message is not the host's
+    infra        the environment did not come up (sandbox_failed: its build or pull, Docker, the healthcheck; the disk
+                 gate, `disk`; the driver's own failure, harbor_failed; a wait past its budget, harbor_timeout); no
+                 exception and no reward; an unlisted exception whose message is the host's (HOST_FAILURE); a verifier
                  the host kept from its tests (verifier_failed: its tools never arrived, or the host's disk was full,
-                 runner.verifier_verdict; one that ran out of its time with verifier_timeout: infra); and what the
-                 runner reads from the session or meets before the trial: the adapter's staging failing on this
-                 machine (staging_failed), the plan's usage limit, or an account the provider does not bill (its quota
-                 or credit spent, a 402: usage_limit, a halt, as an API account's usage limit), a lost sign-in
-                 (login_failed), a provider that refused the run's configuration before it served any request
-                 (model_rejected: a key it does not take, a permission it does not give, a model it does not have; no
-                 halt, and never run again), a session that never started or whose tools never came up
-                 (session_failed), the adapter's tools not served (tools_failed)
+                 `verifier_verdict`); a session that never started, or that the provider could not serve
+                 (session_failed, model_provider_failed: what the acting agent raised)
 
-The judge (judge.py) scores the verifier's reward whenever there is one (ok, timeout, agent_error), else 0. An infra
-rollout is not the agent's result: the runner marks it `unscored` and runs it again (agent.params.infra_retries; not a
-cause that runs no better again, runner.NO_RETRY); the judge refuses to score one that stays so (judge.Unscored), and
-the run records a failed run (judge_error). Tokens and cost are Hermit's reading of the CLI's stream (runner.session);
-Harbor's own for its built-in agents.
+An infra rollout is not the agent's result: the run (hermit.trainer.rollout) runs the task again in a fresh
+environment (environment.harbor.infra_retries; not a cause that runs no better again, NO_RETRY), marks one that stays
+so `unscored`, and the environment judge refuses to score it (hermit.task.verify.Unscored): the run records a failed
+run (judge_error), which a learner sees as one and `hermit eval` counts among its errors.
 """
 from __future__ import annotations
 
+from pathlib import Path
 import re
 
 FAILURE_CAUSE: dict[str, str] = {name: cause for cause, names in {
@@ -58,8 +45,9 @@ FAILURE_CAUSE: dict[str, str] = {name: cause for cause, names in {
                               "BudgetExceededError", "AgentAuthenticationError", "ModelNotFoundError",
                               "ApiProviderResourceNotFoundError", "AuthenticationError", "PermissionDeniedError",
                               "NotFoundError"),
+    # (HarborDriverError is Hermit's own: the environment's driver failed, or did not answer, outside Harbor's verifier)
     "harbor_failed": ("ServiceOperationsUnsupportedError", "VercelScopeError", "DspyImportError",
-                      "MissingExtraError", "RegradeError"),
+                      "MissingExtraError", "RegradeError", "HarborDriverError"),
     "unclassified": ("NonZeroAgentExitCodeError",),
     "agent_exhausted_budget": ("AgentTimeoutError", "ContextWindowExceededError", "OutputTokenExceededError",
                                "ContextLengthExceededError", "OutputLengthExceededError"),
@@ -72,6 +60,7 @@ FAILURE_CAUSE: dict[str, str] = {name: cause for cause, names in {
     "launch_failed": ("HermitLaunchError",),
     "context_over_limit": ("HermitContextLimitError",),
 }.items() for name in names}
+DRIVER_ERROR = "HarborDriverError"
 INFRA_CAUSES = {"sandbox_failed", "model_provider_failed", "verifier_failed", "harbor_failed", "cancelled",
                 "harbor_timeout", "disk", "stream_lost", "stream_order", "launch_failed",
                 # read from the session's stream by the runner (runner.session_verdict), or met before the trial
@@ -90,6 +79,16 @@ INFRA_CAUSES = {"sandbox_failed", "model_provider_failed", "verifier_failed", "h
 GRADED = {"VerifierTimeoutError", "RewardFileNotFoundError", "RewardFileEmptyError", "VerifierOutputParseError",
           "BadRequestError", "UnprocessableEntityError"}
 HALTING = {"ApiUsageLimitError", "AgentAuthenticationError"}       # nothing after this trial can succeed
+# the causes of an infra rollout that run no better again (the runner's NO_RETRY): a disk gate that waited its time out,
+# a request the provider refused for the run's configuration (its key, permission, model or bill: no input to the
+# session changes it)
+NO_RETRY = ("disk", "model_rejected", "host_failed",   # and this machine's own failure, which the runner never ran
+            "unsupported_task")                        # again, nor a task Harbor runs for none of Hermit's agents
+                                                      # again (an OSError starting the environment's driver)
+INFRA_RETRIES = 2                                                # environment.harbor.infra_retries' default
+INFRA_WAIT_S = 300.0                                             # infra_wait_s'
+BUSY_RETRIES = 3                                                 # busy_retries' default: the provider's allowance
+BUSY_WAIT_S = 120.0                                              # busy_wait_s'
 # An exception Harbor does not list whose message shows the host failing, not the agent: the agent's setup could not
 # exec in the container (the host's /tmp full, where runc writes each exec's process file; the daemon gone), or the
 # task's environment did not come up: Harbor's Docker environment raises a plain RuntimeError "Docker compose command
@@ -172,16 +171,95 @@ def classify(result: dict | None, *, expired: bool = False, harbor_exit: int | N
                     float(reward) if reward is not None else None, halt=exc_type in HALTING)
 
 
-def adapter_failed(message: str) -> dict:
-    """The verdict of a rollout whose adapter failed on this machine before any container: its deployment, or its
-    per-task context, raised in their child process (hermit.harbor.staging, hermit.harbor.context). That is the
-    agent's result, scored 0 (agent_error), as a session's failure on its adapter is, its message the feedback; no
-    session ran, so it spent nothing (`ran` False)."""
-    return {**_verdict("agent_error", "adapter_failed", None, message, None), "ran": False}
-
-
 def no_trial(cause: str, message: str) -> dict:
-    """An infra verdict for a rollout that never reached a container (the disk gate, the adapter's staging, a stream
-    step its driver was never asked for): no session ran, so it spent nothing (`ran` False: its cost is 0, never
-    unknown). A stream step lost after its request was sent may have run one: its caller sets `ran` None."""
+    """An infra verdict for a rollout that never reached its environment (the disk gate, an environment that did not
+    start): no session ran, so it spent nothing (`ran` False: its cost is 0, never unknown)."""
     return {**_verdict("infra", cause, None, message, None), "ran": False}
+
+
+def verifier_timeout_verdict(verdict: dict, verifier_timeout: str = "agent") -> dict:
+    """A verifier that ran out of its time (VerifierTimeoutError) is the agent's result with `verifier_timeout:
+    agent`, the default, as Harbor grades it: a timeout on the agent's solution (solution_timed_out), scored its
+    reward or 0 and not run again (a solution too slow for its tests, as AlgoTune's verifier times it, or a process
+    it left that hung them). With `verifier_timeout: infra`, for a host whose load makes verifiers time out, it is
+    infra: run again. Either way the session did not run out of its time: `timed_out` stays false."""
+    if verdict.get("exception_type") != "VerifierTimeoutError":
+        return verdict
+    if verifier_timeout == "infra":
+        return {**verdict, "status": "infra", "failure_cause": "verifier_failed", "timed_out": False}
+    return {**verdict, "status": "timeout", "failure_cause": "solution_timed_out", "timed_out": False}
+
+
+def _text(path: Path) -> str:
+    """A regular file's text, or "" when it is missing, unreadable or no regular file (never read through a link)."""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace") if path.is_file() and not path.is_symlink() else ""
+    except OSError:
+        return ""
+
+
+def verifier_verdict(verdict: dict, verifier_dir: Path | None, redact=()) -> dict:
+    """A rollout whose verifier ran no test is infra: run again, not kept as the agent's result, whether the verifier
+    wrote 0, left no reward or ran out of its time. Either the verifier's tools never arrived, their download failed by
+    a server (a 5xx, GitHub's release download) so its test runner is missing and it wrote no report
+    (verifier_unreached), or the host's disk was full while it ran, before its tests wrote a report
+    (verifier_disk_full: with a report, the words are a test's output). A rollout the verifier passed ran its tests;
+    one whose verifier never ran (no output of it) stays as it was. The output quoted has `redact`'s patterns removed
+    (verifier_redact)."""
+    if verifier_dir is None or verdict["status"] == "infra" or float(verdict.get("reward") or 0) >= 1:
+        return verdict
+    out = Path(verifier_dir)
+    stdout = _text(out / "test-stdout.txt")
+    if verifier_unreached(stdout, (out / "ctrf.json").exists()):
+        why = "the verifier's tools never arrived (their download failed), so its tests never ran"
+    elif verifier_disk_full(stdout, (out / "ctrf.json").exists()):
+        why = "the host's disk was full while the verifier ran (ENOSPC)"
+    else:
+        return verdict
+    return {**verdict, "status": "infra", "failure_cause": "verifier_failed",
+            "exception_message": f"{why}: {_redacted(stdout, redact).strip()[-300:]}"}
+
+
+def _redacted(text: str, patterns) -> str:
+    """The runner's curate.redact_verifier: each match of `patterns` replaced."""
+    for pattern in patterns or ():
+        text = re.sub(str(pattern), "[redacted]", text)
+    return text
+
+
+def start_cause(kind: str | None, message: str) -> str:
+    """The infra cause of an environment that did not start (Harbor's start, its healthcheck, the driver): Harbor's
+    policy's cause when it lists one among INFRA_CAUSES, else sandbox_failed (a trial whose environment failed before
+    its agent started is infra, whatever raised)."""
+    cause = FAILURE_CAUSE.get(kind or "", "unclassified")
+    if kind == "TimeoutError":
+        return "harbor_timeout"
+    if kind == "DriverGone":
+        return "harbor_failed"
+    return cause if cause in INFRA_CAUSES else "sandbox_failed"
+
+
+# What an acting agent raises that is not its result (the runner read the same of a trial's session): an environment
+# that failed under it (its driver gone, the image's context file unreadable), a session that never started, a provider
+# that could not serve it after the agent's own runs again (the Codex agent's `retries`: the runner's busy_retries,
+# one allowance over all of a rollout's runs, so it is not run again here), a model endpoint that failed (the answer
+# agent's: a 408, 409, 429 or 5xx, or no answer, after the chat client's own retries), and a refusal of the run's
+# configuration (a CLI's, read by the Codex agent's stream reader; the answer agent's endpoint's 401-404), which no
+# run again changes. (cause, whether the rollout runs again).
+PIPELINE_INFRA = ((re.compile(r"\bmodel_rejected\b|chat/completions HTTP 40[1-4]\b"), "model_rejected", False),
+                  (re.compile(r"could not be served after"), "model_provider_failed", False),
+                  (re.compile(r"before starting a session"), "session_failed", True),
+                  (re.compile(r"chat/completions HTTP (?:408|409|429|5\d\d)\b|chat/completions failed: "),
+                   "model_provider_failed", True),
+                  (re.compile(r"\bEnvironmentUnavailable\b|the Harbor driver|the environment is not started|"
+                              r"the image's own context file could not be read|"
+                              r"the task's environment did not provide"), "harbor_failed", True))
+
+
+AGENT_PHASE_OVER = "AgentPhaseOver"     # an agent command refused or ended because Harbor ended the agent phase
+
+
+def pipeline_cause(message: str) -> tuple[str, bool] | None:
+    """(the infra cause of an acting agent's failure, whether it runs again) by PIPELINE_INFRA, or None: the
+    pipeline's own failure, a failed run as any."""
+    return next(((cause, again) for pattern, cause, again in PIPELINE_INFRA if pattern.search(message or "")), None)

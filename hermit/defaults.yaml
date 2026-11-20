@@ -51,6 +51,8 @@ environment:                   # the task sandbox, where the acting agent runs (
   resources: {}                # memory_mb, file_mb, cpu_s: per process
   gpu: []                      # NVIDIA GPUs shown, by the N of /dev/nvidia<N> (CUDA and EGL; inside they count from 0);
                                # none: no GPU (EGL renders in software where Mesa is installed)
+  harbor: null                 # a task set in Harbor's environments: each task's own (hermit/environment/harbor.py), its
+                               # settings or the benchmark file that holds them; the agent works there, Harbor verifies
 judge:
   path: null
   name: score

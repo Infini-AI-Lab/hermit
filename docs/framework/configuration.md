@@ -50,7 +50,7 @@ Use the same run name for training and evaluation. Unknown configuration keys ar
 |---|---|
 | `data` | Task JSONL file, split files, tasks per step, whether to shuffle the train split (`shuffle`, default true), and shuffle seed. |
 | `task_info` | Directory explaining the task and objective to the learner. |
-| `agent.name` | A built-in agent (`react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `hermes`, or `harbor`: a benchmark's task set in Harbor's format, [Benchmarks](task.md#benchmarks)), `file.py:Class` for the task's own `Agent` subclass, or `file.py:function` for a plain `run(task, adapter)`. `pipeline.run` is the older spelling. |
+| `agent.name` | A built-in agent (`react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `hermes`, `answer`), `file.py:Class` for the task's own `Agent` subclass, or `file.py:function` for a plain `run(task, adapter)`. `pipeline.run` is the older spelling. |
 | `agent.concurrency` | Maximum concurrent task executions during rollout and evaluation. |
 | `agent.params` | The agent's settings: for a built-in agent its model, prompt and tools; for the task's own agent whatever it reads. |
 | `judge.path`, `judge.name` | Scoring module/file and function name; the default name is `score`. |
@@ -117,6 +117,7 @@ strict preset with the adapter read-only. A task's declared tools run with `envi
 | `environment.network` | `no-network` (default), `allowlist` (with `environment.allowed_hosts`, through a proxy), or `public`. The agent's model provider (as an allowed host) and the tool endpoint stay reachable. |
 | `environment.resources` | `memory_mb`, `file_mb`, `cpu_s` per process (positive whole numbers; null: no limit); not with `environment.image`, whose container keeps its own. |
 | `environment.image` | A Docker image: a Codex or Claude Code acting agent runs in a container of its own; `environment.container` gives its network and egress proxy. |
+| `environment.harbor` | A task set in Harbor's environments: each task's own, Harbor's verifier ([Benchmarks](task.md#benchmarks)); its settings, or `benchmark:` the file that holds them |
 | `environment.runner: host` | The pipeline runs in the Trainer's process, for a task whose own code isolates the adapter's code it runs (AgentDyn's hooks in containers). Warned. `environment.read`, `write` and `packages` then build only the sandbox of the task's declared tools. |
 
 Each call gets a work directory of its own (its HOME, logs and workspaces), and a fresh directory in place of the
@@ -126,7 +127,8 @@ its hosts are allowed. A Claude subscription (`login: claude`) copies nothing: `
 for the call and `api.anthropic.com` is allowed. What the run keeps (the learning material, the adapter) is scrubbed of
 key values. The adapter's modules, when the agent's code runs them (its tools, a CLI agent's deploy render), run in a
 nested strict sandbox. The result comes back on a pipe only the worker can write, and its `log` must lie where the call
-could write; a link is never followed. A Harbor task set (`agent.name: harbor`) runs in Harbor's container.
+could write; a link is never followed. A task in its own Harbor environment (`environment.harbor`) has no worker: its
+commands and CLIs run in the task's container, the agent's loop in the run's process.
 `agent.timeout_min` stops a call that runs longer.
 
 ### The judge: `judge.mode`
@@ -170,7 +172,7 @@ home's `.ssh` and `.bashrc` are absent; the command does not start unless it pas
 record, `sandbox/<role>-<n>.json` in the run's directory (`eval` writes its own beside its results): what was bound
 and under which names, which ports were forwarded, which variables passed, and that check. The strict spec and
 render checks (which show only the adapter and the template), `hermit check`'s probes (which run that check but keep
-no run directory), a container's start (`environment.image`, Harbor) and a pipeline in the host process keep no such
+no run directory), a container's start (`environment.image`; a Harbor environment, whose trial directory is its record) and a pipeline in the host process keep no such
 record; the run's card records which ran. The allowlist proxies log
 each request to `sandbox/network*.jsonl`.
 

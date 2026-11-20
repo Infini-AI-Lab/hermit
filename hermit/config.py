@@ -44,6 +44,8 @@ def _merge(base: dict, extra: dict, prefix: str = "") -> dict:
 
 
 FREE = ("params", "llm", "backends", "container", "resources",   # sections whose keys the framework does not know
+        "harbor",                                                # (environment.harbor: Harbor's, checked by
+                                                                 # hermit.environment.harbor, overridable one by one)
         "model", *("codex", "claude", "pi", "mini-swe-agent", "opencode", "dsh", "hermes", "react",
                    "direct"))                                    # a layer's (agent-layers.md)
 BASES = {"codex": "codex", "claude": "claude-code", "claude-code": "claude-code", "pi": "pi",
@@ -237,6 +239,9 @@ class Config:
         defaults = yaml.safe_load(DEFAULTS.read_text())
         user = yaml.safe_load(Path(path).read_text()) or {}
         data = _merge(defaults, user)
+        harbor = (data.get("environment") or {}).get("harbor")
+        if isinstance(harbor, str):                      # the benchmark file alone: a mapping, so a setting can be
+            data["environment"]["harbor"] = {"benchmark": harbor}   # overridden by its path
         for item in overrides:
             _override(data, item)
         if data["pipeline"].get("run") and not data["agent"].get("name"):     # the older spelling

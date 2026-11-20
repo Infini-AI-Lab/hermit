@@ -42,10 +42,12 @@ a `.hermit/CARD.md`.
 ## Harbor benchmarks
 
 Five benchmarks of Harbor's registry, each with a baseline and the method whose paper's protocol fits it, packaged so
-that any of their runs can be handed to someone with a Docker host. Each folder's README gives the protocol, the
-commands and the results table, empty until the runs are made: the configs were checked only on each benchmark's two
-smoke rows, with an earlier version of Hermit's Harbor runner (LAB-Bench FigQA's with the reworked one too, before
-its last review fixes). Every config comes
+that any of their runs can be handed to someone with a Docker host. Each task runs in its own Harbor environment
+(`environment.harbor`): Harbor starts the task's container and verifies the agent's work with the task's tests; the
+agent is Hermit's ([Benchmarks](../docs/framework/task.md#benchmarks)). Each folder's README gives the protocol, the
+commands and the results table, empty until the runs are made: Terminal-Bench 2.0's two smoke tasks were run on this
+path with Codex on GLM 5.3 Flash (both passed); the configs as written (their logins) were checked on the smoke rows
+with Hermit's earlier Harbor runner only. Every config comes
 twice, Codex with GPT-5.6-Luna on a ChatGPT login (`*codex*.yaml`) and Claude Code with
 Claude Haiku 5.5 on a Claude subscription (`*claude*.yaml`), both at medium effort, acting and learning.
 
@@ -59,13 +61,8 @@ Claude Haiku 5.5 on a Claude subscription (`*claude*.yaml`), both at medium effo
 
 **What a machine needs.**
 
-- Linux with Docker, which runs every trial in the task's container, and bubblewrap, for the learners' sandbox and for
-  every trial that deploys an adapter (its exports are rendered in the strict adapter sandbox: each `--adapter final`
-  or `root`, a transfer, AHE's seed as a directory). `hermit eval` and `hermit train` refuse to start without it, or
-  with one that cannot start the strict sandbox (as on Ubuntu 24.04 when its AppArmor policy keeps unprivileged user
-  namespaces off), a baseline's `--adapter none` too, as the runner cannot tell a run that deploys none; on such a
-  machine a baseline runs with the override `agent.params.sandbox_enforce=best_effort`, which would render an adapter
-  unconfined (recorded) ([Installation](../docs/get-started/installation.md)).
+- Linux with Docker, which runs every task's environment, and bubblewrap, for the acting agent's and the learners'
+  sandboxes ([Installation](../docs/get-started/installation.md)).
 - Harbor 0.25.0 in a venv of its own, where the configs look for it:
 
   ```bash
@@ -76,23 +73,20 @@ Claude Haiku 5.5 on a Claude subscription (`*claude*.yaml`), both at medium effo
 - Hermit from this checkout, with SkillOpt's group for its configs: `python -m pip install -e . --group skillopt`.
 - The sign-in of the profile's CLI: `codex login` on a ChatGPT plan for the Codex configs; `claude setup-token`, its
   token exported as `CLAUDE_CODE_OAUTH_TOKEN`, for the Claude Code configs. Harbor installs the CLI in each task's
-  container; a method run also needs it on this machine, where its learners run, and so does `hermit check` of a
-  Claude Code config, a baseline's too: `main`'s check of a `login: claude` run wants `claude` on PATH, at Hermit's
-  minimum version, though `hermit eval` makes no such check (`hermit/harbor/FRAMEWORK_SUPPORT.md`, candidate 7). The
-  sign-in reaches the CLI in each task's container (Codex's sign-in file; Claude Code's token by name, in no process's
-  environment), where the session's commands run as the CLI's user and, in these task sets, reach the public network:
-  a command that read it could send it out. `hermit train` and `hermit check` warn of the Claude Code token, in
-  `main`'s words for a session on this machine (unconfined, the token in its CLI's environment), which a trial's is
-  not. Run them on a sign-in you accept that risk for.
-- Room. No trial starts while Docker's disk has less than 25 GB free (the benchmark files' `disk_gate_gb`); a trial's
-  image is built or pulled for it: Terminal-Bench 2.0's prebuilt images from Docker Hub, 120-150 GB in all, each removed
-  after its trials and so pulled again at every AHE step (sign in with `docker login` for Docker Hub's pull limits, or
+  environment (or a config mounts one of this machine's and names it as `agent.<cli>.bin`); a method run also needs it
+  on this machine, where its learners run. The sign-in reaches the CLI in each task's environment (Codex's sign-in
+  file, taken back and removed before the verifier; Claude Code's token by name, then on a descriptor), where the
+  session's commands run and, in these task sets, reach the public network: a command that read it could send it out.
+  Run them on a sign-in you accept that risk for.
+- Room. No task's environment starts while Docker's disk has less than 25 GB free (the benchmark files'
+  `disk_gate_gb`); a task's image is built or pulled for it: Terminal-Bench 2.0's prebuilt images from Docker Hub, 120-150 GB in all, each removed
+  after its rollouts and so pulled again at every AHE step (sign in with `docker login` for Docker Hub's pull limits, or
   keep them where the disk holds them: [Terminal-Bench 2.0](terminal_bench_2_0/README.md#prepare)); SWE-bench's image of
   the issue, one for each of the 500, which stays in Docker's build cache (their size on disk is not measured here: this
   machine pulled three of them); AlgoTune's 8 GB, the same layers for every task. An AlgoTune container takes 8 CPUs and
-  up to 64 GB, six at a time. No trial starts either while the host's `/tmp` has less than 1 GB free
-  (`agent.params.tmp_gate_gb`). Each gate holds a trial up to six hours (`disk_gate_wait_s`), one after the other (so up
-  to twelve), then the trial ends infra (`disk`, which the runner does not run again).
+  up to 64 GB, six at a time. No environment starts either while the host's `/tmp` has less than 1 GB free
+  (`tmp_gate_gb`). Each gate holds a task up to six hours (`disk_gate_wait_s`), one after the other (so up to twelve),
+  then the task's run fails as not the agent's result.
 
 **Run a benchmark** from the repository root:
 
@@ -112,28 +106,15 @@ and that no hard budget is set, as it does for every config here (their budgets 
 also reports that its splits share their two rows, which is what a smoke runs on; of a SkillOpt config it warns that
 the validation data is given to the Evolver, whose gate runs it (a row holds no answer: its task's tests keep that).
 
-A trial that is not the agent's result (infra: the host, the model provider, a session that never started) runs again in
-the runner, twice at most and five minutes apart (`agent.params.infra_retries`, `infra_wait_s`), unless it is one that
-does not run again (a host failure but its staging's, a disk gate that waited its time out, a provider's refusal of
-the run's configuration: [Benchmarks](../docs/framework/task.md#benchmarks) lists them) or a session the provider
-could not serve, which on these configs' logins runs again under `busy_retries` instead (below); one still infra is a
-failed run, counted among `hermit eval`'s `errors` and as 0 in its `mean_score`, and
-`python -m hermit.harbor.report <eval folder>` gives the eval's pass@1 over the trials that are the agent's result, with
-the infra ones counted apart. Run again, `hermit train` resumes after its last finished step (the step it stopped in
-runs again, all of it; a run stopped in its first step starts over in its folder, which `main`'s Trainer leaves as it
-was, so AHE's history can then hold its first iteration twice, when the run stopped after that step's Evolver call
-began) and `hermit eval` runs all of its trials again: no trial is taken from an earlier run. A lost sign-in ends the
-run at the trial that meets it (`LoginFailed`), or at a Claude Code learner's session that meets it first, which
-`main` reads; a Codex learner that meets it first fails its step if it is AHE's Evolve session, as on `main`, while
-SkillOpt's optimizer skips a call that failed, as it skips any, and its step goes on without that call's edit (after
-the run's last trials, its last slow update and meta skill then come out empty, with no error); the next trial ends
-the run (`hermit/harbor/FRAMEWORK_SUPPORT.md`, candidate 10): sign in again and run the command again. An eval it
-stopped writes no row of the repeat it stopped in (these configs run one: its
-`results.jsonl` is left empty), beside the `summary.json` of the eval before, if any, which the report and the two
-scripts below say (`unfinished`); the trials it finished are only in their job folders under the profile's `jobs_dir`,
-which no run reads back. A plan's usage limit ends nothing on these configs' logins: the trials wait for the plan's
-window, then run. A provider that does not bill the account (a 402, its credit spent) would end the run, as an API
-account's usage limit does; a subscription should not meet one.
+A run that is not the agent's result (infra: its environment did not start or failed under the verifier, its verifier
+ran no test, its session never started) runs again in a fresh environment, twice at most and five minutes apart
+(`environment.harbor.infra_retries`, `infra_wait_s`), unless it is one that does not run again (a disk gate that waited
+its time out, a provider's refusal of the run's configuration); one still infra is a failed run, counted among `hermit
+eval`'s `errors` and as 0 in its `mean_score`, and `python -m hermit.harbor.report <eval
+folder>` gives the eval's pass@1 over the runs that are the agent's result, with the infra ones counted apart. Run
+again, `hermit train` resumes after its last finished step and `hermit eval` runs all of its tasks again. A lost
+sign-in ends the run (`LoginFailed`): sign in again and run the command again. A plan's usage limit ends nothing on
+these configs' logins: the sessions wait for the plan's window, then run.
 
 **Hand a run to someone.** Each run below is one machine's and shares nothing with the others, so each can go to a
 different person (a method's seed or empty skill, `--adapter root`, goes with the method's training: like `final`, it is
@@ -165,17 +146,17 @@ table. An AHE run also sends back its best iteration's in-sample pass@1, numbers
 | | the empty skill | `hermit eval --config skillopt/run_<p>.yaml --adapter root`, after SkillOpt's training | 127 | |
 | | SkillOpt | `hermit train --config skillopt/run_<p>.yaml`, then `hermit eval ... --adapter final` | at most 408 (more if resumed mid-step), then 127 | |
 
-`<p>` is `codex` or `claude`, and a config is `examples/<folder>/...`. The trials are counted once each, though one
-can run more than once: the runner runs an infra trial up to twice more (above), and a trial on a login again when
-the plan refused its session (once the plan's window allows, as often as it refuses) or the provider could not serve
-it (`busy_retries`, three times by default over all of its runs); a row's tokens are all its runs'. Before a long
+`<p>` is `codex` or `claude`, and a config is `examples/<folder>/...`. The trials are counted once each; a task runs
+again in a fresh environment when the provider could not serve its session (`environment.harbor.busy_retries`, 3, the
+n-th after n x `busy_wait_s`, 120 s, not counted in `infra_retries`) or its login's plan refused it (once the plan
+allows, not counted), and a row's tokens are all its runs'. Before a long
 training, its method's `smoke_<p>.yaml` checks the task set, the CLI in the containers and the method's learners
 together. SWE-bench Verified trains nothing and has no smoke config: its baseline config runs its 2 smoke tasks apart
 from the baseline's run and trials, as the methods' smokes run apart from theirs, with
 
 ```bash
 hermit eval --config examples/swebench_verified/baseline/<p>.yaml --adapter none data.test=../utils/splits/smoke.txt \
-  trainer.run_name=<p>-smoke agent.params.jobs_dir=~/.cache/hermit/harbor/jobs/swebv-<p>-smoke
+  trainer.run_name=<p>-smoke environment.harbor.jobs_dir=~/.cache/hermit/harbor/jobs/swebv-<p>-smoke
 ```
 
 The transfer runs take Terminal-Bench 2.0's final adapter of the same profile as a directory, `<export>`, which whoever
@@ -183,12 +164,12 @@ ran that training writes out (`examples/terminal_bench_2_0/ahe_adapter/runs/ahe-
 [Terminal-Bench 2.0](terminal_bench_2_0/README.md#ahe-adapter) says how) and hands on. LAB-Bench's runs are also
 reported on its 102 questions with a new figure, from the same trials ([LAB-Bench FigQA](labbench/README.md#prepare)).
 
-**Another model or CLI.** A config's models are its `agent.params.model` (the acting agent), its learners'
-(`evolver.model` for AHE, `llm.model` for SkillOpt) and their `login`s: copy the config, change them, and give the
-copy its own `trainer.run_name` and `tree_dir`. `acting_agent: {cli: ...}` takes another CLI (`codex`, `claude`,
-`pi`, `opencode`, `dsh`, `mini-swe-agent`: [Benchmarks](../docs/framework/task.md#benchmarks)), and a
+**Another model or CLI.** A config's models are its `agent.model` (the acting agent), its learners' (`evolver.model`
+for AHE, `llm.model` for SkillOpt) and their `login`s: copy the config, change them, and give the copy its own
+`trainer.run_name` and `tree_dir`. `agent.base` takes `codex` or `claude` in a task's Harbor environment (or
+`agent.name: answer`, the answer-only agent: [Benchmarks](../docs/framework/task.md#benchmarks)), and a
 `<backend>/<model>` reference with no `login` runs on that backend's key
-([Model backends](../docs/guides/model-backends.md)); these configs were checked on the two logins only.
+([Model backends](../docs/guides/model-backends.md)).
 
 ## Demos
 
@@ -231,16 +212,15 @@ SGLang server with one override, `model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP
   `utils/task-info/README.md` (see [Task integration](../docs/framework/task.md) and the
   [built-in agents](../docs/framework/task.md#built-in-agents)), and a row in the table above.
 - A benchmark comes as a task set in Harbor's format, the one protocol every task enters by, not as Docker code or a
-  loop of its own. A benchmark of Harbor's registry is packaged as `utils/benchmark.yaml`: the params every method's
-  config shares (`agent.params.benchmark` names the file) and a `dataset:` block naming the set
+  loop of its own. A benchmark of Harbor's registry is packaged as `utils/benchmark.yaml`: the Harbor settings every
+  method's config shares (`environment.harbor.benchmark` names the file) and a `dataset:` block naming the set
   (`ref: <name>@<version>`), from which `python -m hermit.harbor.dataset prepare utils/benchmark.yaml` downloads the
   tasks outside the checkout (by default under `~/.cache/hermit/harbor-tasks`, or `$HERMIT_HARBOR_TASKS`, a relative one
   the working directory's) and writes beside the file the `tasks` link to them (git-ignored: it names a path of this
   machine), `tasks.jsonl`, `dataset.lock` (the tasks' contents, which every later prepare checks), `splits/` and, with
   `image_sizes: true`, `image_sizes.json`. A benchmark of your own has a `utils/prepare.py` that builds the task
   directories (`task.toml`, `environment/`, `tests/test.sh` writing the reward) and indexes them into `tasks.jsonl`. The
-  configs name `agent.name: harbor` and `judge.path: hermit.harbor.judge`, and a benchmark whose tasks carry state from
-  one to the next (CL-Bench, ServeLearnBench) is one multi-step task per stream. See
+  configs name `environment.harbor` and `judge: {path: hermit.task.verify, name: environment}`. See
   [Benchmarks](../docs/framework/task.md#benchmarks).
   The examples that still own their loop (CL-Bench, ServeLearnBench, OfficeQA's direct harness) predate this rule
   and are to be moved onto it; no new example drives Docker or a model loop itself.

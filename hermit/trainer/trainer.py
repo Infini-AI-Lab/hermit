@@ -42,7 +42,7 @@ from hermit.agent.evolver.base import (Access, Context, Evolver, FinalResult, Pr
 from hermit.agent.evolver.loader import find, instantiate
 from hermit.agent.model.llm import ChatClient
 from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, Recheck, ToolRunner, _cli_kind, _safe, agent_pipeline, \
-    cli_sandbox, config_paths, host_pipeline, judge_for, run_secrets, sanitized_copy
+    cli_sandbox, config_paths, host_pipeline, judge_for, run_secrets, sanitized_copy, task_environments
 from hermit.redact import redact_name, redact_path, redact_tree, redact_value
 from hermit.sandbox import (AllowlistProxy, Bind, Sandbox, drop_unsafe, hidden_paths, inside_tools, model_access,
                             set_hidden)
@@ -214,6 +214,7 @@ class Trainer:
         self.enforce = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] else None
         self.pipeline = None             # set when the run starts: the agent runs in its sandbox, never imported here
         self.judge = None                # set when the run starts (judge_for): a sandboxed judge is never imported here
+        self.environments = None         # ... and the task set's own environments (task_environments), if any
         self._login_failed: LoginFailed | None = None   # a sign-in that failed inside a learner's tool call
         self.spec = find(d["evolver"]["name"], config.base)
         self.evolver, self.params = instantiate(self.spec, d["evolver"]["params"],
@@ -321,6 +322,7 @@ class Trainer:
         # for the Evolver), its judge when sandboxed, and the tools a template or task declares.
         self.pipeline, self._close_pipeline = agent_pipeline(self.config, "rollout", records=records)
         self.judge = judge_for(self.config, self.pipeline)
+        self.environments = task_environments(self.config, log=self.log)      # a task set's own environments
         self.tool_runner = ToolRunner(self.config, records=records, work_root=self.run_dir / "tool_calls")
         (self.run_dir / "agent_logs").mkdir(exist_ok=True)       # run_agent's log copies, shown read-only
         binds = [Bind(self.ws.adapter, "/w/adapter", True), Bind(self.ws.learning_material, "/w/material"),
@@ -560,7 +562,7 @@ class Trainer:
             try:
                 results = run_tasks(tasks, snapshot, self.pipeline, self.judge,
                                     concurrency=int(self.config["agent"]["concurrency"]), budget=self.budget,
-                                    part="evolver")
+                                    part="evolver", environments=self.environments)
             finally:
                 shutil.rmtree(snapshot, ignore_errors=True)
             # A training task's run also names its log (the trajectory, when the pipeline keeps one), copied into the
@@ -571,7 +573,10 @@ class Trainer:
                      | ({"log": self._visible_log(r)} if r["id"] in allowed["train"] else {})
                      | ({"error": r.get("error")} if r.get("status") == "error" else {})
                      | {k: (r.get("pipeline_extra") or {})[k] for k in ("exit_code", "timed_out")
-                        if k in (r.get("pipeline_extra") or {})} for r in results]
+                        if k in (r.get("pipeline_extra") or {})}
+                     # a task in its own environment: the rollout's outcome, as the Harbor runner's output carried it
+                     | ({"outcome": {k: (r.get("pipeline_extra") or {}).get(k) for k in ("status", "failure_cause")}}
+                        if "verified" in (r.get("pipeline_extra") or {}) else {}) for r in results]
             return {"results": redact_value(shown)}
         return FunctionTool("run_agent", "Run an adapter (default: your working copy) on training or validation "
                             "tasks through the task's pipeline and judge; returns outputs and scores, and for "
@@ -677,7 +682,8 @@ class Trainer:
         # 1–2. rollouts with the current adapter (exported fresh from the commit).
         rollout_adapter = self.tree.export(parent, self.run_dir / "rollout_adapter")
         results = run_tasks([self.data.tasks[t] for t in chunk], rollout_adapter, self.pipeline, self.judge,
-                            concurrency=int(d["agent"]["concurrency"]), budget=self.budget)
+                            concurrency=int(d["agent"]["concurrency"]), budget=self.budget,
+                            environments=self.environments)
         rollout_s = time.time() - t0
         changed_since_last = self._last_rollout_commit is not None and parent != self._last_rollout_commit
         self._last_rollout_commit = parent

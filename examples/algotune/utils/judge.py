@@ -1,4 +1,5 @@
-"""AlgoTune's judge: the Harbor judge's verdict (hermit.harbor.judge), with a trial scored 1 - 1/speedup.
+"""AlgoTune's judge: the verdict of Harbor's verifier in the task's environment (hermit.task.verify.environment), with
+a trial scored 1 - 1/speedup.
 
 The verifier's reward is the trial's speedup: the reference solver's time over the agent's when every output is valid
 and the solver is faster, else 1.0 (AlgoTune's floor); 0 when the verifier wrote none (it crashed before the timing
@@ -6,8 +7,8 @@ ended), which AlgoTune counts as no speedup too. AlgoTune scores a set of tasks 
 speedups. The score of a trial here is q = 1 - 1/speedup (0 for no speedup), so that the mean m of the scores, the
 figure every mean of Hermit's takes (the Trainer's, the Evolvers', `hermit eval`'s), is 1 - 1/H: H = 1 / (1 - m), and a
 method that raises the mean raises AlgoTune's own score. The speedup is kept beside it (`speedup`). A trial that is
-not the agent's result (infra) gets no score: the Harbor judge refuses it (`Unscored`), so the run records a failed
-run, scored 0 in `hermit eval`'s mean.
+not the agent's result (its environment failed) gets no score: the environment judge refuses it (`Unscored`), so the
+run records a failed run, scored 0 in `hermit eval`'s mean.
 
     judge:
       path: ../utils/judge.py
@@ -20,7 +21,8 @@ import json
 import sys
 from pathlib import Path
 
-from hermit.harbor import judge as harbor, report
+from hermit.harbor import report
+from hermit.task.verify import environment
 
 
 def speedup_score(speedup: float | None) -> float:
@@ -29,10 +31,10 @@ def speedup_score(speedup: float | None) -> float:
 
 
 def score(task: dict, output) -> dict:
-    record = harbor.score(task, output)                 # an infra trial: Unscored, raised before any reward is read
-    out = output.output if isinstance(output.output, dict) else {}
-    raw = out.get("reward")
+    verdict = environment(task, output)                 # an infra trial: Unscored, raised before any reward is read
+    raw = (output.extra or {})["verified"].get("reward")
     speedup = float(raw) if raw is not None else None
+    record = {"score": verdict.score, "feedback": verdict.feedback, **verdict.extra}
     record["speedup"] = speedup
     record["score"] = speedup_score(speedup)
     if speedup is not None:

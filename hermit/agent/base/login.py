@@ -533,20 +533,25 @@ def refused(output: str) -> bool:
 
 
 def hold(plan: Path | str | None = None, until: float | None = None, why: str = "session_refused", *, cancel=None,
-         max_s: float | None = None) -> None:
+         max_s: float | None = None) -> bool:
     """A session was refused for the plan's limit: hold every session back until `until` (a reset time the refusal
     named), else until a report says otherwise, or for an hour when no report says when the window resets. `why` is the
     hold's reason when the plan names none yet: usage_credits (a session drew the account's usage credits) holds only
     the sessions that may not draw them. If the hold cannot be written, this session waits five minutes itself rather
-    than ask again at once (at most `max_s`, until `cancel` is set)."""
+    than ask again at once (at most `max_s`, until `cancel` is set). Whether the hold was written."""
     try:
         _hold(plan, until, why)
+        return True
     except OSError:
-        pause = 300.0 if max_s is None else min(300.0, max(0.0, max_s))
+        pause = HOLD_UNWRITTEN_S if max_s is None else min(HOLD_UNWRITTEN_S, max(0.0, max_s))
         if cancel is not None:
             cancel.wait(pause)
         else:
             time.sleep(pause)
+        return False
+
+
+HOLD_UNWRITTEN_S = 300.0                  # a refused session's own wait when its plan's hold cannot be written
 
 
 def _hold(plan: Path | str | None = None, until: float | None = None, why: str = "session_refused") -> None:
@@ -584,12 +589,14 @@ def _hold(plan: Path | str | None = None, until: float | None = None, why: str =
 def logins_of(data: dict, evolver_params: dict | None = None) -> list[tuple[str, str, str | None, bool, str | None]]:
     """Every subscription a run signs in to, from the normalized config: (who, login, the CLI's program if named,
     whether its sessions run in a container, with the image's CLI: the acting agent's with environment.image and the
-    sandbox on, a model's through a CLI with isolation: container; never the learner's or its roles' (RRSI's, on the
-    learner's CLI), which run in the evolver sandbox on this machine's CLI; the Codex login's shared copy if named,
-    `login_root`). The program and the copy are the ones the sessions use: `bin`, or Harness²'s `claude_bin`."""
+    sandbox on or in a task's own environment (environment.harbor: its `bin` is a path there), a model's through a CLI
+    with isolation: container; never the learner's or its roles' (RRSI's, on the learner's CLI), which run in the
+    evolver sandbox on this machine's CLI; the Codex login's shared copy if named, `login_root`). The program and the
+    copy are the ones the sessions use: `bin`, or Harness²'s `claude_bin`."""
     params = (data.get("agent") or {}).get("params") or {}
-    image = bool((data.get("environment") or {}).get("image")) and \
-        bool((data.get("sandbox") or {}).get("enabled", True))          # agent_pipeline's container (ContainerAgent)
+    image = (bool((data.get("environment") or {}).get("image")) and
+             bool((data.get("sandbox") or {}).get("enabled", True))) or \
+        bool((data.get("environment") or {}).get("harbor"))   # agent_pipeline's container, or a task's own environment
     learner = evolver_params or {}
     roles = learner.get("roles") if isinstance(learner.get("roles"), dict) else {}
     out = []

@@ -8,12 +8,20 @@ import time
 
 from hermit.adapter.manifest import CARD, MANIFEST
 from hermit.config import Config
-from hermit.isolate import agent_pipeline, judge_for
+from hermit.isolate import agent_pipeline, judge_for, task_environments
 from hermit.redact import redact_path, redact_value
 from hermit.task import Benchmark
 from hermit.trainer.budget import Budget
 from hermit.trainer.rollout import run_tasks
 from hermit.tree import ROOT_TAG, Tree
+
+
+def sign_in_problems(data: dict) -> list[str]:
+    """What stops the acting agent's sessions before any request (its login and its model's: eval never runs the
+    learner, whose login is not checked here)."""
+    from hermit.agent.base import login as subscription
+    return [f"{who}: {p}" for who, login, program, contained, root in subscription.logins_of(data)
+            if who in ("agent", "agent's model") for p in subscription.problems_of(login, program, contained, root)]
 
 
 def evaluate(config: Config, adapter: str, *, log=print) -> dict:
@@ -46,6 +54,11 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
     pipeline, close = agent_pipeline(config, "eval", records=out / "sandbox")
     try:
         judge = judge_for(config, pipeline)
+        environments = task_environments(config, log=log)
+        if environments is not None:     # the sign-in, before any result is replaced or a trial starts (the runner's)
+            problems = sign_in_problems(d)
+            if problems:
+                raise SystemExit("eval refuses to start: " + "; ".join(problems))
     except BaseException:
         close()                      # the pipeline's sandbox and proxies, before the error leaves
         raise
@@ -58,11 +71,15 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
             for r in range(1, repeats + 1):
                 log(f"eval {label}: repeat {r}/{repeats} on {len(tests)} test tasks")
                 for rec in run_tasks(tests, target, pipeline, judge, concurrency=int(d["agent"]["concurrency"]),
-                                     budget=budget, part="rollout"):
+                                     budget=budget, part="rollout", environments=environments):
                     per_task[str(rec["id"])].append(rec["judge"]["score"])      # Task.id: the row's id as text
                     errors += rec["status"] != "ok"
                     row = {"repeat": r, **{k: rec[k] for k in ("id", "status", "error", "output", "judge",
                                                                "cost_usd", "wall_s", "api_speed", "tokens", "log")}}
+                    extra = rec.get("pipeline_extra") or {}
+                    if "verified" in extra:  # a task in its own environment: the rollout's outcome, as the runner's was
+                        row["outcome"] = {k: extra.get(k) for k in ("status", "failure_cause", "timed_out",
+                                                                    "exit_code", "unscored", "verifier_reward_raw")}
                     f.write(json.dumps(redact_value(row), default=str) + "\n")     # no model key is kept
     finally:
         close()
