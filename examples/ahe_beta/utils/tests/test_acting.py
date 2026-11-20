@@ -14,9 +14,17 @@ from hermit.harbor.runner import HarborAgent
 from hermit.task import RunOutput, RunUnavailable
 
 
+def _fake_harbor(tmp_path):
+    path = tmp_path / "harbor"
+    path.write_text("#!/bin/sh\nexit 0\n")
+    path.chmod(0o755)
+    return str(path)
+
+
 def test_completed_rollout_is_reused_after_delivery_but_requires_its_evidence(
     tmp_path, monkeypatch
 ):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     adapter = tmp_path / "adapter"
     adapter.mkdir()
     (adapter / "ADAPTER.md").write_text("Solve the task.")
@@ -37,6 +45,11 @@ def test_completed_rollout_is_reused_after_delivery_but_requires_its_evidence(
             "tasks_dir": str(tmp_path / "tasks"),
             "jobs_dir": str(tmp_path / "jobs"),
             "binding": str(binding),
+            "harbor": _fake_harbor(tmp_path),
+            "model": "openai/test-model",
+            "web_search": False,
+            "sandbox_enforce": "best_effort",
+            "acting_agent": {"cli": "codex", "settings": {}},
         }
     )
     task = {"id": "r1-user1", "ahe_session": {"round": 1}}
@@ -69,7 +82,17 @@ def test_completed_rollout_is_reused_after_delivery_but_requires_its_evidence(
 
 
 def test_unexpected_runner_error_is_unavailable_not_a_task_score(tmp_path, monkeypatch):
-    runner = AheHarborAgent({"tasks_dir": str(tmp_path)})
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    runner = AheHarborAgent(
+        {
+            "tasks_dir": str(tmp_path),
+            "harbor": _fake_harbor(tmp_path),
+            "model": "openai/test-model",
+            "web_search": False,
+            "sandbox_enforce": "best_effort",
+            "acting_agent": {"cli": "codex", "settings": {}},
+        }
+    )
 
     def fail(*args):
         raise OSError("connection lost")
