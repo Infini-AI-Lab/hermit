@@ -27,17 +27,17 @@ data:
   shuffle: false
 task_info: ../utils/task-info
 agent:
-  name: harbor
+  base: codex                          # Codex in each task's own Harbor environment, installed there by Harbor
   concurrency: 6
-  params:
-    benchmark: ../utils/benchmark.yaml
-    acting_agent: {cli: codex}         # Codex in the task's container, the adapter deployed as for `hermit deploy`
-    model: gpt-5.6-luna                # a Codex model name, on the ChatGPT login
-    login: chatgpt                     # the ChatGPT plan, shared with Hermit's other sessions on it
-    effort: medium
-    jobs_dir: ~/.cache/hermit/harbor/jobs/tb20-codex  # the Codex configs' trials
+  model: {name: gpt-5.6-luna, login: chatgpt, effort: medium}  # the ChatGPT plan, shared
+  codex: {web_search: false}           # the CLI's web search off
+environment:
+  harbor:                            # each task in its own Harbor environment, verified by Harbor's verifier
+    benchmark: ../utils/benchmark.yaml  # the settings every config of this example shares
+    jobs_dir: ~/.cache/hermit/harbor/jobs/tb20-codex  # the Codex configs' environments (each task's trial)
 judge:
-  path: hermit.harbor.judge            # the verifier's reward; its output is what the Debugger reads
+  path: hermit.task.verify            # Harbor's verifier's reward; its output is what the Debugger reads
+  name: environment
 template: ahe@1.0                      # H_0 is the template's own adapter (`--adapter root`)
 evolver:
   name: ahe_adapter                    # the Agent Debugger and the Evolve Agent

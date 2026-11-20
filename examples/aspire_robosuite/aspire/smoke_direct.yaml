@@ -2,13 +2,14 @@
 # Smoke: two tasks, three development seeds, three held-out seeds, two versions and no search; the verifier's own
 # rows (5 seeds, 2 attempts). Started by launch.sh: ASPIRE_CONFIG=smoke_direct.yaml ./launch.sh
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/smoke.txt
-  val: ../utils/splits/verify.txt
-  test: ../utils/splits/smoke_rerun.txt
+  tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/aspire_fields.py:aspire_task   # each task as the row it always was
+  train: ../utils/benchmark/splits/smoke.txt
+  val: ../utils/benchmark/splits/verify.txt
+  test: ../utils/benchmark/splits/smoke_rerun.txt
   step_size: 1
   shuffle: false
-task_info: ../utils/task-info
+task_info: ../utils/benchmark/task-info
 agent:
   name: ../utils/agent/agent.py:AspireActor
   concurrency: 1
@@ -21,7 +22,7 @@ agent:
     search: debug
     workers: 3
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 template: aspire
 evolver:                            # the coordinator, as in run.yaml
   name: aspire

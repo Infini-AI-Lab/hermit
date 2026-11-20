@@ -4,6 +4,8 @@ data:
   train: null
   val: null
   test: null
+  rollouts: 1                 # data.tasks a directory of tasks (Harbor's format): k rows of each, <task>#1..k
+  view: null                  # a directory's rows as its agents and learners read them: <file.py>:<function>
   step_size: 8
   shuffle: true               # false: every epoch takes the train split in file order (an ordered stream)
   shuffle_seed: 0
@@ -14,8 +16,9 @@ agent:
   concurrency: 4
   timeout_min: null           # a sandboxed task call that runs longer is stopped and recorded as an error; null: none
   params: {}                  # Layer 3: the Acting Agent's own settings (docs/framework/agent-layers.md)
-  base: null                  # Layer 2: codex | claude | pi | mini-swe-agent | opencode | dsh | hermes | react |
-                              # direct; its settings go in a section of its name
+  base: null                  # Layer 2: codex | claude | pi | mini-swe-agent | opencode | dsh | hermes | react, or
+                              # direct (Layer 1's single model call, for a task's own loop); its settings go in a
+                              # section of its name
   model: null                 # Layer 1: a <backend>/<model> reference, or {ref | name, login, effort, price, ...}
   codex: null
   claude: null
@@ -35,7 +38,7 @@ environment:                   # the task sandbox, where the acting agent runs (
                                # code isolates what it runs (AgentDyn's hooks in containers); warned
   image: null                  # a Docker image: a CLI acting agent runs in a container of its own (Codex or
                                # Claude Code)
-  container: {}                # with image: the container's network and egress proxy (hermit/agent/base/container.py)
+  container: {}                # with image: the container's network and proxy (hermit/environment/docker.py)
   packages: []                 # no image: Python distributions shown besides the framework's environment (an editable
                                # install's package, one on PYTHONPATH), with their dependencies
   read: []                     # no image: task paths shown read-only (relative to this file); never the data, the
@@ -48,6 +51,8 @@ environment:                   # the task sandbox, where the acting agent runs (
   resources: {}                # memory_mb, file_mb, cpu_s: per process
   gpu: []                      # NVIDIA GPUs shown, by the N of /dev/nvidia<N> (CUDA and EGL; inside they count from 0);
                                # none: no GPU (EGL renders in software where Mesa is installed)
+  harbor: null                 # a task set in Harbor's environments: each task's own (hermit/environment/harbor.py), its
+                               # settings or the benchmark file that holds them; the agent works there, Harbor verifies
 judge:
   path: null
   name: score
@@ -61,8 +66,8 @@ evolver:
   name: null
   resume: false
   params: {}                  # Layer 3: the method's settings
-  base: null                  # Layer 2: codex | claude | pi | opencode | dsh | hermes | direct
-                              # (the Base Agent the method runs on)
+  base: null                  # Layer 2: codex | claude | pi | opencode | dsh | hermes (the Base Agent the method runs
+                              # on), or direct (Layer 1's single model call, for a method that calls the run's model)
   model: null                 # Layer 1: as agent.model; with direct it is the run's `llm`
   codex: null
   claude: null

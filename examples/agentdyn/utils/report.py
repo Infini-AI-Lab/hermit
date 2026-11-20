@@ -55,11 +55,16 @@ def summarize(rows, expected_ids, repeats=1, *, tasks=None):
 
 
 if __name__ == "__main__":
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "benchmark"))
+    from cases import rows as case_rows                 # a protocol's tasks/, or a tasks.jsonl
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("results", type=Path)
-    parser.add_argument("--tasks", type=Path, required=True, help="task JSONL for ID-to-kind mapping")
+    parser.add_argument("--tasks", type=Path, required=True,
+                        help="the protocol's tasks/ (or a tasks.jsonl) for ID-to-kind mapping")
     parser.add_argument("--split", type=Path, required=True, help="expected test IDs, one per line")
     parser.add_argument("--repeats", type=int, default=1)
     args = parser.parse_args()
     ids = [s.strip() for s in args.split.read_text().splitlines() if s.strip() and not s.startswith("#")]
-    print(json.dumps(summarize([json.loads(s) for s in args.results.read_text().splitlines() if s.strip()], ids, args.repeats, tasks=[json.loads(s) for s in args.tasks.read_text().splitlines() if s.strip()]), indent=2))
+    print(json.dumps(summarize([json.loads(s) for s in args.results.read_text().splitlines() if s.strip()], ids,
+                               args.repeats, tasks=case_rows(args.tasks)), indent=2))

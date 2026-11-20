@@ -20,6 +20,8 @@ try:
 except ImportError:                 # mini-swe-agent brings jinja2: without either, the module is skipped (pytestmark)
     StrictUndefined = Template = None
 import pytest
+
+from hermit.environment import Container, Sandboxed
 import yaml
 
 from hermit.agent.acting.agent import load_agent
@@ -289,22 +291,25 @@ def test_what_mini_swe_agent_cannot_do_is_refused(tmp_path, monkeypatch, scripte
     agent = make("mini-swe-agent", {"web_search": False, "model": "openai/m"})
     for call, match in ((dict(session="s1"), "resume"), (dict(roles=[{"name": "r"}]), "sub-agents")):
         with pytest.raises(Unsupported, match=match):
-            agent.run("x", workspace=tmp_path, **call)
-    for setting, match in ((dict(web_search=True), "web search"), (dict(login="chatgpt"), "no login"),
-                           (dict(isolation="container"), "isolation")):
+            agent.run("x", environment=tmp_path, **call)
+    for setting, match in ((dict(web_search=True), "web search"), (dict(login="chatgpt"), "no login")):
         with pytest.raises(Unsupported, match=match):
-            agent.configured(**setting).run("x", workspace=tmp_path)
+            agent.configured(**setting).run("x", environment=tmp_path)
+    with pytest.raises(Unsupported, match="isolation"):                    # no container of its own
+        agent.run("x", environment=Container(tmp_path))
+    with pytest.raises(ValueError, match="belong to the call's environment"):   # never a setting
+        agent.configured(isolation="sandbox").run("x", environment=tmp_path)
     with pytest.raises(ValueError, match="needs a model"):
-        make("mini-swe-agent", {"web_search": False}).run("x", workspace=tmp_path)
+        make("mini-swe-agent", {"web_search": False}).run("x", environment=tmp_path)
     # another model class calls its own service with what it is given: never a binding's key and URL
     bound = make("mini-swe-agent", {"web_search": False, "binding": {"base_url": "http://x", "model": "m"},
                                     "model_class": "openrouter"})
     with pytest.raises(Unsupported, match="calls its own service"):
-        bound.run("x", workspace=tmp_path)
+        bound.run("x", environment=tmp_path)
     # without a binding too, a class whose messages or errors are not litellm's: usage, steps or retries unread
     for model_class in ("litellm_response", "openrouter", "portkey_response"):
         with pytest.raises(Unsupported, match="reads litellm and litellm_textbased only"):
-            agent.configured(model_class=model_class).run("x", workspace=tmp_path)
+            agent.configured(model_class=model_class).run("x", environment=tmp_path)
     # a config that names the model or the environment class fails every task: no session starts, and the acting
     # agent reports the error rather than score an empty answer
     server = scripted([])
@@ -425,12 +430,11 @@ def test_under_its_own_sandbox_the_base_agent_reads_its_config_and_instructions(
     config.write_text("agent:\n  step_limit: 1\n")
     work = tmp_path / "work"
     work.mkdir()
-    settings = {**params(server, config=str(config)), "home": str(tmp_path / "home"), "isolation": "sandbox",
-                "timeout_s": 120, "sandbox": Sandbox(network="isolated", env_allow=[], writable=[work], role="agent",
-                                                     record_dir=tmp_path / "records")}
+    settings = {**params(server, config=str(config)), "home": str(tmp_path / "home"), "timeout_s": 120}
+    box = Sandbox(network="isolated", env_allow=[], writable=[work], role="agent", record_dir=tmp_path / "records")
     system = "Answer with one digit." + "\n" * size
     agent, prompt = make("mini-swe-agent", settings).instructed(system, "What is 2 + 2?")
-    result = agent.run(prompt, workspace=work)
+    result = agent.run(prompt, environment=Sandboxed(work, sandbox=box))
     assert result.extra["served"] and len(server.requests) == 1             # the config's step_limit
     assert "Answer with one digit." in server.requests[0]["messages"][0]["content"]
     [record] = (tmp_path / "records").glob("agent-*.json")

@@ -24,18 +24,18 @@ text when every attempt failed. Here the same three phases run on Hermit's learn
    copied: upstream's Debugger read the traces and the verifier output alone, and the Evolve Agent reads the state
    in the learning material, where START.md and the evolution query name it.
 3. `run_jobs(jobs, ctx, params, base=...)` — each attempt is one call of the Evolver's CLI Base Agent (Layer 2,
-   hermit.agent.base): `make(backend, settings).run(question, workspace=job_dir)`, with the Evolve Agent's settings
-   (`base`: the run's sandbox as the isolation and Codex's own sandbox off, the login and its plan, web search, the
-   price) and the Debugger's own model, effort, program and clock, the clock a deadline over the whole attempt (a wait
-   for the login's plan included, as upstream's subprocess timeout) that the Trainer's cancel also sets; the question
-   on stdin, a home per job (`scratch/debugger-homes/<task>/`: a call rewrites its home's config and last message)
-   and a stream per attempt (`output/debugger/<task>.<attempt>.jsonl`). The first job runs alone (warm-up), the rest
-   under `ThreadPoolExecutor(concurrency)`. The answer is the `answer.md` the agent wrote, else its last message (the
-   Base Agent's reply). An attempt fails when it was cancelled, timed out, never started (the provider or the plan could
-   not serve it), exited non-zero or left no answer; after `retries` attempts the upstream fallback text stands in
-   (`queries.fallback_response`). Results keep upstream's result keys so analysis.py's overview writer reads them
-   unchanged, and one `Usage(model)` sums the attempts' usage (tokens, cost and model calls), which the Base Agent
-   read and priced.
+   hermit.agent.base): `make(backend, settings).run(question, environment=placed(job_dir, sandbox))`, in the run's
+   sandbox as the Evolve Agent is, with the Evolve Agent's settings (`base`: Codex's own sandbox off, the login and its
+   plan, web search, the price) and the Debugger's own model, effort, program and clock, the clock a deadline over the
+   whole attempt (a wait for the login's plan included, as upstream's subprocess timeout) that the Trainer's cancel also
+   sets; the question on stdin, a home per job (`scratch/debugger-homes/<task>/`: a call rewrites its home's config and
+   last message) and a stream per attempt (`output/debugger/<task>.<attempt>.jsonl`). The first job runs alone
+   (warm-up), the rest under `ThreadPoolExecutor(concurrency)`. The answer is the `answer.md` the agent wrote, else its
+   last message (the Base Agent's reply). An attempt fails when it was cancelled, timed out, never started (the provider
+   or the plan could not serve it), exited non-zero or left no answer; after `retries` attempts the upstream fallback
+   text stands in (`queries.fallback_response`). Results keep upstream's result keys so analysis.py's overview writer
+   reads them unchanged, and one `Usage(model)` sums the attempts' usage (tokens, cost and model calls), which the Base
+   Agent read and priced.
 
 `queries` is imported lazily (it is the module holding upstream's verbatim text); a test may pass a stand-in through
 `texts`.
@@ -51,6 +51,7 @@ import threading
 import time
 
 from hermit.agent.base.interface import LoginFailed, Unsupported, make
+from hermit.environment import placed
 from hermit.agent.base.trajectory import CODEX_STREAM, STREAMS, log_steps
 from hermit.agent.evolver.base import Usage
 from hermit.agent.evolver.methods.ahe_adapter import trajectory as _trajectory
@@ -424,7 +425,7 @@ class Runner:
         self.stopped: BaseException | None = None      # a lost sign-in or a refused setting: no job starts after it
 
     def agent_settings(self, job: Job, job_dir: Path, attempt: int, timeout_s: float, cancel=None) -> dict:
-        """The CLI Base Agent's settings for one attempt: the Evolve Agent's (the isolation, the login, web search,
+        """The CLI Base Agent's settings for one attempt: the Evolve Agent's (the login, web search,
         the price), the Debugger's model, effort, program and args (after a bound model's provider arguments), its
         clock, `cancel` (the attempt's deadline; the Trainer's cancel when None), the question on stdin, the job's
         own home and the attempt's own stream; the job directory writable."""
@@ -455,7 +456,7 @@ class Runner:
         deadline, stop = deadline_cancel(self.ctx.cancel, timeout_s)
         try:
             result = make(self.backend, self.agent_settings(job, job_dir, attempt, timeout_s, deadline)).run(
-                question, workspace=job_dir)
+                question, environment=placed(job_dir, self.ctx.sandbox))         # the run's sandbox, as the Evolve's
         except Unsupported:
             raise                                                # the settings: every attempt would be refused alike
         except Exception as exc:                                 # noqa: BLE001 - no program, no login: this attempt's

@@ -13,17 +13,17 @@ data:
   shuffle: false
 task_info: ../utils/task-info
 agent:
-  name: harbor
+  base: codex                          # Codex in each task's own Harbor environment, installed there by Harbor
   concurrency: 2
-  params:
-    benchmark: ../utils/benchmark.yaml
-    acting_agent: {cli: codex}
-    model: gpt-5.6-luna
-    login: chatgpt
-    effort: medium
-    jobs_dir: ~/.cache/hermit/harbor/jobs/tb20-codex-smoke  # the smoke's trials, apart from the run's
+  model: {name: gpt-5.6-luna, login: chatgpt, effort: medium}  # the ChatGPT plan, shared
+  codex: {web_search: false}           # the CLI's web search off
+environment:
+  harbor:                            # each task in its own Harbor environment, verified by Harbor's verifier
+    benchmark: ../utils/benchmark.yaml  # the settings every config of this example shares
+    jobs_dir: ~/.cache/hermit/harbor/jobs/tb20-codex-smoke  # the smoke's environments, apart from the run's
 judge:
-  path: hermit.harbor.judge
+  path: hermit.task.verify            # Harbor's verifier, in the task's environment: the verifier's reward
+  name: environment
 template: ahe@1.0
 evolver:
   name: ahe_adapter

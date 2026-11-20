@@ -1,0 +1,45 @@
+data:
+  tasks: ../utils/benchmark/data/tasks
+  view: ../../agentdyn/utils/benchmark/cases.py:case_row   # each case as the row it always was
+  train: ../utils/benchmark/data/train.txt
+  val: ../utils/benchmark/data/val.txt
+  test: ../utils/benchmark/data/test.txt
+  step_size: 4
+  shuffle: false
+task_info: ../utils/benchmark/task-info
+template: evosafe@1.0
+agent:
+  name: ../utils/task.py:run
+  base: direct
+  model: openai/gpt-4o-mini-2024-07-18
+  concurrency: 1
+  timeout_min: 10
+  params:
+    episode_timeout_s: 900
+    benchmark_version: v1.2.2
+    max_iters: 15
+    logs: runs/episodes
+    benchmark: agentdojo               # the experiment supervisor's provenance reads it
+judge:
+  path: ../utils/benchmark/judge.py
+evolver:
+  name: evosafe
+  params:
+    max_clean_drop: 0.0
+    min_improvement: 0.0
+# Configure llm (the proposer) with your own backend before training.
+llm: null
+environment:
+  runner: host                      # the bridge runs learned hooks in Docker containers of their own;
+                                    # the pipeline starts them, so it runs in the Trainer's process
+sandbox:
+  enforce: required
+  evolver:
+    allowed_hosts: [api.openai.com]
+trainer:
+  run_name: agentdojo
+  output_dir: runs
+  epochs: 1
+  call_timeout_min: 30
+  budget:
+    hours: 1

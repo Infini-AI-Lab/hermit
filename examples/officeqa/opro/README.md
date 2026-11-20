@@ -36,7 +36,7 @@ learning (the [recipe](../../../docs/recipes/officeqa.md#opro) has the run and i
 
 | Adapter | accuracy | − the initial skill, points |
 |---|---|---|
-| the initial skill (`../utils/seed_adapter`) | 0.355 | |
+| the initial skill (`../utils/benchmark/seed_adapter`) | 0.355 | |
 | **`final`, candidate 2 of 13 (validation 0.625)** | **0.436** | **+8.1** [+1.7, +14.5] |
 
 Paired per question, 95% bootstrap interval. `final` is one 398-character instruction in place of the 886-character

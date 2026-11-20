@@ -42,12 +42,12 @@ from hermit.agent.evolver.base import (Access, Context, Evolver, FinalResult, Pr
 from hermit.agent.evolver.loader import find, instantiate
 from hermit.agent.model.llm import ChatClient
 from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, Recheck, ToolRunner, _cli_kind, _safe, agent_pipeline, \
-    cli_sandbox, config_paths, host_pipeline, judge_for, run_secrets, sanitized_copy
+    cli_sandbox, config_paths, host_pipeline, judge_for, run_secrets, sanitized_copy, task_environments
 from hermit.redact import redact_name, redact_path, redact_tree, redact_value
 from hermit.sandbox import (AllowlistProxy, Bind, Sandbox, drop_unsafe, hidden_paths, inside_tools, model_access,
                             set_hidden)
 from hermit.spec import check_spec, repair
-from hermit.task import TaskData
+from hermit.task import Benchmark
 from hermit.tools import FunctionTool, ToolServer, assemble, evolver_agent
 from hermit.trainer import card
 from hermit.trainer.budget import Budget, BudgetExceeded
@@ -125,7 +125,29 @@ def needs_errors(config: Config, needs: list[str], supports_resume: bool) -> lis
                    "evolver_access.send_material_out: true to allow it")
     if d["evolver"]["resume"] and not supports_resume:
         out.append("evolver.resume is true but this Evolver does not support resume")
+    out += adapter_needs_errors(config, needs)
     return out
+
+
+def adapter_needs_errors(config: Config, needs: list[str]) -> list[str]:
+    """What the Evolver needs its adapter to give the acting agent (tools, skills, hooks, ...) that the agent does not
+    take (its `supports`): such a run is refused, never run with the export silently dropped. An agent whose class
+    would run only inside its sandbox, or that declares nothing, is not checked here."""
+    from hermit.agent.evolver.loader import ADAPTER_NEEDS
+    from hermit.isolate import host_pipeline
+    wanted = [n for n in needs if n in ADAPTER_NEEDS]
+    if not wanted:
+        return []
+    from hermit.agent.acting.agent import supports_of
+    name = config.data["agent"]["name"]
+    d = config.data
+    on_host = host_pipeline(config) is not None and not (d["environment"].get("image") and d["sandbox"]["enabled"])
+    supports = supports_of(name, config.base, d["agent"].get("params"), may_import=on_host)
+    missing = [n for n in wanted if supports is not None and n not in supports]
+    if not missing:
+        return []
+    return [f"the Evolver needs its adapter to give the acting agent {', '.join(missing)}, which agent {name} does "
+            f"not take (it takes {', '.join(supports) or 'no adapter export'})"]
 
 
 def _task_tool_decls(config: Config) -> list[dict]:
@@ -186,13 +208,13 @@ class Trainer:
         self.run_name = config.run_name()
         self.run_dir = config.run_dir()
         self.branch = self.run_name
-        self.data = TaskData(config.path(d["data"]["tasks"]), config.path(d["data"]["train"]),
-                             config.path(d["data"]["val"]), config.path(d["data"]["test"]))
+        self.data = Benchmark.from_config(config)
         # The spec checks run the adapter's modules in a strict sandbox, as strictly as the run asks; None: the run's
         # sandbox is off and they run unconfined like everything else.
         self.enforce = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] else None
         self.pipeline = None             # set when the run starts: the agent runs in its sandbox, never imported here
         self.judge = None                # set when the run starts (judge_for): a sandboxed judge is never imported here
+        self.environments = None         # ... and the task set's own environments (task_environments), if any
         self._login_failed: LoginFailed | None = None   # a sign-in that failed inside a learner's tool call
         self.spec = find(d["evolver"]["name"], config.base)
         self.evolver, self.params = instantiate(self.spec, d["evolver"]["params"],
@@ -271,8 +293,8 @@ class Trainer:
             val = self.run_dir / "access" / "validation"
             val.mkdir(parents=True, exist_ok=True)
             with open(val / "tasks.jsonl", "w") as f:
-                for row in self.data.rows("val"):
-                    f.write(json.dumps(row, ensure_ascii=False) + "\n")
+                for task in self.data.split("val"):     # each task's public half, never the judge's own
+                    f.write(json.dumps(task.given(), ensure_ascii=False) + "\n")
         env = tuple(config_paths(self.config, "evolver_access.environment", d["evolver_access"]["environment"]))
         self.access = Access(validation=val, environment=env)
         self._recheck_grants = Recheck([*env, self.ws.task_info], own=self.run_dir)
@@ -300,6 +322,7 @@ class Trainer:
         # for the Evolver), its judge when sandboxed, and the tools a template or task declares.
         self.pipeline, self._close_pipeline = agent_pipeline(self.config, "rollout", records=records)
         self.judge = judge_for(self.config, self.pipeline)
+        self.environments = task_environments(self.config, log=self.log)      # a task set's own environments
         self.tool_runner = ToolRunner(self.config, records=records, work_root=self.run_dir / "tool_calls")
         (self.run_dir / "agent_logs").mkdir(exist_ok=True)       # run_agent's log copies, shown read-only
         binds = [Bind(self.ws.adapter, "/w/adapter", True), Bind(self.ws.learning_material, "/w/material"),
@@ -456,7 +479,7 @@ class Trainer:
                        message=self._message(None, tools), sandbox=self.sandbox, agent=agent)
 
     def _agent(self, cancel: threading.Event | None, metered: list | None = None):
-        """The run's model as the Evolver's `direct` Base Agent, metered; None without an `llm` section."""
+        """The run's model for the Evolver, one call at a time (Direct, Layer 1), metered; None without `llm`."""
         if self.llm is None:
             return None
         return evolver_agent(self.llm, self.budget, metered, cancel, self.run_dir / "tools.jsonl")
@@ -539,7 +562,7 @@ class Trainer:
             try:
                 results = run_tasks(tasks, snapshot, self.pipeline, self.judge,
                                     concurrency=int(self.config["agent"]["concurrency"]), budget=self.budget,
-                                    part="evolver")
+                                    part="evolver", environments=self.environments)
             finally:
                 shutil.rmtree(snapshot, ignore_errors=True)
             # A training task's run also names its log (the trajectory, when the pipeline keeps one), copied into the
@@ -550,7 +573,10 @@ class Trainer:
                      | ({"log": self._visible_log(r)} if r["id"] in allowed["train"] else {})
                      | ({"error": r.get("error")} if r.get("status") == "error" else {})
                      | {k: (r.get("pipeline_extra") or {})[k] for k in ("exit_code", "timed_out")
-                        if k in (r.get("pipeline_extra") or {})} for r in results]
+                        if k in (r.get("pipeline_extra") or {})}
+                     # a task in its own environment: the rollout's outcome, as the Harbor runner's output carried it
+                     | ({"outcome": {k: (r.get("pipeline_extra") or {}).get(k) for k in ("status", "failure_cause")}}
+                        if "verified" in (r.get("pipeline_extra") or {}) else {}) for r in results]
             return {"results": redact_value(shown)}
         return FunctionTool("run_agent", "Run an adapter (default: your working copy) on training or validation "
                             "tasks through the task's pipeline and judge; returns outputs and scores, and for "
@@ -656,7 +682,8 @@ class Trainer:
         # 1–2. rollouts with the current adapter (exported fresh from the commit).
         rollout_adapter = self.tree.export(parent, self.run_dir / "rollout_adapter")
         results = run_tasks([self.data.tasks[t] for t in chunk], rollout_adapter, self.pipeline, self.judge,
-                            concurrency=int(d["agent"]["concurrency"]), budget=self.budget)
+                            concurrency=int(d["agent"]["concurrency"]), budget=self.budget,
+                            environments=self.environments)
         rollout_s = time.time() - t0
         changed_since_last = self._last_rollout_commit is not None and parent != self._last_rollout_commit
         self._last_rollout_commit = parent

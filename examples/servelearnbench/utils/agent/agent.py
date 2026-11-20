@@ -34,8 +34,8 @@ from hermit.task import RunOutput
 
 HERE = Path(__file__).resolve().parent
 
-UTILS = HERE.parent
-MWM = HERE.parent / "task-info" / "mwm"     # the venue's texts for MWM
+BENCHMARK = HERE.parent / "benchmark"       # prepare.py's: the tasks, windows.json, task-info/
+MWM = BENCHMARK / "task-info" / "mwm"       # the venue's texts for MWM
 
 
 from hermit.agent.evolver.methods.mwm.evidence import servelearnbench as evidence   # the MWM learner's records
@@ -74,14 +74,14 @@ def _setup(scenario: str, params: dict | None = None) -> dict:
         for w in range(n_windows(bundle)):
             for t in bundle["test_set"](w):
                 tasks[t.task_id] = t
-        windows = json.loads((UTILS / "windows.json").read_text())
+        windows = json.loads((BENCHMARK / "windows.json").read_text())
         if windows["scenario"] != scenario:
             raise RuntimeError(f"windows.json is for {windows['scenario']}, the task row says {scenario}")
         window_of = {}
         for w in windows["windows"]:
             for tid in w["serving"] + w["test"]:
                 window_of[tid] = w["window"]
-        # The benchmark's loop (Layer 3) makes each model call through the `direct` Base Agent (Layer 2): its client
+        # The benchmark's loop (Layer 3) makes each model call through Direct (Layer 1, one model call): its client
         # is given a local relay (hermit.agent.base.endpoint) that sends each request on to the endpoint it would
         # have reached, as it made it.
         from hermit.agent.base.endpoint import relay
@@ -113,6 +113,7 @@ def wm_text(result) -> str:
 class ServeLearnBenchAgent(Agent):
     """The benchmark's own agent loop with the adapter plugged in: its context on the system prompt, its tools
     beside the environment's, served through Session. `agent.name: ../utils/agent/agent.py:ServeLearnBenchAgent`."""
+    supports = ("context", "tools")    # extra_system (ADAPTER.md alone: it calls no context tool) and tools
 
     def run(self, task: dict, adapter: Path | None) -> RunOutput:
         from servelearnbench import agent, llm, scoring

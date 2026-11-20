@@ -17,7 +17,7 @@
 #   MAX_TASKS=2 TAG=h2-smoke ...                           # a smoke run on the first questions of the stream
 #   SKIP_TASKS=10 ...                                      # drop the stream's first questions (continuing a run that took them)
 #   LIBRARY_FROM=runs/h2-codex-s0 TAG=h2-codex-s0-rest STREAM=stream_rest_s0.txt \
-#     SPLITS="../utils/splits/train.txt ../utils/splits/val.txt" CLAUDE_BIN=runs/.claude-pin/<version>/claude ...
+#     SPLITS="../utils/benchmark/splits/train.txt ../utils/benchmark/splits/val.txt" CLAUDE_BIN=runs/.claude-pin/<version>/claude ...
 #                                                          # that stream continued on other questions (paths: from here)
 #
 # Writes upstream's stream order for SEED, regenerates H0 (seed_adapter_codex) and trains. With Claude Code editors
@@ -61,7 +61,7 @@ if [ "$ON_CLAUDE_LOGIN" = yes ] && [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
 fi
 RUN_NAME=$("$PY" -c "import yaml; print(yaml.safe_load(open('$HERE/$CONFIG'))['trainer']['run_name'])")
 case "$RUN_NAME" in *s0) TAG=${TAG:-${RUN_NAME%0}$SEED} ;; *) TAG=${TAG:-$RUN_NAME} ;; esac
-SPLITS=${SPLITS:-../utils/splits/test.txt}   # the stream's questions (several files: their union)
+SPLITS=${SPLITS:-../utils/benchmark/splits/test.txt}   # the stream's questions (several files: their union)
 STREAM=${STREAM:-stream_s$SEED.txt}
 LIBRARY_FROM=${LIBRARY_FROM:-}               # a finished run whose library this run starts from: a continuation
 case "$EDITORS/$LOGIN" in
@@ -169,7 +169,7 @@ else
 fi
 # The answer files and the run continued (its records carry the judge's feedback): the sessions' sandbox is checked to
 # show none of them.
-ABSENT=$("$PY" -c "import json, sys; d = json.load(open('../utils/data.json'));
+ABSENT=$("$PY" -c "import json, sys; d = json.load(open('../utils/benchmark/data.json'));
 from pathlib import Path; print(json.dumps([str(Path(d['answers']).parent), d['csv'], *sys.argv[1:]]))" \
   ${LIBRARY_FROM:+"$LIBRARY_FROM"})
 if [ "$METER" = yes ]; then

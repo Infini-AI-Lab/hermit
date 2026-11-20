@@ -8,7 +8,7 @@ trial's task.md, corpus and score are the question's; any other row (validation,
         answer: ../utils/task.py:answer   # unchanged: the last <answer>...</answer>
         collect: trials.py:collect        # ../utils/task.py:collect, then the adapter's hook logs
     judge:
-      path: trials.py                     # score: ../utils/judge.py
+      path: trials.py                     # score: ../utils/benchmark/judge.py
 
 The adapter's hook runner (hermit/adapter/templates/ahe/hook_runner.py) logs every hook call to
 `.hermit-hooks/hook-calls.jsonl` under the session's workspace and each session's state to `.hermit-hooks/hook-state/`;
@@ -68,5 +68,5 @@ def collect(task: dict, workspace: Path, log: Path) -> dict:
 
 
 def score(task: dict, output) -> dict:
-    """The question's score against its reference answer (../utils/judge.py:score)."""
-    return utils("judge.py:score")(question(task), output)
+    """The question's score against its reference answer (../utils/benchmark/judge.py:score)."""
+    return utils("benchmark/judge.py:score")(question(task), output)

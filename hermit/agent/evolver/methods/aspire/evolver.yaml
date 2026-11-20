@@ -3,7 +3,8 @@ description: >-
   finished robot task's findings and skill report, admits proposals only after a fresh verifier re-solves the task
   from the library and the proposals alone (run_agent on the task's verifier row), and chooses the next task.
 class: evolver.py:AspireEvolver
-needs: [validation_data]       # the verifier's rows (verify-<task id>) are data.val
+needs: [validation_data, context_tool]   # the verifier's rows (verify-<task id>) are data.val; the library
+                                        # reaches the actor through its context tool
 params:
   backend: codex
   prompt: COORDINATOR.md

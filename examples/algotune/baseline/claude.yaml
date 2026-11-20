@@ -16,15 +16,14 @@ data:
   train: ../utils/splits/smoke.txt     # placeholder, as template and evolver are: hermit eval reads it, trains nothing
   test: ../utils/splits/test.txt       # 108 tasks (SkillOpt's split: 2:1:7, seed 42)
 agent:
-  name: harbor
+  base: claude                         # Claude Code in each task's own Harbor environment, installed there by Harbor
   concurrency: 6
-  params:
-    benchmark: ../utils/benchmark.yaml
-    acting_agent: {cli: claude}        # Claude Code in the task's container, installed there by Harbor
-    model: claude-haiku-5-5            # a Claude Code model name, on the subscription
-    login: claude                      # the subscription's plan, shared with Hermit's other sessions on it
-    effort: medium
-    jobs_dir: ~/.cache/hermit/harbor/jobs/algotune-claude  # the Claude Code configs' trials
+  model: {name: claude-haiku-5-5, login: claude, effort: medium}  # the subscription's plan, shared
+  claude: {web_search: false}           # the CLI's web search off
+environment:
+  harbor:                            # each task in its own Harbor environment, verified by Harbor's verifier
+    benchmark: ../utils/benchmark.yaml  # the settings every config of this example shares
+    jobs_dir: ~/.cache/hermit/harbor/jobs/algotune-claude  # the Claude Code configs' environments (each task's trial)
 judge:
   path: ../utils/judge.py              # 1 - 1/speedup (utils/judge.py)
 template: prompt-only@1.0              # placeholder (see data.train)

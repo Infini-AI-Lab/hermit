@@ -11,9 +11,9 @@ on held-out seeds by the task's own success check.
 
 | Folder | What it is |
 |---|---|
-| `utils/prepare.py` | The 210 tasks (a suite and a task id each) with their seeds and splits; the verifier's rows and the reruns |
+| `utils/benchmark/prepare.py` | The 210 tasks (a suite and a task id each) with their seeds, as task directories in Harbor's format (`tasks/`, read as their rows by the engine's `aspire_fields.py`), and splits; the verifier's tasks and the reruns |
 | `utils/agent/` | A method-neutral acting prompt (`prompt.md`, written here: LIBERO has none) and the workspace without ASPIRE's method pages, for a method that brings no prompt of its own |
-| `utils/task-info/` | What a task and its record are, for the learner |
+| `utils/benchmark/task-info/` | What a task and its record are, for the learner |
 | `utils/launch.sh` | Starts a method folder's run: the simulator service and hermit |
 | [`aspire/`](aspire/) | The ASPIRE method: its fix-loop prompts, verifier and coordinator. `run.yaml` (Object, Spatial, Goal, Long: 40 tasks), `run_90.yaml` (LIBERO-90), `run_pro.yaml` (LIBERO-Pro: 80), `run_pro_long.yaml` (LIBERO-Long-Pro), `run_luna.yaml` (`run.yaml` on Luna), `run_sample_luna.yaml` (six of the forty on Luna, for a run of a day or two), `smoke*.yaml`, `launch.sh` |
 | [`prompt_only/`](prompt_only/) | The prompt-only template: one `ADAPTER.md` the built-in Codex Evolver revises after each task, with the method-neutral prompt. `run.yaml`, `run_pro.yaml`, `smoke.yaml`, `smoke_luna.yaml`, `launch.sh` |

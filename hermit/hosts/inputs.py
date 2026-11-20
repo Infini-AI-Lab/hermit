@@ -28,10 +28,10 @@ def render_exports(adapter, python):
     agent's worker sets HA_ADAPTER_SANDBOX), the adapter's modules (the learner's work) are imported in a strict
     sandbox: the adapter read-only, no network, none of the agent's keys, so they never run with the agent's login."""
     command = [python, "-m", "hermit.adapter.render_context", "--adapter", str(adapter)]
-    if os.environ.get("HA_ADAPTER_SANDBOX") == "1":
-        from hermit.adapter.session import ENV_ENFORCE
-        result = run_in_strict_sandbox(command, role="render", readable=[Path(adapter)],
-                                       enforce=os.environ.get(ENV_ENFORCE, "required"))
+    from hermit.adapter.session import confined
+    enforce = confined()                     # an acting agent's worker, or its call in the run's process (Harbor's)
+    if enforce:
+        result = run_in_strict_sandbox(command, role="render", readable=[Path(adapter)], enforce=enforce)
     else:
         result = subprocess.run(command, capture_output=True, text=True, env=framework_env())
     if result.returncode != 0:

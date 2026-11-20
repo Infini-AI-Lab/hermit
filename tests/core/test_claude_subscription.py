@@ -28,6 +28,7 @@ from hermit.config import Config, layered
 from hermit.sandbox import Sandbox
 
 from claude_stand import INDEX, ROOT, STREAMS, TOKEN, bwrap_works, stand  # noqa: F401 (stand: the fixture)
+from hermit.environment import Container, Local, Sandboxed
 
 EXAMPLE = ROOT / "examples" / "claude_subscription"
 
@@ -211,22 +212,23 @@ def test_the_base_agent_refuses_another_clis_login_and_what_would_pay_instead(st
     work = tmp_path / "w"
     work.mkdir()
     with pytest.raises(Unsupported, match="does not sign in with login: chatgpt"):
-        make("claude", {"web_search": False, "login": "chatgpt", "model": "m"}).run("go", workspace=work)
+        make("claude", {"web_search": False, "login": "chatgpt", "model": "m"}).run("go", environment=work)
     with pytest.raises(Unsupported, match="does not sign in with login: claude"):
-        make("codex", {"web_search": False, "login": "claude", "model": "m"}).run("go", workspace=work)
+        make("codex", {"web_search": False, "login": "claude", "model": "m"}).run("go", environment=work)
     with pytest.raises(Unsupported, match="would pay instead"):
-        session_agent(env={"ANTHROPIC_API_KEY": "sk-x"}).run("go", workspace=work)
+        session_agent(env={"ANTHROPIC_API_KEY": "sk-x"}).run("go", environment=work)
     with pytest.raises(Unsupported, match="keep their own --settings last"):
-        session_agent(args=["--settings", "{}"]).run("go", workspace=work)
+        session_agent(args=["--settings", "{}"]).run("go", environment=work)
     with pytest.raises(Unsupported, match="no tools or roles"):
-        session_agent(text_only=True).run("go", workspace=work, roles=[{"name": "a", "description": "b", "instructions": "c"}])
+        session_agent(text_only=True).run("go", environment=work,
+                                          roles=[{"name": "a", "description": "b", "instructions": "c"}])
     with pytest.raises(Unsupported, match="takes effort low, medium, high, xhigh, max, not 'minimal'"):
-        session_agent(effort="minimal").run("go", workspace=work)       # a Codex effort: the CLI would ignore it
+        session_agent(effort="minimal").run("go", environment=work)       # a Codex effort: the CLI would ignore it
     for settings in ({"output_format": "json"}, {"args": ["--output-format", "json"]}):
         with pytest.raises(Unsupported, match="stream-json alone"):     # the payer and the plan read from the stream
-            session_agent(**settings).run("go", workspace=work)
+            session_agent(**settings).run("go", environment=work)
     with pytest.raises(Unsupported, match="stream-json alone"):
-        make("claude", {"web_search": False, "text_only": True, "output_format": "json"}).run("go", workspace=work)
+        make("claude", {"web_search": False, "text_only": True, "output_format": "json"}).run("go", environment=work)
     assert stand.seen() == []
 
 
@@ -316,7 +318,7 @@ def test_a_session_pays_with_the_token_and_nothing_else(stand, tmp_path):
     user's own sign-in is not copied, and no parent session's variables leak."""
     work = tmp_path / "w"
     work.mkdir()
-    result = session_agent().run("do the task", workspace=work)
+    result = session_agent().run("do the task", environment=work)
     assert result.extra["served"] and not result.extra["failed"] and result.reply == "mock-reply"
     saw = stand.seen()[0]
     assert saw["env"][subscription.TOKEN_ENV] == TOKEN and saw["prompt"] == "do the task"
@@ -345,21 +347,26 @@ def test_in_a_container_claude_codes_own_sandbox_holds_the_commands(tmp_path):
         command = agent.command("go", work, tmp_path / "last")
         assert command[-2] == "--settings"
         return json.loads(command[-1])
-    boxed = last(session_agent(isolation="container"))
+
+    def placed(agent, environment):                # what `run` gives the call's agent
+        agent.environment = environment
+        return agent
+    boxed = last(placed(session_agent(), Container(work)))
     assert boxed == {**json.loads(base_cli.CLAUDE_LOCK), "sandbox": base_cli.CLAUDE_SANDBOX,
                      "permissions": base_cli.CLAUDE_OWN_SETTINGS}
     assert boxed["permissions"] == {"deny": ["Edit(.claude/**)"]}      # no hook the session writes itself
     assert boxed["sandbox"]["enabled"] is True and boxed["sandbox"]["allowUnsandboxedCommands"] is False
     assert boxed["sandbox"]["failIfUnavailable"] is True
     assert boxed["sandbox"]["network"] == {"allowedDomains": [], "strictAllowlist": True}
-    assert "sandbox" not in last(session_agent(isolation="container", text_only=True))
-    assert "sandbox" not in last(session_agent(isolation="none"))
-    assert last(session_agent(isolation="sandbox")) == json.loads(base_cli.CLAUDE_LOCK)     # the run's: the lock alone
-    assert last(make("claude", {"web_search": False, "isolation": "container"})) == {
+    assert "sandbox" not in last(placed(session_agent(text_only=True), Container(work)))
+    assert "sandbox" not in last(placed(session_agent(), Local(work)))
+    assert last(placed(session_agent(), Sandboxed(work, sandbox=sandbox_off()))) == \
+        json.loads(base_cli.CLAUDE_LOCK)                                                  # the run's: the lock alone
+    assert last(placed(make("claude", {"web_search": False}), Container(work))) == {
         "sandbox": base_cli.CLAUDE_SANDBOX, "permissions": base_cli.CLAUDE_OWN_SETTINGS}
     assert "--settings" not in make("claude", {"web_search": False}).command("go", work, tmp_path / "last")
     with pytest.raises(Unsupported, match="keep their own --settings last"):
-        make("claude", {"web_search": False, "isolation": "container", "args": ["--settings={}"]}).command(
+        placed(make("claude", {"web_search": False, "args": ["--settings={}"]}), Container(work)).command(
             "go", work, tmp_path / "last")
     assert session_agent().by_fd() == {subscription.TOKEN_ENV: "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR"}
     assert make("claude", {"web_search": False}).by_fd() == {} == make("codex", {"web_search": False}).by_fd()
@@ -472,9 +479,9 @@ def test_a_container_session_reaches_its_tool_server_directly(tmp_path, monkeypa
     work.mkdir()
     base_cli._ready.clear()
     tool = Tool("count", "Count.", lambda: {"n": 1})
-    make("claude", {"web_search": False, "isolation": "container",
-                    "container": {"image": "img:1", "network": "net", "proxy": "http://px:3128"}}).run(
-        "go", workspace=work, tools=[tool])
+    make("claude", {"web_search": False}).run(
+        "go", environment=Container(work, settings={"image": "img:1", "network": "net", "proxy": "http://px:3128"}),
+        tools=[tool])
     seen = json.loads((tmp_path / "docker.json").read_text())
     args = seen["args"]
     assert seen["no_proxy"] == "127.0.0.1" and args[args.index("NO_PROXY") - 1] == "-e"
@@ -485,7 +492,7 @@ def test_a_container_session_reaches_its_tool_server_directly(tmp_path, monkeypa
 def test_the_agent_checks_the_images_claude_code_and_its_sandbox_before_a_session(tmp_path, monkeypatch):
     """Before the first session: Claude Code in the image, recent enough for the settings checked here, and its sandbox
     able to start there (else every command would fail and the session still count as served)."""
-    from hermit.agent.base import container
+    from hermit.environment import docker as container
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (bin_dir / "docker").write_text(FAKE_DOCKER)
@@ -503,11 +510,11 @@ def test_the_agent_checks_the_images_claude_code_and_its_sandbox_before_a_sessio
     work = tmp_path / "w"
     work.mkdir()
     with pytest.raises(RuntimeError, match="container is not ready: .*sandbox cannot start"):
-        make("claude", {"web_search": False, "isolation": "container", "container": conf}).run("go", workspace=work)
+        make("claude", {"web_search": False}).run("go", environment=Container(work, settings=conf))
 
 
 def test_a_secret_by_descriptor_is_one_env_passes_and_named_plainly(tmp_path):
-    from hermit.agent.base import container
+    from hermit.environment import docker as container
     kw = dict(conf={"image": "i", "network": "n", "proxy": "p"}, work=tmp_path, home=tmp_path, mounts=[],
               timeout=1, stdout=tmp_path / "out")
     with pytest.raises(ValueError, match="does not pass"):
@@ -520,7 +527,7 @@ def test_no_token_is_no_session_and_says_how(stand, tmp_path, monkeypatch):
     monkeypatch.delenv(subscription.TOKEN_ENV)
     work = tmp_path / "w"
     work.mkdir()
-    result = session_agent().run("go", workspace=work)
+    result = session_agent().run("go", environment=work)
     assert not result.extra["served"] and result.extra["login_failed"] and "claude setup-token" in result.extra["failure"]
     assert stand.seen() == []
 
@@ -529,7 +536,8 @@ def test_a_session_on_the_login_can_be_held_to_its_model_where_the_sandbox_allow
     """The login's host (api.anthropic.com) is the session's own, as a provider's is: a network limited to the model
     holds where the run's sandbox allows just that host; another allowed host still refuses it."""
     for allow, refused in ((["api.anthropic.com"], False), (["api.anthropic.com", "other.example.com"], True)):
-        agent = session_agent(isolation="sandbox", sandbox=Sandbox(network="allowlist", allow=allow))
+        agent = session_agent()
+        agent.environment = Sandboxed(tmp_path, sandbox=Sandbox(network="allowlist", allow=allow))   # as `run` gives it
         if refused:
             with pytest.raises(Unsupported, match="more than the model"):
                 agent._isolation(tmp_path, Limits(network=[]))
@@ -543,7 +551,7 @@ def test_a_session_that_paid_with_a_key_is_no_answer(stand, tmp_path):
     stand.play("api_key_won")
     work = tmp_path / "w"
     work.mkdir()
-    result = session_agent().run("go", workspace=work)
+    result = session_agent().run("go", environment=work)
     assert not result.extra["served"] and result.extra["login_failed"] and result.reply == ""
     assert "ANTHROPIC_API_KEY" in result.extra["failure"]
 
@@ -552,7 +560,7 @@ def test_without_a_login_a_session_is_left_as_it_was(stand, tmp_path):
     """No `login`: the provider settings or the CLI's own sign-in, as before: nothing dropped, no lock, its cost kept."""
     work = tmp_path / "w"
     work.mkdir()
-    result = make("claude", {"web_search": False, "model": "m", "home_files": []}).run("go", workspace=work)
+    result = make("claude", {"web_search": False, "model": "m", "home_files": []}).run("go", environment=work)
     saw = stand.seen()[0]
     assert saw["env"]["ANTHROPIC_API_KEY"] == "sk-would-bill-the-key" and "--settings" not in saw["args"]
     assert result.usage[0].cost_usd is not None and result.extra["served"]
@@ -561,7 +569,7 @@ def test_without_a_login_a_session_is_left_as_it_was(stand, tmp_path):
 def test_usage_counts_everything_sent_and_a_subscription_has_no_cost(stand, tmp_path):
     work = tmp_path / "w"
     work.mkdir()
-    result = session_agent().run("go", workspace=work)
+    result = session_agent().run("go", environment=work)
     u = result.usage[0]
     assert (u.input_tokens, u.cached_input_tokens, u.output_tokens) == (123 + 89 + 67, 89, 45)
     assert u.cost_usd is None and result.extra["served_model"] == "claude-sonnet-5-5"
@@ -597,8 +605,8 @@ def test_a_prompt_is_text_for_the_model_whatever_it_starts_with(stand, tmp_path)
     work.mkdir()
     agent = session_agent()
     for prompt in ("--version", "- a list item"):
-        agent.run(prompt, workspace=work)
-    agent.run("/cost is a word", workspace=work)
+        agent.run(prompt, environment=work)
+    agent.run("/cost is a word", environment=work)
     seen = stand.seen()
     assert [s["prompt"] for s in seen] == ["--version", "- a list item", "\n/cost is a word"]
     assert not any(p in s["args"] for s in seen for p in ("--version", "- a list item", "/cost is a word"))
@@ -609,12 +617,12 @@ def test_a_long_system_text_goes_by_file_and_a_short_one_stays_an_argument(stand
     work.mkdir()
     long = "S" * (base_cli.ARG_MAX + 10)
     home = tmp_path / "home"
-    session_agent(home=home, append_system_prompt=long).run("go", workspace=work)
+    session_agent(home=home, append_system_prompt=long).run("go", environment=work)
     saw = stand.seen()[0]
     assert "--append-system-prompt-file" in saw["args"] and long not in saw["args"]
     assert Path(saw["args"][saw["args"].index("--append-system-prompt-file") + 1]).read_text() == long
     stand.play("reply")
-    session_agent(append_system_prompt="short").run("go", workspace=work)
+    session_agent(append_system_prompt="short").run("go", environment=work)
     assert stand.seen()[0]["args"][stand.seen()[0]["args"].index("--append-system-prompt") + 1] == "short"
 
 
@@ -626,8 +634,8 @@ def test_a_system_file_is_not_written_through_a_link_a_session_left(stand, tmp_p
     target.write_text("untouched")
     for name in ("system-prompt.md", "append-system-prompt.md"):       # one file per flag
         (home / name).symlink_to(target)
-    session_agent(home=home, append_system_prompt="S" * (base_cli.ARG_MAX + 10)).run("go", workspace=work)
-    session_agent(home=home, text_only=True, system_prompt="T" * (base_cli.ARG_MAX + 10)).run("go", workspace=work)
+    session_agent(home=home, append_system_prompt="S" * (base_cli.ARG_MAX + 10)).run("go", environment=work)
+    session_agent(home=home, text_only=True, system_prompt="T" * (base_cli.ARG_MAX + 10)).run("go", environment=work)
     assert target.read_text() == "untouched"
     assert not any((home / name).is_symlink() for name in ("system-prompt.md", "append-system-prompt.md"))
     assert (home / "system-prompt.md").read_text().startswith("T") and \
@@ -649,7 +657,7 @@ def test_a_failed_session_says_so_and_has_no_reply(stand, tmp_path, case, kind):
     work = tmp_path / "w"
     work.mkdir()
     # plan_rerun off: the refusal comes back instead of waiting for the window, to be read here.
-    result = session_agent(plan_rerun=False).run("go", workspace=work)
+    result = session_agent(plan_rerun=False).run("go", environment=work)
     extra = result.extra
     assert extra["served"] is False and extra["failed"] is True and result.reply == ""
     assert extra[kind] is True
@@ -673,7 +681,7 @@ def test_the_cli_exits_zero_with_no_result_and_that_is_not_served(stand, tmp_pat
     assert INDEX["interrupted"]["exit"] == 0
     work = tmp_path / "w"
     work.mkdir()
-    result = make("claude", {"web_search": False, "home_files": []}).run("go", workspace=work)
+    result = make("claude", {"web_search": False, "home_files": []}).run("go", environment=work)
     assert result.exit_code == 0 and result.extra["failed"] is True and result.extra["served"] is False
 
 
@@ -682,7 +690,7 @@ def test_words_a_session_read_are_not_its_failure(stand, tmp_path):
     stand.play({"case": "reply", "text": "You've hit your 5-hour limit, API Error: 529 Overloaded, Not logged in"})
     work = tmp_path / "w"
     work.mkdir()
-    result = session_agent().run("go", workspace=work)
+    result = session_agent().run("go", environment=work)
     assert result.extra["served"] and not result.extra["refused"] and not result.extra["unavailable"]
     assert not result.extra["login_failed"]
 
@@ -691,9 +699,9 @@ def test_a_finish_reason_says_how_the_reply_ended(stand, tmp_path):
     stand.play("pause_turn")
     work = tmp_path / "w"
     work.mkdir()
-    assert session_agent().run("go", workspace=work).finish_reason == "length"
+    assert session_agent().run("go", environment=work).finish_reason == "length"
     stand.play("reply")
-    assert session_agent().run("go", workspace=work).finish_reason == "stop"
+    assert session_agent().run("go", environment=work).finish_reason == "stop"
 
 
 def test_a_prompt_the_cli_ran_as_a_command_is_not_served(tmp_path):
@@ -718,7 +726,7 @@ def test_a_limit_holds_every_session_until_its_reset_and_the_session_runs_again(
     monkeypatch.setattr(subscription, "wait", wait)
     work = tmp_path / "w"
     work.mkdir()
-    result = session_agent().run("go", workspace=work)
+    result = session_agent().run("go", environment=work)
     assert result.reply == "mock-reply" and len(stand.seen()) == 2
     assert waits[0] == "" and "refused" in waits[1]
     assert kept["rate_limit_reached_type"] == "session_refused" and kept["windows"]["five_hour"]["used_percent"] == 100
@@ -734,15 +742,16 @@ def test_the_plans_files_steer_a_claude_session_as_they_do_a_codex_one(stand, tm
     work = tmp_path / "w"
     work.mkdir()
     (plan / "PAUSE").write_text("")
-    result = session_agent(plan_max_wait_s=0).run("go", workspace=work)
+    result = session_agent(plan_max_wait_s=0).run("go", environment=work)
     assert result.extra["unavailable"] and not result.extra["started"] and stand.seen() == []
     (plan / "PAUSE").unlink()
     stand.play({"case": "window_warning", "resets_in": 3600})
-    assert session_agent().run("go", workspace=work).extra["served"]
+    assert session_agent().run("go", environment=work).extra["served"]
     (plan / "MAX_USED").write_text("50")
     assert "plan usage 81%" in subscription.held(plan)
     calls = len(stand.seen())
-    assert session_agent(plan_max_wait_s=0).run("go", workspace=work).extra["unavailable"] and len(stand.seen()) == calls
+    assert session_agent(plan_max_wait_s=0).run("go", environment=work).extra["unavailable"] and \
+        len(stand.seen()) == calls
 
 
 def test_a_session_on_usage_credits_holds_the_next_ones_unless_allowed(stand, tmp_path, monkeypatch):
@@ -751,15 +760,15 @@ def test_a_session_on_usage_credits_holds_the_next_ones_unless_allowed(stand, tm
     stand.play({"case": "usage_credits", "resets_in": 9000})
     work = tmp_path / "w"
     work.mkdir()
-    result = session_agent(usage_credits=True).run("go", workspace=work)
+    result = session_agent(usage_credits=True).run("go", environment=work)
     assert result.extra["served"] and subscription.held(tmp_path / "plan") == ""
-    result = session_agent().run("go", workspace=work)
+    result = session_agent().run("go", environment=work)
     assert result.extra["served"] and "refused" in subscription.held(tmp_path / "plan")
     plan = json.loads((tmp_path / "plan" / "plan.json").read_text())
     assert plan["rate_limit_reached_type"] == "usage_credits" and 8900 < plan["held_until"] - time.time() < 9100
     # a run that allows credits (another run's hold, the same plan) is not held by it; the others still are
     assert subscription.held(tmp_path / "plan", credits=True) == ""
-    result = session_agent(usage_credits=True, plan_max_wait_s=0).run("go", workspace=work)
+    result = session_agent(usage_credits=True, plan_max_wait_s=0).run("go", environment=work)
     assert result.extra["served"] and "refused" in subscription.held(tmp_path / "plan")
 
 
@@ -782,7 +791,7 @@ def test_a_credits_hold_is_written_before_the_session_gives_its_slot_back(stand,
     monkeypatch.setattr(subscription, "slot", watched)
     work = tmp_path / "w"
     work.mkdir()
-    assert session_agent().run("go", workspace=work).extra["served"]
+    assert session_agent().run("go", environment=work).extra["served"]
     assert len(at_release) == 1 and "refused" in at_release[0]
 
 
@@ -810,7 +819,7 @@ def test_a_refusal_after_a_credits_hold_holds_the_sessions_allowed_credits(tmp_p
                                                     "failed": True, "held_until": time.time() + 7200})
     monkeypatch.setenv(subscription.TOKEN_ENV, TOKEN)
     monkeypatch.setattr(base_cli.CliAgent, "_session", refused)
-    result = session_agent(usage_credits=True, plan_dir=str(plan), plan_max_wait_s=0).run("go", workspace=tmp_path)
+    result = session_agent(usage_credits=True, plan_dir=str(plan), plan_max_wait_s=0).run("go", environment=tmp_path)
     assert len(calls) == 1 and not result.extra.get("served") and "refused" in subscription.held(plan, credits=True)
 
 
@@ -822,7 +831,7 @@ def test_a_served_session_never_waits_for_a_hold_it_cannot_write(stand, tmp_path
     work = tmp_path / "w"
     work.mkdir()
     started = time.time()
-    result = session_agent(plan_max_wait_s=None).run("go", workspace=work)      # no deadline of its own either
+    result = session_agent(plan_max_wait_s=None).run("go", environment=work)      # no deadline of its own either
     assert result.extra["served"] and time.time() - started < 60
 
 
@@ -832,7 +841,7 @@ def test_a_hold_outlasts_the_reports_of_sessions_that_started_before_it(stand, t
     stand.play({"case": "usage_credits", "resets_in": 3600})
     work = tmp_path / "w"
     work.mkdir()
-    session_agent().run("go", workspace=work)
+    session_agent().run("go", environment=work)
     assert "refused" in subscription.held(tmp_path / "plan")
     later = subscription.claude_report([json.loads(line) for line in (STREAMS / "window_warning.jsonl").read_text()
                                         .splitlines() if line.startswith("{")])
@@ -938,10 +947,10 @@ def test_a_sessions_commands_do_not_see_the_plan(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(user))
     monkeypatch.setenv(subscription.TOKEN_ENV, TOKEN)
     agent = session_agent(plan_dir=str(plan), model="m")
-    result = agent.run("go", workspace=work)                        # the first session: the plan's directory is made
+    result = agent.run("go", environment=work)                        # the first session: the plan's directory is made
     assert result.reply == "ok" and result.extra["served"] and plan.is_dir()
     (plan / "MAX_USED").write_text("90")
-    result = agent.run("go", workspace=work)
+    result = agent.run("go", environment=work)
     assert result.reply == "ok" and result.extra["served"]
     assert (work / "seen.txt").read_text() == ""                    # none of the plan's files in the session's view
     assert not (plan / "PAUSE").exists() and (plan / "MAX_USED").read_text() == "90" and not (plan / ".lock").is_symlink()
@@ -1835,7 +1844,7 @@ def test_the_real_cli_on_the_token_stays_out_of_the_bash_tools_environment(real_
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-would-bill")
     try:
         result = session_agent(model="claude-haiku-5-5", env={"ANTHROPIC_BASE_URL": url}, timeout_s=60).run(
-            "run the command", workspace=work)
+            "run the command", environment=work)
     finally:
         server.shutdown()
     assert result.extra["served"] and result.reply == "finished"
@@ -1874,7 +1883,7 @@ def test_the_real_cli_takes_a_deployed_trees_skill_sub_agent_and_hook(real_cli):
         {"type": "tool_use", "id": "tu_1", "name": "Bash", "input": {"command": "echo hi", "description": "say hi"}}))
     try:
         result = session_agent(model="claude-haiku-5-5", env={"ANTHROPIC_BASE_URL": url}, timeout_s=60).run(
-            "go", workspace=work)
+            "go", environment=work)
     finally:
         server.shutdown()
     assert result.extra["served"] and result.reply == "finished"
@@ -1905,7 +1914,7 @@ def test_the_real_clis_reply_is_the_message_a_stop_hook_let_stand(real_cli):
     server, url, _ = _mock_model(answer)
     try:
         result = session_agent(model="claude-haiku-5-5", env={"ANTHROPIC_BASE_URL": url}, timeout_s=60).run(
-            "answer", workspace=work)
+            "answer", environment=work)
     finally:
         server.shutdown()
     assert marker.exists() and result.extra["served"]
@@ -1972,7 +1981,7 @@ def real_container(real_cli):
     container settings, the network's gateway, where a scripted model listens for the container). The model's URL is
     plain HTTP on the gateway, as the tools' server is, so the sessions are told to reach it directly (NO_PROXY), and
     to try once (the host's variables do not reach a container)."""
-    from hermit.agent.base import container
+    from hermit.environment import docker as container
     conf = container.settings({}, "claude")
     if not shutil.which("docker") or container.check(conf, "claude"):
         pytest.skip("needs docker, Claude Code's image and its network (HERMIT_CLAUDE_IMAGE, HERMIT_CLAUDE_NETWORK)")
@@ -2008,9 +2017,9 @@ def test_the_real_cli_in_its_container_keeps_the_token_and_the_network_from_its_
     work = tmp_path / "w"
     work.mkdir()
     try:
-        result = session_agent(model="claude-haiku-5-5", isolation="container", container=conf, timeout_s=180,
+        result = session_agent(model="claude-haiku-5-5", timeout_s=180,
                                env={"ANTHROPIC_BASE_URL": url, "NO_PROXY": gateway, "CLAUDE_CODE_MAX_RETRIES": "0"}
-                               ).run("probe", workspace=work)
+                               ).run("probe", environment=Container(work, settings=conf))
     finally:
         server.shutdown()
     assert result.extra["served"] and result.reply == "finished", result.extra.get("failure")
@@ -2075,9 +2084,9 @@ def test_the_real_cli_in_its_container_keeps_the_token_from_hooks_and_its_settin
         {"id": "toolu_1", "name": "Write", "input": {"file_path": str(settings), "content": "{}"}},
         {"id": "toolu_2", "name": "Bash", "input": {"command": "echo hi", "description": "say hi"}}), host=gateway)
     try:
-        result = session_agent(model="claude-haiku-5-5", isolation="container", container=conf, timeout_s=180,
+        result = session_agent(model="claude-haiku-5-5", timeout_s=180,
                                env={"ANTHROPIC_BASE_URL": url, "NO_PROXY": gateway, "CLAUDE_CODE_MAX_RETRIES": "0"}
-                               ).run("probe", workspace=work)
+                               ).run("probe", environment=Container(work, settings=conf))
     finally:
         server.shutdown()
     assert result.extra["served"], result.extra.get("failure")
@@ -2117,7 +2126,7 @@ def test_a_kept_home_never_shows_the_token_in_a_tool_result_the_cli_kept(stand, 
     kept = home / "projects" / "p" / "s" / "tool-results" / "r.txt"
     kept.parent.mkdir(parents=True)
     stand.play({"case": "reply", "edit": [str(kept), f"printed: {TOKEN}"]})
-    session_agent(home=home).run("go", workspace=work)
+    session_agent(home=home).run("go", environment=work)
     assert kept.read_text() == f"printed: <{subscription.TOKEN_ENV}>"
 
 
@@ -2131,7 +2140,7 @@ def test_a_session_stopped_by_an_exception_leaves_no_token_in_its_stream(stand, 
         raise KeyboardInterrupt
     monkeypatch.setattr(base_cli, "run_process", interrupted)
     with pytest.raises(KeyboardInterrupt):
-        session_agent(home=tmp_path / "home", log=str(log)).run("go", workspace=work)
+        session_agent(home=tmp_path / "home", log=str(log)).run("go", environment=work)
     assert TOKEN not in log.read_text() and f"<{subscription.TOKEN_ENV}>" in log.read_text()
 
 
@@ -2145,7 +2154,7 @@ def test_a_session_that_paid_another_way_is_returned_not_held_though_also_refuse
         return Result(reply="", extra={"served": False, "refused": True, "login_failed": True, "failed": True,
                                        "held_until": time.time() + 3600})
     monkeypatch.setattr(base_cli.Claude, "_session", session)
-    result = session_agent(plan_max_wait_s=0).run("go", workspace=tmp_path)
+    result = session_agent(plan_max_wait_s=0).run("go", environment=tmp_path)
     assert calls == [1] and result.extra["login_failed"]
     assert not subscription.held(subscription.plan_dir(None, "claude"), False)
 
@@ -2213,7 +2222,7 @@ def test_a_learner_on_the_subscription_with_a_backend_reference_is_refused_befor
 
 def test_a_session_that_paid_another_way_and_then_hung_still_ends_the_run(tmp_path, monkeypatch):
     """A failed sign-in outranks the timeout that followed it: the attempt is not judged as one."""
-    def hung(self, prompt, workspace=None, tools=(), limits=None, session=None, roles=()):
+    def hung(self, prompt, environment=None, tools=(), session=None, roles=()):
         return Result(reply="", timed_out=True, extra={"served": False, "login_failed": True, "unavailable": False,
                                                        "started": True, "failure": "the session paid with apiKey"})
     monkeypatch.setattr(base_cli.Claude, "run", hung)

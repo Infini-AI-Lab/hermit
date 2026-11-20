@@ -48,7 +48,7 @@ EMBED_MODEL=${MW_EMBED_MODEL:-fireworks/accounts/fireworks/models/qwen3-embeddin
 EFFORT=${MW_EFFORT:-high}
 META_PORT=$((WM_PORT+1))
 EMBED_PORT=$((WM_PORT+2))
-TASKDIR=$FRAMEWORK/examples/clbench_poker/utils
+TASKDIR=$FRAMEWORK/examples/clbench_poker/utils/benchmark
 export PYTHONPATH=$FRAMEWORK${PYTHONPATH:+:$PYTHONPATH}
 
 # The three models resolved on their backends (the shell form of hermit.agent.model.backends: HOST_*, EVOLVER_* and EMBED_*).
@@ -83,7 +83,7 @@ export CLB_SKIP_BASELINE=1 CLB_REQUEST_TIMEOUT=600 CLB_REASONING_EFFORT=$EFFORT
 export LITELLM_DROP_PARAMS=${LITELLM_DROP_PARAMS:-True} LITELLM_LOCAL_MODEL_COST_MAP=${LITELLM_LOCAL_MODEL_COST_MAP:-True}
 export MWM_CLBENCH=$CLBENCH MWM_METAWORLD=$METAWORLD
 
-[ -f "$TASKDIR/tasks.jsonl" ] || { echo "REFUSING: run $TASKDIR/prepare.py first"; exit 1; }
+[ -d "$TASKDIR/tasks" ] || { echo "REFUSING: run $TASKDIR/prepare.py first"; exit 1; }
 
 # The meters this launch starts stop within a second or two of the processes that use them ending (#82): its own and
 # those of any launch that reuses one. Each launch on a port lists its processes in the port's users file, emptied
@@ -155,7 +155,7 @@ for i in ${MW_ORDERS:-0}; do
   : > "$WD/current_db"
   # The task directory keeps MWM's layout (current_db, the evidence README), as ../mwm/launch.sh writes it,
   # because the host runner is MWM's; ReHarness's learner reads the framework's learning material, none of this.
-  "$PY" -m hermit.agent.evolver.methods.mwm.evidence.readme --evidence "$WD/evidence" --from "$HERE/../utils/task-info/mwm/contract/env_evidence.md"
+  "$PY" -m hermit.agent.evolver.methods.mwm.evidence.readme --evidence "$WD/evidence" --from "$HERE/../utils/benchmark/task-info/mwm/contract/env_evidence.md"
   # The learner model through its meter: the backend copied to the metered URL, the run's `llm` tool bound to it at
   # the host's reasoning effort (`llm` is a free-form section: a whole mapping on the command line). The embedding
   # model through its relay, once for the Evolver (evolver.params.embedding, with the key variable) and once for the

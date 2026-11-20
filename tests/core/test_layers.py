@@ -1,14 +1,20 @@
-"""The agent layers depend downward only (docs/framework/agent-layers.md): Layer 1 (hermit.agent.model) imports no
-other layer, Layer 2 (hermit.agent.base) imports Layer 1 only, and neither imports Layer 3 (hermit.agent.acting,
-hermit.agent.evolver) or the framework around them."""
+"""The layers depend downward only (docs/framework/agent-layers.md): Layer 1 (hermit.agent.model) imports no other
+layer; the environments (hermit.environment) import no agent and no task; Layer 2 (hermit.agent.base) imports Layer
+1 and the environments only, and none imports Layer 3 (hermit.agent.acting, hermit.agent.evolver) or the framework
+around them. Tasks (hermit.task) and agents (hermit.agent) never import each other: the run (hermit.trainer) brings
+them together, and both may use the environments and hermit.common."""
 import ast
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2] / "hermit" / "agent"
-ABOVE = {"model": ("hermit.agent.base", "hermit.agent.acting", "hermit.agent.evolver", "hermit.trainer",
-                   "hermit.adapter", "hermit.tools", "hermit.task"),
-         "base": ("hermit.agent.acting", "hermit.agent.evolver", "hermit.trainer", "hermit.adapter", "hermit.tools",
-                  "hermit.task")}
+HERMIT = Path(__file__).resolve().parents[2] / "hermit"
+FRAMEWORK = ("hermit.trainer", "hermit.adapter", "hermit.tools", "hermit.isolate", "hermit.harbor")
+ABOVE = {"agent/model": ("hermit.agent.base", "hermit.environment", "hermit.agent.acting", "hermit.agent.evolver",
+                         "hermit.task", *FRAMEWORK),
+         "environment": ("hermit.agent", "hermit.task", *FRAMEWORK),
+         "agent/base": ("hermit.agent.acting", "hermit.agent.evolver", "hermit.task", *FRAMEWORK),
+         "agent/acting": ("hermit.task", "hermit.trainer", "hermit.isolate"),
+         "agent/evolver": ("hermit.task",),
+         "task": ("hermit.agent", *FRAMEWORK)}
 
 
 def imports(path: Path) -> set[str]:
@@ -24,8 +30,8 @@ def imports(path: Path) -> set[str]:
 def test_each_layer_imports_only_the_layers_below():
     found = []
     for layer, banned in ABOVE.items():
-        for path in sorted((ROOT / layer).rglob("*.py")):
-            found += [f"{path.relative_to(ROOT)} imports {name}" for name in imports(path)
+        for path in sorted((HERMIT / layer).rglob("*.py")):
+            found += [f"{path.relative_to(HERMIT)} imports {name}" for name in imports(path)
                       if any(name == b or name.startswith(b + ".") for b in banned)]
     assert found == []
 

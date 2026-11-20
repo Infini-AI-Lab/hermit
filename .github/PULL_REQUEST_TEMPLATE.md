@@ -18,5 +18,7 @@ Provide outcomes and supporting evidence; reference answers already in Change or
 
 - [ ] Tests and documentation cover the affected behavior, where applicable.
 - [ ] Commands, defaults, and public interfaces are consistent.
+- [ ] Agents follow the [agent layers](../docs/framework/agent-layers.md): model calls through Layer 1, where an agent
+      runs is its environment, a benchmark's own agent subclasses a core agent in its example folder.
 - [ ] Shared logs and examples contain no credentials or private data.
 - [ ] Documentation-only: links the issue where it was discussed with the core team.

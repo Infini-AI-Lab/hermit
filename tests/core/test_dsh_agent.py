@@ -22,6 +22,7 @@ from hermit.agent.base import cli as base_cli
 from hermit.agent.base import trajectory
 from hermit.agent.base.interface import Unsupported, make
 from hermit.agent.base.tool import Tool
+from hermit.environment import Container, Local, Sandboxed, placed
 from hermit.agent.model.backends import bind_agent_params, registry
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -126,7 +127,7 @@ def test_dsh_runs_headless_in_its_home_with_its_model_and_the_tools_as_its_own(f
     work.mkdir()
     agent = make("dsh", {**bound(), "effort": "high", "web_search": False, "home": str(home),
                          "log": str(tmp_path / "agent-dsh.jsonl")})
-    result = agent.run("-a prompt that starts with a dash", workspace=work, tools=[echo()])
+    result = agent.run("-a prompt that starts with a dash", environment=work, tools=[echo()])
     [call] = seen(tmp_path)
     assert call["args"][:4] == ["--profile", "headless", "--patch", str(home / base_cli.DSH_PATCH)]
     assert call["args"][4:9] == ["--json", "--permission-mode", "workspace-write", "--approval-policy", "never"]
@@ -164,7 +165,7 @@ def test_dsh_runs_headless_in_its_home_with_its_model_and_the_tools_as_its_own(f
     assert tool == {"arguments": {"text": "from dsh"}, "server": "hermit_tools", "tool": "echo"}
     assert json.loads(result.trajectory[5].output) == {"echoed": "from dsh"}
     assert result.trajectory[0] == trajectory.Step("reasoning", "Thinking it over.")
-    agent.configured(env={"DEEPSEEK_BASE_URL": "$DEEPSEEK_BASE_URL"}).run("go", workspace=work)
+    agent.configured(env={"DEEPSEEK_BASE_URL": "$DEEPSEEK_BASE_URL"}).run("go", environment=work)
     assert seen(tmp_path)[-1]["env"]["DEEPSEEK_BASE_URL"] == "http://127.0.0.1:9"
 
 
@@ -176,7 +177,7 @@ def test_an_effort_is_a_level_the_bound_model_lists_and_off_asks_it_for_none(fak
     work.mkdir()
     agent = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")})
     for effort, efforts, default in (("high", {"high": "high"}, "high"), ("off", False, None), (None, None, None)):
-        agent.configured(effort=effort).run("go", workspace=work)
+        agent.configured(effort=effort).run("go", environment=work)
         layer = rows(seen(fake)[-1], fake / "home")
         [model] = row(layer, "llm-pi-ai")["config"]["providers"][base_cli.DSH_PROVIDER]["models"]
         assert model.get("reasoningEfforts") == efforts
@@ -194,7 +195,7 @@ def test_a_failed_run_is_an_error_and_only_an_outage_is_unavailable(fake, monkey
     monkeypatch.setenv("FAKE_DSH_EXIT", "1")
     work = fake / "work"
     work.mkdir()
-    result = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+    result = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", environment=work)
     assert result.exit_code == 1 and result.extra["failed"] and not result.extra["served"]
     assert result.extra["unavailable"] and result.extra["failure"].startswith("dsh: SERVER: 503: ")
     assert result.usage == []                              # retried requests that used no tokens are no calls
@@ -205,7 +206,7 @@ def test_a_failed_run_is_an_error_and_only_an_outage_is_unavailable(fake, monkey
     for code in ("RATE_LIMIT", "SERVER", "TIMEOUT", "TRANSPORT", "EMPTY_RESPONSE", "STREAM_CLOSED"):
         assert base_cli.Dsh.outage((STREAMS / "failure.jsonl").read_text().replace("SERVER", code)), code
     monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / "overloaded.jsonl"))
-    result = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+    result = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", environment=work)
     assert result.extra["failed"] and result.extra["unavailable"] and "dsh: PI_AI_ERROR: " in result.extra["failure"]
     [end] = [json.loads(line) for line in (STREAMS / "overloaded.jsonl").read_text().splitlines()
              if line.startswith('{"type":"final"')]
@@ -233,7 +234,7 @@ def test_a_tool_servers_words_of_an_outage_are_no_outage(fake, monkeypatch):
         stream.write_text("".join(lines[:3]) + tool + "".join(lines[3:]))
         monkeypatch.setenv("FAKE_DSH_STREAM", str(stream))
         monkeypatch.setenv("FAKE_DSH_EXIT", "1")
-        result = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+        result = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", environment=work)
         assert result.extra["failed"] and not result.extra["served"] and not result.extra["unavailable"], ended
         out = acting.run({"id": "q1"}, None, params={**bound(), "backend": "dsh", "web_search": False, "prompt": "go",
                                                      "workspaces": f"ws{k}", "retries": 3, "retry_wait_s": 0},
@@ -253,7 +254,7 @@ def test_a_run_dsh_was_stopped_in_is_no_success_although_dsh_exits_0(fake, monke
     monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / "stopped.jsonl"))
     work = fake / "work"
     work.mkdir()
-    result = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+    result = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", environment=work)
     assert result.exit_code == 0 and result.extra["failed"] and not result.extra["served"] and result.extra["started"]
     assert not result.extra["unavailable"] and result.reply == "" and "closed handle" in result.extra["failure"]
     assert [s.kind for s in result.trajectory] == ["command", "error"] and result.trajectory[0].exit_code is None
@@ -281,13 +282,13 @@ def test_a_resumed_session_is_adopted_by_its_id_and_counts_only_its_new_usage(fa
     work.mkdir()
     (home / "sessions" / "--run-work--" / SESSION).mkdir(parents=True)
     agent = make("dsh", {**bound(), "web_search": False, "home": str(home)})
-    result = agent.run("again", workspace=work, session=SESSION)
+    result = agent.run("again", environment=work, session=SESSION)
     args = seen(fake)[0]["args"]
     assert args[args.index("--session-id") + 1] == SESSION
     [usage] = result.usage
     assert (usage.input_tokens, usage.calls) == (1000, 1)
-    agent.run("again", workspace=work, session="session-gone")     # no such session kept: a new one
-    agent.run("again", workspace=work, session="*")                 # nor a glob
+    agent.run("again", environment=work, session="session-gone")     # no such session kept: a new one
+    agent.run("again", environment=work, session="*")                 # nor a glob
     assert all("--session-id" not in call["args"] for call in seen(fake)[1:])
 
 
@@ -302,19 +303,19 @@ def test_a_kept_home_is_not_written_through_a_link_the_last_session_left(fake, m
     (outside / "own.txt").write_text("own")
     agent = make("dsh", {**bound(), "web_search": False, "home": str(home)})
     monkeypatch.setenv("FAKE_DSH_RUN", f'ln -sfn {outside / "own.txt"} "$DSH_HOME/{base_cli.DSH_PATCH}"')
-    agent.run("go", workspace=work)
+    agent.run("go", environment=work)
     assert (home / base_cli.DSH_PATCH).is_symlink()                    # the session left the link
     monkeypatch.delenv("FAKE_DSH_RUN")
-    assert agent.run("go", workspace=work).extra["served"]
+    assert agent.run("go", environment=work).extra["served"]
     assert (outside / "own.txt").read_text() == "own"                   # nothing written through the link
     assert not (home / base_cli.DSH_PATCH).is_symlink()
     assert row(rows(seen(fake)[-1], home), "tool-web") == {"id": "tool-web", "disabled": True}
     layer = f'"$DSH_HOME/{base_cli.DSH_PATCH}"'
     monkeypatch.setenv("FAKE_DSH_RUN", f"rm -f {layer}; mkfifo {layer}")
-    agent.run("go", workspace=work)                                     # the session leaves a pipe in its place
+    agent.run("go", environment=work)                                     # the session leaves a pipe in its place
     monkeypatch.delenv("FAKE_DSH_RUN")
     done = []
-    worker = threading.Thread(target=lambda: done.append(agent.run("go", workspace=work)), daemon=True)
+    worker = threading.Thread(target=lambda: done.append(agent.run("go", environment=work)), daemon=True)
     worker.start()
     worker.join(60)
     assert done and done[0].extra["served"], "the layer's write waited on the pipe the session left"
@@ -331,23 +332,23 @@ def test_dsh_refuses_roles_and_a_container_and_searches_only_on_deepseeks_own_pr
     agent = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")})
     role = {"name": "reviewer", "description": "Review.", "instructions": "Check it."}
     with pytest.raises(Unsupported, match="roles"):
-        agent.run("go", workspace=work, roles=[role])
+        agent.run("go", environment=work, roles=[role])
     with pytest.raises(Unsupported, match="takes isolation none or sandbox"):
-        agent.configured(isolation="container").run("go", workspace=work)
+        agent.run("go", environment=Container(work))
     with pytest.raises(ValueError, match="permission_mode"):
-        agent.configured(permission_mode="bypass").run("go", workspace=work)
-    agent.configured(web_search=True).run("go", workspace=work)
+        agent.configured(permission_mode="bypass").run("go", environment=work)
+    agent.configured(web_search=True).run("go", environment=work)
     assert row(rows(seen(fake)[-1], fake / "home"), "tool-web") == {"id": "tool-web", "config": {"search": False,
                                                                                                "fetch": True}}
     own = dict(user_file=None, environ={})              # the built-ins alone: not the developer's own backends
     deepseek = bind_agent_params({"model": "deepseek/deepseek-v4-flash"}, "dsh", registry({}, **own))
     named = bind_agent_params({"model": "ds/deepseek-v4-flash"}, "dsh", registry({"ds": {"from": "deepseek"}}, **own))
     for params in (deepseek, named, {}):                  # DeepSeek's API on its key, under any name; dsh's own
-        make("dsh", {**params, "web_search": True, "home": str(fake / "home")}).run("go", workspace=work)
+        make("dsh", {**params, "web_search": True, "home": str(fake / "home")}).run("go", environment=work)
         assert all(r.get("id") != "tool-web" for r in rows(seen(fake)[-1], fake / "home"))
     relayed = bind_agent_params({"model": "deepseek/deepseek-v4-flash"}, "dsh", registry(
         {}, user_file=None, environ={"DEEPSEEK_BASE_URL": "http://127.0.0.1:9/v1"}))   # the variable moves the backend
-    make("dsh", {**relayed, "web_search": True, "home": str(fake / "home")}).run("go", workspace=work)
+    make("dsh", {**relayed, "web_search": True, "home": str(fake / "home")}).run("go", environment=work)
     assert row(rows(seen(fake)[-1], fake / "home"), "tool-web")["config"] == {"search": False, "fetch": True}
 
 
@@ -460,7 +461,7 @@ def test_a_model_that_takes_images_is_declared_so_to_dsh(fake):
     work.mkdir()
     for image_input, declared in ((True, ["text", "image"]), (False, None)):
         make("dsh", {**bound(), "web_search": False, "home": str(fake / "home"), "image_input": image_input}).run(
-            "go", workspace=work)
+            "go", environment=work)
         route = row(rows(seen(fake)[-1], fake / "home"), "llm-pi-ai")["config"]["providers"][base_cli.DSH_PROVIDER]
         assert route["models"][0].get("input") == declared
 
@@ -473,7 +474,7 @@ def test_system_instructions_go_at_the_top_of_the_prompt(fake):
     own, prompt = agent.system_settings("Fill {{name}} in.", "go")
     assert own == {} and prompt.startswith("# SYSTEM INSTRUCTIONS\n\nFill {{name}} in.\n\n# END") and \
         prompt.endswith("\n\ngo")
-    agent.configured(stdin=True).run(prompt, workspace=work)
+    agent.configured(stdin=True).run(prompt, environment=work)
     call = seen(fake)[0]
     assert call["args"][-1] == "-" and call["stdin"] == prompt
 
@@ -495,7 +496,7 @@ def test_the_learners_sessions_take_no_instruction_file_and_every_transcript_is_
     work = fake / "work"
     work.mkdir()
     for given, budget in (({}, 65536), ({"instruction_files": False}, 0)):
-        make("dsh", {**bound(), "web_search": False, "home": str(fake / "home"), **given}).run("go", workspace=work)
+        make("dsh", {**bound(), "web_search": False, "home": str(fake / "home"), **given}).run("go", environment=work)
         layer = rows(seen(fake)[-1], fake / "home")
         assert row(layer, "agent-instructions")["config"]["maxBytes"] == budget
         assert row(layer, "session-persistence-jsonl")["config"] == {"root": {"!!js": "dshHomePath('sessions')"},
@@ -511,7 +512,7 @@ def test_the_workspace_is_the_sessions_project_wherever_it_lies(fake):
     shows nothing above the workspace."""
     work = fake / "work"
     work.mkdir()
-    make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+    make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", environment=work)
     layer = rows(seen(fake)[0], fake / "home")
     assert row(layer, "skill-filesystem")["config"] == {"includeDefaultRoots": False, "customSkillDirs": [".dsh/skills"]}
     assert row(layer, "agent-instructions")["config"] == {"maxBytes": 65536, "projectRootMarkers": []}
@@ -526,19 +527,19 @@ def test_what_dsh_cannot_use_is_refused_rather_than_dropped(fake, monkeypatch, t
     work = fake / "work"
     work.mkdir()
     with pytest.raises(ValueError, match="an effort needs its model"):
-        make("dsh", {"effort": "high", "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+        make("dsh", {"effort": "high", "web_search": False, "home": str(fake / "home")}).run("go", environment=work)
     with pytest.raises(ValueError, match="an effort is one of off, minimal, low, medium, high, xhigh, max"):
         make("dsh", {**bound(), "effort": "ultra", "web_search": False, "home": str(fake / "home")}).run(
-            "go", workspace=work)
+            "go", environment=work)
     with pytest.raises(ValueError, match="an effort is one of off, low, high, max for a model of its own provider"):
         make("dsh", {"model": "deepseek-v4-flash", "effort": "medium", "web_search": False,
-                     "home": str(fake / "home")}).run("go", workspace=work)
+                     "home": str(fake / "home")}).run("go", environment=work)
     make("dsh", {"model": "deepseek-v4-flash", "effort": "max", "web_search": False, "home": str(fake / "home")}).run(
-        "go", workspace=work)
+        "go", environment=work)
     assert row(rows(seen(fake)[-1], fake / "home"), "agent-default-model")["config"] == {
         "provider": base_cli.DSH_ROUTE, "model": "deepseek-v4-flash", "reasoningEffort": "max"}
     make("dsh", {**bound(), "effort": False, "web_search": False, "home": str(fake / "home")}).run(
-        "go", workspace=work)                                      # YAML's bare `off`
+        "go", environment=work)                                      # YAML's bare `off`
     [model] = row(rows(seen(fake)[-1], fake / "home"), "llm-pi-ai")["config"]["providers"][base_cli.DSH_PROVIDER][
         "models"]
     assert model["reasoningEfforts"] is False
@@ -546,11 +547,11 @@ def test_what_dsh_cannot_use_is_refused_rather_than_dropped(fake, monkeypatch, t
     real.mkdir()
     (tmp_path / "link").symlink_to(real)
     agent = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")})
-    agent.configured(writable=[str(tmp_path / "link")]).run("go", workspace=work)
+    agent.configured(writable=[str(tmp_path / "link")]).run("go", environment=work)
     args = seen(fake)[-1]["args"]
     assert args[args.index("--add-dir") + 1] == os.path.realpath(real)
     with pytest.raises(ValueError, match="a writable path is an existing directory"):
-        agent.configured(writable=[str(tmp_path / "missing")]).run("go", workspace=work)
+        agent.configured(writable=[str(tmp_path / "missing")]).run("go", environment=work)
     monkeypatch.setenv("DSH_HOME", str(tmp_path / "users-dsh"))
     assert base_cli.Dsh.user_home() == tmp_path / "users-dsh"
 
@@ -568,7 +569,7 @@ def test_a_tasks_data_is_bound_in_the_workspace_where_bubblewrap_can_bind_it(fak
     work.mkdir()
     monkeypatch.setenv("FAKE_DSH_RUN", 'find docs -name "*.txt" > found.txt; [ -L docs ] && echo link >> found.txt')
     result = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run(
-        "go", workspace=work, limits=Limits(readable=[Mount(data, Path("docs"))]))
+        "go", environment=Local(work, Limits(readable=[Mount(data, Path("docs"))])))
     assert result.extra["mounts"] == {str(work / "docs"): "bound"}
     assert (work / "found.txt").read_text().split() == ["docs/deep/a.txt"]
 
@@ -579,7 +580,7 @@ def test_a_run_whose_tools_did_not_start_has_failed_although_dsh_completed_it(fa
     monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / "tools_down.jsonl"))
     work = fake / "work"
     work.mkdir()
-    result = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work,
+    result = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", environment=work,
                                                                                          tools=[echo()])
     assert result.exit_code == 0 and result.extra["served"] and result.extra["failed"]
     assert result.extra["failure"].startswith("mcp-hermit_tools did not start, so the session ran without its tools")
@@ -597,7 +598,7 @@ def test_a_run_dsh_refused_to_start_is_no_session(fake, monkeypatch):
     agent = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")})
     for stream, says in (("bad_option.jsonl", "unknown option"), ("dotenv.jsonl", 'sets "PYTHONPATH"')):
         monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / stream))
-        result = agent.run("go", workspace=work)
+        result = agent.run("go", environment=work)
         assert result.exit_code == 1 and not result.extra["started"] and says in result.extra["output_tail"]
     monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / "bad_option.jsonl"))
     with pytest.raises(RuntimeError, match="before starting a session"):
@@ -795,19 +796,19 @@ def test_calls_whose_tokens_were_not_reported_have_an_unknown_cost_not_a_free_on
     for stream, tokens in ((STREAMS / "no_usage.jsonl", 0), (without_usage("success.jsonl", tmp_path), 0),
                            (partial, 5000)):
         monkeypatch.setenv("FAKE_DSH_STREAM", str(stream))
-        [usage] = agent.run("go", workspace=work).usage
+        [usage] = agent.run("go", environment=work).usage
         assert usage.unreported_calls and usage.input_tokens == tokens and usage.cost_usd is None
     refused = [Usage(model="claude-x", calls=1)]
     price_usage(refused, {"price": {"input": 1.0, "output": 2.0}})
     assert refused[0].cost_usd == 0.0
     monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / "retried.jsonl"))
-    [retried] = agent.run("go", workspace=work).usage
+    [retried] = agent.run("go", environment=work).usage
     assert not retried.unreported_calls and retried.cost_usd == pytest.approx((1000 * 1.0 + 10 * 2.0) / 1e6)
     budget = Budget(usd=0.001)
     budget.add("rollout", retried)
     assert budget.exceeded() and budget.unknown_cost_calls == 0
     monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / "resume.jsonl"))
-    [usage] = agent.run("go", workspace=work).usage
+    [usage] = agent.run("go", environment=work).usage
     assert usage.input_tokens and usage.cost_usd == pytest.approx(
         ((usage.input_tokens - usage.cached_input_tokens) * 1.0 + usage.cached_input_tokens * 0.1
          + usage.output_tokens * 2.0) / 1e6)
@@ -825,7 +826,7 @@ def test_a_model_whose_backend_declares_no_context_window_fails_with_what_to_dec
     said = base_cli.notices("dsh", (STREAMS / "context_window.jsonl").read_text())   # its error, twice
     for backend, hinted in (({}, True), ({"context_window": 32768}, False)):
         result = make("dsh", {**bound(**backend), "web_search": False, "home": str(fake / "home")}).run(
-            "go", workspace=work)
+            "go", environment=work)
         assert result.extra["failed"] and "CONTEXT_WINDOW_EXCEEDED" in result.extra["failure"]
         assert said.splitlines()[0] in result.extra["failure"]          # dsh's error line (this one fits whole)
         assert ("declare the backend's context_window" in result.extra["failure"]) is hinted
@@ -848,7 +849,7 @@ def test_a_server_that_needs_no_key_gets_the_placeholder_key(fake):
     work = fake / "work"
     work.mkdir()
     params = bound(api_key_env="NO_SUCH_KEY_VAR", key_required=False)
-    make("dsh", {**params, "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+    make("dsh", {**params, "web_search": False, "home": str(fake / "home")}).run("go", environment=work)
     [call] = seen(fake)
     route = row(rows(call, fake / "home"), "llm-pi-ai")["config"]["providers"][base_cli.DSH_PROVIDER]
     assert route["apiKeyEnv"] == base_cli.DSH_NO_KEY and call["env"][base_cli.DSH_NO_KEY] == "local"
@@ -971,13 +972,13 @@ def test_with_the_dsh_cli_a_session_reaches_its_model_and_its_tools(tmp_path, mo
                                registry({"mock": {"base_url": url, "api_key_env": "MOCK_KEY", "apis": ["chat"]}}))
     work = tmp_path / "work"
     work.mkdir()
-    settings = {**params, "web_search": False, "home": str(tmp_path / "home"), "isolation": isolation,
-                "timeout_s": 300}
+    settings = {**params, "web_search": False, "home": str(tmp_path / "home"), "timeout_s": 300}
+    box = None
     if isolation == "sandbox":
-        settings["sandbox"] = Sandbox(network="isolated", env_allow=[], writable=[work], role="agent",
-                                      record_dir=tmp_path / "records")
+        box = Sandbox(network="isolated", env_allow=[], writable=[work], role="agent",
+                      record_dir=tmp_path / "records")
     try:
-        result = make("dsh", settings).run("Do the task.", workspace=work, tools=[echo()])
+        result = make("dsh", settings).run("Do the task.", environment=placed(work, box), tools=[echo()])
     finally:
         server.shutdown()
     assert result.exit_code == 0 and result.extra["served"] and result.reply == "the answer"
@@ -1022,8 +1023,8 @@ def test_with_the_dsh_cli_a_command_runs_in_dshs_own_sandbox_inside_the_runs(tmp
     work.mkdir()
     box = Sandbox(network="isolated", env_allow=[], writable=[work], role="agent", record_dir=tmp_path / "records")
     try:
-        result = make("dsh", {**params, "web_search": False, "home": str(home), "isolation": "sandbox",
-                              "sandbox": box, "timeout_s": 300}).run("Write the files.", workspace=work)
+        result = make("dsh", {**params, "web_search": False, "home": str(home), "timeout_s": 300}).run(
+            "Write the files.", environment=Sandboxed(work, sandbox=box))
         escaped = outside.exists()
     finally:
         server.shutdown()
@@ -1116,8 +1117,8 @@ def test_with_the_dsh_cli_a_tasks_data_is_found_by_dshs_own_search(tmp_path, mon
     server, url = serve_chat(script)
     try:
         result = make("dsh", {**mock_model(monkeypatch, url), "web_search": False, "home": str(tmp_path / "home"),
-                              "timeout_s": 300}).run("Find the facts.", workspace=work,
-                                                     limits=Limits(readable=[Mount(data, Path("docs"))]))
+                              "timeout_s": 300}).run(
+            "Find the facts.", environment=Local(work, Limits(readable=[Mount(data, Path("docs"))])))
     finally:
         server.shutdown()
     assert result.extra["served"] and result.extra["mounts"] == {str(work / "docs"): "bound"}
@@ -1144,7 +1145,7 @@ def test_with_the_dsh_cli_a_deployed_tool_server_that_does_not_start_fails_the_s
     server_http, url = serve_chat(lambda body: None)
     try:
         result = make("dsh", {**mock_model(monkeypatch, url), "web_search": False, "home": str(tmp_path / "home"),
-                              "args": ["--patch", str(patch)], "timeout_s": 300}).run("go", workspace=work)
+                              "args": ["--patch", str(patch)], "timeout_s": 300}).run("go", environment=work)
     finally:
         server_http.shutdown()
     assert result.extra["failed"] and result.extra["failure"].startswith("mcp-file_example did not start")
@@ -1167,7 +1168,7 @@ def test_with_the_dsh_cli_no_instructions_above_the_workspace_are_read(tmp_path,
     server, url = serve_chat(lambda body: requests.append(body))
     try:
         make("dsh", {**mock_model(monkeypatch, url), "web_search": False, "home": str(tmp_path / "home"),
-                     "timeout_s": 300}).run("go", workspace=work)
+                     "timeout_s": 300}).run("go", environment=work)
     finally:
         server.shutdown()
     sent = json.dumps(requests[0])
@@ -1201,14 +1202,14 @@ def test_with_the_dsh_cli_a_learners_session_takes_no_instruction_file_and_its_t
             home = tmp_path / f"home-{len(given)}"
             agent = make("dsh", {**params, "web_search": False, "home": str(home), "timeout_s": 300, **given})
             first = len(requests)
-            result = agent.run(f"Read the notes; the key is {secret}.", workspace=work)
+            result = agent.run(f"Read the notes; the key is {secret}.", environment=work)
             sent = json.dumps(requests[first:])
             assert result.extra["served"] and ("NESTED-INSTRUCTIONS-MARKER" in sent) is not bool(given)
             [transcript] = (home / "sessions").rglob("session.v4.jsonl")
             assert secret in transcript.read_text() and not list((home / "sessions").rglob("*.zstd"))
             redact_path(home)
             assert secret not in transcript.read_text() and "<MOCK_KEY>" in transcript.read_text()
-        again = agent.run("Again.", workspace=work, session=result.session)
+        again = agent.run("Again.", environment=work, session=result.session)
     finally:
         server.shutdown()
     assert again.extra["served"] and again.session == result.session
@@ -1242,7 +1243,7 @@ def test_with_the_dsh_cli_an_agents_md_at_the_deploy_limit_reaches_the_model_who
     try:
         for work in (tmp_path / "edge", over):
             make("dsh", {**mock_model(monkeypatch, url), "web_search": False, "home": str(tmp_path / "home"),
-                         "timeout_s": 300}).run("go", workspace=work)
+                         "timeout_s": 300}).run("go", environment=work)
     finally:
         server.shutdown()
     edge, cut = json.dumps(requests[0]), json.dumps(requests[1])
@@ -1265,7 +1266,7 @@ def test_with_the_dsh_cli_a_server_that_needs_no_key_is_reached_with_the_placeho
     work.mkdir()
     try:
         result = make("dsh", {**params, "web_search": False, "home": str(tmp_path / "home"),
-                              "timeout_s": 300}).run("Answer.", workspace=work)
+                              "timeout_s": 300}).run("Answer.", environment=work)
     finally:
         server.shutdown()
     assert result.exit_code == 0 and result.reply == "the answer" and keys == ["Bearer local"]

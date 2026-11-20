@@ -4,8 +4,9 @@ The task sandbox has no GPU, so the simulator runs here, on the host, beside ASP
 services; a session reaches it through `bin/sim` (sim_cli.py) on a forwarded 127.0.0.1 port (ASPIRE_SIM_URL in
 environment.env). The service is the trusted side of the session's rules, and it trusts nothing the session sends
 but the workspace and its task's id: the seeds, the role and the budget are the task row's (--tasks, read here on
-the host), and a rollout's directory (<workspaces>/<role>/<task id>-<hex>, made by the framework outside the
-sandbox, which can write only inside it) registers one session, of the task its name carries:
+the host, each task as its row: aspire_fields.py), and a rollout's directory (<workspaces>/<role>/<task id>-<hex>,
+made by the framework outside the sandbox, which can write only inside it) registers one session, of the task its
+name carries:
 
     POST /register  {workspace, task, max_steps}
                     once per rollout, by the task's `prepare`, before the agent starts (a retry's `prepare`, in the
@@ -25,7 +26,7 @@ A run is stopped after --run-timeout seconds, and the runs still going are stopp
 Every refusal is a 200 with {ok: false, error}. The ledger (registrations, unseen checks, a verifier's programs) is
 kept in --state, outside every sandbox. Started by launch.sh:
 
-    python sim_service.py --port 8120 --aspire-root $ASPIRE_ROOT --tasks utils/tasks.jsonl --workspaces <logs>
+    python sim_service.py --port 8120 --aspire-root $ASPIRE_ROOT --tasks utils/benchmark/tasks --workspaces <logs>
         --state <dir> [--sim-env '{"MUJOCO_GL": "egl", ...}'] [--workers 4]
 """
 from __future__ import annotations
@@ -49,6 +50,7 @@ import threading
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sim  # noqa: E402
 from sim import seeds_of  # noqa: E402
+from aspire_fields import task_rows  # noqa: E402
 
 
 class Ledger:
@@ -361,7 +363,8 @@ def main() -> None:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8120)
     ap.add_argument("--aspire-root", type=Path, required=True)
-    ap.add_argument("--tasks", type=Path, required=True, help="the task rows (utils/tasks.jsonl): their seeds")
+    ap.add_argument("--tasks", type=Path, required=True,
+                    help="the tasks (utils/benchmark/tasks, or a tasks.jsonl): their seeds")
     ap.add_argument("--workspaces", type=Path, action="append", required=True,
                     help="a directory whose sessions this service serves (repeatable)")
     ap.add_argument("--state", type=Path, required=True)
@@ -378,7 +381,7 @@ def main() -> None:
         sys.exit("sim_service: bubblewrap (bwrap) is not on PATH: every simulator run is confined (sim.confine)")
     gpu_args(sim.gpus_of(a.gpu))                  # a GPU the machine lacks raises here
     a.state.mkdir(parents=True, exist_ok=True)
-    tasks = {r["id"]: r for r in (json.loads(line) for line in a.tasks.read_text().splitlines() if line.strip())}
+    tasks = task_rows(a.tasks)
     service = Service(a.aspire_root.resolve(), tasks, a.workspaces, Ledger(a.state / "ledger.json"),
                       json.loads(a.sim_env), a.workers, run_timeout=a.run_timeout, gpu=sim.gpus_of(a.gpu))
     service.nonce = a.nonce

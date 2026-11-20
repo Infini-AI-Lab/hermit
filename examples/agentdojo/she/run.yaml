@@ -1,0 +1,52 @@
+data:
+  tasks: ../utils/benchmark/data/comparison-v1/tasks
+  view: ../../agentdyn/utils/benchmark/cases.py:case_row   # each case as the row it always was
+  train: ../utils/benchmark/data/comparison-v1/train.txt
+  test: ../utils/benchmark/data/comparison-v1/test.txt
+  step_size: 57
+  shuffle: false
+task_info: ../utils/benchmark/task-info
+template: she@1.0
+agent:
+  name: ../utils/task.py:run
+  base: direct
+  model: openai/gpt-4o-mini-2024-07-18
+  concurrency: 1
+  timeout_min: 10
+  params:
+    episode_timeout_s: 900
+    benchmark_version: v1.2.2
+    max_iters: 25
+    logs: runs/episodes
+    benchmark: agentdojo
+    hook_runtime: she
+    auditor:
+      enabled: true
+      max_calls: 8
+      max_chars: 16000
+      max_tokens: 1024
+      timeout_s: 45
+judge:
+  path: ../utils/benchmark/judge.py
+evolver:
+  name: she
+  params:
+    proposer: llm
+    debugger: llm
+    gate_mode: initial_ua_floor
+llm: null
+environment:
+  runner: host
+sandbox:
+  enforce: required
+  evolver:
+    allowed_hosts:
+    - api.openai.com
+trainer:
+  run_name: agentdojo-she
+  output_dir: runs
+  epochs: 20
+  call_timeout_min: 30
+  budget:
+    hours: 1
+  allow_early_stop: true

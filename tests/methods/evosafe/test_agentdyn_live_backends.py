@@ -54,7 +54,7 @@ raise RuntimeError("must not execute this module")
 
 def test_compatible_victim_tools_usage_and_error_redaction(tmp_path, monkeypatch):
     openai = pytest.importorskip("openai")
-    pytest.importorskip("agentdojo")
+    pytest.importorskip("agentdojo.agent_pipeline")
     from openai.types.chat import ChatCompletion
     from victim import make_victim
     monkeypatch.setenv("VICTIM_TEST_KEY", "dummy-secret")
@@ -92,7 +92,7 @@ def test_compatible_victim_tools_usage_and_error_redaction(tmp_path, monkeypatch
 @pytest.mark.parametrize("failure", ["truncated", "truncated_text", "malformed", "textual", "no_calls"])
 def test_compatible_victim_rejects_partial_responses(tmp_path, monkeypatch, failure):
     openai = pytest.importorskip("openai")
-    pytest.importorskip("agentdojo")
+    pytest.importorskip("agentdojo.agent_pipeline")
     from openai.types.chat import ChatCompletion
     from victim import make_victim
     monkeypatch.setenv("VICTIM_TEST_KEY", "dummy")
@@ -146,17 +146,19 @@ def test_terminal_protocol_validation(content, calls, expected):
 
 def test_victim_uses_direct_and_preserves_wire_request(tmp_path, monkeypatch):
     """Exercise the real direct + ChatClient path against a loopback provider."""
-    pytest.importorskip("agentdojo")
+    pytest.importorskip("agentdojo.agent_pipeline")
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-    from hermit.agent.base import interface
+    from hermit.agent.model import direct
     from victim import make_victim
     seen, bases = [], []
-    original = interface.make
-    def make(name, settings, model):
-        bases.append(name)
-        return original(name, settings, model)
-    monkeypatch.setattr(interface, "make", make)
+    original = direct.Direct
+
+    class Direct(original):                     # the victim's model calls: Layer 1's single call
+        def __init__(self, settings=None, model=None):
+            bases.append("direct")
+            super().__init__(settings, model)
+    monkeypatch.setattr(direct, "Direct", Direct)
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -195,7 +197,7 @@ def test_victim_uses_direct_and_preserves_wire_request(tmp_path, monkeypatch):
 @pytest.fixture
 def usage_provider():
     """Local provider exercising the real shared ChatClient accounting."""
-    pytest.importorskip("agentdojo")
+    pytest.importorskip("agentdojo.agent_pipeline")
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     pending = []
@@ -329,7 +331,7 @@ def test_transport_error_keeps_known_subtotal_but_marks_episode_unknown(tmp_path
 
 
 def test_victim_without_an_optional_key_sends_no_authorization(tmp_path):
-    pytest.importorskip("agentdojo")
+    pytest.importorskip("agentdojo.agent_pipeline")
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from victim import make_victim

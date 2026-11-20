@@ -15,7 +15,10 @@ from hermit.config import Config
 from hermit.tree import Tree
 from report import summarize
 from compare import compare
-from experiment_runtime import (ExperimentInterrupted, interruption_handlers, run_owned, snapshot, verify_snapshot)
+from experiment_runtime import (ExperimentInterrupted, digest, interruption_handlers, run_owned, snapshot,
+                                verify_snapshot)
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'benchmark'))
+from cases import rows as case_rows  # noqa: E402
 
 
 def read_rows(path):
@@ -301,14 +304,15 @@ def run_measured(path, config, snapshot_metadata=None):
         for key in ('tasks', 'train', 'val', 'test'):
             if key == 'val' and not config.data['data'].get(key):
                 continue
-            manifest['data_sha256'][key] = hashlib.sha256(config.path(config.data['data'][key]).read_bytes()).hexdigest()
+            manifest['data_sha256'][key] = digest(config.path(config.data['data'][key]))
         for source in config.path(config.data['task_info']).iterdir():
             if source.is_file():
                 manifest['task_info_sha256'][source.name] = hashlib.sha256(source.read_bytes()).hexdigest()
         from victim import model_params
-        from bridge import AGENTDYN_REVISION
+        from bridge import benchmark_settings
         manifest['victim_model_id'] = model_params(config.data['agent']['params'])['model']
-        manifest['dataset_revision'] = AGENTDYN_REVISION
+        manifest['benchmark'] = config.data['agent']['params'].get('benchmark', 'agentdyn')
+        _, manifest['dataset_revision'] = benchmark_settings(manifest['benchmark'])
         manifest['docker_version'] = subprocess.check_output(['docker', 'version', '--format', '{{.Server.Version}}'], text=True).strip()
         from hermit.agent.evolver.methods.evosafe.cli_roles import proposer
         manifest['learner_backend'] = proposer(config.data['evolver']['params'])
@@ -345,7 +349,7 @@ def run_measured(path, config, snapshot_metadata=None):
             method=config.data['evolver']['name'])
         save()
         runs = {}
-        tasks = read_rows(config.path(config.data['data']['tasks']))
+        tasks = case_rows(config.path(config.data['data']['tasks']))
         ids = config.path(config.data['data']['test']).read_text().splitlines()
         ids = [i.strip() for i in ids if i.strip() and not i.startswith('#')]
         for adapter in ('none', 'root', 'final'):

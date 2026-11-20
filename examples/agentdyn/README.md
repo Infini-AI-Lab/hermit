@@ -6,8 +6,12 @@ judges. Nothing here generates or optimizes attacks.
 
 | Folder | Contents |
 |---|---|
-| [`utils/`](utils/) | The benchmark integration: the hook bridge to AgentDyn's agent loop and environments (`bridge.py`), the OpenAI-compatible victim (`victim.py`), the optional same-victim classifier (`auditor.py`), the native judge (`judge.py`), case preparation (`prepare*.py`), reports (`report.py`, `compare.py`), the domain specification (`task-info/`) and the data notes ([`DATA.md`](utils/DATA.md)) |
+| [`utils/`](utils/) | The benchmark integration: the hook bridge to AgentDyn's agent loop and environments (`bridge.py`), the OpenAI-compatible victim (`victim.py`), the optional same-victim classifier (`auditor.py`), reports (`report.py`, `compare.py`); under `utils/benchmark/`, the task set: case preparation (`prepare*.py`, each protocol's cases as task directories in Harbor's format, `cases.py`), the native judge (`judge.py`), the domain specification (`task-info/`) and the data notes ([`DATA.md`](utils/benchmark/DATA.md)) |
 | [`evosafe/`](evosafe/) | Experiments with the [EvoSafeHarness](../../docs/methods/evosafe.md) method: run configs and how to run and read them |
+
+The replay runtime also supports [official AgentDojo](../agentdojo/) through its
+separate task entry point and Python environment. Both distributions use the
+`agentdojo` package name; install only one in an environment.
 
 The method itself lives in Hermit (`hermit/agent/evolver/methods/evosafe/`, template `evosafe@1.0`) and does not
 depend on AgentDyn. `utils/` fills the method's
@@ -34,7 +38,7 @@ Install both projects in one resolver invocation, so AgentDyn's dependencies can
 ## Prepare the cases
 
 ```bash
-cd examples/agentdyn/utils
+cd examples/agentdyn/utils/benchmark
 python prepare_expanded.py /path/to/AgentDyn/runs/google_gemini-2.5-flash data/expanded-v2
 python prepare_thirty.py data/expanded-v2 data/thirty-v1
 python prepare_all_groups.py data/expanded-v2 data/thirty-v1 data/all-groups-v1
@@ -44,7 +48,11 @@ python prepare_all_groups.py data/expanded-v2 data/thirty-v1 data/full-test-v1 -
 The importer keeps only suite, user task, injection task and frozen payloads; old traces and scores are discarded.
 `full-test-v1` has 57 train, 54 validation and 186 test cases. `--full-test` includes every frozen variant in the
 18 TEST-owned groups; TRAIN and validation retain their clean case and two injection goals per group.
-Both EvoSafe recipes use `full-test-v1`. See [DATA.md](utils/DATA.md) for split ownership and preparation details.
+Both EvoSafe recipes use `full-test-v1`. Each protocol directory holds its cases as task directories in Harbor's
+format (`tasks/<id>/`: the case's row as `task.toml`'s `[metadata]`), `cases.txt` (every case, in the rows' order), the
+splits and `manifest.json`; the configs read each case back as its row (`data.view: ../utils/benchmark/cases.py:case_row`),
+so the agent loop, the judge and the records see what they saw in `tasks.jsonl`. See [DATA.md](utils/benchmark/DATA.md)
+for split ownership and preparation details.
 
 ## The bridge and the hooks
 
@@ -54,7 +62,7 @@ hooks around every tool call.
   `vllm/nvidia/nvidia/nemotron-3.5-lightning`. Endpoint and key settings come from Hermit's
   [model backends](../../docs/guides/model-backends.md), just as for the other task integrations. Legacy
   `base_url`/`api_key_env` settings remain supported. Requests retry on timeouts and server errors (`max_retries`).
-- Every model call goes through the shared `direct` Base Agent and `ChatClient`, including the optional classifier.
+- Every model call goes through Layer 1's single model call (`Direct`) and `ChatClient`, including the optional classifier.
   Native model names without backend connection settings are rejected.
 - The episode fails, and never counts as secure, on any of these: a truncated response, a malformed tool call, a
   textual tool call, unfinished reasoning, or exhausting `max_iters`.
@@ -66,7 +74,7 @@ hooks around every tool call.
 | `on_post_tool_call(ctx, result)` | Rewrite or refuse the output. An effect that already happened is not undone. |
 
 The hooks get the trusted user instruction and public tool schemas, never task IDs, injection labels, environment
-state or judge predicates. The template's `.hermit/EVOLVER.md` and `utils/task-info/README.md` state the contract.
+state or judge predicates. The template's `.hermit/EVOLVER.md` and `utils/benchmark/task-info/README.md` state the contract.
 When `agent.params.auditor.enabled` is set, structured hooks also get `ctx.classify_output(text)`, a bounded,
 side-effect-free classifier that uses the same frozen victim model.
 

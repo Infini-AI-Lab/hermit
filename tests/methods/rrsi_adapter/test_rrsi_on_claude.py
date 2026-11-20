@@ -51,8 +51,8 @@ def test_rrsi_roles_on_claude_code_each_run_in_a_view_of_their_own(tmp_path, mon
     from hermit.agent.evolver.methods.rrsi_adapter import roles as R
     seen = []
 
-    def run(self, prompt, *, workspace=None, tools=(), limits=None, session=None, roles=()):
-        seen.append((self.settings, workspace))
+    def run(self, prompt, *, environment=None, tools=(), session=None, roles=()):
+        seen.append((self.settings, environment.workspace, environment))
         return Result(reply="ok", exit_code=0, extra={"served": True, "unavailable": False, "started": True,
                                                       "cancelled": False, "output_tail": ""})
     monkeypatch.setattr(Claude, "run", run)
@@ -69,12 +69,12 @@ def test_rrsi_roles_on_claude_code_each_run_in_a_view_of_their_own(tmp_path, mon
     roles.traces.mkdir()
     assert roles.generate("p", system="You are the analyst.") == "ok"
     assert roles.generate("p", system="You are a trajectory digester.") == "ok"
-    (analyst, analyst_cwd), (digester, digester_cwd) = seen
-    assert analyst["sandbox"].writable == [tmp_path / "roles" / "00001"] and analyst["sandbox"].readable == []
+    (analyst, analyst_cwd, analyst_env), (digester, digester_cwd, digester_env) = seen
+    assert analyst_env.sandbox.writable == [tmp_path / "roles" / "00001"] and analyst_env.sandbox.readable == []
     assert analyst["text_only"] and analyst["system_prompt"] == "You are the analyst."
     assert analyst_cwd == tmp_path / "roles" / "00001" / "work"
-    assert digester["sandbox"].writable == [tmp_path / "roles" / "00002"]
-    assert digester["sandbox"].readable == [roles.traces] and digester_cwd == roles.traces
+    assert digester_env.sandbox.writable == [tmp_path / "roles" / "00002"]
+    assert digester_env.sandbox.readable == [roles.traces] and digester_cwd == roles.traces
     assert digester["allowed_tools"] == R.DIGESTER_TOOLS and "text_only" not in digester
     assert digester["append_system_prompt"] == "You are a trajectory digester."
 

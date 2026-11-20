@@ -93,6 +93,7 @@ recipes/index
 tutorials/reproduce-a-result
 recipes/officeqa
 recipes/agentdyn
+recipes/agentdojo
 recipes/servelearnbench
 recipes/clbench
 recipes/lean-collaboration
@@ -107,6 +108,7 @@ developer/releasing
 developer/reproducing-a-method
 developer/service-design
 developer/sandbox-design
+developer/harbor-design
 framework/agent-layers
 tutorials/custom-evolver
 framework/custom-evolver

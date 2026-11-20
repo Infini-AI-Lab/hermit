@@ -29,7 +29,7 @@ a domain plugs in through the [task contract](#the-task-contract). The first dom
 ```yaml
 template: evosafe@1.0
 agent: {name: ../utils/bridge.py:run, base: direct, model: vllm/nvidia/nvidia/nemotron-3.5-lightning}                # the domain's hook bridge
-judge: {path: ../utils/judge.py}                    # native verdicts as metrics in JudgeResult.extra
+judge: {path: ../utils/benchmark/judge.py}          # native verdicts as metrics in JudgeResult.extra
 evolver:
   name: evosafe
   base: codex
@@ -48,7 +48,7 @@ The method does not generate attacks; it replays existing frozen cases.
 ## Agent layers
 
 The AgentDyn Acting Agent keeps its native task/tool loop in `examples/agentdyn/utils/bridge.py`. Every victim
-turn, including the optional frozen-model classifier, calls a `direct` Base Agent; its Layer 1 is Hermit's
+turn, including the optional frozen-model classifier, makes one Direct call (Layer 1); its model is Hermit's
 `ChatClient` with the resolved backend, request timeout, retries and price. AgentDojo's message converters are
 reused, but the OpenAI SDK no longer sends requests. Bare native AgentDyn model names without backend settings
 are no longer accepted: configure `agent.base: direct` and `agent.model: <backend>/<model>`.

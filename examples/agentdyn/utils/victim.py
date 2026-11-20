@@ -114,7 +114,7 @@ def record_usage(total, result=None):
 
 def make_victim(params: dict, base: Path, on_call=None):
     from openai.types.chat import ChatCompletion
-    from hermit.agent.base.interface import make
+    from hermit.agent.model.direct import Direct
     from hermit.agent.model.llm import ChatClient
     from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
     from agentdojo.agent_pipeline.llms.openai_llm import (
@@ -134,7 +134,7 @@ def make_victim(params: dict, base: Path, on_call=None):
     client = ChatClient(settings["base_url"], params["model"], price=params.get("price"),
                         timeout=float(params.get("request_timeout_s", 120)),
                         max_retries=int(params.get("max_retries", 1)), extra_body=params.get("extra_body"))
-    agent = make("direct", {}, client)
+    agent = Direct({}, client)
     # A key that is optional and not set sends no Authorization header, as the shared client does.
     headers = {"Authorization": "Bearer " + settings["api_key"]} if settings.get("api_key") else {}
 
@@ -187,10 +187,13 @@ def make_victim(params: dict, base: Path, on_call=None):
                 protocol_error = 'missing_structured_tool_calls'
             output = None
             if not protocol_error:
-                output = _openai_to_assistant_message(message)
+                try:
+                    output = _openai_to_assistant_message(message)
+                except ValueError:   # official AgentDojo parses the arguments with json.loads
+                    protocol_error = 'malformed_tool_call_arguments'
                 # Upstream silently drops malformed tool calls. Reject those episodes
                 # instead of mistaking a parser failure for a secure final response.
-                if len(output.get("tool_calls") or []) != len(message.tool_calls or []):
+                if output is not None and len(output.get("tool_calls") or []) != len(message.tool_calls or []):
                     protocol_error = 'malformed_tool_call_arguments'
             # The call's event is written once its response has been validated.
             if on_call is not None:

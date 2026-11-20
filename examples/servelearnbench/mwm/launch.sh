@@ -7,7 +7,7 @@
 #
 # `train` starts two wire meters (the host's on WM_PORT, the learner's on WM_PORT+1), each in front of its model's
 # backend, and one `hermit train` in the background, logging to <runs>/<tag>/run.log. `test` replays every
-# window's held-out tests on the adapter the run had at that window (examples/servelearnbench/utils/windows.py) and
+# window's held-out tests on the adapter the run had at that window (examples/servelearnbench/utils/benchmark/windows.py) and
 # scores the result file; it can run while training is still going (windows not trained yet are skipped) and again
 # later.
 #
@@ -43,7 +43,7 @@ EVOLVER_MODEL=${MW_EVOLVER_MODEL:-$MODEL}
 EFFORT=${MW_EFFORT:-high}
 METER=${MW_WIRE_METER:-$FRAMEWORK/hermit/runtime/wire_meter.py}
 META_PORT=$((WM_PORT+1))
-TASKDIR=$FRAMEWORK/examples/servelearnbench/utils
+TASKDIR=$FRAMEWORK/examples/servelearnbench/utils/benchmark
 CONFIG=$FRAMEWORK/examples/servelearnbench/$METHOD/$SCENARIO.yaml
 WD="$RUNS/$TAG/task"
 export PYTHONPATH=$FRAMEWORK${PYTHONPATH:+:$PYTHONPATH}
@@ -52,8 +52,8 @@ export PYTHONPATH=$FRAMEWORK${PYTHONPATH:+:$PYTHONPATH}
 [ -f "$METER" ] || { echo "REFUSING: no wire meter at $METER (MW_WIRE_METER)"; exit 1; }
 "$PY" -c "import servelearnbench" 2>/dev/null \
   || { echo "REFUSING: servelearnbench is not installed: $PY -m pip install git+https://github.com/Infini-AI-Lab/ServeLearnBench"; exit 1; }
-# The scenario as a task (tasks.jsonl, splits, windows.json, the reference documents), exported once.
-if ! grep -q "\"scenario\": \"$SCENARIO\"" "$TASKDIR/tasks.jsonl" 2>/dev/null; then
+# The scenario as a task (its task directories, splits, windows.json, the reference documents), exported once.
+if ! { [ -d "$TASKDIR/tasks" ] && grep -q "\"scenario\": \"$SCENARIO\"" "$TASKDIR/windows.json" 2>/dev/null; }; then
   BLOCK=$(grep -E '^\s*step_size:' "$CONFIG" | head -1 | sed -E 's/.*step_size:\s*([0-9]+).*/\1/')
   "$PY" "$TASKDIR/prepare.py" --scenario "$SCENARIO" --block "${BLOCK:-12}"
 fi

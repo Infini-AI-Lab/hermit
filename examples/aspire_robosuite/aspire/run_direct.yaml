@@ -4,13 +4,14 @@
 # every task the coordinator repairs and grows the skill library through the verifier gate. Started by launch.sh,
 # inside the host that runs ASPIRE's perception, IK and planning services (see ../README.md).
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/all.txt
-  val: ../utils/splits/verify.txt   # the verifier's rows: run only by the coordinator, through run_agent
-  test: ../utils/splits/rerun.txt   # every task again with the final library: ASPIRE's backward transfer
+  tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/aspire_fields.py:aspire_task   # each task as the row it always was
+  train: ../utils/benchmark/splits/all.txt
+  val: ../utils/benchmark/splits/verify.txt   # the verifier's rows: run only by the coordinator, through run_agent
+  test: ../utils/benchmark/splits/rerun.txt   # every task again with the final library: ASPIRE's backward transfer
   step_size: 1                      # one task per step: the coordinator acts on each task as it finishes
   shuffle: false                    # the curriculum in the split's order
-task_info: ../utils/task-info
+task_info: ../utils/benchmark/task-info
 agent:
   name: ../utils/agent/agent.py:AspireActor
   concurrency: 1                    # one simulator sweep at a time on the engine's GPU
@@ -24,7 +25,7 @@ agent:
     evo: {k: 8, rounds: 5, threshold: 0.8, qualify_below: 0.9, parents: 3}
     workers: 4
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 template: aspire
 evolver:                            # the coordinator, as in run.yaml
   name: aspire

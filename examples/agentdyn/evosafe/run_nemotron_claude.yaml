@@ -1,13 +1,14 @@
 # Nemotron 3.5 Lightning victim: 57 train / 54 validation / 186 test cases.
 # Claude Code roles, full TRAIN scoring, bounded error handling, 12 concurrent victim episodes.
 data:
-  tasks: ../utils/data/full-test-v1/tasks.jsonl
-  train: ../utils/data/full-test-v1/train.txt
-  val: ../utils/data/full-test-v1/val.txt
-  test: ../utils/data/full-test-v1/test.txt
+  tasks: ../utils/benchmark/data/full-test-v1/tasks
+  view: ../utils/benchmark/cases.py:case_row   # each case as the row it always was
+  train: ../utils/benchmark/data/full-test-v1/train.txt
+  val: ../utils/benchmark/data/full-test-v1/val.txt
+  test: ../utils/benchmark/data/full-test-v1/test.txt
   step_size: 57
   shuffle: false
-task_info: ../utils/task-info
+task_info: ../utils/benchmark/task-info
 template: evosafe@1.0
 agent:
   name: ../utils/bridge.py:run
@@ -34,7 +35,7 @@ agent:
       max_tokens: 2048
       timeout_s: 45
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 evolver:
   name: evosafe
   base: claude

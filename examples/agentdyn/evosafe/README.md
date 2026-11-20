@@ -60,7 +60,7 @@ cases or a complete-run defense objective. These are descriptive fixed-case meas
 results have not been measured.
 
 Recorded on 2026-11-11 in run `agentdyn-evosafe-codex` at framework revision `9c45a65`, using the
-[full TEST protocol](../utils/DATA.md#full-test-variants) and the documented AgentDyn webpage patch.
+[full TEST protocol](../utils/benchmark/DATA.md#full-test-variants) and the documented AgentDyn webpage patch.
 The run's backend mapping resolved to `nvidia/nvidia/nemotron-3.5-lightning` (also recorded as
 `victim_model_id` in its manifest). The learner used local `sandbox.enabled=false` because bubblewrap
 was unavailable; learned hooks still ran in networkless Docker containers. Committed sandbox defaults
@@ -71,7 +71,7 @@ records locally; generated artifacts are not committed.
 
 ```bash
 python ../utils/report.py runs/agentdyn-evosafe-codex/eval/final/results.jsonl \
-  --tasks ../utils/data/full-test-v1/tasks.jsonl --split ../utils/data/full-test-v1/test.txt
+  --tasks ../utils/benchmark/data/full-test-v1/tasks --split ../utils/benchmark/data/full-test-v1/test.txt
 ```
 
 The experiment runner exports the three-way comparison automatically. For method differences,

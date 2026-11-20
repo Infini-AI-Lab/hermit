@@ -2,27 +2,28 @@
 (environment.read, agent.params.aspire_docs), never the checkout's own pages, which name ASPIRE's worked programs
 per task. launch.sh runs it on the host before a run:
 
-    python stage_docs.py --aspire-root $ASPIRE_ROOT --tasks utils/tasks.jsonl --out utils/aspire-docs
+    python stage_docs.py --aspire-root $ASPIRE_ROOT --tasks utils/benchmark/tasks --out utils/aspire-docs
 """
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 import shutil
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sim  # noqa: E402
+from aspire_fields import task_rows  # noqa: E402
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--aspire-root", type=Path, required=True)
-    ap.add_argument("--tasks", type=Path, required=True, help="the task rows: their benchmarks' pages are staged")
+    ap.add_argument("--tasks", type=Path, required=True,
+                    help="the tasks (utils/benchmark/tasks, or a tasks.jsonl): their benchmarks' pages are staged")
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
-    rows = [json.loads(line) for line in a.tasks.read_text().splitlines() if line.strip()]
+    rows = list(task_rows(a.tasks).values())
     pages = {}
     for benchmark in sorted({str(r.get("benchmark") or "robosuite") for r in rows}):
         pages.update(sim.workspace_docs(a.aspire_root, benchmark))

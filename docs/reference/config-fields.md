@@ -32,13 +32,13 @@ guarantee that their consumer supports arbitrary fields.
 | `data.shuffle` | boolean / true | Shuffle training order; set false for ordered streams |
 | `data.shuffle_seed` | integer / 0 | Training shuffle seed; does not seed every model or method |
 | `task_info` | directory / null | Learner-facing task description; provide `README.md` |
-| `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `hermes`, `harbor` (a benchmark's task set in Harbor's format, see [Benchmarks](../framework/task.md#benchmarks)), an Agent class, or a `file.py:function` / `module:function` |
+| `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `hermes`, `answer` (one model call, its answer written where the task's verifier reads it), an Agent class, or a `file.py:function` / `module:function`; a benchmark's task set in Harbor's environments is `environment.harbor` ([Benchmarks](../framework/task.md#benchmarks)), where `codex`, `claude-code`, `answer`, `react` and a custom agent that takes the `environment` argument work (the other CLIs refuse it) |
 | `agent.concurrency` | integer / 4 | Maximum concurrent rollout/evaluation task executions; use a positive value |
 | `agent.timeout_min` | number / null | A sandboxed task call (its worker) running longer is stopped and recorded as an error; null: no limit |
 | `agent.params` | mapping / {} | Passed to Agent constructors; plain functions receive it when they declare a `params` argument |
-| `agent.base` | string / null | Layer 2 in the per-layer form ([Agent layers](../framework/agent-layers.md#settings-by-layer)): `codex`, `claude`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `hermes`, `react`, or `direct` (with `agent.name`, a task's own loop); sets `agent.name` when unset |
+| `agent.base` | string / null | Layer 2 in the per-layer form ([Agent layers](../framework/agent-layers.md#settings-by-layer)): `codex`, `claude`, `pi`, `mini-swe-agent`, `opencode`, `dsh`, `hermes`, `react`, or `direct` (no agent: Layer 1's single model call, which a task's own loop named by `agent.name` makes); sets `agent.name` when unset |
 | `agent.model` | string / mapping / null | Layer 1: a `<backend>/<model>` reference, or `{ref` or `name, login, effort, price, ...}`; read into `agent.params` |
-| `agent.codex`, `agent.claude`, `agent.pi`, `agent.mini-swe-agent`, `agent.opencode`, `agent.dsh`, `agent.hermes`, `agent.react`, `agent.direct` | mapping / null | Layer 2's settings for that Base Agent (the one `agent.base` names); read into `agent.params`. A key set in two layers is refused |
+| `agent.codex`, `agent.claude`, `agent.pi`, `agent.mini-swe-agent`, `agent.opencode`, `agent.dsh`, `agent.hermes`, `agent.react`, `agent.direct` | mapping / null | Layer 2's settings for that Base Agent (the one `agent.base` names; `agent.direct`: the model call's sampling); read into `agent.params`. A key set in two layers is refused |
 | `pipeline.run` | string / null | Legacy alias for `agent.name`, applied only when `agent.name` is unset |
 | `pipeline.concurrency` | integer / null | Legacy concurrency override when the legacy pipeline alias is used |
 | `pipeline.params` | mapping / {} | Legacy parameters merged into `agent.params` when the pipeline alias is used |
@@ -57,7 +57,7 @@ Task row fields become training material, so private labels require judge-owned 
 | `evolver.name` | string / null; required | Built-in method or directory containing its Evolver definition |
 | `evolver.resume` | boolean / false | Request learner-session continuation; method must support it |
 | `evolver.params` | mapping / {} | Overrides merged with the chosen method's defaults |
-| `evolver.base` | string / null | Layer 2 the method runs on: `codex`, `claude`, `pi`, `opencode`, `dsh` or `hermes` (an agent Evolver: sets `evolver.params.backend`) or `direct`. On a method that calls the run's model, `pi` makes that model Pi (`llm: {cli: pi, ...}`) |
+| `evolver.base` | string / null | Layer 2 the method runs on: `codex`, `claude`, `pi`, `opencode`, `dsh` or `hermes` (an agent Evolver: sets `evolver.params.backend`) or `direct` (a method that calls the run's model, one call at a time: `Direct`, Layer 1). On a method that calls the run's model, `pi` makes that model Pi (`llm: {cli: pi, ...}`) |
 | `evolver.model` | string / mapping / null | Layer 1, as `agent.model`; with `evolver.base: direct` it is the run's `llm` |
 | `evolver.codex`, `evolver.claude`, `evolver.pi`, `evolver.opencode`, `evolver.dsh`, `evolver.hermes`, `evolver.direct` | mapping / null | Layer 2's settings, read into `evolver.params` (`evolver.pi` on a method that calls the run's model: into `llm`) |
 | `evolver_access.environment` | list / [] | Granted environment resources; required for MWM's evidence integration |
@@ -145,6 +145,7 @@ Checkpoint frequency controls tags; completed steps still have records and accep
 
 | Field | Type / default | Meaning |
 |---|---|---|
+| `environment.harbor` | mapping / path / null | A task set in Harbor's environments: each task's own, verified by Harbor's verifier; its settings, or the benchmark file that holds them (`benchmark:`); each setting overridable by its path ([Benchmarks](../framework/task.md#benchmarks)) |
 | `environment.runner` | string / `sandbox` | `sandbox`: the acting agent runs in the task sandbox; `host`: in the Trainer's process (a task whose code isolates what it runs) |
 | `environment.read` | list / [] | Task paths shown read-only to the acting agent; never the data, the judge, its tests or the runs |
 | `environment.write` | list / [] | Paths it may write besides its own work directory |

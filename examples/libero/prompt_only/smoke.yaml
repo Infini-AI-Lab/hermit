@@ -3,12 +3,13 @@
 # Evolver revises after each task; Codex acting on the method-neutral prompt, GLM 5.3 Flash. Started by launch.sh:
 # ASPIRE_CONFIG=smoke.yaml ./launch.sh
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/smoke.txt
-  test: ../utils/splits/smoke_rerun.txt   # `launch.sh eval`: the tasks again, with an adapter given
+  tasks: ../utils/benchmark/tasks
+  view: ../../aspire_robosuite/utils/agent/aspire_fields.py:aspire_task   # each task as the row it always was
+  train: ../utils/benchmark/splits/smoke.txt
+  test: ../utils/benchmark/splits/smoke_rerun.txt   # `launch.sh eval`: the tasks again, with an adapter given
   step_size: 1
   shuffle: false
-task_info: ../utils/task-info
+task_info: ../utils/benchmark/task-info
 agent:
   base: codex
   concurrency: 1
@@ -36,7 +37,7 @@ environment:                        # the task sandbox: the engine's code, the s
     - $ASPIRE_ROOT/.claude/skills/iterative-debugging/skills/task-exploration.md
   env: [ASPIRE_SIM_URL]             # the host's simulator service (launch.sh): its 127.0.0.1 port is forwarded
 judge:
-  path: ../../aspire_robosuite/utils/judge.py           # on the host: the program once on the held-out seeds
+  path: ../../aspire_robosuite/utils/benchmark/judge.py           # on the host: the program once on the held-out seeds
 template: prompt-only@1.0
 evolver:
   name: codex                       # the built-in Codex AgentEvolver: it revises ADAPTER.md after each task

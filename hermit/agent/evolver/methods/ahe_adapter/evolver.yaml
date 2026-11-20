@@ -10,7 +10,7 @@ description: >-
   Explore Agent; no Best-of-N; finalize hands back the best-ever evaluated snapshot; tokens/trial is recorded, which upstream
   never implemented.
 class: evolver.py:AHEAdapterEvolver
-needs: []
+needs: [skills, agents, hooks]   # the harness's components the Evolve Agent edits, which the acting agent runs
 params:
   backend: codex                   # the Evolve Agent's and the Agent Debugger's Base Agent: codex, claude or pi
   model: null                      # the Evolve Agent's model (the example sets it); with a login, the CLI's model name

@@ -203,7 +203,7 @@ def rollout_result(record: dict, task: dict, success: float) -> dict:
 @contextmanager
 def skillopt_model(agent, params: dict):
     """Route SkillOpt's optimizer calls (skillopt.model.chat_optimizer) to the run's model (`ctx.agent`, the
-    Evolver's `direct` Base Agent), and show the analyst the Codex trace summaries of the runs that have one
+    Evolver's model call, Direct), and show the analyst the Codex trace summaries of the runs that have one
     (SkillOpt's codex_trace_to_optimizer)."""
     from skillopt.model import get_optimizer_backend, set_optimizer_backend
     from skillopt.model import openai_compatible_backend as backend

@@ -17,6 +17,8 @@ import sys
 import threading
 
 import pytest
+
+from hermit.environment import Container, placed
 import yaml
 
 from hermit.agent.base import cli as base_cli
@@ -87,7 +89,7 @@ def run(fake, prompt="Do the task.", tools=(), **settings):
     work = fake / "work"
     work.mkdir(exist_ok=True)
     agent = make("hermes", {**bound(), "web_search": False, "home": str(fake / "home"), **settings})
-    return agent.run(prompt, workspace=work, tools=list(tools)), work
+    return agent.run(prompt, environment=work, tools=list(tools)), work
 
 
 # ---------- Layer 1: the binding ----------
@@ -121,7 +123,7 @@ def test_hermes_runs_one_turn_in_its_home_with_its_model_its_plugin_and_the_tool
     work.mkdir()
     agent = make("hermes", {**params, "web_search": False, "home": str(fake / "home"), "effort": "high",
                             "max_turns": 40})
-    result = agent.run("Do the task.", workspace=work, tools=[echo()])
+    result = agent.run("Do the task.", environment=work, tools=[echo()])
     [call] = seen(fake)
     home = fake / "home"
     args = call["args"]
@@ -475,13 +477,13 @@ def test_a_resumed_session_counts_only_this_calls_usage(fake, monkeypatch):
                     "reason": None, "sessions": [SESSION], "aux": []}), json.dumps(end)))
     monkeypatch.setenv("FAKE_HERMES_STREAM", str(stream))
     agent = make("hermes", {**bound(), "web_search": False, "home": str(home)})
-    first = agent.run("Again.", workspace=fake / "work", session=SESSION)
+    first = agent.run("Again.", environment=fake / "work", session=SESSION)
     assert seen(fake)[-1]["args"][7:9] == ["--resume", SESSION]
     assert [(u.model.endswith(HERMES_AUX), u.calls) for u in first.usage] == [(False, 1), (True, 3)]
     end["aux"][0].update(api_call_count=4, input_tokens=420)
     stream.write_text(stream.read_text().replace('"api_call_count": 3, "input_tokens": 300',
                                                  '"api_call_count": 4, "input_tokens": 420'))
-    second = agent.run("Again.", workspace=fake / "work", session=SESSION)
+    second = agent.run("Again.", environment=fake / "work", session=SESSION)
     [aux] = [u for u in second.usage if u.model.endswith(HERMES_AUX)]
     assert (aux.calls, aux.input_tokens, aux.output_tokens) == (1, 120, 0)
 
@@ -539,7 +541,7 @@ def test_a_home_hermit_did_not_make_is_never_cleared(fake):
     (fake / "work").mkdir()
     agent = make("hermes", {**bound(), "web_search": False, "home": str(home)})
     with pytest.raises(Unsupported, match="holds files hermit did not put there"):
-        agent.run("Do the task.", workspace=fake / "work")
+        agent.run("Do the task.", environment=fake / "work")
     assert sorted(os.listdir(home)) == ["agent-hermes.jsonl", "config.yaml"]       # the stream: the runner's own
     assert (home / "config.yaml").read_text() == "mine: true\n"
 
@@ -577,7 +579,7 @@ def test_system_instructions_are_the_configs_system_prompt_and_skills_a_folder_i
                             "skills_dir": str(fake / "skills")})
     agent, prompt = agent.instructed("Be brief {not a template}.", "Do the task.")
     (fake / "work").mkdir()
-    agent.run(prompt, workspace=fake / "work")
+    agent.run(prompt, environment=fake / "work")
     [call] = seen(fake)
     config = yaml.safe_load(call["config"])
     assert prompt == "Do the task." and config["agent"]["system_prompt"] == "Be brief {not a template}."
@@ -595,21 +597,21 @@ def test_what_hermes_cannot_do_is_refused_rather_than_dropped(fake):
     work.mkdir()
     agent = make("hermes", {**bound(), "web_search": False, "home": str(fake / "home")})
     with pytest.raises(Unsupported, match="roles"):
-        agent.run("x", workspace=work, roles=[{"name": "r", "description": "d", "instructions": "i"}])
+        agent.run("x", environment=work, roles=[{"name": "r", "description": "d", "instructions": "i"}])
     with pytest.raises(Unsupported, match="login"):
-        agent.configured(login="chatgpt").run("x", workspace=work)
+        agent.configured(login="chatgpt").run("x", environment=work)
     with pytest.raises(Unsupported, match="isolation"):
-        agent.configured(isolation="container").run("x", workspace=work)
+        agent.run("x", environment=Container(work))
     with pytest.raises(Unsupported, match="web search"):
-        agent.configured(web_search=True).run("x", workspace=work)
+        agent.configured(web_search=True).run("x", environment=work)
     with pytest.raises(Unsupported, match="text_only"):
-        agent.configured(text_only=True).run("x", workspace=work)
+        agent.configured(text_only=True).run("x", environment=work)
     with pytest.raises(ValueError, match="effort is one of"):
-        agent.configured(effort="extreme").run("x", workspace=work)
+        agent.configured(effort="extreme").run("x", environment=work)
     with pytest.raises(Unsupported, match="one argument"):
-        agent.run("x" * (base_cli.ARG_MAX + 1), workspace=work)
+        agent.run("x" * (base_cli.ARG_MAX + 1), environment=work)
     with pytest.raises(Unsupported, match="<model> reference"):
-        make("hermes", {"model": "m-1", "web_search": False}).run("x", workspace=work)
+        make("hermes", {"model": "m-1", "web_search": False}).run("x", environment=work)
     assert not (fake / "seen.jsonl").exists()
 
 
@@ -846,12 +848,13 @@ def test_with_the_hermes_cli_a_session_reaches_its_model_and_its_tools(tmp_path,
     server, url = serve_chat(script, requests)
     work = _workspace(tmp_path)
     settings = {**mock_model(monkeypatch, url), "web_search": False, "home": str(tmp_path / "home"),
-                "isolation": isolation, "timeout_s": 300}
+                "timeout_s": 300}
+    box = None
     if isolation == "sandbox":
-        settings["sandbox"] = Sandbox(network="isolated", env_allow=[], writable=[work], role="agent",
-                                      record_dir=tmp_path / "records")
+        box = Sandbox(network="isolated", env_allow=[], writable=[work], role="agent",
+                      record_dir=tmp_path / "records")
     try:
-        result = make("hermes", settings).run("Do the task.", workspace=work, tools=[echo()])
+        result = make("hermes", settings).run("Do the task.", environment=placed(work, box), tools=[echo()])
     finally:
         server.shutdown()
     try:
@@ -888,8 +891,8 @@ def test_with_the_hermes_cli_a_kept_home_resumes_its_session_and_counts_only_the
     agent = make("hermes", {**mock_model(monkeypatch, url), "web_search": False, "home": str(tmp_path / "home"),
                             "timeout_s": 300})
     try:
-        first = agent.run("First question.", workspace=work)
-        second = agent.run("Second question.", workspace=work, session=first.session)
+        first = agent.run("First question.", environment=work)
+        second = agent.run("Second question.", environment=work, session=first.session)
     finally:
         server.shutdown()
     assert first.extra["served"] and second.extra["served"] and second.session == first.session
@@ -910,7 +913,7 @@ def test_with_the_hermes_cli_a_stopped_session_leaves_no_command_running(tmp_pat
     agent = make("hermes", {**mock_model(monkeypatch, url), "web_search": False, "home": str(tmp_path / "home"),
                             "timeout_s": 15})
     try:
-        result = agent.run("Do the task.", workspace=work)
+        result = agent.run("Do the task.", environment=work)
     finally:
         server.shutdown()
     assert result.timed_out and not result.extra["served"]
@@ -969,7 +972,7 @@ def test_with_the_hermes_cli_a_session_that_reads_no_context_file_is_given_no_fo
     agent = make("hermes", {**mock_model(monkeypatch, url), "web_search": False, "home": str(tmp_path / "home"),
                             "timeout_s": 300, "context_files": context_files})
     try:
-        result = agent.run("Do the task.", workspace=work)
+        result = agent.run("Do the task.", environment=work)
     finally:
         server.shutdown()
     assert result.extra["served"], result.extra
@@ -990,7 +993,7 @@ def test_with_the_hermes_cli_a_context_file_hermess_scan_blocks_fails_the_sessio
     agent = make("hermes", {**mock_model(monkeypatch, url), "web_search": False, "home": str(tmp_path / "home"),
                             "timeout_s": 300})
     try:
-        result = agent.run("Do the task.", workspace=work)
+        result = agent.run("Do the task.", environment=work)
     finally:
         server.shutdown()
     assert "[BLOCKED: .hermes.md" in json.dumps(requests[0]["messages"][0])
@@ -1011,7 +1014,7 @@ def test_with_the_hermes_cli_the_reply_is_the_models_own_text(tmp_path, monkeypa
     agent = make("hermes", {**mock_model(monkeypatch, url), "web_search": False, "home": str(tmp_path / "home"),
                             "timeout_s": 300})
     try:
-        result = agent.run("Do the task.", workspace=work)
+        result = agent.run("Do the task.", environment=work)
     finally:
         server.shutdown()
     assert result.extra["served"] and result.reply == "the answer"

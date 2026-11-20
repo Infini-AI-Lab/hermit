@@ -1,0 +1,152 @@
+# Shared Lightning victim and the AgentDyn Codex search budget; frozen AgentDojo comparison-v1.
+data:
+  tasks: ../utils/benchmark/data/comparison-v1/tasks
+  view: ../../agentdyn/utils/benchmark/cases.py:case_row   # each case as the row it always was
+  train: ../utils/benchmark/data/comparison-v1/train.txt
+  test: ../utils/benchmark/data/comparison-v1/test.txt
+  step_size: 57
+  shuffle: false
+task_info: ../utils/benchmark/task-info
+template: evosafe@1.0
+agent:
+  name: ../utils/task.py:run
+  base: direct
+  model: vllm/nvidia/nvidia/nemotron-3.5-lightning
+  concurrency: 12
+  timeout_min: 15
+  params:
+    episode_timeout_s: 900
+    hook_timeout_s: 90
+    hook_image: python@sha256:6b25cbe6577518889d553cdd5a5da97d259348d8f6e45b527dd731caaba27a07
+    benchmark_version: v1.2.2
+    max_iters: 25
+    max_tokens: 8192
+    temperature: 0.0
+    request_timeout_s: 120
+    max_retries: 4
+    logs: runs/evosafe-lightning-episodes
+    auditor:
+      enabled: true
+      max_calls: 4
+      max_chars: 8000
+      max_tokens: 2048
+      timeout_s: 45
+    benchmark: agentdojo
+judge:
+  path: ../utils/benchmark/judge.py
+evolver:
+  name: evosafe
+  base: codex
+  params:
+    min_improvement: 0.07
+    validation_tolerance: 0.07
+    search_mode: roles
+    max_proposals: 3
+    gate_mode: source
+    cascade_sizes:
+    - 12
+    - 57
+    evaluation_repeats: 1
+    eval_task_ids:
+    - banking-user_task_11-clean
+    - banking-user_task_11-injection_task_2-5ac4dd7d
+    - banking-user_task_11-injection_task_3-112b46ac
+    - slack-user_task_14-clean
+    - slack-user_task_14-injection_task_5-3fd09872
+    - slack-user_task_14-injection_task_1-29c3398d
+    - travel-user_task_9-clean
+    - travel-user_task_9-injection_task_6-1fd84b06
+    - travel-user_task_9-injection_task_0-9e0efb1e
+    - workspace-user_task_11-clean
+    - workspace-user_task_11-injection_task_2-5fd5e4a9
+    - workspace-user_task_11-injection_task_3-2e4e8713
+    - banking-user_task_2-clean
+    - banking-user_task_2-injection_task_1-dc783d2d
+    - banking-user_task_2-injection_task_2-c04c8b3a
+    - slack-user_task_5-clean
+    - slack-user_task_5-injection_task_3-74b84de8
+    - slack-user_task_5-injection_task_4-3a243ed6
+    - travel-user_task_2-clean
+    - travel-user_task_2-injection_task_0-ccb30719
+    - travel-user_task_2-injection_task_1-4d3da37e
+    - workspace-user_task_7-clean
+    - workspace-user_task_7-injection_task_4-c5b9a7b2
+    - workspace-user_task_7-injection_task_5-822742b5
+    - slack-user_task_12-clean
+    - slack-user_task_12-injection_task_4-b970bca4
+    - slack-user_task_12-injection_task_5-54c537e5
+    - travel-user_task_0-clean
+    - travel-user_task_0-injection_task_6-11d446c7
+    - travel-user_task_0-injection_task_0-c3cc5612
+    - workspace-user_task_0-clean
+    - workspace-user_task_0-injection_task_4-fdf05db0
+    - workspace-user_task_0-injection_task_5-b2d9504c
+    - slack-user_task_11-clean
+    - slack-user_task_11-injection_task_5-49c3bbdc
+    - slack-user_task_11-injection_task_1-d08e5085
+    - travel-user_task_13-clean
+    - travel-user_task_13-injection_task_5-be890b6d
+    - travel-user_task_13-injection_task_6-abfc31a0
+    - workspace-user_task_24-clean
+    - workspace-user_task_24-injection_task_4-f942e39a
+    - workspace-user_task_24-injection_task_5-5f64f30e
+    - slack-user_task_2-clean
+    - slack-user_task_2-injection_task_1-9ab0bf95
+    - slack-user_task_2-injection_task_2-9190f974
+    - workspace-user_task_30-clean
+    - workspace-user_task_30-injection_task_2-e09a8c65
+    - workspace-user_task_30-injection_task_3-0c48bfc2
+    - workspace-user_task_8-clean
+    - workspace-user_task_8-injection_task_4-72eb7a26
+    - workspace-user_task_8-injection_task_5-b3c7513b
+    - workspace-user_task_38-clean
+    - workspace-user_task_38-injection_task_0-cabbe9ad
+    - workspace-user_task_38-injection_task_1-01f447ba
+    - workspace-user_task_5-clean
+    - workspace-user_task_5-injection_task_2-84a66187
+    - workspace-user_task_5-injection_task_3-fd1fe445
+    robustness_task_ids: []
+    mechanism_schedule: []
+    reuse_rollout_parent: true
+    parent_error_policy: conservative_bounds
+    candidate_error_policy: worst_case_bounds
+    role_retries: 1
+    review_revisions: 2
+  codex:
+    model: gpt-6-sol
+    effort: high
+    web_search: false
+    timeout_s: 1500
+    codex_sandbox: read-only
+    args:
+    - --disable
+    - shell_tool
+    - --disable
+    - unified_exec
+    - --disable
+    - multi_agent
+    - --disable
+    - apps
+    - --disable
+    - plugins
+    - --disable
+    - skill_search
+    - --disable
+    - image_generation
+environment:
+  runner: host
+sandbox:
+  evolver:
+    allowed_hosts:
+    - chatgpt.com
+    - auth.openai.com
+    - api.openai.com
+  enforce: required
+trainer:
+  run_name: agentdojo-evosafe-lightning-codex-v1
+  output_dir: runs
+  epochs: 1
+  call_timeout_min: 480
+  budget:
+    hours: 12
+  tree_dir: runs/trees/agentdojo-evosafe-lightning-codex-v1

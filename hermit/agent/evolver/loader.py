@@ -12,7 +12,9 @@ import yaml
 from hermit.agent.evolver.base import Evolver
 
 BUILTIN = Path(__file__).resolve().parent / "methods"
-NEEDS = {"validation_data", "environment", "send_material_out", "llm"}   # llm: it calls the run's model
+# llm: it calls the run's model; the rest are what its adapter needs the acting agent to take (an agent's `supports`)
+ADAPTER_NEEDS = {"context_tool", "tools", "skills", "agents", "hooks"}
+NEEDS = {"validation_data", "environment", "send_material_out", "llm", *ADAPTER_NEEDS}
 
 
 @dataclass

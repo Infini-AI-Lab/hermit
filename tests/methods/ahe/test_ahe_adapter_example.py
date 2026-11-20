@@ -38,12 +38,12 @@ def trials():
 
 
 def prepared() -> dict:
-    """../utils's data.json once utils/prepare.py has run (tasks.jsonl, splits/, the answers, the corpus it names), and
-    skillopt; the test is skipped without them."""
+    """utils/benchmark/data.json once utils/benchmark/prepare.py has run (tasks/, splits/, the answers, the corpus it
+    names), and skillopt; the test is skipped without them."""
     pytest.importorskip("skillopt")
-    if not all((UTILS / name).exists() for name in ("tasks.jsonl", "splits", "data.json")):
-        pytest.skip("OfficeQA is not prepared here (examples/officeqa/utils/prepare.py)")
-    data = json.loads((UTILS / "data.json").read_text())
+    if not all((UTILS / "benchmark" / name).exists() for name in ("tasks", "splits", "data.json")):
+        pytest.skip("OfficeQA is not prepared here (examples/officeqa/utils/benchmark/prepare.py)")
+    data = json.loads((UTILS / "benchmark" / "data.json").read_text())
     if not all((Path(data["docs"]) / sub).is_dir() for sub in ("transformed", "jsons")):
         pytest.skip(f"the OfficeQA corpus is not at {data['docs']}")
     return data
@@ -61,8 +61,8 @@ def context(tmp: Path, params: dict) -> StepContext:
 # ---------- the configs ----------
 
 @pytest.mark.parametrize("name, train, test, step_size, concurrency, target", [
-    ("run_codex_luna.yaml", "rows/train_k2.txt", "../utils/splits/test.txt", 100, 8, 0.95),
-    ("smoke_codex_luna.yaml", "rows/smoke_k2.txt", "../utils/splits/smoke_test.txt", 8, 4, 1.01)])
+    ("run_codex_luna.yaml", "rows/train_k2.txt", "../utils/benchmark/splits/test.txt", 100, 8, 0.95),
+    ("smoke_codex_luna.yaml", "rows/smoke_k2.txt", "../utils/benchmark/splits/smoke_test.txt", 8, 4, 1.01)])
 def test_the_configs_resolve_the_template_and_the_evolver_on_the_luna_row(tmp_path, name, train, test, step_size,
                                                                            concurrency, target):
     config = Config.load(EXAMPLE / name)
@@ -152,7 +152,7 @@ def test_a_trial_row_is_the_questions_own_row():
 
 def test_prepare_writes_the_questions_own_task_md(tmp_path):
     prepared()
-    assert make_rows(UTILS / "tasks.jsonl", UTILS / "splits", tmp_path / "rows").returncode == 0
+    assert make_rows(UTILS / "benchmark" / "tasks", UTILS / "benchmark" / "splits", tmp_path / "rows").returncode == 0
     rows = {r["id"]: r for r in map(json.loads, (tmp_path / "rows" / "tasks.jsonl").read_text().splitlines())}
     uid = (tmp_path / "rows" / "train_k2.txt").read_text().split()[0].split("#")[0]
     trial_prepare = load_callable("trials.py:prepare", EXAMPLE)              # as the configs name them
@@ -173,8 +173,8 @@ def test_the_judge_scores_the_question(monkeypatch):
     monkeypatch.setattr(t, "utils", lambda spec: lambda task, output: seen.append((spec, task)) or {"score": 1.0})
     t.score({"id": "UID0002#1", "uid": "UID0002", "rollout": 1, "question": "q?"}, RunOutput(output={}))
     t.score({"id": "UID0003", "question": "r?"}, RunOutput(output={}))
-    assert seen == [("judge.py:score", {"id": "UID0002", "question": "q?"}),
-                    ("judge.py:score", {"id": "UID0003", "question": "r?"})]
+    assert seen == [("benchmark/judge.py:score", {"id": "UID0002", "question": "q?"}),
+                    ("benchmark/judge.py:score", {"id": "UID0003", "question": "r?"})]
 
 
 def test_the_judge_scores_a_trial_against_the_questions_answer():

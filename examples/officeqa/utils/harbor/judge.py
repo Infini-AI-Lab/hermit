@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """The OfficeQA judge inside the task container (copied to every task's tests/judge.py by build_tasks.py).
 
-The answer is the text inside the last `<answer>...</answer>` of the agent's final message, read from Codex's
-`--json` event stream in /logs/agent: HermitCodex's agent-codex.jsonl (Hermit's own launch of the session), else the
-codex.txt Harbor's own Codex agent writes; or the content of /app/answer.txt when the agent wrote one (that file
-wins). Scoring is SkillOpt's: exact match after its normalisation, no tolerance; token F1 is recorded beside
-it. The normalisation is SkillOpt's envs/officeqa/evaluator.py (microsoft/SkillOpt, MIT), copied so that the
-container needs nothing but python3. Writes /logs/verifier/reward.txt (the exact match) and reward.json
-({reward, f1, answered}); prints the feedback utils/judge.py gives on the host."""
+The answer is the text inside the last `<answer>...</answer>` of the agent's final message, read from Codex's `--json`
+event stream in /logs/agent: agent-codex.jsonl (the Codex agent's session, whose log Hermit hands the verifier there),
+else the codex.txt Harbor's own Codex agent writes; or the content of /app/answer.txt when the agent wrote one (that
+file wins). Scoring is SkillOpt's: exact match after its normalisation, no tolerance; token F1 is recorded beside it.
+The normalisation is SkillOpt's envs/officeqa/evaluator.py (microsoft/SkillOpt, MIT), copied so that the container needs
+nothing but python3. Writes /logs/verifier/reward.txt (the exact match) and reward.json ({reward, f1, answered}); prints
+the feedback utils/benchmark/judge.py gives on the host."""
 from __future__ import annotations
 
 from collections import Counter
@@ -20,7 +20,7 @@ ANSWER = re.compile(r"<answer>(.*?)</answer>", re.IGNORECASE | re.DOTALL)
 _NUMERIC_CHARS = set("0123456789.-")
 VERIFIER = Path("/logs/verifier")
 ANSWER_FILE = Path("/app/answer.txt")
-STREAMS = (Path("/logs/agent/agent-codex.jsonl"),         # HermitCodex's session (hermit/harbor/launch.py's stream)
+STREAMS = (Path("/logs/agent/agent-codex.jsonl"),         # the Codex agent's session (its log, Hermit's)
            Path("/logs/agent/codex.txt"))                 # Harbor's own Codex agent's (its `codex exec --json | tee`)
 
 

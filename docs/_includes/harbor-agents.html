@@ -1,0 +1,45 @@
+<figure class="ha-hb">
+<div class="ha-hb-scroll">
+<svg viewBox="0 0 920 300" role="img" aria-label="A CLI agent passes through the bridge only to set up and start a session and to bring back its files; the CLI runs every command in the container itself and calls the model from there; Hermit downloads what it left. A loop agent's loop and model calls stay in Hermit, and each of its commands is one exec through the bridge">
+<defs>
+<marker id="hba-m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-hermit" d="M0,0 L10,5 L0,10 z"/></marker>
+<marker id="hba-p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-plain" d="M0,0 L10,5 L0,10 z"/></marker>
+</defs>
+<text class="t-h" x="20" y="22">CLI agent: Codex, Claude Code</text>
+<rect class="b-hermit" x="20" y="36" width="170" height="96" rx="8"/>
+<text class="t-b" x="105" y="62" text-anchor="middle">Hermit</text>
+<text class="t-m" x="105" y="84" text-anchor="middle">renders its home, prompt</text>
+<text class="t-m" x="105" y="102" text-anchor="middle">reads its stream, logs</text>
+<line class="a a-hermit" x1="190" y1="70" x2="316" y2="70" marker-end="url(#hba-m)"/>
+<text class="t-m" x="253" y="62" text-anchor="middle">set up, then run</text>
+<line class="a a-hermit" x1="316" y1="104" x2="194" y2="104" marker-end="url(#hba-m)"/>
+<text class="t-m" x="253" y="122" text-anchor="middle">its files at the end</text>
+<rect class="b-box" x="320" y="36" width="410" height="96" rx="8"/>
+<text class="t-b" x="336" y="58">task's container</text>
+<rect class="b-hermit" x="336" y="68" width="120" height="52" rx="6"/>
+<text x="396" y="98" text-anchor="middle">CLI session</text>
+<line class="a a-plain" x1="456" y1="94" x2="502" y2="94" marker-end="url(#hba-p)"/>
+<text class="mono" x="510" y="84">ls · git · pytest · edits</text>
+<text class="t-m" x="510" y="104">run by the CLI itself</text>
+<text class="t-m" x="510" y="122">none through the bridge</text>
+<line class="a a-plain" x1="730" y1="70" x2="820" y2="70" marker-end="url(#hba-p)"/>
+<rect class="b-inner" x="824" y="48" width="80" height="44" rx="6"/>
+<text class="t-m" x="864" y="75" text-anchor="middle">model</text>
+<text class="t-m" x="775" y="62" text-anchor="middle">calls</text>
+<text class="t-h" x="20" y="182">Loop agent: a ReactAgent, the answer-only agent</text>
+<rect class="b-hermit" x="20" y="196" width="170" height="96" rx="8"/>
+<text class="t-b" x="105" y="222" text-anchor="middle">Hermit</text>
+<text class="t-m" x="105" y="244" text-anchor="middle">the agent's loop is here</text>
+<text class="t-m" x="105" y="262" text-anchor="middle">Hermit calls the model</text>
+<line class="a a-hermit" x1="190" y1="226" x2="316" y2="226" marker-end="url(#hba-m)"/>
+<line class="a a-hermit" x1="190" y1="244" x2="316" y2="244" marker-end="url(#hba-m)"/>
+<line class="a a-hermit" x1="190" y1="262" x2="316" y2="262" marker-end="url(#hba-m)"/>
+<text class="t-m" x="253" y="284" text-anchor="middle">1 exec per command</text>
+<rect class="b-box" x="320" y="196" width="410" height="96" rx="8"/>
+<text class="t-b" x="336" y="218">task's container</text>
+<text class="t-m" x="336" y="246">runs the one command it is sent, returns the result</text>
+<text class="t-m" x="336" y="266">once for each command the agent runs</text>
+</svg>
+</div>
+<figcaption>A CLI is an ordinary process in the container, like a terminal opened there; the bridge only sets it up, starts it and brings back what it left. A loop agent's commands each pass through the bridge.</figcaption>
+</figure>

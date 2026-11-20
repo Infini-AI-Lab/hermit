@@ -1,10 +1,11 @@
-# LAB-Bench FigQA through Harbor: the agent.params every config of this example shares (agent.params.benchmark; a
-# config's own params override these), and the task set (the dataset: block, which `python -m hermit.harbor.dataset
-# prepare` reads). One rollout is one Harbor trial of a task: Harbor builds the task's image (Python with the
-# question's figure), the container's entrypoint shuffles the answer choices into /app/instruction.md and deletes the
-# file that names the right one before the agent starts, the acting agent looks at the figure and writes its letter
-# to /app/answer.txt, and the verifier (uploaded only after the agent stopped) scores it: 1 for the right letter, else
-# 0. The acting agent, its model and its sign-in are each config's own.
+# LAB-Bench FigQA in Harbor's environments: the environment.harbor settings every config of this example shares
+# (environment.harbor.benchmark; a config's own settings override these), and the task set (the dataset: block, which
+# `python -m hermit.harbor.dataset prepare` reads). One rollout is one task in its own Harbor environment: Harbor
+# builds the task's image (Python with the question's figure), the container's entrypoint shuffles the answer choices
+# into /app/instruction.md and deletes the file that names the right one before the agent starts, the acting agent
+# looks at the figure and writes its letter to /app/answer.txt, and the verifier (uploaded only after the agent
+# stopped) scores it: 1 for the right letter, else 0. The acting agent, its model and its sign-in are each config's
+# own.
 dataset:
   ref: labbench@1.0                    # 181 multiple-choice questions about figures of biology papers
   split: {train: 36, val: 18, test: rest, seed: 42}  # SkillOpt's split: 2:1:7 with its seed 42 (127 test tasks)
@@ -12,8 +13,7 @@ dataset:
   patch: patches.py:patch_tasks        # the shuffle's seed not saved where the agent reads it, and the verifier
                                        # not running /app/setup.py, the agent's to rewrite (patches.py)
 tasks_dir: tasks                       # the 181 task directories (prepare's link, outside the checkout)
-web_search: false                      # the CLI's web search off: the papers and their figures are public
 agent_timeout_sec: null                # each task's own limit (300 s for every task)
 docker_cleanup: images_keep            # Harbor removes the image it built
-disk_gate_gb: 25                       # no trial starts with less than this free on Docker's data root
+disk_gate_gb: 25                       # no environment starts with less than this free on Docker's data root
 disk_gate_wait_s: 21600
