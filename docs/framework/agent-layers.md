@@ -319,9 +319,9 @@ The layers moved `hermit/backends.py`, `hermit/llm.py`, `hermit/trajectory.py`, 
 `hermit/evolver/` into `hermit/agent/`, the learning methods from `hermit/algorithms/evolvers/` to
 `hermit/agent/evolver/methods/`, and the adapter templates from `hermit/algorithms/templates/` to
 `hermit/adapter/templates/`. The old import paths (`hermit.backends`, `hermit.llm`, `hermit.trajectory`,
-`hermit.agents`, `hermit.evolver`) forward to the new ones for one release and warn when used; `hermit.algorithms`
-is gone, and so are `hermit.tools_mcp` and the tool gate `hermit.agent.evolver.gate` (an agent Evolver's tools are
-served over MCP and JSON by the call's tool server).
+`hermit.agents`, `hermit.evolver`) forwarded to the new ones in 0.2 only; `hermit.algorithms` is gone, and so are
+`hermit.tools_mcp` and the tool gate `hermit.agent.evolver.gate` (an agent Evolver's tools are served over MCP and
+JSON by the call's tool server).
 Configurations that name an agent, an Evolver or a template (`agent.name: codex`, `evolver.name: gepa`,
 `template: prompt-only@1.0`) are unchanged.
 
@@ -331,8 +331,8 @@ Configurations that name an agent, an Evolver or a template (`agent.name: codex`
 |---|---|
 | `agent.run(prompt, workspace=path, limits=Limits(...))` | `agent.run(prompt, environment=Local(path, Limits(...)))` (a path alone is a `Local`) |
 | `isolation`, `sandbox`, `container` in a Base Agent's settings | the environment: `Sandboxed(path, sandbox=box)`, `Container(path, settings={...})`; given as settings, refused |
-| `make("direct", settings, model)`, `hermit.agent.base.direct` | `Direct(settings, model)`, `hermit.agent.model.direct` (Layer 1); `make("direct")` is refused; the old module path forwards for one release |
-| `hermit.agent.base.container` | `hermit.environment.docker` (the old path forwards for one release) |
+| `make("direct", settings, model)`, `hermit.agent.base.direct` | `Direct(settings, model)`, `hermit.agent.model.direct` (Layer 1); `make("direct")` is refused |
+| `hermit.agent.base.container` | `hermit.environment.docker` |
 | `agent.name: harbor` (Hermit's agents injected into `harbor run`) | Codex, Claude Code, `answer`, `react` or a custom agent that takes the `environment` argument, in the task's Harbor environment (`environment.harbor`; Pi, OpenCode, dsh, mini-swe-agent and Hermes refuse it), verified by Harbor's verifier (`judge: {path: hermit.task.verify, name: environment}`) |
 | `Mount`, `Limits` from `hermit.agent.base.interface` | `hermit.environment` (still importable from the interface) |
 | a benchmark's own copy of the tool loop | a `ReactAgent` subclass with `@tool` methods and hooks |

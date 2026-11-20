@@ -1,4 +1,4 @@
-# The Codex agent's container (hermit/agent/base/container.py) with the standalone Codex a machine installs for
+# The Codex agent's container (hermit/environment/docker.py) with the standalone Codex a machine installs for
 # itself instead of the npm package (the Codex a ChatGPT login runs: the OfficeQA GPT-5.6-Luna configs):
 # `codex` keeps it under ~/.codex/packages/standalone/releases/<version>-<target>/ (bin/codex, codex-path/rg,
 # codex-resources/bwrap). Copy that directory into ./codex-standalone first:
