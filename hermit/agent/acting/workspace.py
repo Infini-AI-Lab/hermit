@@ -370,6 +370,7 @@ def installs(params: dict, adapter: Path | None) -> list[dict]:
     `version` is pinned, as the Harbor runner installed it), and python3 when the adapter has hooks the CLI runs."""
     from hermit.agent.base.cli import REMOTE_INSTALL, REMOTE_PATH
     backend = str(params.get("backend") or "codex")
+    backend = "claude" if backend == "claude-code" else backend          # as _check names it
     out = []
     if not params.get("bin") and backend in REMOTE_INSTALL:
         out.append({"agent": REMOTE_INSTALL[backend], "version": params.get("version"),
@@ -382,7 +383,7 @@ def installs(params: dict, adapter: Path | None) -> list[dict]:
             manifest = load_manifest(Path(adapter))
             hooks = native_hooks(hook_definitions(Path(adapter), manifest),
                                  import_module(REMOTE_HOOK_HOSTS[backend]).HOOK_TYPES)
-        except (OSError, ValueError, KeyError):         # the deployment says why, in the agent's run
+        except Exception:                                # noqa: BLE001 - the deployment says why (adapter_failed)
             hooks = None
         if hooks:
             out.append({"packages": ["python3"]})
@@ -637,8 +638,8 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
                 raise
             except Exception as exc:
                 said = type(exc).__name__ + str(exc)
-                if IMAGE_CONTEXT_UNREAD in said or "EnvironmentUnavailable" in said:
-                    raise
+                if IMAGE_CONTEXT_UNREAD in said or "EnvironmentUnavailable" in said or "AgentPhaseOver" in said:
+                    raise                                # the environment's, or Harbor ended the phase: not the adapter
                 return _adapter_failed("adapter_failed", f"{type(exc).__name__}: {exc}", usages, log, started)
         else:
             deployed, context_tool = _deploy(task, adapter, work, backend, params, remote=False)

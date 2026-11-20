@@ -27,7 +27,7 @@ Three roles run in three kinds of sandbox.
 | Sandbox | Contents | Never inside | Backend |
 |---|---|---|---|
 | task | the declared task paths, packages and variables, the framework's environment, the acting layer, the frozen adapter, its model's key | the data and split files, the judge and its tests, the runs and trees | bubblewrap; Docker for `environment.image` |
-| judge | the task sandbox's settings, the judge's file and `judge.tests`; `separate`: only the collected paths of the agent's work, none of `environment.write` | | bubblewrap: `shared` and `separate` need the bubblewrap task sandbox (with `environment.image`, Harbor or `environment.runner: host` the judge runs on the host) |
+| judge | the task sandbox's settings, the judge's file and `judge.tests`; `separate`: only the collected paths of the agent's work, none of `environment.write` | | bubblewrap: `shared` and `separate` need the bubblewrap task sandbox (with `environment.image` or `environment.runner: host` the judge runs on the host; with Harbor, Harbor's verifier grades in the task's environment and Hermit's judge, which reads its verdict, runs as `judge.mode` says) |
 | evolver | the learner CLI, the workspace under fixed names below `/w`, the framework's environment, what the method declares, its models' keys | the framework's code (unless the method needs it), the data, the judge, the test split | bubblewrap |
 
 Every sandbox is an allowlist: a path, a variable or a host that is not declared does not exist inside. Python
@@ -114,8 +114,9 @@ The run config's `judge.mode` says where the judge runs.
 | `separate` | a sandbox holding only the paths `judge.collect` names, copied from the agent's work through a sanitized archive and shown at the agent's own path | the result can be extracted and must be graded clean |
 
 With the sandbox off every mode runs the judge on the host. A task in its own Harbor environment (`environment.harbor`)
-keeps Harbor's own verifier (shared or separate as its `task.toml` says), run by the host after the agent; its verdict
-is read on the host. The agent's worker stays in the task sandbox and reaches that environment only through a server
+keeps Harbor's own verifier (shared or separate as its `task.toml` says), which Harbor's trial runs in the task's
+environment after the agent's phase; Hermit's judge (`hermit.task.verify`'s `environment`) only reads that verdict, and
+runs where `judge.mode` puts it (a separate judge in its own sandbox, as for any task). The agent's worker stays in the task sandbox and reaches that environment only through a server
 of its operations on the host's loopback (exec, upload, download: `hermit/environment/remote.py`), forwarded into the
 sandbox; the environment's driver, Docker and the task's tests stay outside.
 What a judge's result contains is the task's decision; which splits' results reach the learner is the method's.

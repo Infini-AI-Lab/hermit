@@ -47,6 +47,12 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
     try:
         judge = judge_for(config, pipeline)
         environments = task_environments(config, log=log)
+        if environments is not None:     # the sign-in, before any result is replaced or a trial starts (the runner's)
+            from hermit.agent.base import login as subscription
+            problems = [f"{who}: {p}" for who, login, program, contained, root in subscription.logins_of(d)
+                        for p in subscription.problems_of(login, program, contained, root)]
+            if problems:
+                raise SystemExit("eval refuses to start: " + "; ".join(problems))
     except BaseException:
         close()                      # the pipeline's sandbox and proxies, before the error leaves
         raise

@@ -28,7 +28,6 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
-import os
 from pathlib import Path
 import re
 import tempfile
@@ -123,16 +122,20 @@ class AnswerAgent(Agent):
                     elif done.code != 0:
                         raise RuntimeError(f"the task's environment did not provide {answer_file} for the answer: "
                                            f"{done.output[-300:]}")
-        logs = self.log_dir()
-        fd, name = tempfile.mkstemp(prefix=f"{task.get('id', 'task')}-", suffix=".json", dir=logs)
-        log = Path(name)
+        # the run's log, a folder: the session's own record, and answer.json as the runner's answer agent published it
+        # in the agent logs (a verifier may read it, answer_file null or not), handed to the trial with the verdict
+        log = Path(tempfile.mkdtemp(prefix=f"{task.get('id', 'task')}-", dir=self.log_dir()))
         shown = [{**m, "content": question if isinstance(m["content"], list) else m["content"]} for m in messages]
-        with os.fdopen(fd, "w", encoding="utf-8") as f:   # the descriptor mkstemp opened, closed with the file
-            f.write(json.dumps({"task": task.get("id"), "model": model["model"], "messages": shown,
-                                "attachments": named, "reply": reply.reply, "answer": answer},
-                               ensure_ascii=False, indent=1))
+        (log / "session.json").write_text(json.dumps({"task": task.get("id"), "model": model["model"],
+                                                      "messages": shown, "attachments": named, "reply": reply.reply,
+                                                      "answer": answer}, ensure_ascii=False, indent=1),
+                                          encoding="utf-8")
         usage = Ledger(getattr(client, "model", "")).add(reply.usage).unreported(
             caller.abandoned if budget else 0).total()
+        (log / "answer.json").write_text(json.dumps(
+            {"reply": reply.reply, "answer": answer, "usage": {"prompt_tokens": usage.input_tokens,
+                                                               "completion_tokens": usage.output_tokens},
+             "model": model["model"], "attachments": named}, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
         extra = {"attachments": named, **({"timed_out": True} if timed_out else {})}
         if record is not None:
             extra["context_tool"] = record

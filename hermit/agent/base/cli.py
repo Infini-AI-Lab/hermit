@@ -126,6 +126,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import dataclasses
+import inspect
 import json
 import os
 from pathlib import Path
@@ -1187,7 +1188,7 @@ class CliAgent(BaseAgent):
                                    f"{gone.output[-300:]}")
 
         try:
-            with held(lambda: self._sign_in(home), take_back, remove):
+            with held(lambda: self._sign_in(home), take_back, remove) as copied:
                 env = {k: os.path.expandvars(str(v)) for k, v in (s.get("env") or {}).items()}   # $KEY_VAR -> the key
                 env.update(self.session_env())
                 self.prepare_home(home, roles, None, s.get("tools_name") or "hermit_tools")
@@ -1206,14 +1207,18 @@ class CliAgent(BaseAgent):
                 command = ["bash", "-c", REMOTE_PATH + 'exec "$@"', "bash", *command]
                 self._remote_program(environment)
                 environment.exec(["rm", "-rf", str(remote_home)], cwd="/", timeout=120)
+                register = getattr(environment, "secret", None)   # removed at the phase's end, whatever ends it
+                if register is not None and copied:
+                    register([str(remote_home / path.name) for path in copied])
                 environment.upload(home, str(remote_home))
                 timeout = self._left(timeout)
                 if timeout is False:
                     return self._not_run("deadline", None)
                 started = time.time()
+                kept = {"stream": stream.name} if "stream" in inspect.signature(environment.exec).parameters else {}
                 done = environment.exec(command, cwd=str(workspace), env=env, timeout=timeout,
                                         stdin=prompt if self.on_stdin() else None,
-                                        **({"by_fd": by_fd} if by_fd else {}))
+                                        **({"by_fd": by_fd} if by_fd else {}), **kept)
                 wall_s = time.time() - started
                 code, timed_out, raw = done.code, done.timed_out, done.output
                 stream.write_text(raw, encoding="utf-8")

@@ -4,7 +4,8 @@ library only (never hermit), and speaks JSON lines on its stdin and stdout.
     <harbor venv>/bin/python -I harbor_driver.py        # hermit.environment.harbor starts it, one per task
 
 Harbor runs the whole trial with its own `Trial.run()`: the environment's start (the prebuilt image pulled or the
-Dockerfile built, its build timeout and multiplier, the healthcheck, the task's skills), Harbor's capability check,
+Dockerfile built, its build timeout and multiplier, the healthcheck), Harbor's capability check (a task's skills or
+MCP servers, a Windows container: refused for this bridge),
 the agent's setup (under Harbor's setup timeout, the baseline network policy, the agent user), the agent phase (the
 task's agent network policy, its user, its timeout), the verifier (`[verifier] environment_mode` shared or separate,
 the tests uploaded only now, its timeout), the scrub of the trial's files, result.json and the environment's stop.
@@ -240,6 +241,22 @@ async def _tracked_spawn(*args, **kwargs):
     return process
 
 asyncio.create_subprocess_exec = _tracked_spawn
+_communicate = asyncio.subprocess.Process.communicate
+
+
+async def _communicate_or_kill(self, input=None):
+    """Process.communicate, the client killed when the wait for it is cancelled (Harbor's collector leaves it
+    running): a compose up its build timeout gave up on, a transfer or an exec the phase's end cancelled, never left
+    to finish after the teardown or the verifier began."""
+    try:
+        return await _communicate(self, input)
+    except asyncio.CancelledError:
+        with contextlib.suppress(ProcessLookupError):
+            self.kill()
+        raise
+
+asyncio.subprocess.Process.communicate = _communicate_or_kill
+END_PHASE_S = 300                       # the end of the agent phase's own bound: transfers to finish, kills, removals
 
 
 async def end_clients(kind: str | None = None) -> None:
@@ -304,10 +321,13 @@ class Driver:
         self.owner: str | None = None                  # the agent user's uid:gid when not root (the runner's _owner)
         self.has_timeout: bool | None = None
         self.mark = uuid.uuid4().hex                   # this environment's agent commands' mark (MARK)
-        self.agent_ops: set = set()                    # the agent's operations in flight
+        self.agent_ops: dict = {}                      # the agent's operations in flight: task -> op
         self.running: set = set()                      # the marks of the agent commands still running
         self.unkilled: set = set()                     # marks whose processes were not confirmed ended
         self.secrets: set = set()                      # the credentials the agent's commands were given (scrubbed)
+        self.secret_files: set = set()                 # files there holding a credential: removed at the phase's end
+        self.streams: dict = {}                        # mark -> (file there, log name): a running command's output
+        self.exceptions: list = []                     # every exception the trial recorded or skipped, in order
         self.repaired = False
         self.lock = asyncio.Lock()                     # one request that changes the trial's phase at a time
 
@@ -325,13 +345,24 @@ class Driver:
                              trials_dir=Path(req["trials_dir"]), agent=AgentConfig(import_path=BRIDGE, **agent),
                              environment=EnvironmentConfig(**(req.get("environment") or {})),
                              verifier=VerifierConfig(**(req.get("verifier") or {})), job_id=uuid.uuid4(), **fields)
-        trial = await Trial.create(config)
+        try:
+            trial = await Trial.create(config)
+        except Exception as exc:                         # Harbor's refusal of the task before any trial
+            if "windows" in str(exc).lower() and "support" in str(exc).lower():
+                raise Failed("UnsupportedTask", str(exc)) from None
+            raise
+        recorded = trial._record_exception
+
+        def record(exc, _recorded=recorded):             # Harbor keeps the first; the driver keeps them all
+            self.exceptions.append(exc)
+            _recorded(exc)
+        trial._record_exception = record
         if trial.task.has_steps:
             raise ValueError(f"{trial.task.name} has [[steps]]: a multi-step task is not served here")
         self.trial, self.installs = trial, list(req.get("installs") or [])
         self.run_task = asyncio.create_task(trial.run())
         await asyncio.wait({self.run_task, self.phase_started}, return_when=asyncio.FIRST_COMPLETED)
-        if self.phase_started.done():
+        if self.phase_started.done() and not self.phase_started.cancelled():
             return self.phase_started.result()
         with contextlib.suppress(BaseException):        # the trial ended before its agent phase: its exception
             self.run_task.result()
@@ -359,10 +390,13 @@ class Driver:
                 agent = self._installer(str(item["agent"]), item.get("version"))
                 await agent.setup(environment)
                 self.installed[str(item["agent"])] = agent.version()
-            if item.get("packages"):
-                await self._installer("codex").ensure_system_dependencies(environment, tuple(item["packages"]))
-                for package in item["packages"]:
-                    self.installed[str(package)] = True
+            if item.get("packages"):                     # best effort, as the runner's: the hooks may fail open
+                try:
+                    await self._installer("codex").ensure_system_dependencies(environment, tuple(item["packages"]))
+                    for package in item["packages"]:
+                        self.installed[str(package)] = True
+                except Exception as exc:                 # noqa: BLE001 - the session runs; its hooks are warned
+                    log(f"setup: {', '.join(item['packages'])} could not be installed: {type(exc).__name__}: {exc}")
 
     def _installer(self, name: str, version=None):
         logs = self.trial.paths.trial_dir / "install" / name
@@ -395,19 +429,40 @@ class Driver:
             "verifier_mode": resolve_task_verifier_mode(trial.task.config).value, "instruction": instruction,
             "agent_network": str(getattr(plan.agent_phase.network_mode, "value", plan.agent_phase.network_mode)),
             "installed": self.installed})
+        cancelled = False
         try:
             await self.done.wait()
-        finally:
-            self.in_phase = False
-            await self._end_commands()
-            if self.agent_logs and Path(self.agent_logs).is_dir():
-                safe_copy(Path(self.agent_logs), trial.paths.agent_dir, self.secrets)
+        except asyncio.CancelledError:                   # Harbor's agent timeout, or the trial cancelled
+            cancelled = True
+        self.in_phase = False
+        # The phase's end, a task of its own awaited through any cancellation (Harbor's timeout cancels this run, and
+        # waits for it): it is never cut short by the deadline it follows, and is bounded by its own END_PHASE_S
+        ending = asyncio.ensure_future(asyncio.wait_for(self._end_phase(), END_PHASE_S))
+        while not ending.done():
+            try:
+                await asyncio.shield(ending)
+            except asyncio.CancelledError:
+                cancelled = True
+        try:
+            ending.result()
+        except asyncio.TimeoutError:
+            raise HarborDriverError(f"the agent phase's end did not finish in {END_PHASE_S} s") from None
+        if cancelled:
+            raise asyncio.CancelledError()
 
-    async def _end_commands(self) -> None:
-        """The agent's operations still in flight cancelled, their Docker clients ended, and the processes of each
-        command still running killed in the environment (MARK), confirmed; a command that already ended left what
-        it started (a server the task asked for), as Harbor's own agents leave it."""
-        marks = list(self.running)
+    async def _end_phase(self) -> None:
+        """What the end of the agent phase does before Harbor verifies, however it ended: transfers in flight let
+        finish (their files whole), the commands still running ended (their Docker clients, and their processes there,
+        MARK: those of the running ones and of any earlier kill not confirmed, confirmed), a running command's output
+        kept in the agent logs under its name (a stream the verifier may read), the credential files removed from the
+        environment (confirmed), and Hermit's logs copied, scrubbed, into the trial's agent logs. A command that already
+        ended left what it started (a server the task asked for), as Harbor's own agents leave it. Anything not
+        confirmed raises HarborDriverError: Harbor records it and runs no verifier."""
+        trial = self.trial
+        transfers = [t for t, op in self.agent_ops.items() if op != "exec"]
+        if transfers:
+            await asyncio.wait(transfers, timeout=END_PHASE_S / 2)
+        marks = sorted({*self.running, *self.unkilled})  # before the cancelled commands forget theirs
         for task in list(self.agent_ops):
             task.cancel()
         if self.agent_ops:
@@ -419,6 +474,28 @@ class Driver:
             await asyncio.sleep(1)
             for mark in marks:
                 await self._kill(mark)
+        for mark, (path, name) in list(self.streams.items()):
+            got = await self.env.exec(f"cat {shlex.quote(path)} 2>/dev/null; rm -f {shlex.quote(path)}", user="root")
+            if got.stdout:
+                trial.paths.agent_dir.mkdir(parents=True, exist_ok=True)
+                kept = Path(self.out_dir()) / Path(name).name
+                kept.write_bytes(scrubbed(got.stdout.encode(), self.secrets))
+                safe_copy(kept.parent, trial.paths.agent_dir)
+            self.streams.pop(mark, None)
+        if self.secret_files:
+            listed = " ".join(shlex.quote(f) for f in sorted(self.secret_files))
+            gone = await self.env.exec(f"rm -f -- {listed}; for f in {listed}; do [ -e \"$f\" ] && exit 1; done; "
+                                       "exit 0", cwd="/", user="root")
+            if gone.return_code != 0:
+                raise HarborDriverError("a credential file could not be removed from the environment")
+        if self.agent_logs and Path(self.agent_logs).is_dir():
+            safe_copy(Path(self.agent_logs), trial.paths.agent_dir, self.secrets)
+
+    def out_dir(self) -> str:
+        """A private folder of this machine for what the phase's end keeps (a stream's output, scrubbed)."""
+        folder = Path(self.trial.paths.trial_dir).parent / f".hermit-kept-{self.mark}"
+        folder.mkdir(mode=0o700, exist_ok=True)
+        return str(folder)
 
     async def done_op(self, req: dict) -> dict:
         if self.run_task is None:
@@ -426,29 +503,44 @@ class Driver:
         if not self.done.is_set():
             self.agent_logs = req.get("agent_logs")
             self.done.set()
-        with contextlib.suppress(BaseException):
+        failed = None
+        try:
             await asyncio.shield(self.run_task)
+        except BaseException as exc:                     # noqa: BLE001 - the trial itself raised (its finalize)
+            failed = exc
         trial = self.trial
         scrub_tree(trial.paths.trial_dir, self.secrets)  # Harbor's scrub ran in its trial; the agent's own too
         try:
             result = json.loads(trial.paths.result_path.read_text())
-        except (OSError, ValueError):
-            result = {}
+        except (OSError, ValueError):                    # result.json not written (a full volume): the trial's own
+            result = json.loads(trial.result.model_dump_json()) if trial.result is not None else {}
         rewards = (result.get("verifier_result") or {}).get("rewards")
         info = result.get("exception_info") or None
-        exception = {"type": info.get("exception_type"), "message": info.get("exception_message") or ""} \
-            if info else None
-        return {"rewards": rewards or None, "exception": exception, "verifier_dir": str(trial.paths.verifier_dir),
+        if failed is not None and not rewards and not info:
+            raise HarborDriverError(f"the trial ended with no verdict: {type(failed).__name__}: {failed}")
+
+        def said(kind, message):
+            return {"type": kind, "message": scrubbed(str(message or "").encode(), self.secrets).decode()}
+        exception = said(info.get("exception_type"), info.get("exception_message")) if info else None
+        # every exception after the one Harbor kept (it records the first): a verifier that failed after the agent's
+        # timeout is read by its own policy
+        later = [said(type(e).__name__, str(e)) for e in self.exceptions[1:]]
+        return {"rewards": rewards or None, "exception": exception, "later": later,
+                "verifier_dir": str(trial.paths.verifier_dir),
                 "verifier_mode": resolve_task_verifier_mode(trial.task.config).value,
                 "trial_dir": str(trial.paths.trial_dir)}
 
     async def stop(self, req: dict | None = None) -> dict:
-        """A trial still running cancelled (Harbor's own teardown: its environment down, result.json written)."""
+        """A trial still running cancelled (Harbor's own teardown: its environment down, result.json written), the
+        clients of its start ended first (a compose up never outlives the down); never behind another request."""
         task = self.run_task
         if task is not None and not task.done():
+            await end_clients("lifecycle")
             task.cancel()
             with contextlib.suppress(BaseException):
                 await task
+        if not self.phase_started.done():                # a start waiting on it: answered with the stop
+            self.phase_started.cancel()
         await end_clients()
         if self.trial is not None:
             scrub_tree(self.trial.paths.trial_dir, self.secrets)
@@ -498,6 +590,10 @@ class Driver:
                 os.unlink(local)
             await env.exec(f"chmod 644 {shlex.quote(staged)}", user="root")
             command = f"( {command} ) < {shlex.quote(staged)}"
+        if req.get("stream"):                            # its output kept there too, as it runs (the phase's end
+            path = f"/tmp/hermit-stream-{mark}"          # keeps it in the agent logs if it is still running then)
+            self.streams[mark] = (path, str(req["stream"]))
+            command = f"set -o pipefail; {{ {command} ; }} | tee {shlex.quote(path)}"
         outer = None
         if timeout:
             timeout = max(1, int(float(timeout) + 0.999))
@@ -523,6 +619,10 @@ class Driver:
             if staged is not None:
                 with contextlib.suppress(Exception):
                     await env.exec(f"rm -f {shlex.quote(staged)}", user="root")
+        kept = self.streams.pop(mark, None)              # it ended here: its output is the reply's
+        if kept is not None:
+            with contextlib.suppress(Exception):
+                await env.exec(f"rm -f {shlex.quote(kept[0])}", user="root")
         timed_out = bool(timeout) and (code in (124, 137, -1) and time.time() - started >= timeout - 1)
         if timed_out:                                    # nothing it started outlives its time, `timeout` or not
             with contextlib.suppress(Exception):         # unconfirmed: kept, and ended before the verifier
@@ -685,14 +785,19 @@ class Driver:
     async def handle(self, req: dict) -> None:
         rid, op = req.get("id"), req.get("op")
         try:
-            if op in ("start", "done", "stop"):
+            if op == "stop":                             # never behind a start or a done that waits on the trial
+                payload = await self.stop(req)
+            elif op in ("start", "done"):
                 async with self.lock:
                     payload = await getattr(self, "done_op" if op == "done" else op)(req)
+            elif op == "secret":                         # a credential file there: removed at the phase's end
+                self.secret_files.update(str(p) for p in req.get("paths") or [])
+                payload = {}
             elif op in ("exec", "upload", "download"):
                 if not self.in_phase:
                     raise Failed("AgentPhaseOver", "the agent's phase is not on (not begun, or ended)")
                 task = asyncio.current_task()
-                self.agent_ops.add(task)
+                self.agent_ops[task] = op
                 CLIENT_KIND.set("agent")                 # this task's own context: its clients are the agent's
                 try:
                     payload = await getattr(self, op)(req)
@@ -701,7 +806,7 @@ class Driver:
                                      "type": "AgentPhaseOver"})
                     return
                 finally:
-                    self.agent_ops.discard(task)
+                    self.agent_ops.pop(task, None)
             else:
                 raise ValueError(f"unknown op {op!r}")
             self.reply(rid, {"ok": True, **payload})

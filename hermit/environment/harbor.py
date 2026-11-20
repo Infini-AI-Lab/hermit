@@ -181,6 +181,9 @@ class HarborEnvironments:
             (None if s["pass_reward"] is None else float(s["pass_reward"]))
         self.reward_key = str(s.get("reward_key") or "reward")
         self.redactions = self._redactions(s.get("verifier_redact"))
+        if (s.get("verifier") or {}).get("disable"):
+            raise ValueError("environment.harbor.verifier.disable: a disabled verifier gives no reward, so every "
+                             "rollout would be infra and run again; a Harbor task set is scored by its verifier")
         self.infra_retries = self._count("infra_retries", errors.INFRA_RETRIES, int)
         self.infra_wait_s = self._count("infra_wait_s", errors.INFRA_WAIT_S, float)
         self.busy_retries = self._count("busy_retries", errors.BUSY_RETRIES, int)
@@ -365,6 +368,17 @@ class HarborEnvironments:
         result = {"verifier_result": {"rewards": dict(rewards or {})},
                   "exception_info": {"exception_type": exception.get("type"), "exception_message":
                                      exception.get("message") or ""} if exception else None}
+        later = [e for e in verified.get("later") or [] if e.get("type") not in (None, "AgentTimeoutError",
+                                                                                "CancelledError")]
+        if exception and exception.get("type") == "AgentTimeoutError" and later:
+            # Harbor kept the agent's timeout; a verifier that then failed is read by its own policy when it is infra
+            # (its timeout with verifier_timeout infra, a separate verifier environment that did not start)
+            after = {**result, "exception_info": {"exception_type": later[0]["type"],
+                                                  "exception_message": later[0].get("message") or ""}}
+            other = errors.verifier_timeout_verdict(errors.classify(after, reward_key=self.reward_key),
+                                                    self.verifier_timeout)
+            if other["status"] == "infra":
+                result = after
         read = errors.classify(result, reward_key=self.reward_key)
         read = errors.verifier_timeout_verdict(read, self.verifier_timeout)
         logs = Path(verified.get("verifier_dir") or "") if verified.get("verifier_dir") else None
@@ -614,10 +628,12 @@ class HarborEnvironment(Environment):
                 parts.append(part)
         return PurePosixPath(self.workspace, *parts)
 
-    def exec(self, command, *, cwd=None, env=None, timeout=None, stdin=None, user=None, by_fd=None) -> ExecResult:
+    def exec(self, command, *, cwd=None, env=None, timeout=None, stdin=None, user=None, by_fd=None,
+             stream: str | None = None) -> ExecResult:
         """A command in the task's main container (Environment.exec). `by_fd` ({a variable of `env`: the variable that
         names its descriptor}): each such secret reaches the command on a descriptor instead, out of every process's
-        environment there (the driver's container_prologue)."""
+        environment there (the driver's container_prologue). `stream`, a log name: the command's output is kept as it
+        runs, and is the agent log of that name should the phase end while it runs (a CLI's stream)."""
         if self.limits.readable or self.limits.hidden or self.limits.network is not None:
             raise Unsupported("a Harbor environment is the task's own: it takes no readable mounts, hidden paths or "
                               "network limits of Hermit's (the task's task.toml says what it reaches)")
@@ -625,7 +641,8 @@ class HarborEnvironment(Environment):
         timeout = timeout if timeout is not None else self.limits.timeout_s
         reply = self._operate("exec", None if timeout is None else float(timeout) + 300, command=line,
                               cwd=str(self.path(cwd or "")), env={str(k): str(v) for k, v in (env or {}).items()},
-                              timeout_sec=timeout, stdin=stdin, user=user, by_fd=dict(by_fd or {}))
+                              timeout_sec=timeout, stdin=stdin, user=user, by_fd=dict(by_fd or {}),
+                              **({"stream": str(stream)} if stream else {}))
         return ExecResult(code=int(reply.get("code", -1)), output=str(reply.get("output") or ""),
                           timed_out=bool(reply.get("timed_out")))
 
@@ -656,6 +673,11 @@ class HarborEnvironment(Environment):
         self._operate("download", 1800, source=str(self.path(source)), target=str(target.absolute()),
                       as_agent=as_agent)
         return target
+
+    def secret(self, paths) -> None:
+        """Files there that hold a credential (a CLI home's sign-in): removed from the environment when the agent's
+        phase ends, however it ends, before any verifier; a removal not confirmed fails the trial."""
+        self._operate("secret", 60, paths=[str(self.path(p)) for p in paths])
 
     def install(self, cli: str, version: str | None = None) -> str | None:
         """The CLI Harbor's setup installed before the agent phase (Agent.installs asked for it): its version. Nothing

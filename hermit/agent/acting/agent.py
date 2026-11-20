@@ -54,7 +54,8 @@ class Agent:
         """What this agent needs installed in a task's own environment before its run (an environment that installs,
         a task's Harbor one, does it at its setup; nothing installs while the agent runs): items of {agent, version,
         probe} (a CLI by the environment's installer of that name, unless `probe`, a shell line, finds it and no
-        version is pinned) or {packages}. None by default."""
+        version is pinned) or {packages} (best effort). Nothing by default. Read on this machine for a built-in agent
+        only (a task's own class is not loaded here): a custom agent brings what it needs in the task's image."""
         return []
 
     # --- helpers for subclasses ---------------------------------------------------------------------------------
