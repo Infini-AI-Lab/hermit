@@ -47,7 +47,7 @@ from hermit.redact import redact_name, redact_path, redact_tree, redact_value
 from hermit.sandbox import (AllowlistProxy, Bind, Sandbox, drop_unsafe, hidden_paths, inside_tools, model_access,
                             set_hidden)
 from hermit.spec import check_spec, repair
-from hermit.task import TaskData
+from hermit.task import RunUnavailable, TaskData
 from hermit.tools import FunctionTool, ToolServer, assemble, evolver_agent
 from hermit.trainer import card
 from hermit.trainer.budget import Budget, BudgetExceeded
@@ -439,6 +439,9 @@ class Trainer:
             stop_reason = exc.reason
         except BudgetExceeded as exc:
             stop_reason = f"hard budget: {exc}"
+        except RunUnavailable:
+            self._close_sandboxes()
+            raise
         return self._finish(stop_reason or "completed all epochs")
 
     def _order(self, epoch: int) -> list[str]:
@@ -731,6 +734,8 @@ class Trainer:
             drop_unsafe(place)
         result: StepResult
         self._raise_login_failed(box)                   # the run ends, unfinished: this step is not recorded
+        if isinstance(box.get("error"), RunUnavailable):
+            raise box["error"]
         if "error" in box:
             result = StepResult("failed", f"{what} raised {type(box['error']).__name__}: {box['error']}")
         elif stopped:

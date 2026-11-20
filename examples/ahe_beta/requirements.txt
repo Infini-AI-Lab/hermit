@@ -1,0 +1,5 @@
+# Install into Harbor's own environment, alongside this Hermit source checkout.
+harbor==0.25.0
+openai>=2.29,<4
+python-dotenv>=1.1,<2
+requests>=2.32,<3

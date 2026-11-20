@@ -70,8 +70,7 @@ Changelog = "https://github.com/Infini-AI-Lab/hermit/blob/main/CHANGELOG.md"
 include = ["hermit*"]
 
 [tool.setuptools.package-data]
-hermit = ["defaults.yaml", "agent/model/backends.yaml", "agent/base/mini_swe_agent.yaml",
-          "agent/base/hermes_plugin/plugin.yaml",
+hermit = ["adapter/templates/*/agents/.gitkeep", "adapter/templates/*/.agents/skills/.gitkeep", "defaults.yaml", "agent/model/backends.yaml", "agent/base/mini_swe_agent.yaml",
           "agent/evolver/methods/**/*", "adapter/templates/**/*",
           "agent/evolver/methods/**/.lint_blacklist",
           "adapter/templates/**/.agents/**/*", "adapter/templates/**/.codex/**/*",

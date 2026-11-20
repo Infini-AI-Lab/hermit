@@ -1,0 +1,46 @@
+template:
+  id: ahe-beta-codex
+  version: '1.0'
+  contract: '2'
+  name: AHE-Beta Codex adapter
+structure:
+  learnable:
+  - path: ADAPTER.md
+    format:
+      text: true
+      max_bytes: 32000
+  - path: .codex/hooks.json
+    format:
+      text: true
+      max_bytes: 24000
+  - path: scripts/*.py
+    format:
+      text: true
+      max_bytes: 200000
+      max_files: 40
+  - path: .agents/skills/*/SKILL.md
+    format:
+      text: true
+      max_bytes: 24000
+      max_files: 40
+      frontmatter:
+      - description
+  - path: .agents/skills/*/scripts/*
+    format:
+      text: true
+      max_bytes: 200000
+      max_files: 80
+  - path: agents/*.md
+    format:
+      text: true
+      max_bytes: 24000
+      max_files: 20
+      frontmatter:
+      - name
+      - description
+  fixed:
+  - exports.yaml
+  - README.md
+  - agents/.gitkeep
+  - .agents/skills/.gitkeep
+check: .hermit/check.py:check
