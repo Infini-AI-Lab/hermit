@@ -2345,18 +2345,44 @@ def test_round_9_hermit_side(harbor, tmp_path, monkeypatch):
 
 # ---- the simple end of the agent phase -------------------------------------------------------------------------
 
+def _kill_program(shell: str, mark: str, *, stuck: bool = False) -> str:
+    """A PID 1 of its own (Python, which never reaps an orphan, as a container's `sleep infinity` does not): an agent
+    command's group started under setsid as the bridge starts it, then kill_groups run by `shell` (a stuck kill first
+    when `stuck`), then the count of that group's processes left alive (a zombie is not)."""
+    pidfile = f"/tmp/hermit-pid-{mark}"
+    kill = _driver_function("kill_groups", TOKEN="hermit-mark-", PIDS="/tmp/hermit-pid-")(pidfile)
+    scenario = (f'setsid bash -c "sleep 60 & sleep 60; exit" hermit-mark-{mark} >/dev/null 2>&1 & echo $! > {pidfile}; '
+                "echo leader=$!; sleep 0.5; ")
+    if stuck:                                                    # a group the kill does not end
+        scenario += (f"{shell} -c {shlex.quote(kill.replace('kill -KILL', ': kill -KILL'))}; echo stuck=$?; "
+                     f"[ -f {pidfile} ] && echo kept; ")
+    scenario += f"{shell} -c {shlex.quote(kill)}; echo killed=$?; [ -f {pidfile} ] || echo removed"
+    return textwrap.dedent(f"""
+        import os, subprocess
+        lines = subprocess.run(["sh", "-c", {scenario!r}], capture_output=True, text=True).stdout.split()
+        leader = next(x for x in lines if x.startswith("leader="))[len("leader="):]
+        left = 0
+        for pid in filter(str.isdigit, os.listdir("/proc")):
+            try:
+                state, _, group = open(f"/proc/{{pid}}/stat").read().rsplit(") ", 1)[1].split()[:3]
+            except (OSError, ValueError):
+                continue
+            left += group == leader and state not in "ZX"
+        print(*[x for x in lines if not x.startswith("leader=")], f"left={{left}}")
+    """)
+
+
 @pytest.mark.skipif(not _own_pid_namespace(), reason="needs unshare (a PID namespace of its own, as a container's)")
-def test_a_commands_process_group_is_killed_from_its_pid_file_and_checked_gone(tmp_path):
+@pytest.mark.parametrize("shell", ["sh", "bash"])
+def test_a_commands_process_group_is_killed_from_its_pid_file_and_checked_gone(tmp_path, shell):
     """kill_groups, as the runner's _stop_session: the group of the command whose leader's pid file names it (its
-    word on its command line confirming it), what it started included, then one check that none is left."""
+    word on its command line confirming it), what it started included, then one check that none is left; under a
+    PID 1 that never reaps (its zombies are gone) and in POSIX sh (dash on Debian and Ubuntu) as in bash."""
     mark = "m" + os.urandom(4).hex()
     kill = _driver_function("kill_groups", TOKEN="hermit-mark-", PIDS="/tmp/hermit-pid-")
-    inner = (f'setsid bash -c "sleep 60 & sleep 60" hermit-mark-{mark} & echo $! > /tmp/hermit-pid-{mark}; '
-             f"sleep 0.5; sh -c {shlex.quote(kill(f'/tmp/hermit-pid-{mark}'))}; echo killed=$?; "
-             "ps -eo args= 2>/dev/null | grep -c '^sleep 6[0]' || true")
-    done = subprocess.run(["unshare", "--user", "--map-root-user", "--pid", "--fork", "--mount-proc", "sh", "-c",
-                           inner], capture_output=True, text=True, timeout=60)
-    assert "killed=0" in done.stdout and done.stdout.split()[-1] == "0", done.stdout + done.stderr   # none left
+    done = subprocess.run(["unshare", "--user", "--map-root-user", "--pid", "--fork", "--mount-proc", sys.executable,
+                           "-c", _kill_program(shell, mark)], capture_output=True, text=True, timeout=60)
+    assert done.stdout.split() == ["killed=0", "removed", "left=0"], done.stdout + done.stderr
     assert not os.path.exists(f"/tmp/hermit-pid-{mark}")
     fake = tmp_path / "fake"                            # a pid file naming a process without the word: left alone
     keep = subprocess.Popen(["sleep", "30"])
@@ -2592,22 +2618,29 @@ def test_the_log_a_record_names_is_scrubbed_of_the_runs_keys(tmp_path, monkeypat
 
 
 @pytest.mark.skipif(not _own_pid_namespace(), reason="needs unshare (a PID namespace of its own, as a container's)")
-def test_a_group_not_confirmed_gone_keeps_its_pid_file_for_the_phases_end():
+@pytest.mark.parametrize("shell", ["sh", "bash"])
+def test_a_group_not_confirmed_gone_keeps_its_pid_file_for_the_phases_end(shell):
     """kill_groups removes a command's pid file only once its group is confirmed gone: one that survives keeps its
     record, so the phase's end tries again and fails the trial (infra) rather than letting the verifier run."""
     mark = "m" + os.urandom(4).hex()
-    pidfile = f"/tmp/hermit-pid-{mark}"
-    kill = _driver_function("kill_groups", TOKEN="hermit-mark-", PIDS="/tmp/hermit-pid-")(pidfile)
-    stuck = kill.replace("kill -KILL", ": kill -KILL")                      # a group the kill does not end
-    inner = (f'setsid bash -c "sleep 60; exit" hermit-mark-{mark} & echo $! > {pidfile}; sleep 0.5; '
-             f"sh -c {shlex.quote(stuck)}; echo stuck=$?; [ -f {pidfile} ] && echo kept; "
-             f"sh -c {shlex.quote(kill)}; echo killed=$?; [ -f {pidfile} ] || echo removed")
     try:
-        done = subprocess.run(["unshare", "--user", "--map-root-user", "--pid", "--fork", "--mount-proc", "sh", "-c",
-                               inner], capture_output=True, text=True, timeout=60)
+        done = subprocess.run(["unshare", "--user", "--map-root-user", "--pid", "--fork", "--mount-proc",
+                               sys.executable, "-c", _kill_program(shell, mark, stuck=True)],
+                              capture_output=True, text=True, timeout=60)
     finally:
-        Path(pidfile).unlink(missing_ok=True)
-    assert done.stdout.split() == ["stuck=1", "kept", "killed=0", "removed"], done.stdout + done.stderr
+        Path(f"/tmp/hermit-pid-{mark}").unlink(missing_ok=True)
+    assert done.stdout.split() == ["stuck=1", "kept", "killed=0", "removed", "left=0"], done.stdout + done.stderr
+
+
+@pytest.mark.skipif(not _docker_up() or subprocess.run(["docker", "image", "inspect", "python:3.12-slim"],
+                                                       capture_output=True).returncode != 0,
+                    reason="needs Docker and python:3.12-slim (Debian: dash is its sh)")
+def test_kill_groups_in_a_debian_container_whose_pid_1_never_reaps():
+    """The same in a container: Debian's sh (dash, whose kill reads `--` as a pid) and a PID 1 that never reaps."""
+    mark = "m" + os.urandom(4).hex()
+    done = subprocess.run(["docker", "run", "--rm", "--name", f"hermit-test-kill-{mark}", "python:3.12-slim",
+                           "python3", "-c", _kill_program("sh", mark)], capture_output=True, text=True, timeout=180)
+    assert done.stdout.split() == ["killed=0", "removed", "left=0"], done.stdout + done.stderr
 
 
 @pytest.mark.skipif(not HARBOR_PYTHON.exists(), reason="needs Harbor's venv (~/.cache/hermit/harbor-venv)")

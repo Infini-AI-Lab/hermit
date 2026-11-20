@@ -114,16 +114,17 @@ def kill_groups(pattern: str) -> str:
     """A shell line (run as root) that kills the process group of each agent command whose pid file `pattern`
     matches, as the runner's _stop_session killed a session's (each command runs under setsid: its group holds what
     it started), the pid taken only when that process's command line holds the command's own word (never another
-    process a file names); then one check that no process of those groups is left but as a zombie (exit 1 if one is,
-    within 5 s)."""
+    process a file names); then one check that no process of those groups is left but as a zombie or dead (exit 1 if
+    one is, within 5 s): a container's PID 1 need not reap them. POSIX sh throughout (`kill -KILL -<pgid>`, no `--`,
+    which dash's kill reads as a pid), whatever shell runs it."""
     return (f"t='{TOKEN[:-1]}'; groups=''; files=''; for f in {pattern}; do [ -f \"$f\" ] || continue; "
             f"m=${{f#{PIDS}}}; p=$(tr -cd '0-9' < \"$f\"); [ -n \"$p\" ] || {{ rm -f -- \"$f\"; continue; }}; "
             "c=$(tr '\\0' ' ' < /proc/$p/cmdline 2>/dev/null); "
-            "case \"$c\" in *\"$t-$m\"*) kill -KILL -- -$p 2>/dev/null; groups=\"$groups $p\"; "
+            "case \"$c\" in *\"$t-$m\"*) kill -KILL -$p 2>/dev/null; groups=\"$groups $p\"; "
             "files=\"$files $f\";; *) rm -f -- \"$f\";; esac; done; "
             "n=0; while [ $n -lt 25 ]; do left=; for s in /proc/[0-9]*/stat; do l=$(cat $s 2>/dev/null) || continue; "
-            "l=${l##*) }; set -- $l; for g in $groups; do [ \"$3\" = \"$g\" ] && [ \"$1\" != Z ] && left=1; done; "
-            "done; if [ -z \"$left\" ]; then for f in $files; do rm -f -- \"$f\"; done; exit 0; fi; "
+            "l=${l##*) }; set -- $l; for g in $groups; do [ \"$3\" = \"$g\" ] && [ \"$1\" != Z ] && [ \"$1\" != X ] "
+            "&& left=1; done; done; if [ -z \"$left\" ]; then for f in $files; do rm -f -- \"$f\"; done; exit 0; fi; "
             "sleep 0.2; n=$((n+1)); done; exit 1")   # a group not confirmed gone keeps its file: tried again
 
 
