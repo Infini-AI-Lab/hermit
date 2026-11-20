@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 from datetime import datetime, timezone
+import contextvars
 import json
 import os
 from pathlib import Path
@@ -43,6 +44,17 @@ from hermit.adapter.resources import EvidenceStore, LearningMaterial
 ENV_SANDBOX = "HA_ADAPTER_SANDBOX"                    # "1": sandbox by default; "0": this is that sandbox's server
 ENV_ENFORCE = "HA_ADAPTER_SANDBOX_ENFORCE"            # the run's sandbox.enforce
 ENV_PYTHON = "HA_FRAMEWORK_PYTHON"                    # the framework's interpreter, for a server started elsewhere
+# The same, for an acting agent that runs in the run's own process (a Harbor task set's: its commands run in the
+# task's container, its loop here): the enforce mode while the call runs, None outside one. Per call (a context
+# variable), never this process's environment, which the learner's sessions share.
+CONFINED: contextvars.ContextVar = contextvars.ContextVar("hermit_adapter_confined", default=None)
+
+
+def confined() -> str | None:
+    """The enforce mode the adapter's code is confined with here ("required", "best_effort"), or None."""
+    if os.environ.get(ENV_SANDBOX) == "1":
+        return os.environ.get(ENV_ENFORCE, "required")
+    return CONFINED.get()
 
 
 def _adapter_sandbox():
@@ -50,8 +62,7 @@ def _adapter_sandbox():
     the environment's keys; the framework's environment (sandbox.hide covered, carried in HA_SANDBOX_HIDE)."""
     from hermit.sandbox import LOCAL_ANY, Sandbox
     loopback = [k for k, v in os.environ.items() if LOCAL_ANY.search(str(v))]
-    return Sandbox(role="adapter", network="isolated", env_allow=loopback,
-                   enforce=os.environ.get(ENV_ENFORCE, "required"))
+    return Sandbox(role="adapter", network="isolated", env_allow=loopback, enforce=confined() or "required")
 
 
 class Session:
@@ -61,7 +72,7 @@ class Session:
         self._remote = None
         self._sandboxed = False
         self.last_context: dict | None = None     # the context tool's whole result from the last context(query=...)
-        if sandbox is None and os.environ.get(ENV_SANDBOX) == "1":
+        if sandbox is None and confined():
             sandbox = _adapter_sandbox()
             owned = True
         else:

@@ -1,5 +1,5 @@
 """A task's own Harbor environment, as a Hermit environment: Harbor gives the task's data, its environment and its
-verifier; the agent working in it is Hermit's (docs/framework/task.md#harbor-environments).
+verifier; the agent working in it is Hermit's (docs/framework/task.md#benchmarks).
 
     environments = HarborEnvironments(settings, base=folder)    # the run's: its settings, disk gate and cleanup
     with environments.session(task_dir, name) as env:           # started (the disk gate first), stopped after
@@ -7,11 +7,12 @@ verifier; the agent working in it is Hermit's (docs/framework/task.md#harbor-env
         verdict = env.verify(agent_logs=log_dir)                # Harbor's verifier: {rewards, reward, feedback, ...}
 
 Harbor runs in its own venv (Python 3.13, `harbor` 0.25.0), not in Hermit's interpreter, so each environment is a
-driver process of its own under Harbor's python (hermit/environment/harbor_driver.py: Harbor's own trial of the task,
-its agent Harbor's do-nothing one, driven a piece at a time) and this side speaks JSON lines with it. What Harbor
-does to the environment is Harbor's code: the start of a prebuilt image (`docker_image`, pulled) or a Dockerfile's
-build, the network policy of the agent phase, the task's tests uploaded only for the verifier, the verifier's
-environment (`[verifier] environment_mode`: shared, or a separate one), the reward files, the trial's result.json.
+driver process of its own under Harbor's python (hermit/environment/harbor_driver.py: Harbor's own `Trial.run()` of
+the task, its agent a bridge that relays this side's commands) and this side speaks JSON lines with it. The whole trial
+is Harbor's code: the start of a prebuilt image (`docker_image`, pulled) or a Dockerfile's build, the agent's setup
+(what the agent declares it needs installed: Agent.installs), the network policy and user of the agent phase, its
+timeout, the task's tests uploaded only for the verifier, the verifier's environment (`[verifier] environment_mode`:
+shared, or a separate one), the reward files, the trial's result.json.
 What Hermit adds around it is the warm start Hermit's runner had (hermit/environment/harbor_docker.py, unchanged):
 no environment starts while the host's /tmp or Docker's data root has less than its gate free (room kept for the
 task's image when it is not here yet, and for the images other environments of the run are still to pull), the
@@ -36,20 +37,24 @@ Settings (a run config's `environment.harbor`, merged over the benchmark file it
   jobs_dir          where each environment's trial directory goes (default ~/.cache/hermit/harbor/jobs)
   harbor            Harbor's command (default ~/.cache/hermit/harbor-venv/bin/harbor): its venv's python, beside it or
                     beside the file a link to it names, runs the driver
-  start_timeout_s, verify_timeout_s   how long this side waits for the driver's start (pull, build) and verifier
+  start_timeout_s, verify_timeout_s   how long this side waits for the trial's agent phase (pull, build, setup) and
+                    for the trial's end after it (the verifier)
   verifier_timeout  agent (a verifier that ran out of its time scores the agent's solution: Harbor's grading) or
                     infra (not the agent's result)
   pass_reward, reward_key   the reward that is a pass (1.0; null: a scale), the verifier's reward key (reward)
   infra_retries, infra_wait_s   a rollout that is not the agent's result (infra: hermit.environment.harbor_errors) runs
                     again in a fresh environment this many times at most (default 2), each after this long (default
                     300 s), unless its cause runs no better again (NO_RETRY: the disk gate, model_rejected)
+  busy_retries, busy_wait_s   a session the provider could not serve runs again in a fresh environment this many times
+                    over the task's runs (default 3, not counted in infra_retries), the n-th after n x this (120 s), as
+                    the runner's busy_retries
 
 An environment runs the task's commands where Harbor runs them (isolation `remote`): `exec` runs a command in the
 task's main container as the task's agent user, from its working directory (the workspace), a variable passed by name
 (never on a command line of this machine), a timeout enforced there (`timeout`, its process group killed); `upload` and
 `download` move files between this machine and it (a relative path is in the workspace, an absolute one anywhere in
-the environment); `install(cli)` has Harbor's own installed agent install a CLI there. `verify` ends the agent's phase:
-no command runs in the environment after it.
+the environment); `install(cli)` reports the version Harbor's setup installed there (nothing installs during the
+phase). `verify` ends the agent's phase (the bridge ends its commands still running) and reads the trial's verdict.
 """
 from __future__ import annotations
 
@@ -59,11 +64,13 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import queue
+import re
 import shlex
 import shutil
 import subprocess
 import sys
 import threading
+import time
 import uuid
 
 import yaml
@@ -79,17 +86,27 @@ DISK_GATE_GB = 20.0
 DISK_GATE_WAIT_S = 7200.0
 TMP_GATE_GB = 1.0
 HOST_TMP = Path("/tmp")
-START_TIMEOUT_S = 3600.0             # the driver's start: the image's pull or build, the healthcheck
-VERIFY_TIMEOUT_S = 7200.0            # ... and its verifier (Harbor's own timeout ends it first)
+START_TIMEOUT_S = 3600.0             # the driver's start up to the agent phase, at least (start_timeout)
+START_ALLOWANCE_S = 1800.0           # beside Harbor's build and setup timeouts: the healthcheck, the logs
+BUILD_TIMEOUT_S = 600.0              # Harbor's default build_timeout_sec
+SETUP_TIMEOUT_S = 1200.0             # the agent's setup (a CLI's install) when setup_timeout_sec is not set: Harbor's
+                                     # own 360 s default is too short for an apt and npm install in a 1-CPU container
+                                     # under load
+VERIFY_TIMEOUT_S = 7200.0            # ... and its verifier when Harbor names no timeout (its own ends it first)
+VERIFY_ALLOWANCE_S = 1800.0          # beside Harbor's verifier timeout: the tests' upload, a separate environment's
+                                     # start, the logs
 STOP_TIMEOUT_S = 600.0
-SETUP_ALLOWANCE_S = 360.0            # beside a task's agent budget: the CLI's install, the home's upload (the runner's
+SETUP_ALLOWANCE_S = 360.0            # beside a task's agent budget: the home's upload, the logs (the runner's
                                      # SETUP_BUDGET_S)
+DELIVERY_MARGIN_S = 60.0             # the agent's own budget ends this much before Harbor's agent timeout, so that its
+                                     # session's end and logs reach the trial before Harbor cancels the phase
 PASS_REWARD = 1.0
 MULTIPLIERS = ("verifier_timeout_multiplier", "environment_build_timeout_multiplier")
 SETTINGS = (*MULTIPLIERS, "benchmark", "tasks_dir", "environment", "verifier", "agent_timeout_sec",
             "setup_timeout_sec", "allowed_hosts", "docker_cleanup", "rmi_threshold_gb", "disk_gate_gb",
             "disk_gate_wait_s", "tmp_gate_gb", "image_sizes", "jobs_dir", "harbor", "start_timeout_s",
             "verify_timeout_s", "verifier_timeout", "pass_reward", "reward_key", "infra_retries", "infra_wait_s",
+            "busy_retries", "busy_wait_s", "verifier_redact",
             "dataset")
 VERIFIER_TIMEOUTS = ("agent", "infra")
 FEEDBACK_CHARS = 4000
@@ -142,7 +159,7 @@ class HarborEnvironments:
     """The run's Harbor environments: one for each task, sharing the settings, the disk gate's room for pulls and the
     image cleanup's lock."""
 
-    def __init__(self, settings: dict, *, base: Path, allowed_hosts=(), log=None):
+    def __init__(self, settings: dict, *, base: Path, allowed_hosts=(), log=None, drop_env=()):
         self.settings, self.base = settings_of(settings, base)
         s = self.settings
         if not s.get("tasks_dir"):
@@ -159,6 +176,11 @@ class HarborEnvironments:
         if self.cleanup not in docker.CLEANUP_MODES:
             raise ValueError(f"environment.harbor.docker_cleanup must be one of {', '.join(docker.CLEANUP_MODES)}, "
                              f"not {self.cleanup!r}")
+        env_config = s.get("environment") if isinstance(s.get("environment"), dict) else {}
+        # a local Docker environment Harbor deletes after the trial (a kept one, delete false, is left as it is)
+        self.keep_containers = bool((env_config.get("kwargs") or {}).get("keep_containers"))
+        self.local_docker = env_config.get("type") in (None, "docker") and env_config.get("delete", True) is not False \
+            and not self.keep_containers                 # Harbor told to keep them: kept
         self.verifier_timeout = str(s.get("verifier_timeout") or "agent")
         if self.verifier_timeout not in VERIFIER_TIMEOUTS:
             raise ValueError(f"environment.harbor.verifier_timeout is agent or infra, not {self.verifier_timeout!r}")
@@ -168,14 +190,21 @@ class HarborEnvironments:
         self.pass_reward = PASS_REWARD if "pass_reward" not in s else \
             (None if s["pass_reward"] is None else float(s["pass_reward"]))
         self.reward_key = str(s.get("reward_key") or "reward")
+        self.redactions = self._redactions(s.get("verifier_redact"))
+        if (s.get("verifier") or {}).get("disable"):
+            raise ValueError("environment.harbor.verifier.disable: a disabled verifier gives no reward, so every "
+                             "rollout would be infra and run again; a Harbor task set is scored by its verifier")
         self.infra_retries = self._count("infra_retries", errors.INFRA_RETRIES, int)
         self.infra_wait_s = self._count("infra_wait_s", errors.INFRA_WAIT_S, float)
+        self.busy_retries = self._count("busy_retries", errors.BUSY_RETRIES, int)
+        self.busy_wait_s = self._count("busy_wait_s", errors.BUSY_WAIT_S, float)
         sizes = json.loads(self.path(s["image_sizes"]).read_text()) if s.get("image_sizes") else {}
         self.image_sizes = {k: v for k, v in sizes.items() if not str(k).startswith("_")}
         self.pulls = docker.Pulls()
         self.allowed_hosts = [*(s.get("allowed_hosts") or []), *(h for h in allowed_hosts
                                                                   if h not in (s.get("allowed_hosts") or []))]
         self.log = log or (lambda m: print(m, file=sys.stderr, flush=True))
+        self.drop_env = set(drop_env)          # this process's variables the driver (and Harbor's compose) never sees
         self._root: Path | None = None
         self.live: set = set()                  # the environments started and not stopped: stopped at exit
         self.stopping = threading.Event()       # set once the run ends (a lost sign-in): no gate or pause waits on
@@ -248,6 +277,8 @@ class HarborEnvironments:
         if not docker.wait_for_disk(HOST_TMP, self._gate("tmp_gate_gb", TMP_GATE_GB), wait_s, cancel=cancel,
                                     log=self.log):
             return False
+        if cancel.is_set():                              # the run ended between the gates
+            return False
         image = docker.task_image(task_dir)
         return docker.wait_for_disk(self.docker_root(), self._gate("disk_gate_gb", DISK_GATE_GB), wait_s,
                                     image=image, image_gb=self.image_gb(image) if image else 0.0, pulls=self.pulls,
@@ -287,33 +318,71 @@ class HarborEnvironments:
                              m.get("source") else m for m in env["mounts"]]
         return env
 
-    def start_request(self, task_dir: Path, trials_dir: Path, name: str) -> dict:
+    def start_request(self, task_dir: Path, trials_dir: Path, name: str, installs=None) -> dict:
         s = self.settings
         agent = {"override_timeout_sec": s.get("agent_timeout_sec"),
-                 "override_setup_timeout_sec": s.get("setup_timeout_sec"),
+                 "override_setup_timeout_sec": float(s.get("setup_timeout_sec") or SETUP_TIMEOUT_S),
                  "extra_allowed_hosts": list(self.allowed_hosts) or None}
         return {"op": "start", "task_dir": str(task_dir), "trials_dir": str(trials_dir), "trial_name": name,
                 "agent": {k: v for k, v in agent.items() if v is not None}, "environment": self.environment_config(),
                 "verifier": {k: v for k, v in (s.get("verifier") or {}).items() if v is not None},
-                "trial": {k: float(s[k]) for k in MULTIPLIERS if s.get(k) is not None}}
+                "trial": {k: float(s[k]) for k in MULTIPLIERS if s.get(k) is not None},
+                "installs": list(installs or [])}
 
-    def open(self, task_dir: Path, name: str | None = None) -> "HarborEnvironment":
-        """The environment of one task, not started yet."""
-        return HarborEnvironment(task_dir, owner=self, name=name)
+    def open(self, task_dir: Path, name: str | None = None, installs=None) -> "HarborEnvironment":
+        """The environment of one task, not started yet; `installs`, what the agent needs installed in it before its
+        phase (Agent.installs: Harbor's setup runs them)."""
+        return HarborEnvironment(task_dir, owner=self, name=name, installs=installs)
 
     @contextlib.contextmanager
-    def session(self, task_dir: Path, name: str | None = None):
-        """One task's environment, started (the disk gate first) and stopped after, however the block ends."""
-        env = self.open(task_dir, name)
+    def session(self, task_dir: Path, name: str | None = None, installs=None):
+        """One task's environment, started (the disk gate first, then Harbor's trial up to its agent phase) and
+        stopped after, however the block ends."""
+        env = self.open(task_dir, name, installs)
         try:
             env.start()
             yield env
         finally:
             env.stop()
 
+    @staticmethod
+    def _redactions(patterns) -> list[str]:
+        """verifier_redact: regexes removed from the verifier's output the feedback and an infra verdict quote (what
+        the learner must not read, a test's expected answer), the Harbor runner's setting."""
+        patterns = [patterns] if isinstance(patterns, str) else list(patterns or [])
+        for pattern in patterns:
+            try:
+                re.compile(str(pattern))
+            except re.error as exc:
+                raise ValueError(f"environment.harbor.verifier_redact: {pattern!r} is no regular expression "
+                                 f"({exc})") from None
+        return [str(p) for p in patterns]
+
+    def start_timeout(self, task_dir: Path) -> float:
+        """How long this side waits for the trial's agent phase: start_timeout_s, else Harbor's own budgets for what
+        comes before it (the task's build timeout times its multiplier, the setup timeout) and START_ALLOWANCE_S, at
+        least START_TIMEOUT_S."""
+        import tomllib
+        if self.settings.get("start_timeout_s"):
+            return float(self.settings["start_timeout_s"])
+        try:
+            config = tomllib.loads((Path(task_dir) / "task.toml").read_text())
+        except (OSError, ValueError):
+            config = {}
+        env = config.get("environment") if isinstance(config.get("environment"), dict) else {}
+        build = float(env.get("build_timeout_sec") or BUILD_TIMEOUT_S) * \
+            float(self.settings.get("environment_build_timeout_multiplier") or 1.0)
+        setup = float(self.settings.get("setup_timeout_sec") or SETUP_TIMEOUT_S)
+        return max(START_TIMEOUT_S, build + setup + START_ALLOWANCE_S)
+
+    def redact(self, text: str) -> str:
+        for pattern in self.redactions:
+            text = re.sub(pattern, "[redacted]", text)
+        return text
+
     def verdict(self, verified: dict) -> dict:
         """What a verifier's answer is for a judge, as Hermit's Harbor runner read a trial (hermit.environment.
-        harbor_errors): the reward (`reward_key`, else the one reward, else their mean), the rewards, the feedback
+        harbor_errors): the reward (`reward_key`'s only), the rewards, the feedback
         (feedback.txt, else the verifier's output's tail), a status and its cause: ok; `timeout` for a verifier that
         ran out of its time on the agent's solution (solution_timed_out, scored 0; infra with verifier_timeout: infra);
         `agent_error` for one that left no reward Harbor could read (verifier_failed, scored 0, as Harbor grades it);
@@ -321,29 +390,40 @@ class HarborEnvironments:
         the host's disk full) or no exception and no reward: not the agent's result."""
         rewards = verified.get("rewards") or None
         exception = verified.get("exception") or None
-        reward = None
-        if rewards:
-            reward = rewards.get(self.reward_key)
-            if reward is None:
-                reward = next(iter(rewards.values())) if len(rewards) == 1 else sum(rewards.values()) / len(rewards)
-            reward = float(reward)
+        reward = (rewards or {}).get(self.reward_key)   # the named reward only: none there is the runner's infra
+        reward = float(reward) if reward is not None else None
         # Harbor's trial as the runner read its result.json: the reward under its key, the exception Harbor recorded
-        result = {"verifier_result": {"rewards": {self.reward_key: reward} if reward is not None else {}},
+        result = {"verifier_result": {"rewards": dict(rewards or {})},
                   "exception_info": {"exception_type": exception.get("type"), "exception_message":
                                      exception.get("message") or ""} if exception else None}
+        later = [e for e in verified.get("later") or [] if e.get("type") not in (None, "AgentTimeoutError",
+                                                                                "CancelledError")]
+        if exception and exception.get("type") == "AgentTimeoutError" and later:
+            # Harbor kept the agent's timeout; a verifier that then failed is read by its own policy when it is infra
+            # (its timeout with verifier_timeout infra, a separate verifier environment that did not start)
+            after = {**result, "exception_info": {"exception_type": later[0]["type"],
+                                                  "exception_message": later[0].get("message") or ""}}
+            other = errors.verifier_timeout_verdict(errors.classify(after, reward_key=self.reward_key),
+                                                    self.verifier_timeout)
+            if other["status"] == "infra":
+                result = after
         read = errors.classify(result, reward_key=self.reward_key)
         read = errors.verifier_timeout_verdict(read, self.verifier_timeout)
         logs = Path(verified.get("verifier_dir") or "") if verified.get("verifier_dir") else None
-        read = errors.verifier_verdict(read, logs)
+        read = errors.verifier_verdict(read, logs, self.redactions)
         feedback = ""
         for name in ("feedback.txt", "test-stdout.txt"):
             if logs is not None and (logs / name).is_file() and not (logs / name).is_symlink():
-                feedback = (logs / name).read_text(encoding="utf-8", errors="replace")[-FEEDBACK_CHARS:]
+                feedback = self.redact((logs / name).read_text(encoding="utf-8", errors="replace"))[-FEEDBACK_CHARS:]
                 break
         passed = None if self.pass_reward is None else (reward is not None and reward >= self.pass_reward)
         return {"reward": reward, "rewards": rewards, "status": read["status"], "failure_cause": read["failure_cause"],
-                "passed": passed, "exception": exception, "exception_message": read["exception_message"],
+                "passed": passed,
+                "exception": {**exception, "message": self.redact(str(exception.get("message") or ""))}
+                if exception else None,
+                "exception_message": self.redact(str(read["exception_message"] or "")),
                 "feedback": feedback, "verifier_dir": verified.get("verifier_dir"),
+                "agent_dir": verified.get("agent_dir"),
                 "trial_dir": verified.get("trial_dir")}
 
 
@@ -375,7 +455,8 @@ class _Driver:
                 self.proc.stdin.write(data)
                 self.proc.stdin.flush()
             except (BrokenPipeError, OSError, ValueError) as exc:
-                box = self.waiting.pop(rid, None)
+                with self.lock:
+                    box = self.waiting.pop(rid, None)
                 if box is not None:
                     box.put({"ok": False, "error": f"the Harbor driver is gone: {exc}", "type": "DriverGone"})
 
@@ -385,13 +466,16 @@ class _Driver:
                 reply = json.loads(line)
             except ValueError:
                 continue
-            box = self.waiting.pop(reply.get("id"), None)
+            with self.lock:
+                box = self.waiting.pop(reply.get("id"), None)
             if box is not None:
                 box.put(reply)
-        self.dead = f"the Harbor driver exited ({self.proc.wait()})"
-        for box in list(self.waiting.values()):
-            box.put({"ok": False, "error": self.dead, "type": "DriverGone"})
-        self.waiting.clear()
+        dead = f"the Harbor driver exited ({self.proc.wait()})"
+        with self.lock:                                  # a request registers under it: none misses the death
+            self.dead = dead
+            boxes, self.waiting = list(self.waiting.values()), {}
+        for box in boxes:
+            box.put({"ok": False, "error": dead, "type": "DriverGone"})
 
     def request(self, op: str, timeout: float | None, **fields) -> dict:
         box: queue.Queue = queue.Queue()
@@ -405,7 +489,8 @@ class _Driver:
         try:
             reply = box.get(timeout=timeout)
         except queue.Empty:
-            self.waiting.pop(rid, None)
+            with self.lock:
+                self.waiting.pop(rid, None)
             raise TimeoutError(f"the Harbor driver did not answer {op} in {timeout:.0f} s") from None
         if not reply.get("ok"):
             if reply.get("type") == "DriverGone":
@@ -456,9 +541,10 @@ class HarborEnvironment(Environment):
     isolation = "remote"
 
     def __init__(self, task_dir: Path, *, owner: HarborEnvironments, name: str | None = None,
-                 limits: Limits | None = None):
+                 limits: Limits | None = None, installs=None):
         super().__init__(PurePosixPath("/"), limits)
         self.task_dir = Path(task_dir)
+        self.installs = list(installs or [])
         self.owner = owner
         safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in (name or self.task_dir.name))
         self.name = f"{safe[:48]}__{uuid.uuid4().hex[:8]}"
@@ -471,6 +557,7 @@ class HarborEnvironment(Environment):
         self.setup_budget_s = SETUP_ALLOWANCE_S
         self.admitted: list = []
         self.verified: dict | None = None
+        self.deadline_at: float | None = None   # the agent phase's absolute deadline (less the delivery margin)
 
     def __repr__(self) -> str:
         return f"HarborEnvironment({self.task_dir.name!r}, workspace={str(self.workspace)!r})"
@@ -480,7 +567,16 @@ class HarborEnvironment(Environment):
         owner = self.owner
         if not self.task_dir.is_dir():
             raise ValueError(f"no Harbor task directory {self.task_dir}")
-        if not owner.wait_for_disk(self.task_dir, self.admitted):
+        if owner.stopping.is_set():
+            raise EnvironmentUnavailable("the run ended: no environment started", "stopped")
+        held = not owner.wait_for_disk(self.task_dir, self.admitted)
+        if owner.stopping.is_set():                      # the run ended while it waited: nothing started, room back
+            for key in self.admitted:
+                owner.pulls.done(key)
+            self.admitted = []
+            raise EnvironmentUnavailable("the run ended while the disk gate held the task: no environment started",
+                                         "stopped")
+        if held:
             raise EnvironmentUnavailable(f"{owner.disk_held(self.task_dir)}: no environment started", "disk")
         with owner._lock:
             owner.live.add(self)
@@ -488,24 +584,39 @@ class HarborEnvironment(Environment):
             self.trials_dir.mkdir(parents=True, exist_ok=True)
             tmp = owner.jobs_dir / "tmp"
             tmp.mkdir(parents=True, exist_ok=True)
-            env = {**os.environ, "TMPDIR": str(tmp)}
+            env = {**{k: v for k, v in os.environ.items() if k not in owner.drop_env}, "TMPDIR": str(tmp)}
             self.driver = _Driver(owner.python, self.trials_dir / "driver.log", env)
         except OSError as exc:
             raise EnvironmentUnavailable(f"this machine could not start the environment's driver: "
                                          f"{type(exc).__name__}: {exc}", "host_failed") from None
         try:
-            started = self.driver.request(**owner.start_request(self.task_dir, self.trials_dir, self.name),
-                                          timeout=float(owner.settings.get("start_timeout_s") or START_TIMEOUT_S))
+            started = self.driver.request(**owner.start_request(self.task_dir, self.trials_dir, self.name,
+                                                                self.installs),
+                                          timeout=owner.start_timeout(self.task_dir))
         except (RuntimeError, TimeoutError) as exc:
             kind = "TimeoutError" if isinstance(exc, TimeoutError) else getattr(exc, "kind", None)
+            if kind == "UnsupportedTask":                # Harbor runs it for none of Hermit's agents: never again
+                raise EnvironmentUnavailable(f"Harbor refused the task for Hermit's agent: {exc}"[-3000:],
+                                             "unsupported_task") from None
             raise EnvironmentUnavailable(f"the task's environment did not start: {exc}"[-3000:],
                                          errors.start_cause(kind, str(exc))) from None
         self.started = started
         self.workspace = PurePosixPath(started.get("workdir") or "/")
         self.instruction = started.get("instruction")           # Harbor's own, as its agents are given it
         self.network_public = (started.get("agent_network") or "public") == "public"
+        self.bin_served = dict(started.get("bins") or {})   # cli -> whether its mounted binary serves (setup's word)
+        kind = (owner.settings.get("environment") or {}).get("type") if isinstance(
+            owner.settings.get("environment"), dict) else None
+        self.same_clock = kind in (None, "docker")       # a local Docker container shares this machine's clock
         self.setup_budget_s = float(started.get("setup_timeout_sec") or 0) + SETUP_ALLOWANCE_S
         budget = started.get("agent_timeout_sec")
+        if budget:                                       # ends before Harbor's timeout, its logs delivered first
+            margin = min(DELIVERY_MARGIN_S, float(budget) * 0.1)
+            budget = float(budget) - margin
+            # one absolute deadline from the phase's start as the bridge saw it begin (Harbor's timer): every command's
+            # time and an agent's whole run come off it
+            epoch = started.get("deadline_epoch")
+            self.deadline_at = (float(epoch) - margin) if epoch else time.time() + budget
         self.limits = Limits(readable=self.limits.readable, hidden=self.limits.hidden, network=self.limits.network,
                              timeout_s=float(budget) if budget else self.limits.timeout_s)
         return self
@@ -522,7 +633,10 @@ class HarborEnvironment(Environment):
                     driver.request("stop", timeout=STOP_TIMEOUT_S)
                     stopped = True
                 if not driver.close(30 if stopped else 60) or not stopped:
-                    docker.compose_down(self.name)
+                    if not self.owner.keep_containers:   # Harbor told to keep them: never taken down
+                        docker.compose_down(self.name)
+                elif self.owner.local_docker and docker.compose_projects(docker.compose_project(self.name)):
+                    docker.compose_down(self.name)       # Harbor logged a down that failed: its projects, by name
                 self.owner.cleanup_images(self.task_dir)
         finally:
             for key in self.admitted:
@@ -555,18 +669,25 @@ class HarborEnvironment(Environment):
                 parts.append(part)
         return PurePosixPath(self.workspace, *parts)
 
-    def exec(self, command, *, cwd=None, env=None, timeout=None, stdin=None, user=None, by_fd=None) -> ExecResult:
+    def exec(self, command, *, cwd=None, env=None, timeout=None, stdin=None, user=None, by_fd=None,
+             stream: str | None = None, secret_env=()) -> ExecResult:
         """A command in the task's main container (Environment.exec). `by_fd` ({a variable of `env`: the variable that
         names its descriptor}): each such secret reaches the command on a descriptor instead, out of every process's
-        environment there (the driver's container_prologue)."""
+        environment there (the driver's container_prologue). `stream`, a log name: the command's output is kept as it
+        runs, and is the agent log of that name should the phase end while it runs (a CLI's stream)."""
         if self.limits.readable or self.limits.hidden or self.limits.network is not None:
             raise Unsupported("a Harbor environment is the task's own: it takes no readable mounts, hidden paths or "
                               "network limits of Hermit's (the task's task.toml says what it reaches)")
         line = command if isinstance(command, str) else shlex.join([str(c) for c in command])
         timeout = timeout if timeout is not None else self.limits.timeout_s
+        if self.deadline_at is not None:                 # what is left of the phase's deadline, never more
+            left = max(1.0, self.deadline_at - time.time())
+            timeout = min(float(timeout), left) if timeout else left
         reply = self._operate("exec", None if timeout is None else float(timeout) + 300, command=line,
                               cwd=str(self.path(cwd or "")), env={str(k): str(v) for k, v in (env or {}).items()},
-                              timeout_sec=timeout, stdin=stdin, user=user, by_fd=dict(by_fd or {}))
+                              timeout_sec=timeout, stdin=stdin, user=user, by_fd=dict(by_fd or {}),
+                              **({"stream": str(stream)} if stream else {}),
+                              **({"secret_env": [str(n) for n in secret_env]} if secret_env else {}))
         return ExecResult(code=int(reply.get("code", -1)), output=str(reply.get("output") or ""),
                           timed_out=bool(reply.get("timed_out")))
 
@@ -584,6 +705,7 @@ class HarborEnvironment(Environment):
                                          errors.start_cause(getattr(exc, "kind", None), str(exc))) from None
 
     def upload(self, source, target) -> PurePosixPath:
+        """`source` to `target` (root's copy, given to the agent user: the runner's provisioning)."""
         dest = self.path(target)
         self._operate("upload", 1800, source=str(Path(source).absolute()), target=str(dest))
         return dest
@@ -593,39 +715,42 @@ class HarborEnvironment(Environment):
         self._operate("download", 1800, source=str(self.path(source)), target=str(target.absolute()))
         return target
 
+    def secret(self, paths) -> None:
+        """Files there that hold a credential (a CLI home's sign-in): removed from the environment when the agent's
+        phase ends, however it ends, before any verifier; a removal not confirmed fails the trial."""
+        self._operate("secret", 60, paths=[str(self.path(p)) for p in paths])
+
     def install(self, cli: str, version: str | None = None) -> str | None:
-        """The CLI installed by Harbor's own installed agent of that name (codex, claude-code, ...), as Harbor's trials
-        install it; the version it reports."""
-        try:
-            reply = self._live().request("install", float(self.started.get("setup_timeout_sec") or 900) + 60,
-                                         agent=cli, version=version)
-        except (RuntimeError, TimeoutError) as exc:      # the agent's setup failed: infra, as Harbor's trial grades it
-            if isinstance(exc, EnvironmentUnavailable):
-                raise
-            raise EnvironmentUnavailable(f"{errors.INSTALL_FAILED}: {exc}"[-3000:], "sandbox_failed") from None
-        return reply.get("version")
+        """The CLI Harbor's setup installed before the agent phase (Agent.installs asked for it): its version. Nothing
+        installs during the phase: one not asked for is refused."""
+        installed = self.started.get("installed") or {}
+        if cli not in installed:
+            raise Unsupported(f"{cli} was not installed at the environment's setup (the agent's installs name what "
+                              "Harbor's setup installs before its phase): give its path there as `bin`")
+        return installed[cli]
 
     def ensure(self, packages) -> None:
-        """System packages (python3 for an adapter's hooks) installed with Harbor's own installer, under the
-        environment's baseline network policy."""
-        try:
-            self._live().request("ensure", float(self.started.get("setup_timeout_sec") or 900) + 60,
-                                 packages=list(packages))
-        except (RuntimeError, TimeoutError) as exc:
-            if isinstance(exc, EnvironmentUnavailable):
-                raise
-            raise EnvironmentUnavailable(f"the system packages' install failed: {exc}"[-3000:],
-                                         "sandbox_failed") from None
+        """System packages: installed at the environment's setup when the agent asked for them; none installs during
+        the phase (the caller checks what is there)."""
+        return None
 
     def verify(self, agent_logs: Path | str | None = None) -> dict:
-        """Harbor's verifier on the agent's work (the agent's phase ends first: no command runs after it); the
-        verdict (HarborEnvironments.verdict). `agent_logs`, a folder of this machine, is the trial's agent logs
-        (/logs/agent), which a verifier may read."""
+        """The agent's phase ended (the bridge ends its commands still running), Harbor's trial run on to its end (its
+        verifier on the agent's work); the verdict (HarborEnvironments.verdict). `agent_logs`, a folder of this
+        machine, becomes the trial's agent logs (/logs/agent), which a verifier may read."""
         if self.verified is not None:
             return self.verified
         driver = self._live()
-        try:
-            verified = driver.request("verify", float(self.owner.settings.get("verify_timeout_s") or VERIFY_TIMEOUT_S),
+        # Harbor's own verifier timeout (its overrides and multiplier) ends a verifier; this side waits for that and the
+        # verifier's preparation and the logs beside it (verify_timeout_s overrides)
+        own = self.started.get("verifier_timeout_sec")
+        # a separate verifier's environment starts first, within Harbor's build timeout
+        build = float(self.started.get("build_timeout_sec") or 0) if self.started.get("verifier_mode") == "separate" \
+            else 0.0
+        watchdog = float(self.owner.settings.get("verify_timeout_s") or
+                         (float(own) + build + VERIFY_ALLOWANCE_S if own else VERIFY_TIMEOUT_S + build))
+        try:                                             # the agent phase ends; Harbor's trial runs on to its end
+            verified = driver.request("done", watchdog,
                                       agent_logs=str(Path(agent_logs).absolute()) if agent_logs else None)
         except (RuntimeError, TimeoutError) as exc:      # the driver's or this side's, not Harbor's verifier's
             said = f"{getattr(exc, 'kind', None) or type(exc).__name__}: {exc}"[-3000:]

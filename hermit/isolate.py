@@ -18,9 +18,8 @@ The data and split files, the judge, the runs and trees directories may not lie 
 refused, and the isolation check inside proves them absent. A task with `environment.image` runs its CLI agent in a
 container of its own (the Base Agent's container isolation), started from a worker on the host that keeps the
 adapter's code in the strict sandbox. A task set in Harbor's environments (`environment.harbor`) gives each task its
-own environment (hermit.environment.harbor, kept in this process with its driver and Docker); the agent's worker in
-the task sandbox reaches it only through a server of the agent's operations on it (hermit.environment.remote: exec,
-upload, download), never its verifier or the task's directory.
+own environment (hermit.environment.harbor, kept in this process with its driver and Docker), where every command
+and CLI of the agent runs: the agent's loop runs in this process with that environment (host_pipeline), no worker.
 
 The judge runs where `judge.mode` says: `host` in this process on the downloaded answer, `shared` in the task
 sandbox after the agent (a new exec over the same work directory, with `judge.tests` shown to it alone), `separate`
@@ -46,6 +45,7 @@ import time
 import uuid
 
 from hermit.agent.base import login as codex_login
+from hermit.agent.base.credentials import held
 from hermit.agent.base.cli import CLIS
 from hermit.agent.base.endpoint import cli_endpoint, endpoint_spec
 from hermit.redact import redact_name, redact_tree
@@ -87,6 +87,8 @@ def host_pipeline(config) -> str | None:
         return "environment.runner: host (the task's own code isolates the adapter's code it runs, in containers)"
     if d["environment"].get("image"):
         return "environment.image: the agent runs in a container of its own"
+    if d["environment"].get("harbor"):
+        return "environment.harbor: every command and CLI of the agent runs in the task's own Harbor environment"
     return None
 
 
@@ -500,16 +502,6 @@ def _deadline(run_timeout: float | None, task: dict) -> float | None:
     return own if run_timeout is None else min(run_timeout, own)
 
 
-def _call_deadline(run_timeout: float | None, environment, needs: dict) -> float | None:
-    """A call's deadline (_deadline): for a task in its own environment, that environment's agent budget (Harbor's,
-    after its overrides: Terminal-Bench's 3,600 s over the task's 900) with its CLI's install beside it; else the
-    task's own."""
-    budget = getattr(getattr(environment, "limits", None), "timeout_s", None) if environment is not None else None
-    if budget:
-        needs = {"agent_timeout_sec": float(budget) + float(getattr(environment, "setup_budget_s", 0) or 0)}
-    return _deadline(run_timeout, needs)
-
-
 class SandboxedAgent:
     """The run's agent as a pipeline, every call in a worker inside the task sandbox."""
 
@@ -570,21 +562,18 @@ class SandboxedAgent:
         its own: a Harbor one gives what it asks)."""
         return self.spec.problems_for(needs, verifier=self.verifies)
 
-    def __call__(self, task: dict, adapter: Path | None, environment=None, needs: dict | None = None) -> RunOutput:
+    def __call__(self, task: dict, adapter: Path | None, needs: dict | None = None) -> RunOutput:
         """`needs`: what the task asks of its environment (its private half's; hermit.trainer.rollout passes it), of
-        which its agent's timeout bounds the call. A task in an environment of its own (a Harbor one): the worker's
-        sandbox reaches only the server of it."""
-        server = None
-        if environment is not None:
-            from hermit.environment.remote import EnvironmentServer
-            server = EnvironmentServer(environment).start()
-        try:
-            return self._call(task, adapter, server, needs)
-        finally:
-            if server is not None:
-                server.close()
+        which its agent's timeout bounds the call. (A task in an environment of its own, a Harbor one, never comes
+        here: its agent runs in this process, host_pipeline.)"""
+        return self._call(task, adapter, needs)
 
-    def _call(self, task: dict, adapter: Path | None, server, needs: dict | None = None) -> RunOutput:
+    def _login_root(self) -> Path:
+        """The ChatGPT login's shared copy this run's preflight checked: the agent's `login_root`, else the default."""
+        root = self.params.get("login_root")
+        return Path(os.path.expanduser(str(root))) if root else codex_login.ROOT
+
+    def _call(self, task: dict, adapter: Path | None, needs: dict | None = None) -> RunOutput:
         self._recheck()
         work = self.work_root / f"{_safe(task.get('id', 'task'))}-{uuid.uuid4().hex[:8]}"
         home = work / "home"
@@ -606,36 +595,42 @@ class SandboxedAgent:
             folder, var, _ = CLI_HOMES[self.cli]
             agent_home = home / folder
             agent_home.mkdir(parents=True)               # a folder of more than one level (Pi's .pi/agent)
-            if self.chatgpt:
-                codex_login.prepare(codex_login.ROOT, agent_home)      # the shared copy, refreshed by earlier calls
             env[var] = str(agent_home)
             keep.append(var)
         binds = _log_binds(work, self.logs, [work])
         job = {"kind": "agent", "name": self.name, "params": params, "base": str(self.base), "task": task,
-               "adapter": str(adapter) if adapter else None,
-               **({"environment": server.spec()} if server is not None else {})}
-        forward = [*self.forward, *([server.port] if server is not None else [])]
+               "adapter": str(adapter) if adapter else None}
+        forward = list(self.forward)
         clean = work.parent / f"{work.name}.log"
+        left: list = []
+
+        def provision():                                 # the shared copy, refreshed by earlier calls
+            if self.cli and self.chatgpt:
+                codex_login.prepare(self._login_root(), home / CLI_HOMES[self.cli][0])
+            return []
+
+        def take_back(_):
+            # Every copy the call left: its run copy, and a session's own when the worker was stopped before it could
+            # hand that back (a timeout kills it). The latest refresh goes back to the shared copy.
+            if self.chatgpt:
+                codex_login.remove(home / CLI_HOMES["codex"][0] / CLI_HOMES["codex"][2], within=work)
+                left[:] = [work / "workspaces" / "login" / codex_login.FILE,
+                           *work.glob(f"workspaces/*/home/{codex_login.FILE}")]
+                for path in left:
+                    codex_login.take_back(self._login_root(), path, within=work)
+
+        def remove(_):                                   # then none of them is kept, however the take-back went
+            if self.chatgpt:
+                for path in left:
+                    codex_login.remove(path, within=work)
+                shutil.rmtree(work / "workspaces" / "login", ignore_errors=True)
+
         try:
-            try:
+            with held(provision, take_back, remove):
                 payload = _run_worker(self.sandbox, job, work, home=home, readable=[adapter] if adapter else [],
                                       env=env, keep=keep, forward=forward,
-                                      timeout=_call_deadline(self.timeout, server.environment if server else None,
-                                                             needs or task),
+                                      timeout=_deadline(self.timeout, needs or task),
                                       binds=binds)
-            finally:
-                if self.chatgpt:
-                    # Every copy the call left: its run copy, and a session's own when the worker was stopped
-                    # before it could hand that back (a timeout kills it). The latest refresh goes back to the
-                    # shared copy; then none of them is kept.
-                    codex_login.remove(home / CLI_HOMES["codex"][0] / CLI_HOMES["codex"][2], within=work)
-                    left = [work / "workspaces" / "login" / codex_login.FILE,
-                            *work.glob(f"workspaces/*/home/{codex_login.FILE}")]
-                    for path in left:
-                        codex_login.take_back(codex_login.ROOT, path, within=work)
-                    for path in left:
-                        codex_login.remove(path, within=work)
-                    shutil.rmtree(work / "workspaces" / "login", ignore_errors=True)
             rec = payload["output"]
             # The log is copied into the learner's material outside any sandbox: it must lie where this call could
             # write (its work directory, its logs, the declared write paths), never a file it merely names.
@@ -760,10 +755,28 @@ def cli_sandbox(spec: dict, *, records: Path | None = None, enabled: bool = True
     return box, proxy
 
 
+def confined_run(run, enforce: str):
+    """A Harbor task set's agent run in this process with the adapter's own code confined as an acting worker confined
+    it (the runner's too): its context tool's Session and its exports' render in the strict adapter sandbox
+    (hermit.adapter.session.CONFINED, for this call only), the agent's loop here."""
+    import functools
+    from hermit.adapter.session import CONFINED
+
+    @functools.wraps(run)
+    def call(*args, **kwargs):
+        token = CONFINED.set(enforce)
+        try:
+            return run(*args, **kwargs)
+        finally:
+            CONFINED.reset(token)
+    return call
+
+
 def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path | None = None):
     """(pipeline, close): the agent in the task sandbox; in its own container from a worker on the host
     (`environment.image`); or in this process when the pipeline runs on the host (`host_pipeline`: the sandbox off,
-    a Harbor task set, `environment.runner: host`). An agent whose model only a CLI reaches (`agent.params.model:
+    `environment.runner: host`; a Harbor task set's agent, whose commands run in the task's container, with the
+    adapter's own code confined: confined_run). An agent whose model only a CLI reaches (`agent.params.model:
     {cli: ...}`) gets it as a model endpoint started here, each request one session in a sandbox of its own built as
     the Trainer builds the llm's (cli_sandbox, role agent-model); the pipeline sees a URL and an ordinary model spec,
     which is never written to the config."""
@@ -794,7 +807,10 @@ def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path |
             from hermit.agent.acting.agent import load_agent
             if endpoint is not None:
                 params["model"] = endpoint_spec(endpoint, params["model"])
-            return load_agent(d["agent"]["name"], params, config.base).run, stop
+            run = load_agent(d["agent"]["name"], params, config.base).run
+            if d["environment"].get("harbor") and d["sandbox"]["enabled"]:
+                return confined_run(run, d["sandbox"].get("enforce", "required")), stop
+            return run, stop
         agent = SandboxedAgent(config, role, records=records, work_root=work_root, model_endpoint=endpoint)
     except BaseException:
         stop()                                           # the endpoint started for a pipeline that never came
@@ -906,10 +922,49 @@ def task_environments(config, *, log=None):
                          "there, not in a container of the agent's own; give one of them")
     from hermit.environment.harbor import HarborEnvironments
     params = dict(d["agent"].get("params") or {})
+    model = params.get("model")
+    if isinstance(model, dict) and model.get("cli"):
+        raise ValueError("agent.params.model: a model a CLI reaches (`cli: ...`) is not supported for a task in "
+                         "Harbor's environments: its login's plan would be waited for inside the task's time; give the "
+                         "agent a <backend>/<model> reference, or run the CLI itself as the agent (agent.base)")
+    backend = str(_cli_kind(d["agent"].get("name"), params) or "")      # the CLI the agent runs, `cli` too
+    binding = params.get("binding")
+    if backend in ("codex", "claude") and not binding and not params.get("login"):
+        # the runner's refusal: a CLI in a task's container signs in by the run's model binding or a named login, never
+        # by a sign-in of this machine's own it would carry there
+        raise ValueError(f"agent {backend} in Harbor's environments needs a model binding (agent.model: <backend>/"
+                         "<model>) or a login (login: chatgpt | claude)")
+    if backend in ("codex", "claude") and isinstance(binding, dict):
+        # the runner's check: a CLI runs in the task's container, which cannot reach this machine's loopback
+        from urllib.parse import urlsplit
+        from hermit.agent.model.backends import Binding
+        bound = Binding.from_spec(binding)
+        url = bound.base_url if backend == "codex" else bound.backend.messages_root
+        if (urlsplit(str(url)).hostname or "") in ("127.0.0.1", "localhost", "::1", "0.0.0.0"):
+            raise ValueError(f"the model's endpoint {url} is on this machine's loopback, which a task container cannot "
+                             "reach: serve it on an address the container reaches (<NAME>_BASE_URL); the answer and "
+                             "ReAct agents, which call the model from this machine, may use the loopback")
     _, hosts, _ = model_access([params.get("binding"), params.get("model")])
     login = params.get("login")
     hosts = [*hosts, *(h for h in codex_login.hosts(login) if h not in hosts)]     # a subscription's own hosts too
-    environments = HarborEnvironments(section, base=Path(config.base), allowed_hosts=hosts, log=log)
+    # the driver (and Harbor's compose, which takes its environment as a base) never sees an ambient credential the
+    # agent's commands do not pass themselves (the runner's harbor_env): the switches to Codex's own ChatGPT file, the
+    # Claude subscription's token, and for Claude Code another bill's or a parent session's variables
+    from hermit.agent.base.cli import CLAUDE_BILLING, CLAUDE_INHERITED
+    drop = ["CODEX_FORCE_AUTH_JSON", "CODEX_AUTH_JSON_PATH", codex_login.TOKEN_ENV]
+    if params.get("backend") in ("claude", "claude-code") or d["agent"].get("name") in ("claude-code", "claude"):
+        drop += [*CLAUDE_BILLING, *CLAUDE_INHERITED, "CLAUDE_FORCE_OAUTH"]
+    environments = HarborEnvironments(section, base=Path(config.base), allowed_hosts=hosts, log=log, drop_env=drop)
+    # what the agent needs installed before its phase (Agent.installs), which Harbor's setup installs: a built-in
+    # agent's (a task's own class is not loaded on this machine; one in Harbor's environment brings what it needs)
+    from hermit.agent.acting.agent import builtin
+    kind = builtin(str(d["agent"].get("name") or ""))
+    if kind is not None:
+        declared = kind(params, Path(config.base))
+        if callable(getattr(declared, "installs", None)):
+            environments.installs_for = declared.installs
+        if callable(getattr(declared, "usage_of", None)):
+            environments.usage_of = declared.usage_of
     if codex_login.LOGINS.get(login):
         environments.admission = _plan_admission(codex_login.plan_dir(params.get("plan_dir"), login),
                                                  codex_login.opted_in(params.get("usage_credits")),

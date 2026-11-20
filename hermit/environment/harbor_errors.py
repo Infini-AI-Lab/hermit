@@ -82,10 +82,13 @@ HALTING = {"ApiUsageLimitError", "AgentAuthenticationError"}       # nothing aft
 # the causes of an infra rollout that run no better again (the runner's NO_RETRY): a disk gate that waited its time out,
 # a request the provider refused for the run's configuration (its key, permission, model or bill: no input to the
 # session changes it)
-NO_RETRY = ("disk", "model_rejected", "host_failed")   # and this machine's own failure, which the runner never ran
+NO_RETRY = ("disk", "model_rejected", "host_failed",   # and this machine's own failure, which the runner never ran
+            "unsupported_task")                        # again, nor a task Harbor runs for none of Hermit's agents
                                                       # again (an OSError starting the environment's driver)
 INFRA_RETRIES = 2                                                # environment.harbor.infra_retries' default
 INFRA_WAIT_S = 300.0                                             # infra_wait_s'
+BUSY_RETRIES = 3                                                 # busy_retries' default: the provider's allowance
+BUSY_WAIT_S = 120.0                                              # busy_wait_s'
 # An exception Harbor does not list whose message shows the host failing, not the agent: the agent's setup could not
 # exec in the container (the host's /tmp full, where runc writes each exec's process file; the daemon gone), or the
 # task's environment did not come up: Harbor's Docker environment raises a plain RuntimeError "Docker compose command
@@ -195,13 +198,14 @@ def _text(path: Path) -> str:
         return ""
 
 
-def verifier_verdict(verdict: dict, verifier_dir: Path | None) -> dict:
+def verifier_verdict(verdict: dict, verifier_dir: Path | None, redact=()) -> dict:
     """A rollout whose verifier ran no test is infra: run again, not kept as the agent's result, whether the verifier
     wrote 0, left no reward or ran out of its time. Either the verifier's tools never arrived, their download failed by
     a server (a 5xx, GitHub's release download) so its test runner is missing and it wrote no report
     (verifier_unreached), or the host's disk was full while it ran, before its tests wrote a report
     (verifier_disk_full: with a report, the words are a test's output). A rollout the verifier passed ran its tests;
-    one whose verifier never ran (no output of it) stays as it was."""
+    one whose verifier never ran (no output of it) stays as it was. The output quoted has `redact`'s patterns removed
+    (verifier_redact)."""
     if verifier_dir is None or verdict["status"] == "infra" or float(verdict.get("reward") or 0) >= 1:
         return verdict
     out = Path(verifier_dir)
@@ -213,7 +217,14 @@ def verifier_verdict(verdict: dict, verifier_dir: Path | None) -> dict:
     else:
         return verdict
     return {**verdict, "status": "infra", "failure_cause": "verifier_failed",
-            "exception_message": f"{why}: {stdout.strip()[-300:]}"}
+            "exception_message": f"{why}: {_redacted(stdout, redact).strip()[-300:]}"}
+
+
+def _redacted(text: str, patterns) -> str:
+    """The runner's curate.redact_verifier: each match of `patterns` replaced."""
+    for pattern in patterns or ():
+        text = re.sub(str(pattern), "[redacted]", text)
+    return text
 
 
 def start_cause(kind: str | None, message: str) -> str:
@@ -241,10 +252,11 @@ PIPELINE_INFRA = ((re.compile(r"\bmodel_rejected\b|chat/completions HTTP 40[1-4]
                   (re.compile(r"chat/completions HTTP (?:408|409|429|5\d\d)\b|chat/completions failed: "),
                    "model_provider_failed", True),
                   (re.compile(r"\bEnvironmentUnavailable\b|the Harbor driver|the environment is not started|"
-                              r"the image's own context file could not be read"), "harbor_failed", True))
+                              r"the image's own context file could not be read|"
+                              r"the task's environment did not provide"), "harbor_failed", True))
 
 
-INSTALL_FAILED = "the CLI's install failed"     # before any session: nothing was spent (its cost 0, as the runner's)
+AGENT_PHASE_OVER = "AgentPhaseOver"     # an agent command refused or ended because Harbor ended the agent phase
 
 
 def pipeline_cause(message: str) -> tuple[str, bool] | None:

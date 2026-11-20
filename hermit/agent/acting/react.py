@@ -40,7 +40,9 @@ from typing import Callable
 from hermit.adapter.session import Session
 from hermit.agent.acting.agent import Agent
 from hermit.agent.acting.tools import MARK, as_tools, load_tools, tool   # noqa: F401 (tool: for subclasses)
-from hermit.agent.base.react import React, total as usage_total
+from hermit.agent.base.deadline import Deadline
+from hermit.agent.base.react import React
+from hermit.agent.model.usage import Ledger
 from hermit.agent.base.tool import Tool
 from hermit.agent.model.direct import Direct
 from hermit.agent.model.llm import ChatAborted, ChatClient
@@ -49,33 +51,13 @@ from hermit.common import RunOutput
 CONTEXT_HEADING = "# Instructions from the harness adapter"
 
 
-class Bounded:
+def Bounded(client, budget_s: float):
     """A chat client whose every call is given up once the task's whole agent budget is spent (a task's own
-    environment's `timeout_s`), as Harbor's agent timeout cancelled its agents: the call in flight closed
-    (ChatAborted). `expired` says whether it was."""
+    environment's `timeout_s`): the run's one Deadline, bound to the client."""
+    from hermit.agent.base.deadline import Deadline
+    return Deadline.within(budget_s).bound(client)
 
-    def __init__(self, client, budget_s: float):
-        import threading
-        self.client, self.abort = client, threading.Event()
-        self.timer = threading.Timer(float(budget_s), self.abort.set)
-        self.timer.daemon = True
-        self.timer.start()
 
-    @property
-    def expired(self) -> bool:
-        return self.abort.is_set()
-
-    def chat(self, messages, **kwargs):
-        if self.abort.is_set():
-            from hermit.agent.model.llm import ChatAborted
-            raise ChatAborted("the task's agent budget is spent")
-        return self.client.chat(messages, abort=self.abort, **kwargs)
-
-    def close(self) -> None:
-        self.timer.cancel()
-
-    def __getattr__(self, name):
-        return getattr(self.client, name)
 USER_FIELDS = ("prompt", "question", "instruction", "input")
 _TOOLS: dict[tuple, list] = {}
 
@@ -244,29 +226,47 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, agent: Reac
     place = agent.environment
     bounded = None
     if place is not None and getattr(place, "limits", None) is not None and place.limits.timeout_s:
-        bounded = Bounded(client, place.limits.timeout_s)
+        at = getattr(place, "deadline_at", None)         # the phase's own absolute deadline, when it has one
+        bounded = Deadline(at).bound(client) if at else Bounded(client, place.limits.timeout_s)
         loop_agent.model = bounded
         place = place.with_limits(dataclasses.replace(place.limits, timeout_s=None))
+    loop = loop_agent.start(messages, environment=place, tools=tools)
+    timed_out = False
     try:
-        result = loop_agent.run(messages, environment=place, tools=tools)
+        while not loop.done:
+            if bounded is not None and bounded.expired:      # spent between steps (a tool ran it out)
+                timed_out = True
+                break
+            loop_agent.step(loop)
     except ChatAborted:
         if bounded is None or not bounded.expired:
             raise
-        from hermit.agent.base.interface import Result
-        result = Result(reply="", session=messages, timed_out=True, usage=[],
-                        extra={"turns": 0, "model_s": 0.0, "tool_calls": 0})
+        timed_out = True                                     # the call in flight given up: what ran before is kept
+    result = loop.result()
+    if timed_out:
+        result = dataclasses.replace(result, timed_out=True)
+    messages, turns, usages = result.session, result.extra["turns"], list(result.usage)
+    try:
+        if tag and not timed_out and f"<{tag}>".upper() not in (result.reply or "").upper():   # the reply's tag
+            follow = Direct({"max_tokens": int(params.get("max_tokens", 16384)),
+                             "temperature": params.get("temperature")}, bounded or client)
+            try:
+                reply = follow.run(f"Stop using tools. Give your final answer now inside <{tag}>...</{tag}>.",
+                                   session=messages)
+                messages = reply.session[:-1] + [{"role": "assistant", "content": reply.reply}]
+                result = dataclasses.replace(result, reply=reply.reply, session=messages)
+                usages += reply.usage
+                turns += 1
+            except ChatAborted:
+                if bounded is None or not bounded.expired:
+                    raise
+                result = dataclasses.replace(result, timed_out=True)
     finally:
         if bounded is not None:
             bounded.close()
-    messages, turns, usages = result.session, result.extra["turns"], list(result.usage)
-    if tag and f"<{tag}>".upper() not in (result.reply or "").upper():   # the tag in the model's reply, not answer()'s
-        follow = Direct({"max_tokens": int(params.get("max_tokens", 16384)),
-                         "temperature": params.get("temperature")}, client)
-        reply = follow.run(f"Stop using tools. Give your final answer now inside <{tag}>...</{tag}>.", session=messages)
-        messages = reply.session[:-1] + [{"role": "assistant", "content": reply.reply}]
-        result = dataclasses.replace(result, reply=reply.reply, session=messages)
-        usages += reply.usage
-        turns += 1
+    ledger = Ledger(getattr(client, "model", "")).add(usages)
+    if bounded is not None:           # a request given up in flight may have been billed: its cost is not known
+        ledger.unreported(bounded.abandoned)
     answer = agent.answer(result, task)
 
     logs = Path(base) / params.get("logs", ".logs")
@@ -275,7 +275,7 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, agent: Reac
     log.write_text(json.dumps({"task": task.get("id"), "model": model["model"], "adapter": str(adapter) if adapter else None,
                                "messages": messages}, ensure_ascii=False, indent=1))
     # What this run's calls used, as call_model reported it (a subclass may call another client) and the follow-up's
-    total, model_s = usage_total(client, usages), result.extra["model_s"]
+    total, model_s = ledger.total(), result.extra["model_s"]
     extra = {"turns": turns, "tool_calls": result.extra["tool_calls"],
              **({"timed_out": True} if result.timed_out else {})}     # the task's agent budget ran out
     if session is not None and session.last_context is not None:

@@ -66,11 +66,13 @@ supported there (refused).
 """
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import sys
 import time
@@ -80,12 +82,14 @@ from hermit.agent.acting.agent import ALL, Agent
 from hermit.agent.base.interface import BaseAgent, LoginFailed, Unsupported, make
 from hermit.environment import Container, Environment, Limits, Mount, Local, docker as container
 from hermit.agent.base.login import LOGINS, NO_LOGIN
+from hermit.agent.model.usage import Ledger
 from hermit.common import RunOutput, load_callable
 
 BACKENDS = ("codex", "claude", "pi", "mini-swe-agent", "opencode", "dsh", "hermes")
 DEPLOYS = ("host",)
 ISOLATIONS = ("none", "container")
 INPUT_FIELDS = ("question", "prompt", "instruction", "input", "query")
+REMOTE_CODEX_DOC_BYTES = 262144           # Codex's project_doc_max_bytes in a task's own environment (the runner's)
 MODEL_REJECTED = "model_rejected"         # the provider refused the configuration (hermit.environment.harbor_errors)
 MEMORY = Path("memory") / "NOTES.md"     # an adapter's notes the agent keeps across tasks (continual-harness)
 MEMORY_NOTE = ("`{path}` is your memory across questions: read it first, and record under a `## <topic>` "
@@ -356,21 +360,88 @@ class CliAgent(Agent):
     def run(self, task: dict, adapter: Path | None, environment=None) -> RunOutput:
         return _run(task, adapter, self.params, self.base, environment)
 
+    def installs(self, adapter: Path | None) -> list[dict]:
+        return installs(self.params, adapter)
+
+    def usage_of(self, logs: Path) -> list:
+        """The usage a session's stream left in `logs` (a trial's agent logs: the stream the CLI wrote there as it ran),
+        read and priced as the session's own would have been: what a session Harbor's timeout cut off had already
+        reported (the runner parsed the retained stream after its trial too)."""
+        backend = _check(self.params.get("backend", "codex"), self.params)
+        agent = base_agent(backend, self.params)
+        stream = Path(logs) / f"agent-{agent.backend}.jsonl"
+        if not stream.is_file() or stream.is_symlink():
+            return []
+        from hermit.agent.base.records import price_usage
+        s = agent.settings
+        _, usage = agent.parse(stream, (s.get("binding") or {}).get("ref") or s.get("model") or agent.backend)
+        price_usage(usage, s)
+        return list(usage)
+
+
+def installs(params: dict, adapter: Path | None) -> list[dict]:
+    """What a CLI agent needs in a task's own environment before its session (Agent.installs): its CLI, unless `bin`
+    names one there (by the environment's installer of the CLI's name, unless it is on the session's PATH there and no
+    `version` is pinned, as the Harbor runner installed it), and python3 when the adapter has hooks the CLI runs."""
+    from hermit.agent.base.cli import REMOTE_INSTALL, REMOTE_PATH
+    backend = str(params.get("backend") or "codex")
+    backend = "claude" if backend == "claude-code" else backend          # as _check names it
+    out = []
+    if params.get("bin") and backend in REMOTE_INSTALL:      # a mounted binary: used when it serves, else installed
+        out.append({"agent": REMOTE_INSTALL[backend], "version": params.get("version"), "bin": str(params["bin"]),
+                    "program": backend})
+    elif backend in REMOTE_INSTALL:
+        out.append({"agent": REMOTE_INSTALL[backend], "version": params.get("version"),
+                    "probe": "bash -c " + shlex.quote(REMOTE_PATH + f"command -v {backend}")})
+    if adapter is not None and backend in REMOTE_HOOK_HOSTS:
+        from importlib import import_module
+        from hermit.adapter.loader import hook_definitions, load_manifest
+        from hermit.hosts.inputs import native_hooks
+        try:
+            manifest = load_manifest(Path(adapter))
+            hooks = native_hooks(hook_definitions(Path(adapter), manifest),
+                                 import_module(REMOTE_HOOK_HOSTS[backend]).HOOK_TYPES)
+        except Exception:                                # noqa: BLE001 - the deployment says why (adapter_failed)
+            hooks = None
+        if hooks:
+            out.append({"packages": ["python3"]})
+    return out
+
 
 def run(task: dict, adapter: Path | None, *, params: dict, base: Path, environment=None) -> RunOutput:
     """The function form; CliAgent is the class (`agent.name: codex` or `claude-code`)."""
     return _run(task, adapter, params, base, environment)
 
 
-def _infra_run(cause: str, message: str, usages: list, log: Path, started: float, *, final: bool) -> RunOutput:
+def _infra_run(cause: str, message: str, usages: Ledger, log: Path, started: float, *, final: bool) -> RunOutput:
     """A run in a task's own environment that is not the agent's result (`extra.infra`, which the run reads:
     hermit.trainer.rollout), with what its sessions spent: `final`, never run again (the provider allowance spent, the
     configuration refused)."""
-    cost = None if any(u.cost_usd is None for u in usages) else sum(u.cost_usd for u in usages)
-    tokens = sum(u.input_tokens + u.output_tokens for u in usages) if usages else 0
-    return RunOutput(output=None, log=log, cost_usd=cost, wall_s=round(time.time() - started, 1), tokens=tokens,
-                     api_speed={"model_calls": sum(u.calls for u in usages)},
+    ledger = usages                   # a session ran: none reported is not known (the runner's usage None), never 0
+    return RunOutput(output=None, log=log, cost_usd=ledger.cost(None), wall_s=round(time.time() - started, 1),
+                     tokens=ledger.tokens(None), api_speed={"model_calls": ledger.calls()},
                      extra={"infra": cause, "infra_final": final, "exception_message": message[-2000:]})
+
+
+def _copy_files(params: dict, base: Path, work: Path) -> None:
+    """The config's `files`, copied into the workspace before the run."""
+    for item in params.get("files") or []:
+        source = Path(base) / item
+        target = work / source.name
+        shutil.copytree(source, target) if source.is_dir() else shutil.copy2(source, target)
+
+
+class AdapterContextTooLong(ValueError):
+    """The adapter's context with the image's own over the CLI's cap: the adapter's result (context_over_limit)."""
+
+
+def _adapter_failed(cause: str, message: str, usages: list, log: Path, started: float) -> RunOutput:
+    """The adapter failed before any session (its deployment, its per-task context, its context over the CLI's cap):
+    the agent's result, scored 0 with its message (`extra.adapter_failed`, which the run reads)."""
+    (log / "adapter_failed.txt").write_text(message, encoding="utf-8")
+    return RunOutput(output=None, log=log, cost_usd=0.0, wall_s=round(time.time() - started, 1), tokens=0,
+                     api_speed={"model_calls": 0}, extra={"adapter_failed": cause, "exception_message": message[-2000:],
+                                                         "session_failed": message[-600:]})
 
 
 def _upload_staging(environment: Environment, work: Path, backend: str, deployed: dict, params: dict,
@@ -386,44 +457,40 @@ def _upload_staging(environment: Environment, work: Path, backend: str, deployed
         if "text" not in image:
             image["text"] = None
             if environment.exec(["test", "-e", name], timeout=60).code == 0:
-                theirs = work.parent / f"image-{name}"
-                try:
-                    environment.download(name, theirs)
-                    image["text"] = theirs.read_text(encoding="utf-8", errors="replace")
-                except Exception as exc:
+                # read there, a link followed there (AGENTS.md -> CLAUDE.md), as the runner read it in the container
+                got = environment.exec(["sh", "-c", f'printf "{IMAGE_MARK}"; cat -- {name}'], timeout=120)
+                if got.code != 0 or IMAGE_MARK not in got.output:
                     del image["text"]
-                    raise RuntimeError(f"{IMAGE_CONTEXT_UNREAD} ({name}): {type(exc).__name__}: {exc}") from None
+                    raise RuntimeError(f"{IMAGE_CONTEXT_UNREAD} ({name}): {got.output[-300:]}")
+                image["text"] = got.output.split(IMAGE_MARK, 1)[1]
         if image["text"] is not None:
             mine.write_text(mine.read_text(encoding="utf-8") + "\n\n" + image["text"], encoding="utf-8")
+            # the merge replaces a link there, never writes through it to the file it names
+            environment.exec(["sh", "-c", f"if [ -L {name} ]; then rm -f -- {name}; fi"], timeout=60)
         if backend == "codex":
             from hermit.hosts.codex import DOC_BYTES
             limit = int(params.get("project_doc_max_bytes") or DOC_BYTES)
             size = len(mine.read_bytes())
             if size > limit:
-                raise ValueError(f"the adapter's context with the image's own {name} is {size} bytes, over Codex's "
-                                 f"limit of {limit} (project_doc_max_bytes): the session would not read all of it")
+                raise AdapterContextTooLong(f"the adapter's context with the image's own {name} is {size} bytes, over "
+                                            f"Codex's limit of {limit} (project_doc_max_bytes): the session would not "
+                                            "read all of it")
     for entry in sorted(work.iterdir()):
         environment.upload(entry, entry.name)
 
 
 IMAGE_CONTEXT_UNREAD = "the image's own context file could not be read"
+IMAGE_MARK = "hermit-image-context:"        # what precedes the file's text in the reading command's output
 
 
 def _ensure_python3(environment: Environment) -> bool:
-    """python3 where the session runs, for the adapter's hooks (rendered for `python3`): installed by the environment's
-    own installer when it has one and Python is missing, as the Harbor runner did before a session with hooks. False,
-    never an exception: the session then runs with hooks that may fail open."""
+    """Whether python3 is where the session runs, for the adapter's hooks (rendered for `python3`): installed at the
+    environment's setup when the agent asked for it (installs: an adapter with hooks), as the Harbor runner ensured it
+    before a session with hooks. Missing: a warning, and the session runs with hooks that may fail open."""
     if environment.exec(["sh", "-c", "command -v python3"], timeout=60).code == 0:
         return True
-    ensure = getattr(environment, "ensure", None)
-    if ensure is None:
-        return False
-    try:
-        ensure(["python3"])
-    except Exception as exc:                             # noqa: BLE001 - as the runner: warn, run on
-        print(f"WARNING: python3 for the adapter's hooks could not be installed: {exc}", file=sys.stderr, flush=True)
-        return False
-    return environment.exec(["sh", "-c", "command -v python3"], timeout=60).code == 0
+    print("WARNING: python3 for the adapter's hooks is not in the environment", file=sys.stderr, flush=True)
+    return False
 
 
 def _collect_hooks(environment: Environment, log: Path) -> None:
@@ -526,9 +593,17 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
                           f"(a task's Harbor environment), not {given!r}")
     if remote:
         unsupported = [k for k in ("mounts", "prepare", "collect") if params.get(k)]
+        lim = given.limits
+        if lim.readable or lim.hidden or lim.network is not None:
+            raise Unsupported(f"agent {backend} in a remote environment takes no readable mounts, hidden paths or "
+                              "network limit of Hermit's (the task's own say what its environment reaches)")
         if unsupported or params.get("isolation") == "container":
             raise Unsupported(f"agent {backend} in a remote environment (a task's Harbor environment) takes none of "
                               f"{', '.join(unsupported) or 'isolation: container'}: the environment is the task's own")
+    if remote and backend == "codex" and not params.get("project_doc_max_bytes"):
+        # the Harbor runner's cap on AGENTS.md for Codex in a task's container (its CLI table's: 256 KiB), for the
+        # deployment's check and the session's own setting alike
+        params = {**params, "project_doc_max_bytes": REMOTE_CODEX_DOC_BYTES}
     if params.get("config"):                        # mini-swe-agent's config file, beside the run config
         params = {**params, "config": str(Path(base) / os.path.expanduser(str(params["config"])))}
     agent = base_agent(backend, params)
@@ -547,20 +622,45 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
     own_budget = given.limits.timeout_s if remote else None
     default_s = float(own_budget) if own_budget else 3600.0
     timeout_s = float(params.get("timeout_s") or default_s)
-    retries = max(1, int(params.get("retries", 3)))
-    usages: list = []                   # every attempt's usage: a run again spends too
+    # In a task's own environment a provider that could not serve is run again by the run, in a fresh environment
+    # (the Harbor runner's busy_retries, one allowance over the task's runs: environment.harbor.busy_retries), never
+    # here in the environment the session already changed
+    retries = 1 if remote else max(1, int(params.get("retries", 3)))
+    usages = Ledger()                   # every attempt's usage: a run again spends too
     image_context: dict = {}            # a task environment's own context file, read before the first deployment
     started = time.time()
     # `deadline_s`: the whole call's time (attempts and waits), set by a caller that is stopped at it (a container
     # session must end, and remove its container, before its worker is killed)
+    from hermit.agent.base.deadline import Deadline
     budget = float(params["deadline_s"]) if params.get("deadline_s") else None
-    if budget is not None:              # and the session's own waits (a login's plan) come off it too
-        agent = agent.configured(deadline=started + budget)
+    deadline = Deadline(started + budget if budget is not None else None)   # the run's one deadline
+    if deadline.at is not None:         # and the session's own waits (a login's plan) come off it too
+        agent = agent.configured(deadline=deadline.at)
     for attempt in range(1, retries + 1):
         for d in (work, home, log):
             shutil.rmtree(d, ignore_errors=True)
             d.mkdir(parents=True)
-        deployed, context_tool = _deploy(task, adapter, work, backend, params, remote=remote)
+        if remote:
+            # the adapter's own failure (its deployment, its per-task context, a context over the CLI's cap) is the
+            # agent's result, scored 0 with its message, as the runner graded adapter_failed and context_over_limit;
+            # the environment's failing under it stays infra
+            row = task if any(isinstance(task.get(f), str) for f in INPUT_FIELDS) or params.get("context_query") \
+                else {**task, "instruction": given.instruction} if given.instruction is not None else task
+            try:
+                deployed, context_tool = _deploy(row, adapter, work, backend, params, remote=True)
+                _copy_files(params, base, work)
+                _upload_staging(given, work, backend, deployed, params, image_context)
+            except AdapterContextTooLong as exc:
+                return _adapter_failed("context_over_limit", str(exc), usages, log, started)
+            except (OSError, Unsupported):
+                raise
+            except Exception as exc:
+                said = type(exc).__name__ + str(exc)
+                if IMAGE_CONTEXT_UNREAD in said or "EnvironmentUnavailable" in said or "AgentPhaseOver" in said:
+                    raise                                # the environment's, or Harbor ended the phase: not the adapter
+                return _adapter_failed("adapter_failed", f"{type(exc).__name__}: {exc}", usages, log, started)
+        else:
+            deployed, context_tool = _deploy(task, adapter, work, backend, params, remote=False)
         where = Path(str(given.workspace)) if remote else work       # the workspace as the session sees it
         session = agent.configured(args=[*(agent.settings.get("args") or []), *_session_args(backend, deployed, where)],
                                    **({"tools_name": deployed["harness_tools"].replace("-", "_")}
@@ -571,14 +671,10 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
                                    **({"skills_dir": deployed["skills_dir"]}
                                       if backend == "hermes" and deployed.get("skills_dir") else {}))
         memory = _memory(work, deployed)
-        for item in params.get("files") or []:
-            source = Path(base) / item
-            target = work / source.name
-            shutil.copytree(source, target) if source.is_dir() else shutil.copy2(source, target)
-        if remote:
-            _upload_staging(given, work, backend, deployed, params, image_context)
-            if deployed.get("hooks"):
-                _ensure_python3(given)
+        if not remote:
+            _copy_files(params, base, work)
+        if remote and deployed.get("hooks"):
+            _ensure_python3(given)
         mounts = [] if remote else _mounts(task, work, params, base)
         prompt = _prompt(params, base, task, given if remote else None) + (
             "\n" + MEMORY_NOTE.format(path=memory.relative_to(work).as_posix()) if memory else "")
@@ -587,14 +683,15 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
         from hermit.adapter.session import Session
         served = Session(adapter) if deployed.get("harness_tools") else None
         if budget is not None:          # what is left once the deployment, the files and the server are ready
-            timeout_s = min(float(params.get("timeout_s") or default_s), budget - (time.time() - started))
+            timeout_s = min(float(params.get("timeout_s") or default_s), deadline.remaining())
             if timeout_s <= 0:
                 if served is not None:
                     served.close()
                 raise RuntimeError(f"agent {backend} could not be served within deadline_s={budget:.0f}")
         if remote:
             own = given.limits.timeout_s
-            place = given.with_limits(Limits(timeout_s=min(timeout_s, float(own)) if own else timeout_s))
+            place = given.with_limits(dataclasses.replace(given.limits, timeout_s=min(timeout_s, float(own))
+                                                          if own else timeout_s))   # its other limits kept
         else:
             place = environment(work, params, Limits(readable=mounts, timeout_s=timeout_s))
         try:
@@ -602,7 +699,11 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
         finally:
             if served is not None:
                 served.close()
-        usages += list(result.usage or [])
+        usages.add(result.usage)
+        if remote and not result.usage and result.extra.get("started"):
+            # a session that reached its CLI's events but reported no usage (cut off before turn.completed) may have
+            # been billed: its cost is not known (the runner's usage None), never 0
+            usages.unreported(0, str(params.get("model") or backend), sessions=1)
         if result.extra.get("login_failed"):          # before a timeout: a session that then hung is no attempt
             raise LoginFailed(f"agent {backend}: {result.extra.get('failure')}")
         if remote:
@@ -619,9 +720,16 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
                 return _infra_run(MODEL_REJECTED, f"agent {backend}: the provider refused the run's configuration: "
                                   f"{result.extra.get('failure')}", usages, log, started, final=True)
             if result.extra.get("refused") and not result.extra["served"] and not result.timed_out:
+                if not LOGINS.get(params.get("login")):
+                    # no plan of the run's to wait for (the user's own sign-in): nothing later can be served
+                    raise LoginFailed(f"agent {backend}: usage_limit: the account refused the session for its usage "
+                                      f"limit and the run holds no plan to wait for: {result.extra.get('failure')}")
                 # the login's plan refused it (its window): run again once the plan allows, never counted
-                return _infra_run("usage_limit", f"agent {backend}: the plan refused the session: "
-                                  f"{result.extra.get('failure')}", usages, log, started, final=False)
+                out = _infra_run("usage_limit", f"agent {backend}: the plan refused the session: "
+                                 f"{result.extra.get('failure')}", usages, log, started, final=False)
+                if result.extra.get("hold_unwritten"):   # no hold to wait for: the run pauses (the runner's 5 min)
+                    out.extra["hold_unwritten"] = True
+                return out
         if result.extra["served"] or result.timed_out:
             break
         if not result.extra["unavailable"]:
@@ -633,13 +741,14 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
                     return _infra_run("session_failed", said, usages, log, started, final=False)
                 raise RuntimeError(said)
             break
+        if remote:                      # the run runs it again in a fresh environment (busy_retries)
+            return _infra_run("model_provider_failed", f"agent {backend}: the provider could not serve the session: "
+                              f"{result.extra['output_tail']}", usages, log, started, final=False)
         if attempt == retries:
-            said = f"agent {backend} could not be served after {retries} attempts: {result.extra['output_tail']}"
-            if remote:                  # the rollout's one provider allowance spent: never run again there
-                return _infra_run("model_provider_failed", said, usages, log, started, final=True)
-            raise RuntimeError(said)
+            raise RuntimeError(f"agent {backend} could not be served after {retries} attempts: "
+                               f"{result.extra['output_tail']}")
         wait = float(params.get("retry_wait_s", 120))
-        time.sleep(wait if budget is None else max(0.0, min(wait, budget - (time.time() - started) - 1)))
+        time.sleep(wait if deadline.at is None else max(0.0, min(wait, deadline.remaining() - 1)))
     code, timed_out, last, usage = result.exit_code, result.timed_out, result.reply, usages
     (log / "last_message.txt").write_text(last, encoding="utf-8")
     if memory is not None and remote:                                  # the notes the session left, from there
@@ -649,8 +758,12 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
             pass
     elif memory is not None and memory.parent.is_dir():                # the notes the session left
         shutil.copytree(memory.parent, log / "memory", dirs_exist_ok=True)
+    hooks_missing = None
     if remote and deployed.get("hooks"):
-        _collect_hooks(given, log)
+        try:                                         # an audit that cannot be read leaves the session as it ended
+            _collect_hooks(given, log)
+        except Exception as exc:                     # noqa: BLE001 - recorded, the verifier decides the rest
+            hooks_missing = f"{type(exc).__name__}: {exc}"[-500:]
     # A session the CLI itself reports as failed has no answer to read or to judge (trainer.rollout: an error record).
     failed = result.extra.get("failed")
     output = None if failed else _output(last, task, params, base, code, timed_out, timeout_s)
@@ -659,10 +772,8 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
     if fn is not None:
         facts = _call(fn, task, work, log, params=params, base=base)
     _clean(work, [m.target for m in mounts])
-    cost = tokens = None
-    if usage:                         # every model of the session (Hermes's auxiliary calls are a usage of their own)
-        cost = None if any(u.cost_usd is None for u in usage) else sum(u.cost_usd for u in usage)
-        tokens = sum(u.input_tokens + u.output_tokens for u in usage)
+    # every model of the session (Hermes's auxiliary calls are a usage of their own); none reported: not known
+    cost, tokens = usage.cost(None), usage.tokens(None)
     extra = {"backend": backend, "model": params.get("model"), "effort": params.get("effort"),
              "web_search": params["web_search"],
              "deploy": deployed.get("mode"), "isolation": "remote" if remote else params.get("isolation") or "none",
@@ -672,9 +783,11 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
              "mounts": result.extra.get("mounts") or {}}       # a task's data in the workspace: bound or linked
     if failed:
         extra["session_failed"] = str(result.extra.get("failure") or f"the CLI exited {code} without a result")
+    if hooks_missing:
+        extra["hooks_audit_missing"] = hooks_missing
     if context_tool is not None:
         extra["context_tool"] = context_tool
     if facts:
         extra["task"] = facts
     return RunOutput(output=output, log=log, cost_usd=cost, wall_s=round(time.time() - started, 1), tokens=tokens,
-                     api_speed={"model_calls": sum(u.calls for u in usage)} if usage else None, extra=extra)
+                     api_speed={"model_calls": usage.calls()} if not usage.empty else None, extra=extra)

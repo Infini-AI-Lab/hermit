@@ -9,8 +9,8 @@ reads the eval's results.jsonl (`<run dir>/eval/<adapter>/`) and gives, over all
 
     trials        the rows of the eval
     scored        the trials the judge scored (status ok): the agent's results
-    infra         the trials that are not the agent's result after the run's runs again (output.status infra, or the
-                  judge's Unscored)
+    infra         the trials that are not the agent's result after the run's runs again (the row's output.status or
+                  its outcome.status infra, or the judge's Unscored)
     failed        the other failed runs (the pipeline or the judge failed for another reason)
     pass_at_1     of the scored trials, the share that passed (the judge's `passed`, which hermit eval keeps in the
                   row's judge.extra: the reward reached the run's pass_reward); null when the judge says no trial
