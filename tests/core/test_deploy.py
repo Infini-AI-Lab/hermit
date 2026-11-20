@@ -626,6 +626,31 @@ HOSTS = [("codex", "codex"), ("claude", "claude-code"), ("pi", "pi"), ("opencode
 # session's own tool server instead. These files hold the tools' server entry.
 TOOL_SERVER_FILES = {"codex": {".codex/config.toml"}, "opencode": {"opencode.json"},
                      "hermes": {".hermes/hermit.config.yaml"}, "mini-swe-agent": {MINI_CONFIG}}
+SESSION_SERVED = {"opencode", "hermes", "mini-swe-agent"}
+
+
+def _tool_server_removed(backend: str, text: str, adapter: Path):
+    """A tool-server file of `hermit deploy`'s workspace, parsed, with the entry that serves the adapter's tools taken
+    out: what training's file holds when the session's own tool server serves them."""
+    import yaml
+    from hermit.adapter.loader import agent_tools, load_manifest
+    from hermit.agent.base.mini_swe_agent import tools_section
+    from hermit.hosts.inputs import server_name
+    manifest = load_manifest(adapter)
+    if backend == "opencode":
+        config = json.loads(text)
+        del config["mcp"]["servers"][server_name(manifest)]
+    elif backend == "hermes":
+        config = yaml.safe_load(text)
+        assert set(config.pop("mcp_servers")) == {server_name(manifest)}
+    else:                                    # mini-swe-agent: its environment runs the tools, its prompt names them
+        config = yaml.safe_load(text)
+        for key in ("environment_class", "adapter", "audit_log"):
+            del config["environment"][key]
+        section = "\n\n" + tools_section(agent_tools(manifest))
+        assert section in config["agent"]["system_template"]
+        config["agent"]["system_template"] = config["agent"]["system_template"].replace(section, "")
+    return config
 
 
 def _workspace(path: Path) -> dict:
@@ -658,14 +683,21 @@ def test_training_deploys_an_adapter_with_tools_as_hermit_deploy_does_but_for_th
                                                                                              host, capsys):
     a = Path(__file__).resolve().parents[2] / "docs" / "_examples" / "file_adapter"
     train, user, deployed = _deployed_by_both(a, tmp_path, backend, host, capsys)
-    differ = {k for k in train.keys() | user.keys() if train.get(k) != user.get(k)}
-    assert differ <= TOOL_SERVER_FILES.get(backend, set()) | {".hermit-deploy.json"}
+    assert train.keys() == user.keys()
+    for path in train.keys() - TOOL_SERVER_FILES.get(backend, set()) - {".hermit-deploy.json"}:
+        assert train[path] == user[path], path
     records = [json.loads(w[".hermit-deploy.json"].decode()) for w in (train, user)]
     assert {k for k in records[0].keys() | records[1].keys() if records[0].get(k) != records[1].get(k)} <= \
         {"server", "server_name", "audit_log", "environment_class", "tools"}          # the tools' entries only
+    if backend in SESSION_SERVED:            # the session's own tool server serves them, the workspace's file does not
+        assert deployed["harness_tools"] == "file-example" and deployed.get("server_name") is None
+        import yaml
+        (path,) = TOOL_SERVER_FILES[backend]
+        parse = json.loads if path.endswith(".json") else yaml.safe_load
+        assert parse(train[path].decode()) == _tool_server_removed(backend, user[path].decode(), a)
+    else:                                    # the workspace's own server, as `hermit deploy` connects it
+        assert deployed["server_name"] == "file_example" and "harness_tools" not in deployed
     if backend == "codex":                   # the same server, its calls approved
         config = tomllib.loads(train[".codex/config.toml"].decode())
         assert config["mcp_servers"]["file_example"].pop("default_tools_approval_mode") == "approve"
         assert config == tomllib.loads(user[".codex/config.toml"].decode())
-    elif differ:                             # the session's own tool server serves them
-        assert deployed["harness_tools"] == "file-example" and deployed.get("server_name") is None
