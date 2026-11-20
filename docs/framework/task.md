@@ -297,7 +297,8 @@ which is refused.
 
 A benchmark enters Hermit as a task set in [Harbor](https://github.com/laude-institute/harbor)'s format (`task.toml`,
 `instruction.md`, `environment/` with a Dockerfile or a prebuilt `docker_image`, `tests/test.sh` writing
-`/logs/verifier/reward.txt`): what Terminal-Bench, SWE-bench and the datasets on the Harbor hub share. A task set that
+`/logs/verifier/reward.txt`): what Terminal-Bench, SWE-bench and the datasets on the Harbor hub share (the design, with
+diagrams: [How Harbor runs a task](../developer/harbor-design.md)). A task set that
 needs the environments its tasks name (an image of its own each) runs in Harbor's environments: Harbor gives the
 task's data, its environment and its verifier, and every agent is Hermit's. The run config says so in
 `environment.harbor`:

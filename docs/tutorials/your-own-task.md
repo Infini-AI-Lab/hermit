@@ -44,6 +44,10 @@ A split file lists one id per line. Keep training, validation, and test disjoint
 Train task rows become learner-visible material. Keep private labels in judge-owned storage, not in fields you
 merely intend the pipeline to ignore. Restrict learner filesystem grants consistently with that separation.
 
+A benchmark, or any task set whose tasks need an environment or a verifier of their own, is written as task
+directories in Harbor's format instead: see [Task directories](../framework/task.md#task-directories) and
+[Benchmarks](../framework/task.md#benchmarks).
+
 ## Implement the acting pipeline
 
 The pipeline receives a task and an adapter path, or `None` for the no-adapter baseline. It must actually supply

@@ -1,0 +1,57 @@
+<figure class="ha-hb">
+<div class="ha-hb-scroll">
+<svg viewBox="0 0 920 330" role="img" aria-label="Three processes: Hermit runs the acting agent and its judge; a driver under Harbor's python runs Harbor's Trial.run with HermitBridge as its agent; the task's container runs the agent's commands and the verifier. Hermit and the bridge speak JSON lines; the bridge relays exec, upload and download into the container; Trial.run runs the verifier and hands its verdict to Hermit's judge">
+<defs>
+<marker id="hbp-m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-hermit" d="M0,0 L10,5 L0,10 z"/></marker>
+<marker id="hbp-h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-harbor" d="M0,0 L10,5 L0,10 z"/></marker>
+</defs>
+<!-- Hermit -->
+<rect class="b-hermit" x="20" y="20" width="240" height="290" rx="10"/>
+<text class="t-h c-hermit" x="36" y="44">Hermit process</text>
+<rect class="b-inner" x="36" y="60" width="208" height="56" rx="6"/>
+<text class="t-b" x="52" y="84">acting agent</text>
+<text class="t-m" x="52" y="103">its loop, its model calls</text>
+<line class="a a-hermit" x1="140" y1="116" x2="140" y2="142" marker-end="url(#hbp-m)"/>
+<rect class="b-inner" x="36" y="146" width="208" height="56" rx="6"/>
+<text class="mono t-b" x="52" y="170">HarborEnvironment</text>
+<text class="t-m" x="52" y="189">the Environment API</text>
+<rect class="b-inner" x="36" y="236" width="208" height="56" rx="6"/>
+<text class="t-b" x="52" y="260">judge</text>
+<text class="mono t-m" x="52" y="279">hermit.task.verify</text>
+<!-- driver -->
+<rect class="b-harbor" x="370" y="20" width="240" height="290" rx="10"/>
+<text class="t-h c-harbor" x="386" y="44">driver · Harbor's python</text>
+<rect class="b-inner" x="386" y="60" width="208" height="232" rx="6"/>
+<text class="mono t-b" x="402" y="84">Trial.run()</text>
+<rect class="b-hermit" x="402" y="120" width="176" height="64" rx="6"/>
+<text class="t-b" x="418" y="146">HermitBridge</text>
+<text class="t-m" x="418" y="166">relays; no logic of its own</text>
+<text class="t-m" x="402" y="214">pull or build · setup</text>
+<text class="t-m" x="402" y="232">agent phase · verifier</text>
+<text class="t-m" x="402" y="250">scrub · result.json · stop</text>
+<!-- container -->
+<rect class="b-box" x="710" y="20" width="190" height="290" rx="10"/>
+<text class="t-h" x="726" y="44">task's container</text>
+<rect class="b-inner" x="726" y="60" width="158" height="124" rx="6"/>
+<text class="t-b" x="740" y="84">agent's commands</text>
+<text class="t-m" x="740" y="106">a loop agent's commands,</text>
+<text class="t-m" x="740" y="124">or one CLI session</text>
+<text class="t-m" x="740" y="142">running its own</text>
+<rect class="b-inner" x="726" y="236" width="158" height="56" rx="6"/>
+<text class="mono t-b" x="740" y="260">tests/test.sh</text>
+<text class="t-m" x="740" y="279">only for the verifier</text>
+<!-- links -->
+<line class="a a-hermit" x1="248" y1="162" x2="398" y2="162" marker-start="url(#hbp-m)" marker-end="url(#hbp-m)"/>
+<text class="mono" x="315" y="154" text-anchor="middle">JSON lines</text>
+<text class="t-m" x="315" y="180" text-anchor="middle">stdin, stdout</text>
+<line class="a a-harbor" x1="582" y1="152" x2="722" y2="152" marker-start="url(#hbp-h)" marker-end="url(#hbp-h)"/>
+<text class="t-m" x="660" y="144" text-anchor="middle">exec · upload</text>
+<text class="t-m" x="660" y="170" text-anchor="middle">download</text>
+<line class="a a-harbor" x1="594" y1="264" x2="722" y2="264" marker-end="url(#hbp-h)"/>
+<text class="t-m" x="660" y="256" text-anchor="middle">verifier</text>
+<line class="a a-harbor" x1="386" y1="270" x2="248" y2="270" marker-end="url(#hbp-h)"/>
+<text class="t-m" x="315" y="262" text-anchor="middle">verdict</text>
+</svg>
+</div>
+<figcaption>Purple is Hermit's, teal is Harbor's. The bridge is the agent Harbor's trial runs; it carries Hermit's agent's commands into the container and decides nothing itself.</figcaption>
+</figure>

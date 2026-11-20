@@ -108,6 +108,7 @@ developer/releasing
 developer/reproducing-a-method
 developer/service-design
 developer/sandbox-design
+developer/harbor-design
 framework/agent-layers
 tutorials/custom-evolver
 framework/custom-evolver

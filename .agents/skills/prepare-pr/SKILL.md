@@ -23,6 +23,8 @@ affected interfaces, and the validation evidence available.
   [test checklist](references/test-checklist.md).
 - For PRs that add or change a method or a dataset and start a process or change
   what a sandbox shows, also complete the [sandbox checklist](references/sandbox-checklist.md).
+- For PRs that add a benchmark or change how a benchmark's tasks are written or read,
+  also complete the [benchmark checklist](references/benchmark-checklist.md).
 
 Keep checklist questions in their owning files. Answer shared items once, using
 actual code, checks and records rather than planned work.
