@@ -45,8 +45,8 @@ Train task rows become learner-visible material. Keep private labels in judge-ow
 merely intend the pipeline to ignore. Restrict learner filesystem grants consistently with that separation.
 
 A benchmark, or any task set whose tasks need an environment or a verifier of their own, is written as task
-directories in Harbor's format instead: see [Task directories](../framework/task.md#task-directories) and
-[Benchmarks](../framework/task.md#benchmarks).
+directories in Harbor's format: see
+[Task directories](../framework/task.md#task-directories) and [Benchmarks](../framework/task.md#benchmarks).
 
 ## Implement the acting pipeline
 

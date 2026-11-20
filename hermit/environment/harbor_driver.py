@@ -3,12 +3,12 @@ library only (never hermit), and speaks JSON lines on its stdin and stdout.
 
     <harbor venv>/bin/python -I harbor_driver.py        # hermit.environment.harbor starts it, one per task
 
-Harbor runs the whole trial with its own `Trial.run()`: the environment's start (the prebuilt image pulled or the
-Dockerfile built, its build timeout and multiplier, the healthcheck), Harbor's capability check (a task's skills or
-MCP servers, a Windows container: refused for this bridge),
-the agent's setup (under Harbor's setup timeout, the baseline network policy, the agent user), the agent phase (the
-task's agent network policy, its user, its timeout), the verifier (`[verifier] environment_mode` shared or separate,
-the tests uploaded only now, its timeout), the scrub of the trial's files, result.json and the environment's stop.
+Harbor runs the whole trial with its own `Trial.run()`: Harbor's capability check (a task's skills or MCP servers, a
+Windows container: refused for this bridge), the environment's start (the prebuilt image pulled or the Dockerfile
+built, its build timeout and multiplier, the healthcheck), the agent's setup (under Harbor's setup timeout, the
+baseline network policy, the agent user), the agent phase (the task's agent network policy, its user, its timeout),
+the verifier (`[verifier] environment_mode` shared or separate, the tests uploaded only now, its timeout), the
+environment's stop, result.json and the scrub of the trial's files.
 The agent in it is HermitBridge, a Harbor agent with no logic of its own (an external agent, as Harbor calls one):
 its setup installs what Hermit asked for with Harbor's own installers, and its run relays Hermit's agent commands to
 the environment until Hermit says it is done, or Harbor's agent timeout or a cancellation ends it; either way it ends
@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import errno
 import json
 import os
 from pathlib import Path
@@ -380,6 +381,7 @@ class Driver:
         self.transfers = asyncio.Lock()                # a transfer at a time, never beside the phase's end
         self.secrets: set = set()                      # the credentials the agent's commands were given (scrubbed)
         self.secret_files: set = set()                 # files there holding a credential: removed at the phase's end
+        self.streams: set = set()                      # the agent logs a command's output is kept in as it runs
         self.exceptions: list = []                     # every exception the trial recorded or skipped, in order
         self.repaired = False
         self.lock = asyncio.Lock()                     # one request that changes the trial's phase at a time
@@ -410,8 +412,8 @@ class Driver:
             self.exceptions.append(exc)
             _recorded(exc)
         trial._record_exception = record
-        if trial.task.has_steps:
-            raise ValueError(f"{trial.task.name} has [[steps]]: a multi-step task is not served here")
+        if trial.task.has_steps:                         # refused as Harbor refuses a task: never run again
+            raise Failed("UnsupportedTask", f"{trial.task.name} has [[steps]]: a multi-step task is not served here")
         self.trial, self.installs = trial, list(req.get("installs") or [])
         self.run_task = asyncio.create_task(trial.run())
         await asyncio.wait({self.run_task, self.phase_started}, return_when=asyncio.FIRST_COMPLETED)
@@ -576,7 +578,8 @@ class Driver:
         """The end of the agent phase, at the runner's: the agent's requests in flight cancelled (their Docker
         clients killed with them), no transfer running (they hold the same lock), the process group of each command
         still running killed as root and checked gone (kill_groups), the credential files the agent registered removed
-        (each confirmed gone), and Hermit's logs copied, scrubbed, into the trial's agent logs. A command that ended
+        (each confirmed gone), the commands' streams scrubbed (_scrub_streams), and Hermit's logs copied, scrubbed,
+        into the trial's agent logs. A command that ended
         left what it started (a server the task asked for), as the runner's sessions did. A kill or a removal that
         fails is HarborDriverError: Harbor records it and runs no verifier (infra)."""
         for task in list(self.agent_ops):
@@ -595,6 +598,7 @@ class Driver:
                 failed = failed or str(exc)
             if failed:
                 raise HarborDriverError(failed)
+            await self._scrub_streams()
             await self._publish_logs()
 
     async def _remove_credentials(self) -> None:
@@ -608,6 +612,42 @@ class Driver:
         if gone.return_code != 0:
             raise HarborDriverError("a credential file could not be removed from the environment: "
                                     f"{((gone.stdout or '') + (gone.stderr or ''))[-300:]}")
+
+    async def _scrub_streams(self) -> None:
+        """Each stream a command's output was kept in as it ran (a CLI's, in /logs/agent), scrubbed of the agent's
+        credentials before a shared verifier reads it, whether or not Hermit's own logs follow (Harbor's timeout ends
+        the phase without them). In a mounted environment (a local Docker one) that folder is the trial's on this
+        machine: each stream is read without following a link, scrubbed, and put back through safe_copy when that
+        changed it. It is best effort: a stream this machine cannot read or replace is logged and left as it came (as
+        before this scrub), never a failure of the phase's end. Elsewhere Harbor carries the stream to its verifier
+        as it came, and only the trial's files are scrubbed, after the trial."""
+        if not (self.secrets and self.streams and getattr(getattr(self.env, "capabilities", None), "mounted", False)):
+            return
+        await asyncio.to_thread(self._scrub_stream_files, Path(self.trial.paths.agent_dir))
+
+    def _scrub_stream_files(self, agent_dir: Path) -> None:
+        try:
+            with tempfile.TemporaryDirectory() as kept:
+                for name in sorted(self.streams):
+                    staged = Path(kept) / name
+                    try:                                 # a link is never followed (O_NOFOLLOW: ELOOP, skipped)
+                        fd = os.open(agent_dir / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+                        with os.fdopen(fd, "rb") as given:   # scrubbed before any copy of it is written here
+                            if not stat.S_ISREG(os.fstat(given.fileno()).st_mode):
+                                continue
+                            data = given.read()
+                        clean = scrubbed(data, self.secrets)
+                        if clean != data:
+                            staged.write_bytes(clean)
+                    except OSError as exc:
+                        with contextlib.suppress(OSError):   # a part written is never put back
+                            staged.unlink(missing_ok=True)
+                        if exc.errno not in (errno.ENOENT, errno.ELOOP):
+                            log(f"scrub: the stream {name} left as it came: {exc}")
+                if any(Path(kept).iterdir()):
+                    safe_copy(Path(kept), agent_dir)
+        except OSError as exc:                           # no room to stage, or the copy failed: left as they came
+            log(f"scrub: the streams left as they came: {exc}")
 
     async def _publish_logs(self) -> None:
         if self.agent_logs and Path(self.agent_logs).is_dir():
@@ -707,6 +747,7 @@ class Driver:
             await env.exec(f"chmod 644 {shlex.quote(staged)}", user="root")
             command = f"( {command} ) < {shlex.quote(staged)}"
         if req.get("stream"):
+            self.streams.add(Path(str(req["stream"])).name)
             logged = shlex.quote(f"{EnvironmentPaths.agent_dir}/{Path(str(req['stream'])).name}")
             command = f"set -o pipefail; {{ {command} ; }} | {{ tee {logged} 2>/dev/null; true; }}"
         q, pids = shlex.quote, shlex.quote(f"{PIDS}{mark}")

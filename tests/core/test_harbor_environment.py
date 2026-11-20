@@ -2544,6 +2544,93 @@ def test_any_failure_of_the_phases_end_is_infra(tmp_path):
     assert line == "RESULT " + str(["infra", "infra"]), line
 
 
+@pytest.mark.skipif(not HARBOR_PYTHON.exists(), reason="needs Harbor's venv (~/.cache/hermit/harbor-venv)")
+def test_a_clis_live_stream_is_scrubbed_before_the_verifier_even_when_harbors_timeout_ends_the_phase(tmp_path):
+    """A CLI's output is kept in /logs/agent as it runs, which a shared verifier reads. Harbor's timeout ends the phase
+    with no logs of Hermit's to copy over it, so the phase's end scrubs the stream there itself (a local Docker
+    environment shares that folder with this machine); a link planted in its place is never followed. Elsewhere it is
+    left for Harbor's download, which the trial's scrub covers."""
+    agent_dir, outside = tmp_path / "agent", tmp_path / "outside.txt"
+    script = tmp_path / "probe.py"
+    script.write_text(textwrap.dedent(f"""
+        import asyncio, importlib.util, sys
+        from pathlib import Path
+        from types import SimpleNamespace as NS
+        spec = importlib.util.spec_from_file_location("drv", {str(DRIVER_FILE)!r})
+        drv = importlib.util.module_from_spec(spec); sys.modules["drv"] = drv; spec.loader.exec_module(drv)
+        agent_dir, outside = Path({str(agent_dir)!r}), Path({str(outside)!r})
+
+        async def ran(command, **kwargs):
+            return NS(return_code=0, stdout="yes", stderr="")
+
+        async def main():
+            out = []
+            for mounted in (True, False):
+                agent_dir.mkdir(exist_ok=True)
+                outside.write_text("{AGENT_KEY}")
+                (agent_dir / "planted.jsonl").unlink(missing_ok=True)
+                (agent_dir / "planted.jsonl").symlink_to(outside)
+                d = drv.Driver(None)
+                d.env = NS(exec=ran, capabilities=NS(mounted=mounted), _merge_env=lambda env: env)
+                d.trial = NS(paths=NS(agent_dir=agent_dir))
+                key = {{"OPENAI_API_KEY": {AGENT_KEY!r}}}
+                for name in ("agent-codex.jsonl", "planted.jsonl"):     # the CLI's session, its key passed by name
+                    await d.exec({{"command": "codex exec -", "stream": name, "env": key}})
+                (agent_dir / "agent-codex.jsonl").write_text("401: bad key {AGENT_KEY}\\n")   # what tee kept
+                await d._end_phase()                     # no agent_logs: Harbor's timeout came first
+                out.append([(agent_dir / "agent-codex.jsonl").read_text(), outside.read_text(),
+                            (agent_dir / "planted.jsonl").is_symlink()])
+            # a stream this machine cannot read (another uid, a strict umask) whose own log follows: never infra
+            logs = agent_dir.parent / "logs"
+            logs.mkdir(exist_ok=True)
+            (logs / "agent-codex.jsonl").write_text("401: bad key {AGENT_KEY}\\n")
+            (agent_dir / "agent-codex.jsonl").chmod(0)
+            d.env, d.agent_logs = NS(exec=ran, capabilities=NS(mounted=True)), str(logs)
+            await d._end_phase()
+            out.append((agent_dir / "agent-codex.jsonl").read_text())
+            print("RESULT", out)
+        asyncio.run(main())
+    """))
+    done = subprocess.run([str(HARBOR_PYTHON), "-I", str(script)], capture_output=True, text=True, timeout=60)
+    line = next((x for x in done.stdout.splitlines() if x.startswith("RESULT")), done.stdout + done.stderr)
+    assert line == "RESULT " + str([["401: bad key [REDACTED]\n", AGENT_KEY, True],
+                                    [f"401: bad key {AGENT_KEY}\n", AGENT_KEY, True],
+                                    "401: bad key [REDACTED]\n"]), line
+
+
+@pytest.mark.skipif(not HARBOR_PYTHON.exists(), reason="needs Harbor's venv (~/.cache/hermit/harbor-venv)")
+def test_a_multi_step_harbor_task_is_refused_as_unsupported_and_never_run_again(tmp_path):
+    """A task with [[steps]] is refused at the driver's start as a task Harbor runs for none of Hermit's agents
+    (UnsupportedTask), which Hermit reads as unsupported_task and does not run again, rather than an environment that
+    failed to start (sandbox_failed), which spent the infra retries on a task that can never run."""
+    (tmp_path / "task").mkdir()
+    script = tmp_path / "probe.py"
+    script.write_text(textwrap.dedent(f"""
+        import asyncio, importlib.util, sys
+        from types import SimpleNamespace as NS
+        spec = importlib.util.spec_from_file_location("drv", {str(DRIVER_FILE)!r})
+        drv = importlib.util.module_from_spec(spec); sys.modules["drv"] = drv; spec.loader.exec_module(drv)
+
+        async def create(config):
+            return NS(task=NS(has_steps=True, name="multi"), _record_exception=lambda exc: None)
+
+        async def main():
+            drv.Trial.create = create
+            try:
+                await drv.Driver(None).start({{"task_dir": {str(tmp_path / "task")!r},
+                                               "trials_dir": {str(tmp_path / "trials")!r}, "trial_name": "t"}})
+                print("RESULT started")
+            except drv.Failed as exc:
+                print("RESULT", exc.kind)
+        asyncio.run(main())
+    """))
+    done = subprocess.run([str(HARBOR_PYTHON), "-I", str(script)], capture_output=True, text=True, timeout=60)
+    line = next((x for x in done.stdout.splitlines() if x.startswith("RESULT")), done.stdout + done.stderr)
+    assert line == "RESULT UnsupportedTask", line
+    from hermit.environment import harbor_errors
+    assert "unsupported_task" in harbor_errors.NO_RETRY
+
+
 def test_a_harbor_agents_adapter_code_runs_in_the_strict_adapter_sandbox(tmp_path, monkeypatch):
     """No worker for a Harbor task set's agent: its call in this process still confines the adapter's own code as the
     worker did (the runner's adapter sandbox): a context tool's Session is sandboxed, its exports' render goes through

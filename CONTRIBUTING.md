@@ -61,8 +61,8 @@ change agreed with the core team first.
 
 A pull request that adds a benchmark or changes how its tasks are written or read also answers the
 [benchmark checklist](.agents/skills/prepare-pr/references/benchmark-checklist.md): task directories in Harbor's
-format, answers and tests only in the private half, what each task asks of its environment declared, and parity for a
-moved benchmark.
+format, answers and tests kept out of the tasks the agent and the learner read (the judge's feedback shows what the
+benchmark's protocol allows), what each task asks of its environment declared, and parity for a moved benchmark.
 
 GitHub Actions (`.github/workflows/tests.yml`) runs `python -m pytest --changed` against the base branch on every
 pull request, and the complete suite on main, daily and on demand, on Ubuntu with bubblewrap. Tests whose
