@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
-import shutil
 import sys
 from pathlib import Path
 import threading
@@ -98,10 +97,6 @@ def _read(out: RunOutput, env, task: Task, begun: float) -> RunOutput:
                      "verifier_reward_raw": None}
         return out
     logs = Path(out.log) if out.log and Path(out.log).is_dir() else None
-    if logs is None and out.log and Path(out.log).is_file():   # a log file (ReAct's): handed over by its own name
-        import tempfile
-        logs = Path(tempfile.mkdtemp(prefix="hermit-agent-log-"))
-        shutil.copy2(out.log, logs / Path(out.log).name)
     verdict = env.verify(agent_logs=logs)
     out.extra = {**extra, "verified": verdict, **_status(extra, verdict)}
     if verdict["status"] == "infra":

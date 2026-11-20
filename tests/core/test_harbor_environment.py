@@ -2534,21 +2534,14 @@ def test_round_8_hermit_side(harbor, tmp_path, monkeypatch):
     kept = HarborEnvironments({"tasks_dir": str(tmp_path / "tasks"), "harbor": sys.executable,
                                "environment": {"kwargs": {"keep_containers": True}}}, base=tmp_path)
     assert kept.local_docker is False
-    # 7: the exception's own message redacted too; 8: a verifier that failed before its tests is infra
+    # 7: the exception's own message redacted too
     redacting = HarborEnvironments({"tasks_dir": str(tmp_path / "tasks"), "harbor": sys.executable,
                                     "verifier_redact": [r"expected: \d+"]}, base=tmp_path)
     out = tmp_path / "v"
     out.mkdir()
     verdict = redacting.verdict({"rewards": None, "verifier_dir": str(out),
                                  "exception": {"type": "ValueError", "message": "bad reward, expected: 42"}})
-    assert "42" not in verdict["exception"]["message"] and verdict["status"] == "infra"
-    monkeypatch.delenv("GRADER_API_KEY", raising=False)
-    with pytest.raises(ValueError, match="GRADER_API_KEY"):
-        HarborEnvironments({"tasks_dir": str(tmp_path / "tasks"), "harbor": sys.executable,
-                            "verifier": {"env": {"GRADER_API_KEY": "${GRADER_API_KEY}"}}}, base=tmp_path)
-    # 17: the rollout's outcome decides, never an agent's own output status
-    from hermit.harbor.report import kind
-    assert kind({"status": "ok", "output": {"status": "infra"}, "outcome": {"status": "ok"}}) == "scored"
+    assert "42" not in verdict["exception"]["message"] and "42" not in verdict["exception_message"]
 
 
 def test_round_8_agents(tmp_path, monkeypatch):
@@ -2600,16 +2593,3 @@ def test_round_8_agents(tmp_path, monkeypatch):
                                                    "agent": {"name": "codex", "params": {"binding": binding}}})
     with pytest.raises(ValueError, match="loopback"):
         isolate.task_environments(config)
-
-
-def test_a_log_file_reaches_the_verifier_by_its_own_name(tmp_path):
-    from hermit.task import Task
-    from hermit.trainer import rollout
-    log = tmp_path / "transcript.json"
-    log.write_text("{}")
-    environments = Environments(tmp_path)
-    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
-    rollout.environment_rollout(task, task.given(), None, lambda t, a, environment=None: RunOutput(
-        output="x", log=log), environments, 0.0)
-    given = next(e[1] for e in environments.events if e[0] == "verify")
-    assert given is not None and (Path(given) / "transcript.json").read_text() == "{}"

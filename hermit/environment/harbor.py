@@ -188,10 +188,6 @@ class HarborEnvironments:
             (None if s["pass_reward"] is None else float(s["pass_reward"]))
         self.reward_key = str(s.get("reward_key") or "reward")
         self.redactions = self._redactions(s.get("verifier_redact"))
-        missing = [v for v in re.findall(r"\$\{(\w+)", json.dumps((s.get("verifier") or {}).get("env") or {}))
-                   if v not in os.environ]
-        if missing:                                      # Harbor would resolve them as the verifier starts, and fail
-            raise ValueError(f"environment.harbor.verifier.env names {', '.join(sorted(set(missing)))}, not set here")
         if (s.get("verifier") or {}).get("disable"):
             raise ValueError("environment.harbor.verifier.disable: a disabled verifier gives no reward, so every "
                              "rollout would be infra and run again; a Harbor task set is scored by its verifier")
@@ -412,11 +408,6 @@ class HarborEnvironments:
         read = errors.verifier_timeout_verdict(read, self.verifier_timeout)
         logs = Path(verified.get("verifier_dir") or "") if verified.get("verifier_dir") else None
         read = errors.verifier_verdict(read, logs, self.redactions)
-        if exception and read["status"] == "agent_error" and read["failure_cause"] == "unclassified" and \
-                not (logs is not None and (logs / "test-stdout.txt").is_file()):
-            # an exception Harbor raised before the verifier's tests ran (a variable it could not resolve, its
-            # preparation): not the agent's result; a reward missing or unreadable after the tests ran stays graded
-            read = {**read, "status": "infra", "failure_cause": "verifier_failed"}
         feedback = ""
         for name in ("feedback.txt", "test-stdout.txt"):
             if logs is not None and (logs / name).is_file() and not (logs / name).is_symlink():
