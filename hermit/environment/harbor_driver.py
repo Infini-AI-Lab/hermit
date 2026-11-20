@@ -566,6 +566,10 @@ class Driver:
             ending.result()
         except (asyncio.TimeoutError, asyncio.CancelledError):   # not finished: never a verifier after it
             raise HarborDriverError(f"the agent phase's end did not finish in {END_PHASE_S} s") from None
+        except HarborDriverError:
+            raise
+        except Exception as exc:                         # any other failure of it: infra too, never the agent's 0
+            raise HarborDriverError(f"the agent phase's end failed: {type(exc).__name__}: {exc}") from exc
         if cancelled:
             raise asyncio.CancelledError()
 

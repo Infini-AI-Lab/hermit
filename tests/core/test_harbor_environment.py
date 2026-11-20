@@ -2455,3 +2455,45 @@ def test_a_harbor_task_sets_agent_runs_in_this_process(tmp_path):
     from hermit.isolate import host_pipeline
     config = SimpleNamespace(data={"sandbox": {"enabled": True}, "environment": {"harbor": {"tasks_dir": "x"}}})
     assert "environment.harbor" in host_pipeline(config)
+
+
+def test_the_agents_setup_defaults_to_twenty_minutes_and_a_setting_wins(harbor, tmp_path):
+    environments, _, _ = harbor
+    task = environments.task_dir({"harbor_task": "demo"})
+    assert environments.start_request(task, tmp_path, "t")["agent"]["override_setup_timeout_sec"] == 1200.0
+    assert environments.start_timeout(task) >= 600 + 1200 + harbor_mod.START_ALLOWANCE_S      # the watchdog follows
+    own = HarborEnvironments({"tasks_dir": str(tmp_path / "tasks"), "harbor": sys.executable,
+                              "setup_timeout_sec": 300}, base=tmp_path)
+    assert own.start_request(task, tmp_path, "t")["agent"]["override_setup_timeout_sec"] == 300.0
+
+
+@pytest.mark.skipif(not HARBOR_PYTHON.exists(), reason="needs Harbor's venv (~/.cache/hermit/harbor-venv)")
+def test_any_failure_of_the_phases_end_is_infra(tmp_path):
+    """A failure of the phase's end of any kind (its bound, a log folder it cannot write) is HarborDriverError: no
+    verifier, infra, never the agent's zero."""
+    script = tmp_path / "probe.py"
+    script.write_text(textwrap.dedent(f"""
+        import asyncio, importlib.util, sys
+        spec = importlib.util.spec_from_file_location("drv", {str(DRIVER_FILE)!r})
+        drv = importlib.util.module_from_spec(spec); sys.modules["drv"] = drv; spec.loader.exec_module(drv)
+
+        async def main():
+            out = []
+            for failing in ("hangs", "denied"):
+                d = drv.Driver(None)
+                async def end(how=failing):
+                    if how == "hangs":
+                        await asyncio.sleep(60)
+                    raise PermissionError("the agent logs' folder")
+                d._end_phase = end
+                drv.END_PHASE_S = 0.2
+                try:
+                    await d._close_phase(False); out.append("returned")
+                except drv.HarborDriverError:
+                    out.append("infra")
+            print("RESULT", out)
+        asyncio.run(main())
+    """))
+    done = subprocess.run([str(HARBOR_PYTHON), "-I", str(script)], capture_output=True, text=True, timeout=60)
+    line = next((x for x in done.stdout.splitlines() if x.startswith("RESULT")), done.stdout + done.stderr)
+    assert line == "RESULT " + str(["infra", "infra"]), line

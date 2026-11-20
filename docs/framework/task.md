@@ -425,7 +425,7 @@ scrubbed from the logs handed to the verifier and from the trial's files.
 | `tasks_dir` | the task directories (a row's `harbor_task` names one; a directory task's private half names its own) |
 | `environment` | Harbor's environment config: `type`, `import_path`, `kwargs`, `delete`, `force_build`, `mounts`, `extra_docker_compose`, `env`, `override_cpus`, `override_memory_mb`, ... |
 | `verifier`, `verifier_timeout_multiplier`, `environment_build_timeout_multiplier` | Harbor's verifier config, and its multipliers (at least 1) |
-| `agent_timeout_sec`, `setup_timeout_sec` | the agent's budget (Harbor's `override_timeout_sec`; null: each task's own), Harbor's install's |
+| `agent_timeout_sec`, `setup_timeout_sec` | the agent's budget (Harbor's `override_timeout_sec`; null: each task's own), the agent's setup's, its CLI's install (Harbor's `override_setup_timeout_sec`; default 1200 s, not Harbor's 360 s) |
 | `allowed_hosts` | hosts a task whose agent phase has no public network lets the agent reach (Harbor's `extra_allowed_hosts`); the run adds its agent's model hosts |
 | `docker_cleanup`, `rmi_threshold_gb`, `disk_gate_gb`, `disk_gate_wait_s`, `tmp_gate_gb`, `image_sizes` | the warm start: `images_keep`, `rmi_task_image` or `rmi_over_gb`; the gates; the images' compressed sizes |
 | `jobs_dir`, `harbor` | where each environment's trial goes; Harbor's command, beside which (or beside the file a link to it names) is the python the driver runs under |

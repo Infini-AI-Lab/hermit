@@ -89,7 +89,9 @@ HOST_TMP = Path("/tmp")
 START_TIMEOUT_S = 3600.0             # the driver's start up to the agent phase, at least (start_timeout)
 START_ALLOWANCE_S = 1800.0           # beside Harbor's build and setup timeouts: the healthcheck, the logs
 BUILD_TIMEOUT_S = 600.0              # Harbor's default build_timeout_sec
-SETUP_TIMEOUT_S = 360.0              # Harbor's default agent setup timeout
+SETUP_TIMEOUT_S = 1200.0             # the agent's setup (a CLI's install) when setup_timeout_sec is not set: Harbor's
+                                     # own 360 s default is too short for an apt and npm install in a 1-CPU container
+                                     # under load
 VERIFY_TIMEOUT_S = 7200.0            # ... and its verifier when Harbor names no timeout (its own ends it first)
 VERIFY_ALLOWANCE_S = 1800.0          # beside Harbor's verifier timeout: the tests' upload, a separate environment's
                                      # start, the logs
@@ -319,7 +321,7 @@ class HarborEnvironments:
     def start_request(self, task_dir: Path, trials_dir: Path, name: str, installs=None) -> dict:
         s = self.settings
         agent = {"override_timeout_sec": s.get("agent_timeout_sec"),
-                 "override_setup_timeout_sec": s.get("setup_timeout_sec"),
+                 "override_setup_timeout_sec": float(s.get("setup_timeout_sec") or SETUP_TIMEOUT_S),
                  "extra_allowed_hosts": list(self.allowed_hosts) or None}
         return {"op": "start", "task_dir": str(task_dir), "trials_dir": str(trials_dir), "trial_name": name,
                 "agent": {k: v for k, v in agent.items() if v is not None}, "environment": self.environment_config(),
