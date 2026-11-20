@@ -46,6 +46,7 @@ import time
 import uuid
 
 from hermit.agent.base import login as codex_login
+from hermit.agent.base.credentials import held
 from hermit.agent.base.cli import CLIS
 from hermit.agent.base.endpoint import cli_endpoint, endpoint_spec
 from hermit.redact import redact_name, redact_tree
@@ -611,8 +612,6 @@ class SandboxedAgent:
             folder, var, _ = CLI_HOMES[self.cli]
             agent_home = home / folder
             agent_home.mkdir(parents=True)               # a folder of more than one level (Pi's .pi/agent)
-            if self.chatgpt:
-                codex_login.prepare(self._login_root(), agent_home)    # the shared copy, refreshed by earlier calls
             env[var] = str(agent_home)
             keep.append(var)
         binds = _log_binds(work, self.logs, [work])
@@ -621,28 +620,36 @@ class SandboxedAgent:
                **({"environment": server.spec()} if server is not None else {})}
         forward = [*self.forward, *([server.port] if server is not None else [])]
         clean = work.parent / f"{work.name}.log"
+        left: list = []
+
+        def provision():                                 # the shared copy, refreshed by earlier calls
+            if self.cli and self.chatgpt:
+                codex_login.prepare(self._login_root(), home / CLI_HOMES[self.cli][0])
+            return []
+
+        def take_back(_):
+            # Every copy the call left: its run copy, and a session's own when the worker was stopped before it could
+            # hand that back (a timeout kills it). The latest refresh goes back to the shared copy.
+            if self.chatgpt:
+                codex_login.remove(home / CLI_HOMES["codex"][0] / CLI_HOMES["codex"][2], within=work)
+                left[:] = [work / "workspaces" / "login" / codex_login.FILE,
+                           *work.glob(f"workspaces/*/home/{codex_login.FILE}")]
+                for path in left:
+                    codex_login.take_back(self._login_root(), path, within=work)
+
+        def remove(_):                                   # then none of them is kept, however the take-back went
+            if self.chatgpt:
+                for path in left:
+                    codex_login.remove(path, within=work)
+                shutil.rmtree(work / "workspaces" / "login", ignore_errors=True)
+
         try:
-            try:
+            with held(provision, take_back, remove):
                 payload = _run_worker(self.sandbox, job, work, home=home, readable=[adapter] if adapter else [],
                                       env=env, keep=keep, forward=forward,
                                       timeout=_call_deadline(self.timeout, server.environment if server else None,
                                                              needs or task),
                                       binds=binds)
-            finally:
-                if self.chatgpt:
-                    # Every copy the call left: its run copy, and a session's own when the worker was stopped
-                    # before it could hand that back (a timeout kills it). The latest refresh goes back to the
-                    # shared copy; then none of them is kept.
-                    codex_login.remove(home / CLI_HOMES["codex"][0] / CLI_HOMES["codex"][2], within=work)
-                    left = [work / "workspaces" / "login" / codex_login.FILE,
-                            *work.glob(f"workspaces/*/home/{codex_login.FILE}")]
-                    try:
-                        for path in left:
-                            codex_login.take_back(self._login_root(), path, within=work)
-                    finally:                             # removed however the take-back went (a full volume)
-                        for path in left:
-                            codex_login.remove(path, within=work)
-                        shutil.rmtree(work / "workspaces" / "login", ignore_errors=True)
             rec = payload["output"]
             # The log is copied into the learner's material outside any sandbox: it must lie where this call could
             # write (its work directory, its logs, the declared write paths), never a file it merely names.

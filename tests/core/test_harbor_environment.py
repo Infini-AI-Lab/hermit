@@ -1932,3 +1932,81 @@ def test_the_sandbox_proxy_and_the_cli_agent_refuse_limits_given_with_the_enviro
     with pytest.raises(Unsupported, match="network limit"):
         CliAgent({"backend": "codex", "web_search": False, "bin": "codex", "workspaces": str(tmp_path / "ws")},
                  tmp_path).run({"id": "t", "instruction": "x"}, None, environment=env)
+
+
+# ---- the single implementations ----------------------------------------------------------------------------------
+
+def test_the_usage_ledger_sums_once_with_unknown_costs_and_empty_ledgers_as_the_caller_says():
+    from hermit.agent.model.usage import Attempts, Ledger, Usage
+    ledger = Ledger("m").add([Usage(model="m", input_tokens=10, output_tokens=5, calls=1, cost_usd=0.1)])
+    assert (ledger.cost(), ledger.tokens(), ledger.calls()) == (0.1, 15, 1)
+    ledger.unreported(1)                                 # a call given up in flight: counted, its cost unknown
+    assert ledger.cost() is None and ledger.calls() == 2 and ledger.total().unreported_calls == 1
+    assert Ledger().cost(0.0) == 0.0 and Ledger().tokens(None) is None             # nothing ran / nothing known
+    attempts = Attempts()
+    for tokens, cost, cause in ((10, 0.1, "sandbox_failed"), (None, None, None)):
+        attempts.add(RunOutput(output=None, tokens=tokens, cost_usd=cost, api_speed={"model_calls": 1},
+                               extra={"unscored": cause}))
+    out = attempts.output()
+    assert (out.tokens, out.cost_usd, out.api_speed["model_calls"]) == (10, None, 2)
+    assert [a["unscored"] for a in out.extra["attempts"]] == ["sandbox_failed", None]
+
+
+def test_a_credential_is_taken_back_and_removed_however_the_session_ends():
+    from hermit.agent.base.credentials import held
+    seen = []
+    with pytest.raises(KeyError):
+        with held(lambda: ["copy"], lambda c: seen.append(("back", c)),
+                  lambda c: (seen.append(("removed", c)), (_ for _ in ()).throw(RuntimeError("rm failed")))):
+            raise KeyError("the session failed")         # its error stands; the removal's is printed
+    assert seen == [("back", ["copy"]), ("removed", ["copy"])]
+    with pytest.raises(RuntimeError, match="rm failed"):     # a session that ended well: the removal's error raised
+        with held(lambda: [], None, lambda c: (_ for _ in ()).throw(RuntimeError("rm failed"))):
+            pass
+    seen.clear()
+    with pytest.raises(OSError):                             # a take-back that fails never keeps the copies
+        with held(lambda: ["c"], lambda c: (_ for _ in ()).throw(OSError("full")), lambda c: seen.append(c)):
+            pass
+    assert seen == [["c"]]
+
+
+def test_one_deadline_cuts_limits_and_ends_model_calls():
+    import time
+    from hermit.agent.base.deadline import Deadline
+    from hermit.agent.model.llm import ChatAborted
+    assert Deadline().cut(30) == 30 and Deadline().remaining() is None
+    assert Deadline(time.time() - 1).cut(30) is False
+    assert 9 < Deadline.within(10).cut(30) <= 10
+
+    class Slow:
+        model = "m"
+
+        def chat(self, messages, abort=None, **kw):
+            abort.wait(5)
+            raise ChatAborted("given up")
+
+    bound = Deadline.within(0.2).bound(Slow())
+    with pytest.raises(ChatAborted):
+        bound.chat([])
+    assert bound.expired and bound.abandoned == 1
+    bound.close()
+
+
+def test_the_retry_state_machine_names_each_state():
+    from types import SimpleNamespace
+    from hermit.trainer import rollout
+    envs = SimpleNamespace(infra_retries=1, busy_retries=1, busy_wait_s=120.0, infra_wait_s=300.0, stopping=None)
+    out = lambda cause, **extra: RunOutput(output=None, extra={"unscored": cause, **extra})
+    machine = rollout.Retries(envs)
+    assert machine.next(out(None), False, False) == (rollout.DONE, 0.0)
+    assert machine.next(out("model_provider_failed"), False, True) == (rollout.PROVIDER_BUSY, 120.0)
+    assert machine.next(out("model_provider_failed"), False, True) == (rollout.DONE, 0.0)   # its allowance spent
+    assert machine.next(out("usage_limit", hold_unwritten=True), False, True)[0] == rollout.PLAN_WAIT
+    assert machine.next(out("sandbox_failed"), False, False) == (rollout.INFRA, 300.0)
+    assert machine.next(out("sandbox_failed"), False, False) == (rollout.DONE, 0.0)          # infra_retries spent
+    assert rollout.Retries(envs).next(out("disk"), False, False) == (rollout.DONE, 0.0)      # runs no better again
+    import threading
+    stopped = threading.Event()
+    stopped.set()
+    assert rollout.Retries(SimpleNamespace(**{**vars(envs), "stopping": stopped})).next(
+        out("sandbox_failed"), False, False) == (rollout.STOP, 0.0)

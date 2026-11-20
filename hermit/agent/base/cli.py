@@ -142,6 +142,7 @@ from typing import Any, Sequence
 import urllib.parse
 
 from hermit.agent.base import login as codex_login
+from hermit.agent.base.credentials import held
 from hermit.environment import docker as container
 from hermit.environment.base import Environment, ExecResult, _descendants, as_environment
 from hermit.agent.base.interface import BaseAgent, Limits, Mount, Result, Unsupported
@@ -863,24 +864,20 @@ class CliAgent(BaseAgent):
     def _within(self, limits: Limits | None):
         """`limits` with its timeout cut to what is left before the `deadline` setting (as given without one);
         False when nothing is left."""
-        if self.settings.get("deadline") is None:
+        from hermit.agent.base.deadline import Deadline
+        deadline = Deadline(self.settings.get("deadline"))
+        if deadline.at is None:
             return limits
-        left = float(self.settings["deadline"]) - time.time()
-        if left <= 0:
-            return False
         limits = limits or Limits()
         own = limits.timeout_s or self.settings.get("timeout_s", 3600)     # as the session's own default
-        return dataclasses.replace(limits, timeout_s=min(left, float(own)) if own else left)
+        left = deadline.cut(own)
+        return False if left is False else dataclasses.replace(limits, timeout_s=left)
 
     def _left(self, timeout: float | None):
         """`timeout` cut to what the preparation left before the `deadline` setting, just before the CLI starts;
         False when nothing is."""
-        if self.settings.get("deadline") is None:
-            return timeout
-        left = float(self.settings["deadline"]) - time.time()
-        if left <= 0:
-            return False
-        return min(timeout, left) if timeout else left
+        from hermit.agent.base.deadline import Deadline
+        return Deadline(self.settings.get("deadline")).cut(timeout)
 
     def _not_run(self, why: str, max_s) -> Result:
         """A session that never started: its caller stopped it, the caller's deadline passed, the plan held it back
@@ -1151,71 +1148,79 @@ class CliAgent(BaseAgent):
         timeout = limits.timeout_s or s.get("timeout_s", 3600)
         timeout = float(timeout) if timeout else None
         self._remote_home = (home, remote_home)
-        copied, code, timed_out, raw, wall_s = [], -1, False, "", 0.0
-        try:
-            copied = self._sign_in(home)
-            env = {k: os.path.expandvars(str(v)) for k, v in (s.get("env") or {}).items()}   # $KEY_VAR -> the key
-            env.update(self.session_env())
-            self.prepare_home(home, roles, None, s.get("tools_name") or "hermit_tools")
-            env.update(self.home_env(remote_home))
-            key_env = self._key_env()
-            if key_env:                                  # passed by name to the environment's exec, never in a file
-                env[key_env] = os.environ.get(key_env, "")
-            command = self.command(prompt, workspace, remote_home / "last_message.txt", session=session, roles=roles,
-                                   tools_url=None)
-            by_fd = self.by_fd()
-            missing = set(by_fd) - set(env)
-            if missing:
-                raise ValueError(f"by_fd names variables the session does not pass: {sorted(missing)}")
-            # the installs' places on PATH (nvm's, ~/.local/bin); each by_fd secret the environment moves into a pipe
-            # before anything that outlives the move starts (its exec's by_fd)
-            command = ["bash", "-c", REMOTE_PATH + 'exec "$@"', "bash", *command]
-            self._remote_program(environment)
-            environment.exec(["rm", "-rf", str(remote_home)], cwd="/", timeout=120)
-            environment.upload(home, str(remote_home))
-            timeout = self._left(timeout)
-            if timeout is False:
-                return self._not_run("deadline", None)
-            started = time.time()
-            done = environment.exec(command, cwd=str(workspace), env=env, timeout=timeout,
-                                    stdin=prompt if self.on_stdin() else None, **({"by_fd": by_fd} if by_fd else {}))
-            wall_s = time.time() - started
-            code, timed_out, raw = done.code, done.timed_out, done.output
-            stream.write_text(raw, encoding="utf-8")
-            with contextlib.suppress(Exception):         # a session that wrote none: the stream's last message
-                environment.download(str(remote_home / "last_message.txt"), last_file)
-        finally:
-            self._remote_home = None
-            if s.get("login") == "chatgpt" and copied:
-                # the refreshed sign-in and the plan's usage reports back here, however the session's exec ended (a
-                # session that rotated its token before its exec failed), before the sign-in leaves the environment
+        code, timed_out, raw, wall_s = -1, False, "", 0.0
+        chatgpt = s.get("login") == "chatgpt"
+
+        def take_back(copied):
+            # the refreshed sign-in and the plan's usage reports back here, however the session's exec ended (a
+            # session that rotated its token before its exec failed), before the sign-in leaves the environment
+            if chatgpt and copied:
                 with contextlib.suppress(Exception):
                     self._signin_back(environment, remote_home, home)
                 with contextlib.suppress(Exception):
                     environment.download(str(remote_home / "sessions"), home / "sessions")
-            # every sign-in file the home took (the login's, or the user's own CLI home's) out of the environment,
-            # from a directory the session cannot have removed, before its verifier runs; a removal not confirmed
-            # fails the call (no verifier then reads them)
-            left = [str(remote_home / path.name) for path in copied]
-            gone = None
-            if left:
-                try:
-                    gone = environment.exec(["rm", "-f", *left], cwd="/", timeout=120)
-                except Exception as exc:                 # noqa: BLE001 - reported below
-                    gone = ExecResult(-1, f"{type(exc).__name__}: {exc}")
             try:
-                if s.get("login") == "chatgpt":
+                if chatgpt:
                     codex_login.keep_refreshed(Path(s.get("login_root") or codex_login.ROOT), home)
                     codex_login.note_usage(codex_login.plan_dir(s.get("plan_dir")), home)
             except OSError as exc:      # this machine's (the shared copy's folder full): the session stands, its
                 print(f"WARNING: the sign-in or plan report the session refreshed could not be kept ({exc}); a "
                       "later session refreshes again", file=sys.stderr, flush=True)   # refresh lost (the runner's)
+
+        def remove(copied):
+            # every sign-in file the home took (the login's, or the user's own CLI home's) out of the environment,
+            # from a directory the session cannot have removed, before its verifier runs, and the local copies; a
+            # removal there not confirmed fails the call (no verifier then reads them)
+            left = [str(remote_home / path.name) for path in copied]
+            gone = None
+            try:
+                if left:
+                    try:
+                        gone = environment.exec(["rm", "-f", *left], cwd="/", timeout=120)
+                    except Exception as exc:             # noqa: BLE001 - reported below
+                        gone = ExecResult(-1, f"{type(exc).__name__}: {exc}")
             finally:                                     # the local copies go however the take-back went
                 for path in copied:
                     path.unlink(missing_ok=True)
-        if gone is not None and gone.code != 0:
-            raise RuntimeError(f"{self.name}: the sign-in could not be removed from the environment: "
-                               f"{gone.output[-300:]}")
+            if gone is not None and gone.code != 0:
+                raise RuntimeError(f"{self.name}: the sign-in could not be removed from the environment: "
+                                   f"{gone.output[-300:]}")
+
+        try:
+            with held(lambda: self._sign_in(home), take_back, remove):
+                env = {k: os.path.expandvars(str(v)) for k, v in (s.get("env") or {}).items()}   # $KEY_VAR -> the key
+                env.update(self.session_env())
+                self.prepare_home(home, roles, None, s.get("tools_name") or "hermit_tools")
+                env.update(self.home_env(remote_home))
+                key_env = self._key_env()
+                if key_env:                              # by name to the environment's exec, never in a file
+                    env[key_env] = os.environ.get(key_env, "")
+                command = self.command(prompt, workspace, remote_home / "last_message.txt", session=session,
+                                       roles=roles, tools_url=None)
+                by_fd = self.by_fd()
+                missing = set(by_fd) - set(env)
+                if missing:
+                    raise ValueError(f"by_fd names variables the session does not pass: {sorted(missing)}")
+                # the installs' places on PATH (nvm's, ~/.local/bin); each by_fd secret the environment moves into a
+                # pipe before anything that outlives the move starts (its exec's by_fd)
+                command = ["bash", "-c", REMOTE_PATH + 'exec "$@"', "bash", *command]
+                self._remote_program(environment)
+                environment.exec(["rm", "-rf", str(remote_home)], cwd="/", timeout=120)
+                environment.upload(home, str(remote_home))
+                timeout = self._left(timeout)
+                if timeout is False:
+                    return self._not_run("deadline", None)
+                started = time.time()
+                done = environment.exec(command, cwd=str(workspace), env=env, timeout=timeout,
+                                        stdin=prompt if self.on_stdin() else None,
+                                        **({"by_fd": by_fd} if by_fd else {}))
+                wall_s = time.time() - started
+                code, timed_out, raw = done.code, done.timed_out, done.output
+                stream.write_text(raw, encoding="utf-8")
+                with contextlib.suppress(Exception):         # a session that wrote none: the stream's last message
+                    environment.download(str(remote_home / "last_message.txt"), last_file)
+        finally:
+            self._remote_home = None
         said = self.outcome(raw, stream, last_file)
         said["failed"] = said.get("failed", False) and not timed_out
         began = said.pop("started", None)

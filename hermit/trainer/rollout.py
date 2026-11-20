@@ -4,7 +4,6 @@ agent is handed the task's public half, the verifier reads the whole task, and n
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import dataclasses
 from dataclasses import asdict
 import sys
 from pathlib import Path
@@ -142,144 +141,157 @@ def _infra_output(task: Task, cause: str, message: str, started: float, *, ran: 
                             "verified": verdict, "unscored": cause})
 
 
-def _attempts(runs: list[RunOutput]) -> RunOutput:
-    """A rollout's output when it ran more than once (Hermit's Harbor runner's `_attempts`): its last run's, carrying
-    what every run used (one that ended infra may have spent tokens before it ended): the tokens the runs reported
-    (unknown only when none did), their model calls and their cost (unknown when any run's is), and each run's own in
-    `extra.attempts` (its usage alone, and its infra cause, `unscored`, None for a run that is the agent's result).
-    One run alone is returned as it is, with no `extra.attempts`."""
-    last = runs[-1]
-    if len(runs) == 1:
-        return last
-    tokens = [r.tokens for r in runs if r.tokens is not None]
-    costs = [r.cost_usd for r in runs]
-    calls = sum(int((r.api_speed or {}).get("model_calls") or 0) for r in runs)
-    each = [{"tokens": r.tokens, "cost_usd": r.cost_usd, "model_calls": (r.api_speed or {}).get("model_calls"),
-             "unscored": (r.extra or {}).get("unscored")} for r in runs]
-    return dataclasses.replace(last, tokens=sum(tokens) if tokens else None,
-                               cost_usd=None if None in costs else sum(costs),
-                               api_speed={**(last.api_speed or {}), "model_calls": calls},
-                               extra={**(last.extra or {}), "attempts": each})
-
-
 def _sleep(seconds: float) -> None:
     """The pause before a rollout runs again (a test's stand-in replaces it)."""
     time.sleep(seconds)
 
 
+# The rollout's retry and admission states (the runner's _run_trial), after each run: the agent's result or a cause
+# that runs no better again (DONE), not the agent's result run again in a fresh environment after infra_wait_s (INFRA,
+# counted in infra_retries), a session the provider could not serve run again after n x busy_wait_s (PROVIDER_BUSY,
+# its own allowance, busy_retries), a session the login's plan refused run again once the plan allows (PLAN_WAIT, not
+# counted: the admission waits for the window; a hold that could not be written pauses HOLD_UNWRITTEN_S first), and
+# the run ended meanwhile (STOP: this rollout as it stands).
+DONE, INFRA, PROVIDER_BUSY, PLAN_WAIT, STOP = "done", "infra", "provider_busy", "plan_wait", "stop"
+
+
+class Retries:
+    """The one retry and admission state machine of a rollout in its own environment: `next(out, final, said)`, the
+    state after a run and how long to pause before the next."""
+
+    def __init__(self, environments):
+        self.retries, self.counted = int(environments.infra_retries), 0
+        self.busy, self.busy_retries = 0, int(getattr(environments, "busy_retries", 3))
+        self.busy_wait_s = float(getattr(environments, "busy_wait_s", 120.0))
+        self.infra_wait_s = float(environments.infra_wait_s)
+        self.stopping = getattr(environments, "stopping", None)
+
+    def next(self, out: RunOutput, final: bool, said_by_agent: bool) -> tuple[str, float]:
+        from hermit.environment.harbor_errors import NO_RETRY
+        cause = out.extra.get("unscored")
+        if cause is None:
+            return DONE, 0.0
+        provider = cause == "model_provider_failed" and said_by_agent and not final     # a CLI session's provider
+        if provider:
+            self.busy += 1                               # the provider's own allowance (busy_retries), not infra's
+            if self.busy > self.busy_retries:
+                return DONE, 0.0
+        elif cause != "usage_limit":                     # the plan's refusal runs again once it allows: not counted
+            self.counted += 1
+        if cause in NO_RETRY or final or self.counted > self.retries:
+            return DONE, 0.0
+        if self.stopping is not None and self.stopping.is_set():
+            return STOP, 0.0
+        if cause == "usage_limit":
+            from hermit.agent.base.login import HOLD_UNWRITTEN_S
+            return PLAN_WAIT, HOLD_UNWRITTEN_S if out.extra.get("hold_unwritten") else 0.0
+        if provider:
+            return PROVIDER_BUSY, self.busy * self.busy_wait_s                 # the n-th after n x busy_wait_s
+        return INFRA, self.infra_wait_s
+
+
 def environment_rollout(task: Task, given: dict, adapter: Path | None, pipeline, environments, started: float,
                         *, pause=None):
-    """One task in its own environment, run again while it ends infra (not the agent's result: `unscored`), up to
-    `environments.infra_retries` times, each in a fresh environment after `infra_wait_s`, unless its cause runs no
-    better again (NO_RETRY: the disk gate, model_rejected, this machine's failure) or the agent's provider allowance
-    is spent, as Hermit's Harbor runner ran a trial again (its `_run_trial`); a session the login's plan refused runs
-    again once the plan allows, not counted. On a login the run's admission to the plan (its wait and one of its
-    slots, environments.admission) is held around the whole environment, as the runner held it around a trial. What
-    every run used is the rollout's (_attempts). Returns the output, or the record of a pipeline that failed on its own
-    (no environment's fault: the run's failed record, as for any task)."""
-    import contextlib
-    from hermit.environment.harbor import EnvironmentUnavailable
-    from hermit.environment.harbor_errors import AGENT_PHASE_OVER, NO_RETRY, pipeline_cause
-    retries, runs, counted = environments.infra_retries, [], 0
-    busy, busy_retries = 0, int(getattr(environments, "busy_retries", 3))
-    stopping = getattr(environments, "stopping", None)
+    """One task in its own environment, run again while it ends infra (not the agent's result: `unscored`) as the
+    Retries state machine says (the runner's `_run_trial`: infra_retries after infra_wait_s, never for a cause that
+    runs no better again; the provider's busy_retries; the plan's refusal once it allows); on a login the run's
+    admission to the plan (its wait and one of its slots, environments.admission) is held around the whole
+    environment, as the runner held it around a trial. What every run used is the rollout's (Attempts). Returns the
+    output, or the record of a pipeline that failed on its own (no environment's fault: the run's failed record, as
+    for any task)."""
+    from hermit.agent.model.usage import Attempts
+    attempts, retries = Attempts(), Retries(environments)
+    stopping = retries.stopping
     while True:
         if stopping is not None and stopping.is_set():   # the run ended: no environment starts for this task
             raise LoginFailed("the run ended (a lost sign-in or the account's limit) before the task started")
-        begun, final, out, said_by_agent = time.time(), False, None, False
-        admission = getattr(environments, "admission", None)
-        try:
-            with (admission() if admission is not None else contextlib.nullcontext()):
-                installs = getattr(environments, "installs_for", None)
-                with environments.session(environments.task_dir(task), task.id,
-                                          installs(adapter) if installs is not None else None) as env:
-                    env.plan_admitted = admission is not None
-                    try:
-                        out = _given(pipeline, given, adapter, env, task.private.get("needs") or {})
-                    except LoginFailed:
-                        if stopping is not None:         # the run ends now: no task admitted while this one stops
-                            stopping.set()
-                        raise
-                    except Exception as exc:
-                        why = login_failure(exc)
-                        if why is not None:
-                            if stopping is not None:
-                                stopping.set()
-                            raise LoginFailed(why) from None
-                        if AGENT_PHASE_OVER in str(exc):  # Harbor's agent timeout ended the phase: its verdict
-                            out = _read(RunOutput(output=None, extra={"timed_out": True, "session_failed":
-                                                                      f"{type(exc).__name__}: {exc}"[-600:]}),
-                                        env, task, begun)
-                        elif isinstance(exc, OSError):   # this machine's (the runner's host_failed): never run again
-                            out = _infra_output(task, "host_failed", f"{type(exc).__name__}: {exc}", begun, ran=True)
-                            final = True
-                        else:
-                            read = pipeline_cause(f"{type(exc).__name__}: {exc}")
-                            if read is None:
-                                return _failed_record(task, given, started, exc, "the pipeline failed")
-                            cause, again = read
-                            final = not again
-                            said = f"{type(exc).__name__}: {exc}"
-                            out = _infra_output(task, cause, said, begun, ran=True)
-                    else:
-                        out = _read(out, env, task, begun)
-                        if out.extra.get("infra"):
-                            final, said_by_agent = bool(out.extra.get("infra_final")), True
-                            unwritten = bool(out.extra.get("hold_unwritten"))
-                            out = _infra_output(task, out.extra["infra"], str(out.extra.get("exception_message")),
-                                                begun, ran=True, spent=out)
-                            if unwritten:
-                                out.extra["hold_unwritten"] = True
-        except EnvironmentUnavailable as exc:
-            if exc.cause == "stopped":                   # the run ended (another task's lost sign-in)
-                raise LoginFailed(str(exc)) from None
-            out = _infra_output(task, exc.cause, str(exc), begun, ran=False)
-        except ValueError as exc:                        # no task directory: the task set's, not the environment's
-            return _failed_record(task, given, started, exc, "the task's environment could not be given")
-        except OSError as exc:                           # this machine's, the environment's teardown among it
-            if out is None or out.extra.get("unscored") is None and "verified" not in out.extra:
-                out = _infra_output(task, "host_failed", f"{type(exc).__name__}: {exc}", begun, ran=out is not None,
-                                    spent=out)
-                final = True
-            print(f"WARNING hermit {task.id}: this machine failed after the task's verdict: {exc}", file=sys.stderr,
-                  flush=True)
-        runs.append(out)
-        cause = out.extra.get("unscored")
-        provider = cause == "model_provider_failed" and said_by_agent and not final   # a CLI session's provider
-        if provider:
-            busy += 1                                    # the provider's own allowance (busy_retries), not infra's
-            if busy > busy_retries:
-                return _attempts(runs)
-        elif cause != "usage_limit":                     # the plan's refusal runs again once it allows: not counted
-            counted += 1
-        if cause is None or cause in NO_RETRY or final or counted > retries or (stopping and stopping.is_set()):
-            return _attempts(runs)
+        run = _environment_run(task, given, adapter, pipeline, environments, started)
+        if isinstance(run, dict):                        # the pipeline's own failure: the run's failed record
+            return run
+        out, final, said_by_agent = run
+        attempts.add(out)
+        state, wait = retries.next(out, final, said_by_agent)
+        if state in (DONE, STOP):
+            return attempts.output()
         message = str(out.extra.get("exception_message") or (out.extra.get("verified") or {}).get("exception_message")
                       or "")
-        if provider:
-            wait_now = busy * float(getattr(environments, "busy_wait_s", 120.0))      # the n-th after n x busy_wait_s
-        else:
-            wait_now = float(environments.infra_wait_s)
-        print(f"hermit {task.id}: not the agent's result ({cause}: {message[:300]}); again in {wait_now:.0f} s "
-              f"({counted}/{retries})", file=sys.stderr, flush=True)
-        if cause == "usage_limit":                       # the admission waits for the plan's window, or, its hold
-            if out.extra.get("hold_unwritten"):          # not written, the runner's pause first (cancellable)
-                from hermit.agent.base.login import HOLD_UNWRITTEN_S
-                if pause is not None:
-                    pause(HOLD_UNWRITTEN_S)
-                elif stopping is not None:
-                    if stopping.wait(HOLD_UNWRITTEN_S):
-                        return _attempts(runs)
-                else:
-                    _sleep(HOLD_UNWRITTEN_S)
+        print(f"hermit {task.id}: not the agent's result ({out.extra.get('unscored')}: {message[:300]}); again in "
+              f"{wait:.0f} s ({retries.counted}/{retries.retries})", file=sys.stderr, flush=True)
+        if not wait:
             continue
         if pause is not None:
-            pause(wait_now)
+            pause(wait)
         elif stopping is not None:
-            if stopping.wait(wait_now):                     # the run ended meanwhile: this rollout as it stands
-                return _attempts(runs)
+            if stopping.wait(wait):                      # the run ended meanwhile: this rollout as it stands
+                return attempts.output()
         else:
-            _sleep(wait_now)
+            _sleep(wait)
+
+
+def _environment_run(task: Task, given: dict, adapter: Path | None, pipeline, environments, started: float):
+    """One run of the task in a fresh environment: (its output, whether it runs no better again, whether the agent
+    itself said it is not its result), or the pipeline's failed record."""
+    import contextlib
+    from hermit.environment.harbor import EnvironmentUnavailable
+    from hermit.environment.harbor_errors import AGENT_PHASE_OVER, pipeline_cause
+    stopping = getattr(environments, "stopping", None)
+    begun, final, out, said_by_agent = time.time(), False, None, False
+    admission = getattr(environments, "admission", None)
+    try:
+        with (admission() if admission is not None else contextlib.nullcontext()):
+            installs = getattr(environments, "installs_for", None)
+            with environments.session(environments.task_dir(task), task.id,
+                                      installs(adapter) if installs is not None else None) as env:
+                env.plan_admitted = admission is not None
+                try:
+                    out = _given(pipeline, given, adapter, env, task.private.get("needs") or {})
+                except LoginFailed:
+                    if stopping is not None:             # the run ends now: no task admitted while this one stops
+                        stopping.set()
+                    raise
+                except Exception as exc:
+                    why = login_failure(exc)
+                    if why is not None:
+                        if stopping is not None:
+                            stopping.set()
+                        raise LoginFailed(why) from None
+                    if AGENT_PHASE_OVER in str(exc):     # Harbor's agent timeout ended the phase: its verdict
+                        out = _read(RunOutput(output=None, extra={"timed_out": True, "session_failed":
+                                                                  f"{type(exc).__name__}: {exc}"[-600:]}),
+                                    env, task, begun)
+                    elif isinstance(exc, OSError):       # this machine's (the runner's host_failed): never run again
+                        out = _infra_output(task, "host_failed", f"{type(exc).__name__}: {exc}", begun, ran=True)
+                        final = True
+                    else:
+                        read = pipeline_cause(f"{type(exc).__name__}: {exc}")
+                        if read is None:
+                            return _failed_record(task, given, started, exc, "the pipeline failed")
+                        cause, again = read
+                        final = not again
+                        out = _infra_output(task, cause, f"{type(exc).__name__}: {exc}", begun, ran=True)
+                else:
+                    out = _read(out, env, task, begun)
+                    if out.extra.get("infra"):
+                        final, said_by_agent = bool(out.extra.get("infra_final")), True
+                        unwritten = bool(out.extra.get("hold_unwritten"))
+                        out = _infra_output(task, out.extra["infra"], str(out.extra.get("exception_message")),
+                                            begun, ran=True, spent=out)
+                        if unwritten:
+                            out.extra["hold_unwritten"] = True
+    except EnvironmentUnavailable as exc:
+        if exc.cause == "stopped":                       # the run ended (another task's lost sign-in)
+            raise LoginFailed(str(exc)) from None
+        out = _infra_output(task, exc.cause, str(exc), begun, ran=False)
+    except ValueError as exc:                            # no task directory: the task set's, not the environment's
+        return _failed_record(task, given, started, exc, "the task's environment could not be given")
+    except OSError as exc:                               # this machine's, the environment's teardown among it
+        if out is None or out.extra.get("unscored") is None and "verified" not in out.extra:
+            out = _infra_output(task, "host_failed", f"{type(exc).__name__}: {exc}", begun, ran=out is not None,
+                                spent=out)
+            final = True
+        print(f"WARNING hermit {task.id}: this machine failed after the task's verdict: {exc}", file=sys.stderr,
+              flush=True)
+    return out, final, said_by_agent
 
 
 def _judged(task: Task, given: dict, out: RunOutput, verify, started: float) -> dict:

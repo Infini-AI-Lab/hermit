@@ -82,6 +82,7 @@ from hermit.agent.acting.agent import ALL, Agent
 from hermit.agent.base.interface import BaseAgent, LoginFailed, Unsupported, make
 from hermit.environment import Container, Environment, Limits, Mount, Local, docker as container
 from hermit.agent.base.login import LOGINS, NO_LOGIN
+from hermit.agent.model.usage import Ledger
 from hermit.common import RunOutput, load_callable
 
 BACKENDS = ("codex", "claude", "pi", "mini-swe-agent", "opencode", "dsh", "hermes")
@@ -393,14 +394,13 @@ def run(task: dict, adapter: Path | None, *, params: dict, base: Path, environme
     return _run(task, adapter, params, base, environment)
 
 
-def _infra_run(cause: str, message: str, usages: list, log: Path, started: float, *, final: bool) -> RunOutput:
+def _infra_run(cause: str, message: str, usages: Ledger, log: Path, started: float, *, final: bool) -> RunOutput:
     """A run in a task's own environment that is not the agent's result (`extra.infra`, which the run reads:
     hermit.trainer.rollout), with what its sessions spent: `final`, never run again (the provider allowance spent, the
     configuration refused)."""
-    cost = None if any(u.cost_usd is None for u in usages) else sum(u.cost_usd for u in usages)
-    tokens = sum(u.input_tokens + u.output_tokens for u in usages) if usages else 0
-    return RunOutput(output=None, log=log, cost_usd=cost, wall_s=round(time.time() - started, 1), tokens=tokens,
-                     api_speed={"model_calls": sum(u.calls for u in usages)},
+    ledger = usages
+    return RunOutput(output=None, log=log, cost_usd=ledger.cost(0.0), wall_s=round(time.time() - started, 1),
+                     tokens=ledger.tokens(0), api_speed={"model_calls": ledger.calls()},
                      extra={"infra": cause, "infra_final": final, "exception_message": message[-2000:]})
 
 
@@ -607,14 +607,16 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
     # (the Harbor runner's busy_retries, one allowance over the task's runs: environment.harbor.busy_retries), never
     # here in the environment the session already changed
     retries = 1 if remote else max(1, int(params.get("retries", 3)))
-    usages: list = []                   # every attempt's usage: a run again spends too
+    usages = Ledger()                   # every attempt's usage: a run again spends too
     image_context: dict = {}            # a task environment's own context file, read before the first deployment
     started = time.time()
     # `deadline_s`: the whole call's time (attempts and waits), set by a caller that is stopped at it (a container
     # session must end, and remove its container, before its worker is killed)
+    from hermit.agent.base.deadline import Deadline
     budget = float(params["deadline_s"]) if params.get("deadline_s") else None
-    if budget is not None:              # and the session's own waits (a login's plan) come off it too
-        agent = agent.configured(deadline=started + budget)
+    deadline = Deadline(started + budget if budget is not None else None)   # the run's one deadline
+    if deadline.at is not None:         # and the session's own waits (a login's plan) come off it too
+        agent = agent.configured(deadline=deadline.at)
     for attempt in range(1, retries + 1):
         for d in (work, home, log):
             shutil.rmtree(d, ignore_errors=True)
@@ -662,7 +664,7 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
         from hermit.adapter.session import Session
         served = Session(adapter) if deployed.get("harness_tools") else None
         if budget is not None:          # what is left once the deployment, the files and the server are ready
-            timeout_s = min(float(params.get("timeout_s") or default_s), budget - (time.time() - started))
+            timeout_s = min(float(params.get("timeout_s") or default_s), deadline.remaining())
             if timeout_s <= 0:
                 if served is not None:
                     served.close()
@@ -678,12 +680,11 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
         finally:
             if served is not None:
                 served.close()
-        usages += list(result.usage or [])
+        usages.add(result.usage)
         if remote and not result.usage and result.extra.get("started"):
             # a session that reached its CLI's events but reported no usage (cut off before turn.completed) may have
             # been billed: its cost is not known (the runner's usage None), never 0
-            from hermit.agent.model.usage import Usage
-            usages.append(Usage(model=str(params.get("model") or backend), unreported_calls=1, cost_usd=None))
+            usages.unreported(0, str(params.get("model") or backend), sessions=1)
         if result.extra.get("login_failed"):          # before a timeout: a session that then hung is no attempt
             raise LoginFailed(f"agent {backend}: {result.extra.get('failure')}")
         if remote:
@@ -728,7 +729,7 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
             raise RuntimeError(f"agent {backend} could not be served after {retries} attempts: "
                                f"{result.extra['output_tail']}")
         wait = float(params.get("retry_wait_s", 120))
-        time.sleep(wait if budget is None else max(0.0, min(wait, budget - (time.time() - started) - 1)))
+        time.sleep(wait if deadline.at is None else max(0.0, min(wait, deadline.remaining() - 1)))
     code, timed_out, last, usage = result.exit_code, result.timed_out, result.reply, usages
     (log / "last_message.txt").write_text(last, encoding="utf-8")
     if memory is not None and remote:                                  # the notes the session left, from there
@@ -752,10 +753,8 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
     if fn is not None:
         facts = _call(fn, task, work, log, params=params, base=base)
     _clean(work, [m.target for m in mounts])
-    cost = tokens = None
-    if usage:                         # every model of the session (Hermes's auxiliary calls are a usage of their own)
-        cost = None if any(u.cost_usd is None for u in usage) else sum(u.cost_usd for u in usage)
-        tokens = sum(u.input_tokens + u.output_tokens for u in usage)
+    # every model of the session (Hermes's auxiliary calls are a usage of their own); none reported: not known
+    cost, tokens = usage.cost(None), usage.tokens(None)
     extra = {"backend": backend, "model": params.get("model"), "effort": params.get("effort"),
              "web_search": params["web_search"],
              "deploy": deployed.get("mode"), "isolation": "remote" if remote else params.get("isolation") or "none",
@@ -772,4 +771,4 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
     if facts:
         extra["task"] = facts
     return RunOutput(output=output, log=log, cost_usd=cost, wall_s=round(time.time() - started, 1), tokens=tokens,
-                     api_speed={"model_calls": sum(u.calls for u in usage)} if usage else None, extra=extra)
+                     api_speed={"model_calls": usage.calls()} if not usage.empty else None, extra=extra)

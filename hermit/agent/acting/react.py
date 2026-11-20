@@ -40,7 +40,8 @@ from typing import Callable
 from hermit.adapter.session import Session
 from hermit.agent.acting.agent import Agent
 from hermit.agent.acting.tools import MARK, as_tools, load_tools, tool   # noqa: F401 (tool: for subclasses)
-from hermit.agent.base.react import React, total as usage_total
+from hermit.agent.base.react import React
+from hermit.agent.model.usage import Ledger
 from hermit.agent.base.tool import Tool
 from hermit.agent.model.direct import Direct
 from hermit.agent.model.llm import ChatAborted, ChatClient
@@ -49,49 +50,13 @@ from hermit.common import RunOutput
 CONTEXT_HEADING = "# Instructions from the harness adapter"
 
 
-class Bounded:
+def Bounded(client, budget_s: float):
     """A chat client whose every call is given up once the task's whole agent budget is spent (a task's own
-    environment's `timeout_s`), as Harbor's agent timeout cancelled its agents: the call in flight closed
-    (ChatAborted). `expired` says whether it was."""
+    environment's `timeout_s`): the run's one Deadline, bound to the client."""
+    from hermit.agent.base.deadline import Deadline
+    return Deadline.within(budget_s).bound(client)
 
-    def __init__(self, client, budget_s: float):
-        import threading
-        self.client, self.abort = client, threading.Event()
-        self.deadline = time.monotonic() + float(budget_s)
-        self.abandoned = 0                # calls given up in flight: sent, maybe billed, their usage never reported
-        self.timer = threading.Timer(float(budget_s), self.abort.set)
-        self.timer.daemon = True
-        self.timer.start()
 
-    @property
-    def expired(self) -> bool:
-        return self.abort.is_set()
-
-    def chat(self, messages, **kwargs):
-        if self.abort.is_set():
-            from hermit.agent.model.llm import ChatAborted
-            raise ChatAborted("the task's agent budget is spent")
-        from hermit.agent.model.llm import ChatAborted
-        try:
-            return self.client.chat(messages, abort=self.abort, **kwargs)
-        except ChatAborted:
-            self.abandoned += 1
-            raise
-
-    def unreported(self) -> list:
-        """The usage of the calls given up in flight: counted, their cost not known."""
-        from hermit.agent.model.usage import Usage
-        return [Usage(model=str(getattr(self.client, "model", "") or ""), calls=self.abandoned,
-                      unreported_calls=self.abandoned, cost_usd=None)] if self.abandoned else []
-
-    def remaining(self) -> float:
-        return max(0.0, self.deadline - time.monotonic())
-
-    def close(self) -> None:
-        self.timer.cancel()
-
-    def __getattr__(self, name):
-        return getattr(self.client, name)
 USER_FIELDS = ("prompt", "question", "instruction", "input")
 _TOOLS: dict[tuple, list] = {}
 
@@ -297,8 +262,9 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, agent: Reac
     finally:
         if bounded is not None:
             bounded.close()
+    ledger = Ledger(getattr(client, "model", "")).add(usages)
     if bounded is not None:           # a request given up in flight may have been billed: its cost is not known
-        usages += bounded.unreported()
+        ledger.unreported(bounded.abandoned)
     answer = agent.answer(result, task)
 
     logs = Path(base) / params.get("logs", ".logs")
@@ -307,7 +273,7 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, agent: Reac
     log.write_text(json.dumps({"task": task.get("id"), "model": model["model"], "adapter": str(adapter) if adapter else None,
                                "messages": messages}, ensure_ascii=False, indent=1))
     # What this run's calls used, as call_model reported it (a subclass may call another client) and the follow-up's
-    total, model_s = usage_total(client, usages), result.extra["model_s"]
+    total, model_s = ledger.total(), result.extra["model_s"]
     extra = {"turns": turns, "tool_calls": result.extra["tool_calls"],
              **({"timed_out": True} if result.timed_out else {})}     # the task's agent budget ran out
     if session is not None and session.last_context is not None:

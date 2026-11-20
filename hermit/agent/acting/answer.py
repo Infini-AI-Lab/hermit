@@ -35,8 +35,8 @@ import tempfile
 import time
 
 from hermit.agent.acting.agent import Agent
-from hermit.agent.acting.react import Bounded
-from hermit.agent.base.react import total as usage_total
+from hermit.agent.base.deadline import Deadline
+from hermit.agent.model.usage import Ledger
 from hermit.agent.model.direct import Direct
 from hermit.agent.model.llm import ChatAborted, ChatClient, ChatHTTPError
 from hermit.common import RunOutput
@@ -61,8 +61,10 @@ class AnswerAgent(Agent):
         if model.get("max_retries") is not None:        # the relay forwarded it; the chat client takes it here
             client.max_retries = int(model["max_retries"])
         budget = getattr(getattr(environment, "limits", None), "timeout_s", None) if environment is not None else None
-        caller = Bounded(client, budget) if budget else client    # the task's agent budget bounds the whole call,
-        try:                                                      # as Harbor's agent timeout cancelled the runner's
+        # the task's agent budget bounds the whole call (the run's one Deadline), as Harbor's agent timeout cancelled
+        # the runner's
+        caller = Deadline.within(budget).bound(client) if budget else client
+        try:
             return self._answer(task, adapter, environment, model, client, caller, budget, started)
         finally:
             if budget:
@@ -129,7 +131,8 @@ class AnswerAgent(Agent):
             f.write(json.dumps({"task": task.get("id"), "model": model["model"], "messages": shown,
                                 "attachments": named, "reply": reply.reply, "answer": answer},
                                ensure_ascii=False, indent=1))
-        usage = usage_total(client, [*reply.usage, *(caller.unreported() if budget else [])])
+        usage = Ledger(getattr(client, "model", "")).add(reply.usage).unreported(
+            caller.abandoned if budget else 0).total()
         extra = {"attachments": named, **({"timed_out": True} if timed_out else {})}
         if record is not None:
             extra["context_tool"] = record
