@@ -1,7 +1,6 @@
 """Tasks (hermit.task): the public half an agent is handed, the private half only the judge reads, the task set and
 its splits, and the run that brings a task and an agent together (hermit.trainer.rollout)."""
 import json
-import warnings
 
 import pytest
 
@@ -68,18 +67,14 @@ def test_a_bare_judge_and_a_row_still_run_as_before():
     assert wrapped(as_task({"id": "c", "q": 2}), RunOutput(output=4)).score == 1.0
 
 
-def test_the_environments_moved_to_the_top_level_and_the_old_path_forwards():
+@pytest.mark.parametrize("old", ["hermit.agent.environment", "hermit.agent.base.direct",
+                                 "hermit.agent.base.container", "hermit.agents", "hermit.evolver", "hermit.llm",
+                                 "hermit.backends", "hermit.trajectory"])
+def test_the_moved_modules_old_paths_are_gone(old):
     import importlib
-    import hermit.agent.environment as forwarded
-    from hermit.environment import Local
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        importlib.reload(forwarded)                               # the warning comes with the import, once
-        from hermit.agent.environment import Local as old
-        from hermit.agent.environment.base import Sandboxed as old_sandboxed
-    from hermit.environment.base import Sandboxed
-    assert old is Local and old_sandboxed is Sandboxed
-    assert any("hermit.environment" in str(w.message) for w in caught)
+    with pytest.raises(ModuleNotFoundError) as missing:
+        importlib.import_module(old)
+    assert missing.value.name == old          # the old module itself, not a module a leftover forward imports
 
 
 def test_the_names_imported_from_hermit_task_before_the_package_still_import():

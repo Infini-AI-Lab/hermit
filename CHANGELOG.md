@@ -6,6 +6,20 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Breaking
 
+- The old import paths of moved modules are gone, with no forward: 0.1's, which 0.2 forwarded (`hermit.agents`,
+  `hermit.evolver`, `hermit.llm`, `hermit.backends`, `hermit.trajectory`), and 0.2's `hermit.agent.base.direct` and
+  `hermit.agent.base.container`, and `hermit.agent.environment` (never released). Import instead:
+
+  | Old | New |
+  |---|---|
+  | `hermit.agents` (`.base`, `.cli`, `.react`, `.tools`, `.container`, `.login`) | `hermit.agent.acting` (`.agent`, `.workspace`, `.react`, `.tools`), `hermit.environment.docker`, `hermit.agent.base.login` |
+  | `hermit.evolver` (`.base`, `.agent`, `.loader`, `.dependencies`) | `hermit.agent.evolver` (the same submodules) |
+  | `hermit.llm`, `hermit.backends` | `hermit.agent.model.llm`, `hermit.agent.model.backends` |
+  | `hermit.trajectory` | `hermit.agent.base.trajectory` |
+  | `hermit.agent.base.direct` | `hermit.agent.model.direct` |
+  | `hermit.agent.base.container` | `hermit.environment.docker` |
+  | `hermit.agent.environment` (`.base`, `.docker`) | `hermit.environment` (`.base`, `.docker`) |
+
 - Harbor gives a task set its data, its environments and its verifier; every agent is Hermit's
   ([Benchmarks](docs/framework/task.md#benchmarks)). `agent.name: harbor` is gone, with `hermit/harbor/runner.py`,
   `hermit/harbor/harborside/` (the HermitXXX classes, the scripted agent, the stream driver) and the runner's parts
@@ -69,7 +83,7 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   `tasks/`.
 
 - Tasks and environments are packages of their own beside the agents: `hermit/environment/` (moved from
-  `hermit/agent/environment/`, which forwards for one release) and `hermit/task/` (from `hermit/task.py`: `Task` with
+  `hermit/agent/environment/`) and `hermit/task/` (from `hermit/task.py`: `Task` with
   a public half the agent is handed and a private half only the judge reads, `Benchmark`, the verifier). `RunOutput`
   and `load_callable` live in `hermit/common.py`; every name importable from `hermit.task` before still is. Tasks and
   agents never import each other (`tests/core/test_layers.py`).
@@ -79,8 +93,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   roles=)` replaces `run(prompt, workspace=, limits=)` (a path is a `Local` environment), and a CLI Base Agent
   refuses `isolation`, `sandbox` or `container` given as settings (use `Sandboxed(path, sandbox=...)` or
   `Container(path, settings=...)`). A single model call is Layer 1: `Direct(settings, model)` in
-  `hermit.agent.model.direct` returns a `Reply`, and `make("direct")` is refused. `hermit.agent.base.direct` and
-  `hermit.agent.base.container` (now `hermit.environment.docker`) forward for one release. A run whose acting
+  `hermit.agent.model.direct` returns a `Reply`, and `make("direct")` is refused. `hermit.agent.base.container` is
+  now `hermit.environment.docker`. A run whose acting
   agent does not take what its method needs of an adapter (`supports` against `evolver.yaml` `needs`) is refused
   before it starts.
 
