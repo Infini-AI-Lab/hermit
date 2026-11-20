@@ -408,6 +408,8 @@ and state (`hook-calls.jsonl`, `hook-state/`) come back into the log. The answer
 `hermit/agent/acting/answer.py`) makes one model call (the adapter's context its system message, Harbor's instruction
 the question) and writes the answer where the verifier reads it (`answer_file`, `/app/answer.txt` unless null;
 `answer_pattern`, `answer_format`, `instruction_file`, `attachments`: the environment's images sent with the question).
+The agent's logs reach the verifier as `/logs/agent` (the stream, the answer agent's `answer.json`) in Harbor's shared
+verifier mode only: a separate verifier gets its own mounts and the task's configured artifacts, not the agent logs.
 
 Not supported in a Harbor environment yet, and refused rather than dropped: the adapter's tools (the framework's tool
 server runs on this machine), the agent's `mounts`, `prepare` and `collect`, readable mounts, hidden paths or a

@@ -109,10 +109,11 @@ APT_REPAIR = ("if grep -qs 'VERSION_CODENAME=bullseye' /etc/os-release && comman
 
 
 def kill_marked(mark: str) -> str:
-    """A shell line (run as root) that kills every process whose environment holds `MARK=<mark...>` (an agent's
-    commands) and every process below those, whatever environment it was started with (one that cleared its
-    variables loses the mark, never its parent): found through /proc, no `ps` needed."""
-    return ("roots=''; for p in /proc/[0-9]*; do "
+    """A shell line (run as root) that kills the command `mark` (its pid, which it wrote at its start: root may not
+    read another user's environment without CAP_SYS_PTRACE), every process whose environment holds `MARK=<mark...>`
+    and every process below those, whatever environment it was started with (one that cleared its variables loses
+    the mark, never its parent): found through /proc, no `ps` needed."""
+    return (f"roots=$(cat /tmp/hermit-pid-{mark} 2>/dev/null | tr -cd '0-9 '); for p in /proc/[0-9]*; do "
             f"tr '\\0' '\\n' < $p/environ 2>/dev/null | grep -q '^{MARK}={mark}' && roots=\"$roots ${{p#/proc/}}\"; "
             "done; all=$roots; todo=$roots; while [ -n \"$todo\" ]; do next=''; for p in /proc/[0-9]*; do "
             "s=$(cat $p/stat 2>/dev/null) || continue; s=${s##*) }; set -- $s; for q in $todo; do "
@@ -278,9 +279,10 @@ END_PHASE_S = 300                       # the end of the agent phase's own bound
 
 
 async def end_clients(kind: str | None = None) -> None:
-    """The clients of `kind` (every one: None) still running killed and waited for."""
+    """The clients of `kind` (a prefix: "agent" for every agent operation's, "agent:exec" for its commands'; every one:
+    None) still running killed and waited for."""
     for process, of in list(CLIENTS.items()):
-        if process.returncode is None and (kind is None or of == kind):
+        if process.returncode is None and (kind is None or of.startswith(kind)):
             with contextlib.suppress(ProcessLookupError):
                 process.kill()
             with contextlib.suppress(Exception):
@@ -397,6 +399,8 @@ class Driver:
         for, by Harbor's own installed agent of that name (unless its probe finds it there and no version is
         pinned), and the system packages asked for, by Harbor's own installer."""
         for item in self.installs:
+            if item.get("home"):                         # the CLI's home there, the bridge's own provisioning: made
+                continue                                 # and given to the agent user as the phase starts
             if item.get("bin"):                          # a binary of this machine the environment mounts
                 served = await self._use_mounted(environment, item)
                 self.bins[str(item["agent"])] = served
@@ -489,11 +493,18 @@ class Driver:
         if said.return_code != 0 or not owner or not __import__("re").fullmatch(r"\d+:\d+", owner[-1]):
             raise HarborDriverError(f"the task's agent user has no uid:gid here: {said.stdout!r}"[:500])
         self.owner = None if owner[-1].split(":")[0] == "0" else owner[-1]
+        for item in self.installs:                       # the homes the agent declared (Agent.installs), its own
+            if item.get("home") and self.owner is not None:
+                home = shlex.quote(str(item["home"]))
+                made = await environment.exec(f"mkdir -p {home} && chown {shlex.quote(self.owner)} {home}", user="root")
+                if made.return_code != 0:
+                    raise HarborDriverError(f"the CLI's home {item['home']} could not be made for the agent user")
         plan = trial._network_plan(None)
         self.in_phase = True
         self.phase_started.set_result({
             "workdir": marked[-1], "user": self.user, "agent_timeout_sec": trial.agent_timeout_sec,
             "setup_timeout_sec": trial.agent_setup_timeout_sec, "verifier_timeout_sec": trial.verifier_timeout_sec,
+            "build_timeout_sec": trial.environment_build_timeout_sec,
             "trial_dir": str(trial.paths.trial_dir), "os": str(trial.task.config.environment.os.value),
             "verifier_mode": resolve_task_verifier_mode(trial.task.config).value, "instruction": instruction,
             "agent_network": str(getattr(plan.agent_phase.network_mode, "value", plan.agent_phase.network_mode)),
@@ -503,18 +514,26 @@ class Driver:
             await self.done.wait()
         except asyncio.CancelledError:                   # Harbor's agent timeout, or the trial cancelled
             cancelled = True
+        await self._close_phase(cancelled)
+
+    async def _close_phase(self, cancelled: bool) -> None:
+        """The phase's end, a task of its own awaited through any cancellation (Harbor's timeout cancels this run, and
+        waits for it): never cut short by the deadline it follows, bounded by its own END_PHASE_S; one that did not
+        finish, past its bound or for any other reason, is HarborDriverError (Harbor runs no verifier after it)."""
         self.in_phase = False
-        # The phase's end, a task of its own awaited through any cancellation (Harbor's timeout cancels this run, and
-        # waits for it): it is never cut short by the deadline it follows, and is bounded by its own END_PHASE_S
         ending = asyncio.ensure_future(asyncio.wait_for(self._end_phase(), END_PHASE_S))
         while not ending.done():
             try:
                 await asyncio.shield(ending)
             except asyncio.CancelledError:
+                if ending.cancelled():
+                    break
                 cancelled = True
+            except BaseException:                        # noqa: BLE001 - the end's own outcome, read below
+                break
         try:
             ending.result()
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, asyncio.CancelledError):   # not finished: never a verifier after it
             raise HarborDriverError(f"the agent phase's end did not finish in {END_PHASE_S} s") from None
         if cancelled:
             raise asyncio.CancelledError()
@@ -528,10 +547,20 @@ class Driver:
         ended left what it started (a server the task asked for), as Harbor's own agents leave it. Anything not
         confirmed raises HarborDriverError: Harbor records it and runs no verifier."""
         trial = self.trial
+        # the commands first, as the phase closes (no transfer's wait gives them more time), their marks taken before
+        # the cancelled ones forget theirs; then the transfers in flight let finish (their files whole), bounded
+        marks = sorted({*self.running, *self.unkilled})
+        commands = [t for t, op in self.agent_ops.items() if op == "exec"]
         transfers = [t for t, op in self.agent_ops.items() if op != "exec"]
+        for task in commands:
+            task.cancel()
+        if commands:
+            await asyncio.gather(*commands, return_exceptions=True)
+        await end_clients("agent:exec")
+        for mark in marks:
+            await self._kill(mark)
         if transfers:
             await asyncio.wait(transfers, timeout=END_PHASE_S / 2)
-        marks = sorted({*self.running, *self.unkilled})  # before the cancelled commands forget theirs
         for task in list(self.agent_ops):
             task.cancel()
         if self.agent_ops:
@@ -553,8 +582,10 @@ class Driver:
             self.streams.pop(mark, None)
         if self.secret_files:
             listed = " ".join(shlex.quote(f) for f in sorted(self.secret_files))
+            # as the agent user (the files are its own, given to it at their upload): a path the agent's process named
+            # is never removed past that user's permissions
             gone = await self.env.exec(f"rm -f -- {listed}; for f in {listed}; do [ -e \"$f\" ] && exit 1; done; "
-                                       "exit 0", cwd="/", user="root")
+                                       "exit 0", cwd="/")
             if gone.return_code != 0:
                 raise HarborDriverError("a credential file could not be removed from the environment")
         if self.agent_logs and Path(self.agent_logs).is_dir():
@@ -595,6 +626,7 @@ class Driver:
         # timeout is read by its own policy
         later = [said(type(e).__name__, str(e)) for e in self.exceptions[1:]]
         return {"rewards": rewards or None, "exception": exception, "later": later,
+                "agent_dir": str(trial.paths.agent_dir),
                 "verifier_dir": str(trial.paths.verifier_dir),
                 "verifier_mode": resolve_task_verifier_mode(trial.task.config).value,
                 "trial_dir": str(trial.paths.trial_dir)}
@@ -662,7 +694,11 @@ class Driver:
         if req.get("stream"):                            # its output kept there too, as it runs (the phase's end
             path = f"/tmp/hermit-stream-{mark}"          # keeps it in the agent logs if it is still running then)
             self.streams[mark] = (path, str(req["stream"]))
-            command = f"set -o pipefail; {{ {command} ; }} | tee {shlex.quote(path)}"
+            q = shlex.quote(path)
+            command = f"set -o pipefail; {{ {command} ; }} 2> >(tee -a {q} >&2) | tee -a {q}"
+        # its own pid, which root reads where it cannot read another user's environment (no CAP_SYS_PTRACE): the root
+        # of what kill_marked ends besides the processes it finds by MARK
+        command = f"echo $$ > /tmp/hermit-pid-{mark}; {command}"
         outer = None
         if timeout:
             timeout = max(1, int(float(timeout) + 0.999))
@@ -689,9 +725,8 @@ class Driver:
                 with contextlib.suppress(Exception):
                     await env.exec(f"rm -f {shlex.quote(staged)}", user="root")
         kept = self.streams.pop(mark, None)              # it ended here: its output is the reply's
-        if kept is not None:
-            with contextlib.suppress(Exception):
-                await env.exec(f"rm -f {shlex.quote(kept[0])}", user="root")
+        with contextlib.suppress(Exception):
+            await env.exec(f"rm -f /tmp/hermit-pid-{mark}" + (f" {shlex.quote(kept[0])}" if kept else ""), user="root")
         timed_out = bool(timeout) and (code in (124, 137, -1) and time.time() - started >= timeout - 1)
         if timed_out:                                    # nothing it started outlives its time, `timeout` or not
             with contextlib.suppress(Exception):         # unconfirmed: kept, and ended before the verifier
@@ -768,9 +803,8 @@ class Driver:
 
     async def _upload_as_agent(self, source: Path, target: str) -> dict:
         """An upload the agent's process asked for (the sandbox's proxy), with the agent user's own permissions: the
-        files copied as root into a folder of their own, given to that user, and copied into place as that user;
-        only folders missing on the way are made (by root, under a real folder) and given to it, so nothing there
-        already is reached past its permissions."""
+        files copied as root into a folder of their own and given to that user, then put in place by that user
+        (folders made, files replaced), so nothing there is reached past its permissions."""
         stage = f"/tmp/hermit-xfer-{uuid.uuid4().hex}"
         payload = f"{stage}/payload"
         is_dir = source.is_dir() and not source.is_symlink()
@@ -783,11 +817,10 @@ class Driver:
                 await self.env.upload_file(source, payload)
             await self._root(f"chown -R {owner} {q(stage)}")
             first = target if is_dir else str(Path(target).parent)
-            await self._root(f'missing=; p={q(first)}; while [ ! -e "$p" ] && [ ! -L "$p" ]; do '
-                             f'missing="$p $missing"; p=$(dirname "$p"); done; for c in $missing; do '
-                             f'[ -L "$(dirname "$c")" ] && exit 3; mkdir "$c" && chown {owner} "$c" || exit 1; done')
-            copy = f"cp -Rp {q(payload)}/. {q(target)}/" if is_dir else f"cp -p {q(payload)} {q(target)}"
-            done = await self.env.exec(copy)             # the agent user's (the environment's default user)
+            # all as the agent user (the environment's default user): its folders made by it, an existing file it may
+            # not write but whose folder it may replaced (cp -f: removed, then copied)
+            copy = f"cp -Rpf {q(payload)}/. {q(target)}/" if is_dir else f"cp -pf {q(payload)} {q(target)}"
+            done = await self.env.exec(f"mkdir -p {q(first)} && {copy}")
             if done.return_code != 0:
                 raise Failed("PermissionError", f"the agent user may not write {target}: "
                                                 f"{(done.stdout or '')[-300:]}")
@@ -867,7 +900,7 @@ class Driver:
                     raise Failed("AgentPhaseOver", "the agent's phase is not on (not begun, or ended)")
                 task = asyncio.current_task()
                 self.agent_ops[task] = op
-                CLIENT_KIND.set("agent")                 # this task's own context: its clients are the agent's
+                CLIENT_KIND.set(f"agent:{op}")           # this task's own context: its clients are the agent's
                 try:
                     payload = await getattr(self, op)(req)
                 except asyncio.CancelledError:          # the phase ended: done, Harbor's timeout, a cancellation

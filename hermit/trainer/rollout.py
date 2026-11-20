@@ -206,7 +206,16 @@ def environment_rollout(task: Task, given: dict, adapter: Path | None, pipeline,
         if stopping is not None and stopping.is_set():   # the run ended: no environment starts for this task
             raise LoginFailed("the run ended (a lost sign-in or the account's limit) before the task started")
         run = _environment_run(task, given, adapter, pipeline, environments, started)
-        if isinstance(run, dict):                        # the pipeline's own failure: the run's failed record
+        if isinstance(run, dict):                        # the pipeline's own failure: the run's failed record, with
+            if attempts.runs:                            # what the runs before it spent
+                earlier = attempts.output() if len(attempts.runs) > 1 else attempts.runs[0]
+                run = {**run, "tokens": earlier.tokens, "cost_usd": None,
+                       "api_speed": {"model_calls": (earlier.api_speed or {}).get("model_calls")},
+                       "pipeline_extra": {**(run.get("pipeline_extra") or {}),
+                                          "attempts": (earlier.extra or {}).get("attempts") or
+                                          [{"tokens": earlier.tokens, "cost_usd": earlier.cost_usd,
+                                            "model_calls": (earlier.api_speed or {}).get("model_calls"),
+                                            "unscored": (earlier.extra or {}).get("unscored")}]}}
             return run
         out, final, said_by_agent = run
         attempts.add(out)
@@ -259,6 +268,9 @@ def _environment_run(task: Task, given: dict, adapter: Path | None, pipeline, en
                         out = _read(RunOutput(output=None, extra={"timed_out": True, "session_failed":
                                                                   f"{type(exc).__name__}: {exc}"[-600:]}),
                                     env, task, begun)
+                        kept = (out.extra.get("verified") or {}).get("agent_dir")
+                        if out.log is None and kept and Path(kept).is_dir():
+                            out.log = Path(kept)         # the trial's agent logs: the stream the bridge kept
                     elif isinstance(exc, OSError):       # this machine's (the runner's host_failed): never run again
                         out = _infra_output(task, "host_failed", f"{type(exc).__name__}: {exc}", begun, ran=True)
                         final = True

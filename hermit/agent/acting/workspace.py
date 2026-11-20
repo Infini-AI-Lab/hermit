@@ -372,6 +372,9 @@ def installs(params: dict, adapter: Path | None) -> list[dict]:
     backend = str(params.get("backend") or "codex")
     backend = "claude" if backend == "claude-code" else backend          # as _check names it
     out = []
+    if backend in REMOTE_INSTALL:                            # its home there: made by the bridge, the agent user's
+        from hermit.agent.base.cli import REMOTE_HOME
+        out.append({"home": str(params.get("remote_home") or REMOTE_HOME)})
     if params.get("bin") and backend in REMOTE_INSTALL:      # a mounted binary: used when it serves, else installed
         out.append({"agent": REMOTE_INSTALL[backend], "version": params.get("version"), "bin": str(params["bin"]),
                     "program": backend})

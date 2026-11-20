@@ -928,7 +928,14 @@ def task_environments(config, *, log=None):
     _, hosts, _ = model_access([params.get("binding"), params.get("model")])
     login = params.get("login")
     hosts = [*hosts, *(h for h in codex_login.hosts(login) if h not in hosts)]     # a subscription's own hosts too
-    environments = HarborEnvironments(section, base=Path(config.base), allowed_hosts=hosts, log=log)
+    # the driver (and Harbor's compose, which takes its environment as a base) never sees an ambient credential the
+    # agent's commands do not pass themselves (the runner's harbor_env): the switches to Codex's own ChatGPT file, the
+    # Claude subscription's token, and for Claude Code another bill's or a parent session's variables
+    from hermit.agent.base.cli import CLAUDE_BILLING, CLAUDE_INHERITED
+    drop = ["CODEX_FORCE_AUTH_JSON", "CODEX_AUTH_JSON_PATH", codex_login.TOKEN_ENV]
+    if params.get("backend") in ("claude", "claude-code") or d["agent"].get("name") in ("claude-code", "claude"):
+        drop += [*CLAUDE_BILLING, *CLAUDE_INHERITED, "CLAUDE_FORCE_OAUTH"]
+    environments = HarborEnvironments(section, base=Path(config.base), allowed_hosts=hosts, log=log, drop_env=drop)
     # what the agent needs installed before its phase (Agent.installs), which Harbor's setup installs: a built-in
     # agent's (a task's own class is not loaded on this machine; one in Harbor's environment brings what it needs)
     from hermit.agent.acting.agent import builtin

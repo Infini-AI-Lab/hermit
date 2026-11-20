@@ -30,6 +30,7 @@ import json
 import mimetypes
 from pathlib import Path
 import re
+import shlex
 import tempfile
 import sys
 import time
@@ -63,7 +64,8 @@ class AnswerAgent(Agent):
         budget = getattr(getattr(environment, "limits", None), "timeout_s", None) if environment is not None else None
         # the task's agent budget bounds the whole call (the run's one Deadline), as Harbor's agent timeout cancelled
         # the runner's
-        caller = Deadline.within(budget).bound(client) if budget else client
+        at = getattr(environment, "deadline_at", None)   # the phase's own absolute deadline, when it has one
+        caller = (Deadline(at) if at else Deadline.within(budget)).bound(client) if budget else client
         try:
             return self._answer(task, adapter, environment, model, client, caller, budget, started)
         finally:
@@ -181,15 +183,25 @@ class AnswerAgent(Agent):
             kind = mimetypes.guess_type(path)[0] or ""
             if not kind.startswith("image/"):
                 continue
-            with tempfile.TemporaryDirectory(prefix="hermit-attachment-") as tmp:
-                local = Path(tmp) / Path(path).name
-                environment.download(path, local)
-                if local.stat().st_size > MAX_ATTACHMENT_BYTES:   # the runner's: left out, with a warning
-                    print(f"WARNING: {path} is over {MAX_ATTACHMENT_BYTES} bytes: it is not sent", file=sys.stderr,
-                          flush=True)
-                    continue
-                urls.append(f"data:{kind};base64,{base64.b64encode(local.read_bytes()).decode()}")
-                named.append(path)
+            # measured and read there, as the task's agent user, through a link to its target (the runner's): one over
+            # MAX_ATTACHMENT_BYTES is left out with a warning, never brought here whole
+            quoted = shlex.quote(path)
+            size = environment.exec(["sh", "-c", f"wc -c < {quoted}"], timeout=60)
+            if size.code != 0 or not size.output.strip().split()[-1:] or not size.output.split()[-1].isdigit():
+                raise RuntimeError(f"the task's environment did not provide the attachment {path}: "
+                                   f"{size.output[-300:]}")
+            if int(size.output.split()[-1]) > MAX_ATTACHMENT_BYTES:
+                print(f"WARNING: {path} is over {MAX_ATTACHMENT_BYTES} bytes: it is not sent", file=sys.stderr,
+                      flush=True)
+                continue
+            data = environment.exec(["sh", "-c", f"base64 < {quoted} | tr -d '\\n'"], timeout=120)
+            if data.code != 0:
+                raise RuntimeError(f"the task's environment did not provide the attachment {path}: "
+                                   f"{data.output[-300:]}")
+            encoded = "".join(data.output.split())
+            base64.b64decode(encoded, validate=True)    # the image's bytes, or the attachment's failure
+            urls.append(f"data:{kind};base64,{encoded}")
+            named.append(path)
         return urls, named
 
     @staticmethod

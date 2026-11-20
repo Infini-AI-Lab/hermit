@@ -16,6 +16,14 @@ from hermit.trainer.rollout import run_tasks
 from hermit.tree import ROOT_TAG, Tree
 
 
+def sign_in_problems(data: dict) -> list[str]:
+    """What stops the acting agent's sessions before any request (its login and its model's: eval never runs the
+    learner, whose login is not checked here)."""
+    from hermit.agent.base import login as subscription
+    return [f"{who}: {p}" for who, login, program, contained, root in subscription.logins_of(data)
+            if who in ("agent", "agent's model") for p in subscription.problems_of(login, program, contained, root)]
+
+
 def evaluate(config: Config, adapter: str, *, log=print) -> dict:
     d = config.data
     tests = Benchmark.from_config(config).split("test")
@@ -48,9 +56,7 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
         judge = judge_for(config, pipeline)
         environments = task_environments(config, log=log)
         if environments is not None:     # the sign-in, before any result is replaced or a trial starts (the runner's)
-            from hermit.agent.base import login as subscription
-            problems = [f"{who}: {p}" for who, login, program, contained, root in subscription.logins_of(d)
-                        for p in subscription.problems_of(login, program, contained, root)]
+            problems = sign_in_problems(d)
             if problems:
                 raise SystemExit("eval refuses to start: " + "; ".join(problems))
     except BaseException:

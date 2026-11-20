@@ -128,7 +128,8 @@ class EnvironmentServer:
                 "network_public": getattr(env, "network_public", True),
                 "plan_admitted": bool(getattr(env, "plan_admitted", False)),
                 "same_clock": bool(getattr(env, "same_clock", True)),
-                "bin_served": dict(getattr(env, "bin_served", None) or {})}
+                "bin_served": dict(getattr(env, "bin_served", None) or {}),
+                "deadline_at": getattr(env, "deadline_at", None)}
 
     def spec(self) -> dict:
         return {"url": self.url, **self.info()}
@@ -164,7 +165,7 @@ class ProxyEnvironment(Environment):
 
     def __init__(self, url: str, workspace: str, limits: Limits | None = None, *, installs: bool = False,
                  instruction: str | None = None, network_public: bool = True, plan_admitted: bool = False,
-                 same_clock: bool = True, bin_served: dict | None = None):
+                 same_clock: bool = True, bin_served: dict | None = None, deadline_at: float | None = None):
         super().__init__(PurePosixPath("/"), limits)
         self.workspace = PurePosixPath(workspace)
         self.url = url.rstrip("/")
@@ -174,6 +175,7 @@ class ProxyEnvironment(Environment):
         self.plan_admitted = plan_admitted               # the run holds the login's plan admission for this task
         self.same_clock = same_clock                     # whether the environment shares this machine's clock
         self.bin_served = dict(bin_served or {})         # cli -> whether its mounted binary serves there
+        self.deadline_at = deadline_at                   # the agent phase's absolute deadline, when it has one
 
     @classmethod
     def from_spec(cls, spec: dict) -> "ProxyEnvironment":
@@ -182,7 +184,7 @@ class ProxyEnvironment(Environment):
                    installs=bool(spec.get("installs")), instruction=spec.get("instruction"),
                    network_public=spec.get("network_public", True) is not False,
                    plan_admitted=bool(spec.get("plan_admitted")), same_clock=spec.get("same_clock", True) is not False,
-                   bin_served=spec.get("bin_served"))
+                   bin_served=spec.get("bin_served"), deadline_at=spec.get("deadline_at"))
 
     def __repr__(self) -> str:
         return f"ProxyEnvironment(workspace={str(self.workspace)!r})"
@@ -223,6 +225,10 @@ class ProxyEnvironment(Environment):
             raise Unsupported("a task's own environment takes no readable mounts, hidden paths or network limits of "
                               "Hermit's (its task.toml says what it reaches): refused, never ignored")
         timeout = timeout if timeout is not None else self.limits.timeout_s
+        if self.deadline_at is not None:                 # what is left of the phase's deadline, never more
+            import time
+            left = max(1.0, float(self.deadline_at) - time.time())
+            timeout = min(float(timeout), left) if timeout else left
         body = json.dumps({"command": command if isinstance(command, str) else [str(c) for c in command],
                            "cwd": str(cwd) if cwd is not None else None, "env": env, "timeout": timeout,
                            "stdin": stdin, "by_fd": by_fd or None, "stream": stream}).encode()

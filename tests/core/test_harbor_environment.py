@@ -469,6 +469,7 @@ def test_a_real_harbor_environment_runs_the_agents_commands_and_harbors_verifier
         'grep -q "^sleep $1"; }\n'
         'echo "grader key: $GRADER_API_KEY"\n'
         'test -e /tmp/hermit-sign-in && echo "secret-present"\n'
+        'running 777 && echo "777-alive"; stat -c "home-owner:%u" /installed-agent/hermit-home 2>/dev/null\n'
         'echo "stream: $(cat /logs/agent/agent-codex.jsonl 2>&1)"\n'
         'if [ "$(cat /app/answer.txt 2>/dev/null)" = 42 ] && ! running 777 && ! running 666 && running 888 && '
         '! grep -rqs sk-agent-synthetic /logs/agent; then '
@@ -535,8 +536,12 @@ def test_a_real_harbor_environment_runs_the_agents_commands_and_harbors_verifier
                                          f'[environment]\ndocker_image = "{image}"\n')
     local = tmp_path / "x.txt"
     local.write_text("mine")
-    with environments.session(user_task) as env:
+    with environments.session(user_task, installs=[{"home": "/installed-agent/hermit-home"}]) as env:
         assert env.exec(["id", "-u"]).output.strip() == "65534"
+        with pytest.raises(PermissionError):                   # no folder made by root for the agent's request
+            env.upload(local, "/opt/new-root-dir/x.txt", as_agent=True)
+        assert env.exec(["sh", "-c", "test -e /opt/new-root-dir"]).code != 0
+        env.upload(local, "/installed-agent/hermit-home/auth.json", as_agent=True)   # its home: the bridge made it
         env.upload(local, "/opt/hermit-home/x.txt")                              # Hermit's own: given to the user
         assert env.exec(["stat", "-c", "%u", "/opt/hermit-home/x.txt"]).output.strip() == "65534"
         env.download("/etc/shadow", tmp_path / "shadow-root")                    # Hermit's own: root's reach
@@ -550,12 +555,31 @@ def test_a_real_harbor_environment_runs_the_agents_commands_and_harbors_verifier
         env.download("/tmp/agent-own", tmp_path / "back", as_agent=True)
         assert (tmp_path / "back" / "x.txt").read_text() == "mine"
         assert not (tmp_path / "shadow").exists()
+        def sleeps():
+            try:
+                env.exec(["sleep", "777"], timeout=100)
+            except RuntimeError:                       # ended at the phase's end
+                pass
+
+        late = threading.Thread(target=sleeps, daemon=True)
+        late.start()                                   # a command of the non-root agent's, running at the phase's end
+        import time
+        time.sleep(3)
+        verdict = env.verify()
+        late.join(timeout=30)
+    # its processes ended (root finds them by their pid, not by an environment it may not read), its home its own
+    assert "777-alive" not in verdict["feedback"] and "home-owner:65534" in verdict["feedback"], verdict["feedback"]
+    with environments.session(user_task) as env:       # a credential path the agent cannot remove: no verifier
+        env.secret(["/etc/hostname"])
+        verdict = env.verify()
+    assert verdict["status"] == "infra" and (verdict["exception"] or {}).get("type") == "HarborDriverError"
     # Harbor's own agent timeout ends the phase: the command still running is ended (AgentPhaseOver), and the trial
     # runs on to its verifier, its verdict the agent's timeout
     timed = HarborEnvironments({"tasks_dir": str(tmp_path / "tasks"), "jobs_dir": str(tmp_path / "jobs2"),
                                 "disk_gate_gb": 0, "tmp_gate_gb": 0, "agent_timeout_sec": 15}, base=tmp_path)
     with timed.session(task) as env:
         assert env.limits.timeout_s == 13.5                                      # its own budget ends first
+        env.deadline_at = None             # this side's own cap off: Harbor's timeout first, as on an abnormal path
         env.secret(["/tmp/hermit-sign-in"])                                      # a sign-in, registered first
         assert env.exec(["sh", "-c", "echo token > /tmp/hermit-sign-in"]).code == 0
         with pytest.raises(RuntimeError, match="AgentPhaseOver"):                # a CLI still streaming at the end
@@ -1099,6 +1123,7 @@ def test_the_bridge_relays_only_in_its_phase_and_ends_its_commands_before_it_ret
                 os=SimpleNamespace(value="linux")), verifier=SimpleNamespace(environment_mode=None))
             return SimpleNamespace(task=SimpleNamespace(config=config), paths=paths, agent_timeout_sec=60,
                                    agent_setup_timeout_sec=60, verifier_timeout_sec=60,
+                                   environment_build_timeout_sec=600,
                                    _network_plan=lambda step: plan)
 
         class Out:
@@ -1106,7 +1131,7 @@ def test_the_bridge_relays_only_in_its_phase_and_ends_its_commands_before_it_ret
             def flush(self): pass
 
         async def held(d):                              # an exec of the agent's still running: a client, a mark
-            drv.CLIENT_KIND.set("agent")
+            drv.CLIENT_KIND.set("agent:exec")
             task = asyncio.current_task(); d.agent_ops[task] = "exec"; d.running.add("m1")
             client = await asyncio.create_subprocess_exec("sleep", "30")
             try:
@@ -1128,7 +1153,7 @@ def test_the_bridge_relays_only_in_its_phase_and_ends_its_commands_before_it_ret
                 started = await d.phase_started
                 op = asyncio.create_task(held(d))
                 await asyncio.sleep(0.3)
-                client = [p for p in drv.CLIENTS if drv.CLIENTS[p] == "agent"][-1]
+                client = [p for p in drv.CLIENTS if drv.CLIENTS[p].startswith("agent")][-1]
                 try:
                     if how == "timeout":                 # Harbor's wait_for cancels the run at the agent timeout
                         run.cancel()
@@ -1444,7 +1469,14 @@ def test_the_answer_agents_fd_retries_attachments_and_http_refusals(tmp_path, mo
             Path(target).write_bytes(b"\x89PNG")
             return Path(target)
 
-    env = Env(tmp_path, lambda c: ExecResult(0, "/app/a.png\n/app/a.png\n"))
+    def answer(c):                                  # the listing, then the image measured and read there
+        if "wc -c" in c[-1]:
+            return ExecResult(0, "4\n")
+        if "base64" in c[-1]:
+            return ExecResult(0, "iVBORw==")
+        return ExecResult(0, "/app/a.png\n/app/a.png\n")
+
+    env = Env(tmp_path, answer)
     agent = answer_mod.AnswerAgent({"model": {"base_url": "https://x", "model": "m", "max_retries": 0},
                                     "attachments": ["/app/*.png", "/app/a.png"], "logs": str(tmp_path / "l")},
                                    tmp_path)
@@ -1748,9 +1780,11 @@ def test_a_cli_agent_declares_what_harbors_setup_installs_and_the_phase_installs
     from hermit.agent.acting.agent import Agent
     assert Agent().installs(None) == []                                      # an agent that needs nothing
     codex = CliAgent({"backend": "codex", "version": "0.162.0"}, tmp_path).installs(None)
-    assert codex[0]["agent"] == "codex" and codex[0]["version"] == "0.162.0" and "command -v codex" in codex[0]["probe"]
+    assert codex[0] == {"home": "/installed-agent/hermit-home"}            # its home, made by the bridge
+    assert codex[1]["agent"] == "codex" and codex[1]["version"] == "0.162.0" and "command -v codex" in codex[1]["probe"]
     mounted = CliAgent({"backend": "claude", "bin": "/opt/claude"}, tmp_path).installs(None)
-    assert mounted == [{"agent": "claude-code", "version": None, "bin": "/opt/claude", "program": "claude"}]
+    assert mounted == [{"home": "/installed-agent/hermit-home"},
+                       {"agent": "claude-code", "version": None, "bin": "/opt/claude", "program": "claude"}]
     environments, _, _ = harbor
     with environments.session(environments.task_dir({"harbor_task": "demo"}), installs=codex) as env:
         sent = [json.loads(line) for line in (tmp_path / "requests.jsonl").read_text().splitlines()]
@@ -2079,7 +2113,7 @@ def test_the_driver_stops_unblocked_kills_cancelled_clients_and_keeps_a_verdict_
             async def raising(): raise OSError(28, "No space left on device")
             d.run_task = asyncio.ensure_future(raising()); await asyncio.sleep(0)
             base = Path({str(tmp_path)!r})
-            paths = SimpleNamespace(trial_dir=base / "t", result_path=base / "none",
+            paths = SimpleNamespace(trial_dir=base / "t", result_path=base / "none", agent_dir=base / "t" / "agent",
                                     verifier_dir=Path({str(tmp_path)!r}) / "v")
             paths.trial_dir.mkdir()
             d.trial = SimpleNamespace(paths=paths, result=Result(), task=SimpleNamespace(config=None))
@@ -2116,12 +2150,12 @@ def test_round_6_hermit_side(tmp_path, monkeypatch):
     assert kept["status"] == "timeout"
     with pytest.raises(ValueError, match="verifier.disable"):
         HarborEnvironments({**harbor_settings, "verifier": {"disable": True}}, base=tmp_path)
-    assert installs({"backend": "claude-code"}, None)[0]["agent"] == "claude-code"
+    assert installs({"backend": "claude-code"}, None)[1]["agent"] == "claude-code"
     bad = tmp_path / "bad"
     (bad / ".hermit").mkdir(parents=True)
     (bad / ".hermit" / "adapter.yaml").write_text("template: {id: bad, version: '1'}\nstructure: {}\n")
     (bad / "exports.yaml").write_text("context: [unclosed\n")
-    assert installs({"backend": "codex"}, bad)[0]["agent"] == "codex"
+    assert installs({"backend": "codex"}, bad)[1]["agent"] == "codex"
     monkeypatch.setenv("HERMIT_HOMES", str(tmp_path / "homes"))
 
     class Cut(Recorded):
@@ -2162,10 +2196,16 @@ def test_eval_checks_the_sign_in_before_it_replaces_results(tmp_path, monkeypatc
     from hermit.agent.base import login
     from hermit.config import Config
     folder = Path(__file__).resolve().parents[2] / "examples" / "terminal_bench_2_0" / "baseline"
-    run = yaml.safe_load((folder / "claude.yaml").read_text())
-    run["data"] = {k: str((folder / v).resolve()) for k, v in run["data"].items()}
-    run["task_info"] = str((folder / run["task_info"]).resolve())
-    run["environment"]["harbor"]["benchmark"] = str((folder / run["environment"]["harbor"]["benchmark"]).resolve())
+    run = yaml.safe_load((folder / "claude.yaml").read_text())          # the migrated config, its data the test's
+    (tmp_path / "tasks" / "t1").mkdir(parents=True)
+    (tmp_path / "tasks.jsonl").write_text('{"id": "t1#1", "harbor_task": "t1"}\n')
+    (tmp_path / "split.txt").write_text("t1#1\n")
+    (tmp_path / "info").mkdir()
+    (tmp_path / "info" / "README.md").write_text("A task set of the test's.\n")
+    run["data"] = {"tasks": str(tmp_path / "tasks.jsonl"), "train": str(tmp_path / "split.txt"),
+                   "test": str(tmp_path / "split.txt")}
+    run["task_info"] = str(tmp_path / "info")
+    run["environment"]["harbor"] = {"tasks_dir": str(tmp_path / "tasks")}
     run["trainer"] = {**run.get("trainer", {}), "output_dir": str(tmp_path / "runs")}
     (tmp_path / "run.yaml").write_text(yaml.safe_dump(run))
     config = Config.load(tmp_path / "run.yaml", [])
@@ -2241,3 +2281,163 @@ def test_the_cli_runs_the_installed_program_when_the_mounted_one_did_not_serve_a
         "hi", environment=claude_env)
     session = next(c for c in claude_env.calls if session_of(c["command"]))
     assert "FAKE_KEY" not in session["env"]                       # its key in its own variable (session_env)
+
+
+# ---- review round 7 ----------------------------------------------------------------------------------------------
+
+@pytest.mark.skipif(not HARBOR_PYTHON.exists(), reason="needs Harbor's venv (~/.cache/hermit/harbor-venv)")
+def test_an_unfinished_phase_end_fails_the_trial_and_commands_stop_before_transfers_drain(tmp_path):
+    """The phase's end past its bound is HarborDriverError (never a timeout Harbor would verify after); a command
+    still running is killed as the phase closes, before a pending transfer is let finish."""
+    script = tmp_path / "probe.py"
+    script.write_text(textwrap.dedent(f"""
+        import asyncio, importlib.util, sys
+        from pathlib import Path
+        from types import SimpleNamespace
+        spec = importlib.util.spec_from_file_location("drv", {str(DRIVER_FILE)!r})
+        drv = importlib.util.module_from_spec(spec); sys.modules["drv"] = drv; spec.loader.exec_module(drv)
+
+        async def main():
+            out = []
+            d = drv.Driver(None)
+            async def hangs(): await asyncio.sleep(60)
+            d._end_phase = hangs                         # a kill or a removal that hangs
+            drv.END_PHASE_S = 0.2
+            try:
+                await d._close_phase(False)
+                out.append("returned")
+            except drv.HarborDriverError:
+                out.append("raised")
+            events = []
+            class Env:
+                async def exec(self, command, cwd=None, user=None, **kw):
+                    events.append("kill")
+                    return SimpleNamespace(return_code=0, stdout="", stderr="")
+            d3 = drv.Driver(None)
+            d3.env = Env()
+            d3.trial = SimpleNamespace(paths=SimpleNamespace(agent_dir=Path({str(tmp_path)!r}) / "b"))
+            async def command(): await asyncio.sleep(60)
+            async def transfer():
+                await asyncio.sleep(0.5)
+                events.append("transfer done")
+            c, t = asyncio.create_task(command()), asyncio.create_task(transfer())
+            d3.agent_ops = {{c: "exec", t: "upload"}}
+            d3.running.add("m1")
+            drv.END_PHASE_S = 10
+            await d3._end_phase()
+            out.append(events[0])
+            print("RESULT", out)
+        asyncio.run(main())
+    """))
+    done = subprocess.run([str(HARBOR_PYTHON), "-I", str(script)], capture_output=True, text=True, timeout=120)
+    line = next((x for x in done.stdout.splitlines() if x.startswith("RESULT")), done.stdout + done.stderr)
+    assert line == "RESULT " + str(["raised", "kill"]), line
+
+
+def test_round_7_hermit_side(harbor, tmp_path, monkeypatch):
+    """The driver never sees an ambient credential the run dropped; a stop Harbor acknowledged with its projects
+    still there takes them down by name; every command's time comes off the phase's absolute deadline; the start's
+    and a separate verifier's watchdogs follow Harbor's own budgets; eval checks the acting agent's sign-in only."""
+    import time
+    environments, root, calls = harbor
+    seen = {}
+    original = harbor_mod._Driver
+
+    def capture(python, log_path, env):
+        seen.update(env)
+        return original(python, log_path, env)
+
+    monkeypatch.setattr(harbor_mod, "_Driver", capture)
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "ambient-token")
+    environments.drop_env = {"CLAUDE_CODE_OAUTH_TOKEN"}
+    monkeypatch.setattr(harbor_mod.docker, "compose_projects", lambda prefix: [prefix + "__env"])
+    task = environments.task_dir({"harbor_task": "demo"})
+    with environments.session(task) as env:
+        env.deadline_at = time.time() + 5
+        env.exec(["true"], timeout=100)
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in seen
+    sent = [json.loads(line) for line in (tmp_path / "requests.jsonl").read_text().splitlines()]
+    assert next(r for r in sent if r["op"] == "exec")["timeout_sec"] <= 5
+    assert calls["down"]                                       # Harbor's down failed: by name
+    (task / "task.toml").write_text('[environment]\ndocker_image = "demo:1"\nbuild_timeout_sec = 1800\n')
+    scaled = HarborEnvironments({"tasks_dir": str(tmp_path / "tasks"), "harbor": sys.executable,
+                                 "environment_build_timeout_multiplier": 3}, base=tmp_path)
+    assert scaled.start_timeout(task) == 1800 * 3 + harbor_mod.SETUP_TIMEOUT_S + harbor_mod.START_ALLOWANCE_S
+    from hermit import evaluate as evaluate_mod
+    from hermit.agent.base import login
+    monkeypatch.setattr(login, "logins_of", lambda d: [("llm", "claude", None, False, None),
+                                                       ("agent", "chatgpt", None, True, None)])
+    monkeypatch.setattr(login, "problems_of", lambda *a: [f"no {a[0]}"])
+    assert evaluate_mod.sign_in_problems({}) == ["agent: no chatgpt"]          # never the learner's
+
+
+def test_a_separate_verifiers_watchdog_includes_its_start_and_a_timed_out_rollout_keeps_its_stream(harbor, tmp_path):
+    from hermit.task import Task
+    from hermit.trainer import rollout
+    environments, _, _ = harbor
+    asked = []
+    with environments.session(environments.task_dir({"harbor_task": "demo"})) as env:
+        env.started.update(verifier_timeout_sec=60.0, verifier_mode="separate", build_timeout_sec=2700.0)
+        original = env.driver.request
+        env.driver.request = lambda op, timeout, **f: asked.append((op, timeout)) or original(op, timeout, **f)
+        env.verify()
+    assert ("done", 60.0 + 2700.0 + harbor_mod.VERIFY_ALLOWANCE_S) in asked
+    kept = tmp_path / "trial-agent"
+    kept.mkdir()
+    timed = Environments(tmp_path, verdicts=[{"reward": 0.0, "rewards": {"reward": 0.0}, "status": "timeout",
+                                              "failure_cause": "agent_exhausted_budget", "passed": False,
+                                              "feedback": "", "agent_dir": str(kept)}])
+
+    def phase_over(task, adapter, environment=None):
+        raise RuntimeError("AgentPhaseOver: exec: the agent's phase ended")
+
+    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
+    out = rollout.environment_rollout(task, task.given(), None, phase_over, timed, 0.0, pause=lambda s: None)
+    assert Path(out.log) == kept                                   # the stream the bridge kept, for the learner
+
+
+def test_a_pipeline_error_on_a_run_again_keeps_what_the_runs_before_it_spent(tmp_path):
+    from hermit.task import Task
+    from hermit.trainer import rollout
+    runs = []
+
+    def pipeline(task, adapter, environment=None):
+        runs.append(1)
+        if len(runs) == 1:
+            return RunOutput(output=None, tokens=2200, cost_usd=0.1, api_speed={"model_calls": 1},
+                             extra={"infra": "model_provider_failed", "infra_final": False, "exception_message": "x"})
+        raise KeyError("a bug of the agent's own")
+
+    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
+    record = rollout.environment_rollout(task, task.given(), None, pipeline, Environments(tmp_path), 0.0,
+                                         pause=lambda s: None)
+    assert record["status"] == "error" and record["tokens"] == 2200 and record["cost_usd"] is None
+    assert record["api_speed"]["model_calls"] == 1 and record["pipeline_extra"]["attempts"]
+
+
+def test_an_attachment_over_the_limit_is_measured_there_and_never_read(tmp_path, monkeypatch):
+    from hermit.agent.acting import answer as answer_mod
+    from hermit.agent.model.usage import Usage
+    asked = []
+
+    class Model:
+        model = "m"
+
+        def chat(self, messages, **kwargs):
+            asked.append(messages)
+            return {"role": "assistant", "content": "B"}, Usage(model="m", calls=1)
+
+    monkeypatch.setattr(answer_mod.ChatClient, "from_spec", staticmethod(lambda spec: Model()))
+
+    def answer(c):
+        if "wc -c" in c[-1]:
+            return ExecResult(0, f"{answer_mod.MAX_ATTACHMENT_BYTES + 1}\n")
+        if "base64" in c[-1]:
+            raise AssertionError("an image over the limit is never read")
+        return ExecResult(0, "/app/big.png\n")
+
+    env = Recorded(tmp_path, answer)
+    env.instruction = "Which?"
+    answer_mod.AnswerAgent({"model": {"base_url": "https://x", "model": "m"}, "logs": str(tmp_path / "l"),
+                            "attachments": ["/app/*.png"]}, tmp_path).run({"id": "q"}, None, environment=env)
+    assert isinstance(asked[0][-1]["content"], str)                 # sent without it

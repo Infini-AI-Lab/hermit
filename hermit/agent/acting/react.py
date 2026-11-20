@@ -40,6 +40,7 @@ from typing import Callable
 from hermit.adapter.session import Session
 from hermit.agent.acting.agent import Agent
 from hermit.agent.acting.tools import MARK, as_tools, load_tools, tool   # noqa: F401 (tool: for subclasses)
+from hermit.agent.base.deadline import Deadline
 from hermit.agent.base.react import React
 from hermit.agent.model.usage import Ledger
 from hermit.agent.base.tool import Tool
@@ -225,7 +226,8 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, agent: Reac
     place = agent.environment
     bounded = None
     if place is not None and getattr(place, "limits", None) is not None and place.limits.timeout_s:
-        bounded = Bounded(client, place.limits.timeout_s)
+        at = getattr(place, "deadline_at", None)         # the phase's own absolute deadline, when it has one
+        bounded = Deadline(at).bound(client) if at else Bounded(client, place.limits.timeout_s)
         loop_agent.model = bounded
         place = place.with_limits(dataclasses.replace(place.limits, timeout_s=None))
     loop = loop_agent.start(messages, environment=place, tools=tools)
