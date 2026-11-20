@@ -109,8 +109,9 @@ class AdapterDomain(Domain):
         `run_agent` reports as timed out."""
         out = result.get("output") if isinstance(result.get("output"), dict) else {}
         outcome = result.get("outcome") if isinstance(result.get("outcome"), dict) else {}   # a Harbor environment's
-        return ("status" in out and out.get("status") != "ok") or bool(result.get("timed_out")) or \
-            outcome.get("status") not in (None, "ok")
+        if outcome:                     # the rollout's own word, never what an agent's output happens to carry
+            return outcome.get("status") not in (None, "ok") or bool(result.get("timed_out"))
+        return ("status" in out and out.get("status") != "ok") or bool(result.get("timed_out"))
 
     def halted_result(self, result: dict) -> bool:
         """Whether a smoke rollout was refused for a reason outside the candidate (a plan's usage limit): the

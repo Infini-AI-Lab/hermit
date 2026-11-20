@@ -105,6 +105,42 @@ class AnswerAgent(Agent):
         except ChatHTTPError as exc:
             reply, timed_out = self._refused(exc), False
         answer = self.answer(reply.reply)
+        # what the call spent, as soon as it answered: kept through a delivery that fails
+        usage = Ledger(getattr(client, "model", "")).add(reply.usage).unreported(
+            caller.abandoned if budget else 0).total()
+        try:
+            timed_out = self._deliver(environment, answer, caller, budget, timed_out)
+        except Exception as exc:                         # noqa: BLE001 - the environment's: infra, its spend kept
+            message = f"{type(exc).__name__}: {exc}"[-2000:]
+            if "AgentPhaseOver" in message:              # Harbor ended the phase: the trial's verdict, not infra
+                raise
+            return RunOutput(output=None, cost_usd=usage.cost_usd, wall_s=round(time.time() - started, 1),
+                             tokens=usage.input_tokens + usage.output_tokens, api_speed={"model_calls": usage.calls},
+                             extra={"infra": "harbor_failed", "infra_final": False, "exception_message": message})
+        # the run's log, a folder: the session's own record, and answer.json as the runner's answer agent published it
+        # in the agent logs (a verifier may read it, answer_file null or not), handed to the trial with the verdict
+        log = Path(tempfile.mkdtemp(prefix=f"{task.get('id', 'task')}-", dir=self.log_dir()))
+        shown = [{**m, "content": question if isinstance(m["content"], list) else m["content"]} for m in messages]
+        (log / "session.json").write_text(json.dumps({"task": task.get("id"), "model": model["model"],
+                                                      "messages": shown, "attachments": named, "reply": reply.reply,
+                                                      "answer": answer}, ensure_ascii=False, indent=1),
+                                          encoding="utf-8")
+        (log / "answer.json").write_text(json.dumps(
+            {"reply": reply.reply, "answer": answer, "usage": {"prompt_tokens": usage.input_tokens,
+                                                               "completion_tokens": usage.output_tokens},
+             "model": model["model"], "attachments": named}, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        extra = {"attachments": named, **({"timed_out": True} if timed_out else {})}
+        if record is not None:
+            extra["context_tool"] = record
+        return RunOutput(output={"answer": answer, "reply": reply.reply}, log=log, cost_usd=usage.cost_usd,
+                         wall_s=round(time.time() - started, 1), tokens=usage.input_tokens + usage.output_tokens,
+                         api_speed={"model_calls": usage.calls},
+                         messages=[*shown, {"role": "assistant", "content": reply.reply}], extra=extra)
+
+    def _deliver(self, environment, answer: str, caller, budget, timed_out: bool) -> bool:
+        """The answer written where the verifier reads it (answer_file), whole within the budget or not at all;
+        whether the budget ran out."""
+        p = self.params
         answer_file = None if "answer_file" in p and p["answer_file"] is None else p.get("answer_file") or ANSWER_FILE
         timed_out = timed_out or bool(budget and caller.expired)
         if environment is not None and answer_file and not timed_out:
@@ -125,27 +161,7 @@ class AnswerAgent(Agent):
                     elif done.code != 0:
                         raise RuntimeError(f"the task's environment did not provide {answer_file} for the answer: "
                                            f"{done.output[-300:]}")
-        # the run's log, a folder: the session's own record, and answer.json as the runner's answer agent published it
-        # in the agent logs (a verifier may read it, answer_file null or not), handed to the trial with the verdict
-        log = Path(tempfile.mkdtemp(prefix=f"{task.get('id', 'task')}-", dir=self.log_dir()))
-        shown = [{**m, "content": question if isinstance(m["content"], list) else m["content"]} for m in messages]
-        (log / "session.json").write_text(json.dumps({"task": task.get("id"), "model": model["model"],
-                                                      "messages": shown, "attachments": named, "reply": reply.reply,
-                                                      "answer": answer}, ensure_ascii=False, indent=1),
-                                          encoding="utf-8")
-        usage = Ledger(getattr(client, "model", "")).add(reply.usage).unreported(
-            caller.abandoned if budget else 0).total()
-        (log / "answer.json").write_text(json.dumps(
-            {"reply": reply.reply, "answer": answer, "usage": {"prompt_tokens": usage.input_tokens,
-                                                               "completion_tokens": usage.output_tokens},
-             "model": model["model"], "attachments": named}, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
-        extra = {"attachments": named, **({"timed_out": True} if timed_out else {})}
-        if record is not None:
-            extra["context_tool"] = record
-        return RunOutput(output={"answer": answer, "reply": reply.reply}, log=log, cost_usd=usage.cost_usd,
-                         wall_s=round(time.time() - started, 1), tokens=usage.input_tokens + usage.output_tokens,
-                         api_speed={"model_calls": usage.calls},
-                         messages=[*shown, {"role": "assistant", "content": reply.reply}], extra=extra)
+        return timed_out
 
     def question(self, task: dict, environment) -> str:
         """The instruction file of the environment (waited for), else the task's prompt-like field."""
@@ -194,12 +210,15 @@ class AnswerAgent(Agent):
                 print(f"WARNING: {path} is over {MAX_ATTACHMENT_BYTES} bytes: it is not sent", file=sys.stderr,
                       flush=True)
                 continue
-            data = environment.exec(["sh", "-c", f"base64 < {quoted} | tr -d '\\n'"], timeout=120)
-            if data.code != 0:
+            data = environment.exec(["sh", "-c", f"base64 < {quoted}"], timeout=120)     # its own exit decides
+            encoded = "".join(data.output.split())
+            try:
+                image = base64.b64decode(encoded, validate=True)
+            except ValueError:
+                image = b""
+            if data.code != 0 or len(image) != int(size.output.split()[-1]):   # the bytes measured, or a failure
                 raise RuntimeError(f"the task's environment did not provide the attachment {path}: "
                                    f"{data.output[-300:]}")
-            encoded = "".join(data.output.split())
-            base64.b64decode(encoded, validate=True)    # the image's bytes, or the attachment's failure
             urls.append(f"data:{kind};base64,{encoded}")
             named.append(path)
         return urls, named

@@ -375,6 +375,11 @@ def installs(params: dict, adapter: Path | None) -> list[dict]:
     if backend in REMOTE_INSTALL:                            # its home there: made by the bridge, the agent user's
         from hermit.agent.base.cli import REMOTE_HOME
         out.append({"home": str(params.get("remote_home") or REMOTE_HOME)})
+        # what the deployment puts in the workspace (the runner's _deploy provisioned these and gave them to the agent
+        # user): the bridge provisions an upload to these names, and only to these, as root
+        names = [CONTEXT_FILES.get(backend), "hermit", ".codex" if backend == "codex" else ".claude",
+                 *(Path(str(f)).name for f in params.get("files") or [])]
+        out.append({"deploy": [n for n in names if n]})
     if params.get("bin") and backend in REMOTE_INSTALL:      # a mounted binary: used when it serves, else installed
         out.append({"agent": REMOTE_INSTALL[backend], "version": params.get("version"), "bin": str(params["bin"]),
                     "program": backend})

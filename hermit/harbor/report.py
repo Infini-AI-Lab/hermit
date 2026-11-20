@@ -120,7 +120,9 @@ def kind(row: dict) -> str:
     """scored, infra or failed (the module's docstring)."""
     output = row.get("output") if isinstance(row.get("output"), dict) else {}
     outcome = row.get("outcome") if isinstance(row.get("outcome"), dict) else {}
-    if output.get("status") == "infra" or outcome.get("status") == "infra":   # a rollout that stayed infra
+    # a rollout that stayed infra: its outcome when the row has one (an agent's own output may carry any status);
+    # output.status for a row of the retired runner's
+    if (outcome.get("status") if outcome else output.get("status")) == "infra":
         return "infra"
     if row.get("status") == "ok":
         return "scored"

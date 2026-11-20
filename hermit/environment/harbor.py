@@ -1,5 +1,5 @@
 """A task's own Harbor environment, as a Hermit environment: Harbor gives the task's data, its environment and its
-verifier; the agent working in it is Hermit's (docs/framework/task.md#harbor-environments).
+verifier; the agent working in it is Hermit's (docs/framework/task.md#benchmarks).
 
     environments = HarborEnvironments(settings, base=folder)    # the run's: its settings, disk gate and cleanup
     with environments.session(task_dir, name) as env:           # started (the disk gate first), stopped after
@@ -176,7 +176,8 @@ class HarborEnvironments:
                              f"not {self.cleanup!r}")
         env_config = s.get("environment") if isinstance(s.get("environment"), dict) else {}
         # a local Docker environment Harbor deletes after the trial (a kept one, delete false, is left as it is)
-        self.local_docker = env_config.get("type") in (None, "docker") and env_config.get("delete", True) is not False
+        self.local_docker = env_config.get("type") in (None, "docker") and env_config.get("delete", True) is not False \
+            and not (env_config.get("kwargs") or {}).get("keep_containers")   # Harbor told to keep them: kept
         self.verifier_timeout = str(s.get("verifier_timeout") or "agent")
         if self.verifier_timeout not in VERIFIER_TIMEOUTS:
             raise ValueError(f"environment.harbor.verifier_timeout is agent or infra, not {self.verifier_timeout!r}")
@@ -187,6 +188,10 @@ class HarborEnvironments:
             (None if s["pass_reward"] is None else float(s["pass_reward"]))
         self.reward_key = str(s.get("reward_key") or "reward")
         self.redactions = self._redactions(s.get("verifier_redact"))
+        missing = [v for v in re.findall(r"\$\{(\w+)", json.dumps((s.get("verifier") or {}).get("env") or {}))
+                   if v not in os.environ]
+        if missing:                                      # Harbor would resolve them as the verifier starts, and fail
+            raise ValueError(f"environment.harbor.verifier.env names {', '.join(sorted(set(missing)))}, not set here")
         if (s.get("verifier") or {}).get("disable"):
             raise ValueError("environment.harbor.verifier.disable: a disabled verifier gives no reward, so every "
                              "rollout would be infra and run again; a Harbor task set is scored by its verifier")
@@ -407,6 +412,11 @@ class HarborEnvironments:
         read = errors.verifier_timeout_verdict(read, self.verifier_timeout)
         logs = Path(verified.get("verifier_dir") or "") if verified.get("verifier_dir") else None
         read = errors.verifier_verdict(read, logs, self.redactions)
+        if exception and read["status"] == "agent_error" and read["failure_cause"] == "unclassified" and \
+                not (logs is not None and (logs / "test-stdout.txt").is_file()):
+            # an exception Harbor raised before the verifier's tests ran (a variable it could not resolve, its
+            # preparation): not the agent's result; a reward missing or unreadable after the tests ran stays graded
+            read = {**read, "status": "infra", "failure_cause": "verifier_failed"}
         feedback = ""
         for name in ("feedback.txt", "test-stdout.txt"):
             if logs is not None and (logs / name).is_file() and not (logs / name).is_symlink():
@@ -414,7 +424,9 @@ class HarborEnvironments:
                 break
         passed = None if self.pass_reward is None else (reward is not None and reward >= self.pass_reward)
         return {"reward": reward, "rewards": rewards, "status": read["status"], "failure_cause": read["failure_cause"],
-                "passed": passed, "exception": exception,
+                "passed": passed,
+                "exception": {**exception, "message": self.redact(str(exception.get("message") or ""))}
+                if exception else None,
                 "exception_message": self.redact(str(read["exception_message"] or "")),
                 "feedback": feedback, "verifier_dir": verified.get("verifier_dir"),
                 "agent_dir": verified.get("agent_dir"),
@@ -605,9 +617,12 @@ class HarborEnvironment(Environment):
         self.setup_budget_s = float(started.get("setup_timeout_sec") or 0) + SETUP_ALLOWANCE_S
         budget = started.get("agent_timeout_sec")
         if budget:                                       # ends before Harbor's timeout, its logs delivered first
-            budget = float(budget) - min(DELIVERY_MARGIN_S, float(budget) * 0.1)
-            # one absolute deadline from the phase's start: every command's time and an agent's whole run come off it
-            self.deadline_at = time.time() + budget
+            margin = min(DELIVERY_MARGIN_S, float(budget) * 0.1)
+            budget = float(budget) - margin
+            # one absolute deadline from the phase's start as the bridge saw it begin (Harbor's timer): every command's
+            # time and an agent's whole run come off it
+            epoch = started.get("deadline_epoch")
+            self.deadline_at = (float(epoch) - margin) if epoch else time.time() + budget
         self.limits = Limits(readable=self.limits.readable, hidden=self.limits.hidden, network=self.limits.network,
                              timeout_s=float(budget) if budget else self.limits.timeout_s)
         return self
@@ -660,7 +675,7 @@ class HarborEnvironment(Environment):
         return PurePosixPath(self.workspace, *parts)
 
     def exec(self, command, *, cwd=None, env=None, timeout=None, stdin=None, user=None, by_fd=None,
-             stream: str | None = None) -> ExecResult:
+             stream: str | None = None, secret_env=()) -> ExecResult:
         """A command in the task's main container (Environment.exec). `by_fd` ({a variable of `env`: the variable that
         names its descriptor}): each such secret reaches the command on a descriptor instead, out of every process's
         environment there (the driver's container_prologue). `stream`, a log name: the command's output is kept as it
@@ -676,7 +691,8 @@ class HarborEnvironment(Environment):
         reply = self._operate("exec", None if timeout is None else float(timeout) + 300, command=line,
                               cwd=str(self.path(cwd or "")), env={str(k): str(v) for k, v in (env or {}).items()},
                               timeout_sec=timeout, stdin=stdin, user=user, by_fd=dict(by_fd or {}),
-                              **({"stream": str(stream)} if stream else {}))
+                              **({"stream": str(stream)} if stream else {}),
+                              **({"secret_env": [str(n) for n in secret_env]} if secret_env else {}))
         return ExecResult(code=int(reply.get("code", -1)), output=str(reply.get("output") or ""),
                           timed_out=bool(reply.get("timed_out")))
 

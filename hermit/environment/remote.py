@@ -136,8 +136,11 @@ class EnvironmentServer:
 
     def exec(self, request: dict) -> dict:
         extra = {"by_fd": request["by_fd"]} if request.get("by_fd") else {}
-        if request.get("stream") and "stream" in inspect.signature(self.environment.exec).parameters:
+        accepts = inspect.signature(self.environment.exec).parameters
+        if request.get("stream") and "stream" in accepts:
             extra["stream"] = request["stream"]
+        if request.get("secret_env") and "secret_env" in accepts:
+            extra["secret_env"] = request["secret_env"]
         result = self.environment.exec(request["command"], cwd=request.get("cwd"), env=request.get("env"),
                                        timeout=request.get("timeout"), stdin=request.get("stdin"), **extra)
         return {"code": result.code, "output": result.output, "timed_out": result.timed_out}
@@ -220,7 +223,7 @@ class ProxyEnvironment(Environment):
         return PurePosixPath(self.workspace, *parts)
 
     def exec(self, command, *, cwd=None, env=None, timeout=None, stdin=None, by_fd=None,
-             stream: str | None = None) -> ExecResult:
+             stream: str | None = None, secret_env=()) -> ExecResult:
         if self.limits.readable or self.limits.hidden or self.limits.network is not None:
             raise Unsupported("a task's own environment takes no readable mounts, hidden paths or network limits of "
                               "Hermit's (its task.toml says what it reaches): refused, never ignored")
@@ -231,7 +234,8 @@ class ProxyEnvironment(Environment):
             timeout = min(float(timeout), left) if timeout else left
         body = json.dumps({"command": command if isinstance(command, str) else [str(c) for c in command],
                            "cwd": str(cwd) if cwd is not None else None, "env": env, "timeout": timeout,
-                           "stdin": stdin, "by_fd": by_fd or None, "stream": stream}).encode()
+                           "stdin": stdin, "by_fd": by_fd or None, "stream": stream,
+                           "secret_env": list(secret_env) or None}).encode()
         reply = self._post("exec", body, timeout=None if timeout is None else float(timeout) + 600)
         return ExecResult(code=int(reply["code"]), output=str(reply.get("output") or ""),
                           timed_out=bool(reply.get("timed_out")))

@@ -50,6 +50,7 @@ import os
 from pathlib import Path
 import shlex
 import shutil
+import stat
 import sys
 import tempfile
 import time
@@ -108,18 +109,27 @@ APT_REPAIR = ("if grep -qs 'VERSION_CODENAME=bullseye' /etc/os-release && comman
               "apt-get update; fi")
 
 
+TOKEN = "hermit-mark-"                  # each agent command's own word on its command line (bash's $0): world-readable
+
+
 def kill_marked(mark: str) -> str:
-    """A shell line (run as root) that kills the command `mark` (its pid, which it wrote at its start: root may not
-    read another user's environment without CAP_SYS_PTRACE), every process whose environment holds `MARK=<mark...>`
-    and every process below those, whatever environment it was started with (one that cleared its variables loses
-    the mark, never its parent): found through /proc, no `ps` needed."""
-    return (f"roots=$(cat /tmp/hermit-pid-{mark} 2>/dev/null | tr -cd '0-9 '); for p in /proc/[0-9]*; do "
+    """A shell line that kills the agent command `mark` and everything below it, confirmed (exit 0: none of them left
+    but as a zombie). Its roots are the processes whose command line holds TOKEN+mark (the command's `timeout` and
+    bash, as the bridge started them: /proc/<pid>/cmdline, readable by anyone, so root finds another user's command
+    without reading its environment, which needs CAP_SYS_PTRACE) and those whose environment holds MARK=mark (what
+    the command started, which keeps the variable though it left the tree; readable as root for root's and as the
+    agent user for its own); every process below a root follows (/proc/<pid>/stat). No file the agent may write is
+    read. Run as root and as the agent user (`_kill`)."""
+    # the word put together at run time: this line's own command line never holds it whole
+    return (f"t='{TOKEN[:-1]}'; t=\"$t-{mark}\"; roots=''; for p in /proc/[0-9]*; do "
+            "c=$(tr '\\0' ' ' < $p/cmdline 2>/dev/null); case \"$c\" in *\"$t\"*) roots=\"$roots ${p#/proc/}\"; "
+            "continue;; esac; "
             f"tr '\\0' '\\n' < $p/environ 2>/dev/null | grep -q '^{MARK}={mark}' && roots=\"$roots ${{p#/proc/}}\"; "
-            "done; all=$roots; todo=$roots; while [ -n \"$todo\" ]; do next=''; for p in /proc/[0-9]*; do "
+            "done; self=$$; roots=$(for r in $roots; do [ \"$r\" != \"$self\" ] && echo $r; done); "
+            "all=$roots; todo=$roots; while [ -n \"$todo\" ]; do next=''; for p in /proc/[0-9]*; do "
             "s=$(cat $p/stat 2>/dev/null) || continue; s=${s##*) }; set -- $s; for q in $todo; do "
             "[ \"$2\" = \"$q\" ] && next=\"$next ${p#/proc/}\"; done; done; all=\"$all $next\"; todo=$next; done; "
             "[ -n \"$all\" ] && kill -9 $all 2>/dev/null; "
-            # confirmed: none of them left but as a zombie, within 5 s; else exit 1 (the caller's failure)
             "n=0; while [ $n -lt 25 ]; do left=; for q in $all; do "
             "st=$(sed -n 's/^State:[[:space:]]*\\([A-Za-z]\\).*/\\1/p' /proc/$q/status 2>/dev/null); "
             "[ -n \"$st\" ] && [ \"$st\" != Z ] && left=1; done; [ -z \"$left\" ] && exit 0; "
@@ -206,8 +216,17 @@ def safe_copy(source: Path, target: Path, secrets=()) -> None:
         if path.is_symlink():                            # a link is copied as the link it is
             os.symlink(os.readlink(path), temp, dir_fd=parent)
         else:
+            # a regular file only, opened without blocking (a named pipe, a device: left out, as the runner's curator
+            # left them), never through a link
+            try:
+                src = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+            except OSError:
+                return
+            if not stat.S_ISREG(os.fstat(src).st_mode):
+                os.close(src)
+                return
             fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=parent)
-            with os.fdopen(fd, "wb") as out, open(path, "rb") as given:
+            with os.fdopen(fd, "wb") as out, os.fdopen(src, "rb") as given:
                 if secrets:                              # the agent's credentials never reach the verifier's folder
                     out.write(scrubbed(given.read(), secrets))
                 else:
@@ -253,8 +272,9 @@ _spawn = asyncio.create_subprocess_exec
 
 
 async def _tracked_spawn(*args, **kwargs):
-    process = await _spawn(*args, **kwargs)
-    for known in [p for p in CLIENTS if p.returncode is not None]:
+    kwargs.setdefault("start_new_session", True)       # its own process group: docker and its compose plugin, ended
+    process = await _spawn(*args, **kwargs)             # together
+    for known in [p for p in CLIENTS if p.returncode is not None and not group_alive(p)]:
         CLIENTS.pop(known, None)
     CLIENTS[process] = CLIENT_KIND.get()
     return process
@@ -270,25 +290,50 @@ async def _communicate_or_kill(self, input=None):
     try:
         return await _communicate(self, input)
     except asyncio.CancelledError:
-        with contextlib.suppress(ProcessLookupError):
-            self.kill()
+        kill_group(self)
         raise
 
+
+def kill_group(process) -> None:
+    """The client's whole process group killed (docker runs its compose plugin as a child, which would go on with an
+    up or a cp after its parent alone was killed)."""
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(process.pid, 9)
+    with contextlib.suppress(ProcessLookupError):
+        process.kill()
+
+
+def group_alive(process) -> bool:
+    try:
+        os.killpg(process.pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
 asyncio.subprocess.Process.communicate = _communicate_or_kill
-END_PHASE_S = 300                       # the end of the agent phase's own bound: transfers to finish, kills, removals
+END_PHASE_S = 600                       # the end of the agent phase's own bound, all of its steps
+END_STEPS = {"stop commands": 120, "finish transfers": 180, "keep streams": 60, "remove credentials": 60,
+             "publish logs": 120}               # each step's own bound (the phase's end, _end_phase)
 
 
 async def end_clients(kind: str | None = None) -> None:
     """The clients of `kind` (a prefix: "agent" for every agent operation's, "agent:exec" for its commands'; every one:
-    None) still running killed and waited for."""
+    None) still running killed, each with its process group, and waited for; one whose group outlives 30 s raises
+    (an operation not confirmed stopped)."""
     for process, of in list(CLIENTS.items()):
-        if process.returncode is None and (kind is None or of.startswith(kind)):
-            with contextlib.suppress(ProcessLookupError):
-                process.kill()
+        if kind is not None and not of.startswith(kind):
+            continue
+        if process.returncode is None or group_alive(process):
+            kill_group(process)
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(process.wait(), 30)
-        if process.returncode is not None:
-            CLIENTS.pop(process, None)
+            for _ in range(150):
+                if not group_alive(process):
+                    break
+                await asyncio.sleep(0.2)
+            else:
+                raise HarborDriverError(f"a Docker client's processes could not be ended ({process.pid})")
+        CLIENTS.pop(process, None)
 
 
 class HarborDriverError(RuntimeError):
@@ -340,6 +385,7 @@ class Driver:
         self.in_phase = False
         self.user = None
         self.owner: str | None = None                  # the agent user's uid:gid when not root (the runner's _owner)
+        self.workdir: str | None = None                # the workspace there (the agent phase's working directory)
         self.has_timeout: bool | None = None
         self.mark = uuid.uuid4().hex                   # this environment's agent commands' mark (MARK)
         self.agent_ops: dict = {}                      # the agent's operations in flight: task -> op
@@ -399,8 +445,8 @@ class Driver:
         for, by Harbor's own installed agent of that name (unless its probe finds it there and no version is
         pinned), and the system packages asked for, by Harbor's own installer."""
         for item in self.installs:
-            if item.get("home"):                         # the CLI's home there, the bridge's own provisioning: made
-                continue                                 # and given to the agent user as the phase starts
+            if item.get("home") or item.get("deploy"):   # the bridge's own provisioning, at the phase's start and
+                continue                                 # on a deployment's upload
             if item.get("bin"):                          # a binary of this machine the environment mounts
                 served = await self._use_mounted(environment, item)
                 self.bins[str(item["agent"])] = served
@@ -480,6 +526,7 @@ class Driver:
         """The bridge's run: the agent phase, Hermit's commands relayed until `done`, Harbor's timeout or a
         cancellation; the commands still running ended (confirmed: one that is not fails the trial before any
         verifier) and Hermit's logs copied, scrubbed, into the trial's agent logs."""
+        self.phase_began = time.time()                   # as Harbor's agent timeout began (it awaits this run)
         trial = self.trial
         self.env, self.user = environment, trial.task.config.agent.user
         found = await environment.exec(f"printf '{WORKDIR_MARK}%s\\n' \"$PWD\"")
@@ -487,6 +534,7 @@ class Driver:
                   if line.startswith(WORKDIR_MARK)]
         if found.return_code != 0 or not marked or not marked[-1].startswith("/"):
             raise HarborDriverError(f"the environment's working directory could not be read: {found.stdout!r}"[:500])
+        self.workdir = marked[-1]
         said = await environment.exec(f'echo "{OWNER_MARK}$(id -u):$(id -g)"')   # the user the agent runs as
         owner = [line[len(OWNER_MARK):].strip() for line in ((said.stdout or "") + (said.stderr or "")).splitlines()
                  if line.startswith(OWNER_MARK)]
@@ -502,9 +550,11 @@ class Driver:
         plan = trial._network_plan(None)
         self.in_phase = True
         self.phase_started.set_result({
-            "workdir": marked[-1], "user": self.user, "agent_timeout_sec": trial.agent_timeout_sec,
+            "workdir": self.workdir, "user": self.user, "agent_timeout_sec": trial.agent_timeout_sec,
             "setup_timeout_sec": trial.agent_setup_timeout_sec, "verifier_timeout_sec": trial.verifier_timeout_sec,
             "build_timeout_sec": trial.environment_build_timeout_sec,
+            # Harbor's timer started as it called this run: the phase's absolute end, on this machine's clock
+            "deadline_epoch": self.phase_began + float(trial.agent_timeout_sec) if trial.agent_timeout_sec else None,
             "trial_dir": str(trial.paths.trial_dir), "os": str(trial.task.config.environment.os.value),
             "verifier_mode": resolve_task_verifier_mode(trial.task.config).value, "instruction": instruction,
             "agent_network": str(getattr(plan.agent_phase.network_mode, "value", plan.agent_phase.network_mode)),
@@ -539,19 +589,34 @@ class Driver:
             raise asyncio.CancelledError()
 
     async def _end_phase(self) -> None:
-        """What the end of the agent phase does before Harbor verifies, however it ended: transfers in flight let
-        finish (their files whole), the commands still running ended (their Docker clients, and their processes there,
-        MARK: those of the running ones and of any earlier kill not confirmed, confirmed), a running command's output
-        kept in the agent logs under its name (a stream the verifier may read), the credential files removed from the
-        environment (confirmed), and Hermit's logs copied, scrubbed, into the trial's agent logs. A command that already
-        ended left what it started (a server the task asked for), as Harbor's own agents leave it. Anything not
-        confirmed raises HarborDriverError: Harbor records it and runs no verifier."""
-        trial = self.trial
-        # the commands first, as the phase closes (no transfer's wait gives them more time), their marks taken before
-        # the cancelled ones forget theirs; then the transfers in flight let finish (their files whole), bounded
-        marks = sorted({*self.running, *self.unkilled})
+        """What the end of the agent phase does before Harbor verifies, however it ended: confirmed steps, each in its
+        own bound (END_STEPS); any that fails or overruns is HarborDriverError, and Harbor runs no verifier.
+
+          stop commands       the commands still running cancelled, their Docker clients' process groups ended, and
+                              their processes there killed (kill_marked: the running ones' and any earlier unconfirmed
+                              kill's), confirmed; a command that already ended left what it started (a server the task
+                              asked for), as Harbor's own agents leave it
+          finish transfers    transfers in flight let finish (their files whole), the rest cancelled, their clients
+                              ended
+          keep streams        a running command's output, read as the agent user, kept in the agent logs under its
+                              name (a stream the verifier may read)
+          remove credentials  the credential files removed as the agent user, each confirmed gone
+          publish logs        Hermit's logs copied, scrubbed, into the trial's agent logs (regular files only, off the
+                              event loop)"""
+        for name, step in (("stop commands", self._stop_commands), ("finish transfers", self._finish_transfers),
+                           ("keep streams", self._keep_streams), ("remove credentials", self._remove_credentials),
+                           ("publish logs", self._publish_logs)):
+            try:
+                await asyncio.wait_for(step(), END_STEPS[name])
+            except HarborDriverError:
+                raise
+            except Exception as exc:                     # noqa: BLE001 - a step not confirmed (its bound too): no
+                raise HarborDriverError(f"the agent phase's end ({name}) did not finish: "  # verifier
+                                        f"{type(exc).__name__}: {exc}") from exc
+
+    async def _stop_commands(self) -> None:
+        marks = sorted({*self.running, *self.unkilled})  # taken before the cancelled commands forget theirs
         commands = [t for t, op in self.agent_ops.items() if op == "exec"]
-        transfers = [t for t, op in self.agent_ops.items() if op != "exec"]
         for task in commands:
             task.cancel()
         if commands:
@@ -559,37 +624,48 @@ class Driver:
         await end_clients("agent:exec")
         for mark in marks:
             await self._kill(mark)
+        if marks:                                        # one a client had dispatched as it was ended
+            await asyncio.sleep(1)
+            for mark in marks:
+                await self._kill(mark)
+
+    async def _finish_transfers(self) -> None:
+        transfers = [t for t, op in self.agent_ops.items() if op != "exec"]
         if transfers:
-            await asyncio.wait(transfers, timeout=END_PHASE_S / 2)
+            await asyncio.wait(transfers, timeout=END_STEPS["finish transfers"] / 2)
         for task in list(self.agent_ops):
             task.cancel()
         if self.agent_ops:
             await asyncio.gather(*self.agent_ops, return_exceptions=True)
         await end_clients("agent")
-        for mark in marks:
-            await self._kill(mark)
-        if marks:                                        # one a client had dispatched as it was ended
-            await asyncio.sleep(1)
-            for mark in marks:
-                await self._kill(mark)
+
+    async def _keep_streams(self) -> None:
+        trial = self.trial
         for mark, (path, name) in list(self.streams.items()):
-            got = await self.env.exec(f"cat {shlex.quote(path)} 2>/dev/null; rm -f {shlex.quote(path)}", user="root")
+            # the agent user's file, read as that user: nothing it could link there is read with root's rights
+            got = await self.env.exec(f"cat -- {shlex.quote(path)} 2>/dev/null; rm -f -- {shlex.quote(path)}")
             if got.stdout:
                 trial.paths.agent_dir.mkdir(parents=True, exist_ok=True)
                 kept = Path(self.out_dir()) / Path(name).name
                 kept.write_bytes(scrubbed(got.stdout.encode(), self.secrets))
-                safe_copy(kept.parent, trial.paths.agent_dir)
+                await asyncio.to_thread(safe_copy, kept.parent, trial.paths.agent_dir)
             self.streams.pop(mark, None)
-        if self.secret_files:
-            listed = " ".join(shlex.quote(f) for f in sorted(self.secret_files))
-            # as the agent user (the files are its own, given to it at their upload): a path the agent's process named
-            # is never removed past that user's permissions
-            gone = await self.env.exec(f"rm -f -- {listed}; for f in {listed}; do [ -e \"$f\" ] && exit 1; done; "
-                                       "exit 0", cwd="/")
-            if gone.return_code != 0:
-                raise HarborDriverError("a credential file could not be removed from the environment")
+
+    async def _remove_credentials(self) -> None:
+        if not self.secret_files:
+            return
+        listed = " ".join(shlex.quote(f) for f in sorted(self.secret_files))
+        # as the agent user (the files are its own, given to it at their upload): a path the agent's process named is
+        # never removed past that user's permissions; rm's own failure fails, and each must be gone, a link included
+        gone = await self.env.exec(f"rm -f -- {listed} || exit 1; for f in {listed}; do "
+                                   "if [ -e \"$f\" ] || [ -L \"$f\" ]; then exit 1; fi; done; exit 0", cwd="/")
+        if gone.return_code != 0:
+            raise HarborDriverError("a credential file could not be removed from the environment: "
+                                    f"{((gone.stdout or '') + (gone.stderr or ''))[-300:]}")
+
+    async def _publish_logs(self) -> None:
         if self.agent_logs and Path(self.agent_logs).is_dir():
-            safe_copy(Path(self.agent_logs), trial.paths.agent_dir, self.secrets)
+            await asyncio.to_thread(safe_copy, Path(self.agent_logs), self.trial.paths.agent_dir, self.secrets)
 
     def out_dir(self) -> str:
         """A private folder of this machine for what the phase's end keeps (a stream's output, scrubbed)."""
@@ -660,9 +736,11 @@ class Driver:
         or one passed on a descriptor, as Harbor's own scrub reads its agents' env."""
         from harbor.utils.env import is_bool_env_value, is_sensitive_env_key
         by_fd = req.get("by_fd") or {}
+        named = set(req.get("secret_env") or [])         # the binding's own key variable, whatever its name
         for key, value in (req.get("env") or {}).items():
             value = str(value or "")
-            if value and (key in by_fd or is_sensitive_env_key(str(key))) and not is_bool_env_value(value):
+            if value and (key in by_fd or key in named or is_sensitive_env_key(str(key))) and \
+                    not is_bool_env_value(value):
                 self.secrets.add(value)
 
     async def exec(self, req: dict) -> dict:
@@ -696,20 +774,18 @@ class Driver:
             self.streams[mark] = (path, str(req["stream"]))
             q = shlex.quote(path)
             command = f"set -o pipefail; {{ {command} ; }} 2> >(tee -a {q} >&2) | tee -a {q}"
-        # its own pid, which root reads where it cannot read another user's environment (no CAP_SYS_PTRACE): the root
-        # of what kill_marked ends besides the processes it finds by MARK
-        command = f"echo $$ > /tmp/hermit-pid-{mark}; {command}"
+        word = f"{TOKEN}{mark}"                          # on its command line: what kill_marked finds it by
         outer = None
         if timeout:
             timeout = max(1, int(float(timeout) + 0.999))
             if await self._timeout_ok():
-                command = f"timeout -k {KILL_GRACE_S} {timeout} bash -c {shlex.quote(command)}"
+                command = f"timeout -k {KILL_GRACE_S} {timeout} bash -c {shlex.quote(command)} {word}"
                 outer = timeout + KILL_GRACE_S + BACKSTOP_S
             else:
                 outer = timeout
-                command = f"bash -c {shlex.quote(command)}"
+                command = f"bash -c {shlex.quote(command)} {word}"
         else:
-            command = f"bash -c {shlex.quote(command)}"
+            command = f"bash -c {shlex.quote(command)} {word}"
         started = time.time()
         try:
             result = await self._exec(command, cwd=req.get("cwd"), env={**(req.get("env") or {}), MARK: mark},
@@ -725,8 +801,9 @@ class Driver:
                 with contextlib.suppress(Exception):
                     await env.exec(f"rm -f {shlex.quote(staged)}", user="root")
         kept = self.streams.pop(mark, None)              # it ended here: its output is the reply's
-        with contextlib.suppress(Exception):
-            await env.exec(f"rm -f /tmp/hermit-pid-{mark}" + (f" {shlex.quote(kept[0])}" if kept else ""), user="root")
+        if kept is not None:
+            with contextlib.suppress(Exception):         # the agent user's own file
+                await env.exec(f"rm -f {shlex.quote(kept[0])}")
         timed_out = bool(timeout) and (code in (124, 137, -1) and time.time() - started >= timeout - 1)
         if timed_out:                                    # nothing it started outlives its time, `timeout` or not
             with contextlib.suppress(Exception):         # unconfirmed: kept, and ended before the verifier
@@ -788,10 +865,31 @@ class Driver:
         if done.return_code != 0:
             raise RuntimeError(f"{command[:120]}: {(done.stdout or '')[-300:]}")
 
+    def _deployment(self, target: str) -> bool:
+        """Whether `target` is one of the names the agent declared its deployment puts in the workspace (installs:
+        `deploy`, computed on Hermit's side, never a worker's request), or below one."""
+        names = [n for item in self.installs for n in item.get("deploy") or []]
+        work = Path(self.workdir or "/")
+        try:
+            rel = Path(os.path.normpath(target)).relative_to(work)
+        except ValueError:
+            return False
+        return bool(rel.parts) and rel.parts[0] in names and ".." not in rel.parts
+
     async def upload(self, req: dict) -> dict:
         source, target = Path(req["source"]), str(req["target"])
         if req.get("as_agent") and self.owner is not None:
-            return await self._upload_as_agent(source, target)
+            if self._deployment(target):
+                # the deployment, provisioned as the runner's _deploy did (root's, given to the agent user), never
+                # through a link the agent left on the way
+                rel = Path(os.path.normpath(target)).relative_to(Path(self.workdir))
+                steps = [str(Path(self.workdir).joinpath(*rel.parts[:i + 1])) for i in range(len(rel.parts))]
+                checks = " || ".join(f"[ -L {shlex.quote(p)} ]" for p in steps)
+                safe = await self.env.exec(f"if {checks}; then exit 1; fi; exit 0", user="root")
+                if safe.return_code != 0:
+                    raise Failed("PermissionError", f"{target}: a link on the way, never provisioned through")
+            else:
+                return await self._upload_as_agent(source, target)
         parent = str(Path(target).parent)
         await self.env.exec(f"mkdir -p {shlex.quote(parent)}", user="root")
         if source.is_dir() and not source.is_symlink():
@@ -870,16 +968,20 @@ class Driver:
         return {}
 
     async def _kill(self, mark: str) -> None:
-        """Every process of the agent command `mark` ended, confirmed (kill_marked's exit), from `/`; one not
-        confirmed is kept (`unkilled`) and raised: the bridge's run then fails, and Harbor runs no verifier."""
-        try:
-            done = await self.env.exec(kill_marked(mark), cwd="/", user="root")
-            ok = done.return_code == 0
-        except Exception as exc:                         # noqa: BLE001 - as unconfirmed
-            ok, done = False, exc
-        if not ok:
-            self.unkilled.add(mark)
-            raise HarborDriverError(f"an agent command's processes could not be ended ({mark}): {str(done)[-300:]}")
+        """Every process of the agent command `mark` ended, confirmed: kill_marked as root (what it finds by the
+        command's own word on its command line, and root's processes by MARK) and as the agent user (its processes by
+        MARK, which root may not read); one not confirmed is kept (`unkilled`) and raised (the trial gets no
+        verifier)."""
+        for user in ("root", None):
+            try:
+                done = await self.env.exec(kill_marked(mark), cwd="/", user=user)
+                ok = done.return_code == 0
+            except Exception as exc:                     # noqa: BLE001 - as unconfirmed
+                ok, done = False, exc
+            if not ok:
+                self.unkilled.add(mark)
+                raise HarborDriverError(f"an agent command's processes could not be ended ({mark}): "
+                                        f"{str(done)[-300:]}")
         self.unkilled.discard(mark)
 
 

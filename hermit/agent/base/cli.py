@@ -131,6 +131,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import signal
 import stat
@@ -1221,7 +1222,10 @@ class CliAgent(BaseAgent):
                 if timeout is False:
                     return self._not_run("deadline", None)
                 started = time.time()
-                kept = {"stream": stream.name} if "stream" in inspect.signature(environment.exec).parameters else {}
+                accepts = inspect.signature(environment.exec).parameters
+                kept = {"stream": stream.name} if "stream" in accepts else {}
+                if "secret_env" in accepts:              # the credentials the session is given: scrubbed by name
+                    kept["secret_env"] = [n for n in (key_env, *by_fd) if n]
                 done = environment.exec(command, cwd=str(workspace), env=env, timeout=timeout,
                                         stdin=prompt if self.on_stdin() else None,
                                         **({"by_fd": by_fd} if by_fd else {}), **kept)
@@ -1257,6 +1261,13 @@ class CliAgent(BaseAgent):
         machine's clock) or OTHER_CLOCK past this machine's clock."""
         from hermit.agent.base import codex_stream
         skew = codex_stream.SKEW if getattr(environment, "same_clock", True) else codex_stream.OTHER_CLOCK
+        there = shlex.quote(str(remote_home / codex_login.FILE))
+        # a regular file of at most SIGNIN_MAX_BYTES there, measured there (the runner's _return_files): nothing larger
+        # or of another kind is brought here
+        size = environment.exec(["sh", "-c", f"[ -f {there} ] && [ ! -L {there} ] && wc -c < {there}"], timeout=60)
+        words = size.output.split()
+        if size.code != 0 or not words or not words[-1].isdigit() or int(words[-1]) > codex_stream.SIGNIN_MAX_BYTES:
+            return
         with tempfile.TemporaryDirectory(prefix="hermit-signin-") as private:
             got = Path(private) / codex_login.FILE
             environment.download(str(remote_home / codex_login.FILE), got)

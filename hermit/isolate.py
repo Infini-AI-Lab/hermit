@@ -777,7 +777,8 @@ def cli_sandbox(spec: dict, *, records: Path | None = None, enabled: bool = True
 def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path | None = None):
     """(pipeline, close): the agent in the task sandbox; in its own container from a worker on the host
     (`environment.image`); or in this process when the pipeline runs on the host (`host_pipeline`: the sandbox off,
-    a Harbor task set, `environment.runner: host`). An agent whose model only a CLI reaches (`agent.params.model:
+    `environment.runner: host`; a Harbor task set's agent stays in the task sandbox and reaches its environment through
+    the proxy). An agent whose model only a CLI reaches (`agent.params.model:
     {cli: ...}`) gets it as a model endpoint started here, each request one session in a sandbox of its own built as
     the Trainer builds the llm's (cli_sandbox, role agent-model); the pipeline sees a URL and an ordinary model spec,
     which is never written to the config."""
@@ -925,6 +926,19 @@ def task_environments(config, *, log=None):
         raise ValueError("agent.params.model: a model a CLI reaches (`cli: ...`) is not supported for a task in "
                          "Harbor's environments: its login's plan would be waited for inside the task's time; give the "
                          "agent a <backend>/<model> reference, or run the CLI itself as the agent (agent.base)")
+    name = d["agent"].get("name")
+    backend = str(params.get("backend") or {"claude-code": "claude"}.get(name, name))
+    binding = params.get("binding")
+    if backend in ("codex", "claude", "claude-code") and isinstance(binding, dict):
+        # the runner's check: a CLI runs in the task's container, which cannot reach this machine's loopback
+        from urllib.parse import urlsplit
+        from hermit.agent.model.backends import Binding
+        bound = Binding.from_spec(binding)
+        url = bound.base_url if backend == "codex" else bound.backend.messages_root
+        if (urlsplit(str(url)).hostname or "") in ("127.0.0.1", "localhost", "::1", "0.0.0.0"):
+            raise ValueError(f"the model's endpoint {url} is on this machine's loopback, which a task container cannot "
+                             "reach: serve it on an address the container reaches (<NAME>_BASE_URL); the answer and "
+                             "ReAct agents, which call the model from this machine, may use the loopback")
     _, hosts, _ = model_access([params.get("binding"), params.get("model")])
     login = params.get("login")
     hosts = [*hosts, *(h for h in codex_login.hosts(login) if h not in hosts)]     # a subscription's own hosts too
