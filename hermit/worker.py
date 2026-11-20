@@ -74,6 +74,10 @@ def main() -> None:
         except BaseException as exc:            # the host turns this into the task's error record
             payload = {"ok": False, "error": f"{type(exc).__name__}: {exc}",
                        "traceback": traceback.format_exc()[-3000:]}
+            spent = getattr(exc, "spent", None)  # what the failed call billed, counted on the host's record
+            if spent is not None:
+                payload["spent"] = {"cost_usd": spent.cost_usd, "tokens": spent.tokens,
+                                    "model_calls": (spent.api_speed or {}).get("model_calls")}
         result.write(json.dumps(payload, default=str))
 
 

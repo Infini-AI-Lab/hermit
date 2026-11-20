@@ -637,9 +637,15 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
     if deadline.at is not None:         # and the session's own waits (a login's plan) come off it too
         agent = agent.configured(deadline=deadline.at)
     for attempt in range(1, retries + 1):
-        for d in (work, home, log):
-            shutil.rmtree(d, ignore_errors=True)
-            d.mkdir(parents=True)
+        try:
+            for d in (work, home, log):
+                shutil.rmtree(d, ignore_errors=True)
+                d.mkdir(parents=True)
+        except OSError as exc:
+            if not remote:
+                raise
+            from hermit.adapter.session import staging_failed  # this machine's (a full disk): the runner's staging
+            return staging_failed(f"staging_failed: {type(exc).__name__}: {exc}", started)
         if remote:
             # the adapter's own failure (its deployment, its per-task context, a context over the CLI's cap) is the
             # agent's result, scored 0 with its message, as the runner graded adapter_failed and context_over_limit;
@@ -652,12 +658,19 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path, given: Envi
                 _upload_staging(given, work, backend, deployed, params, image_context)
             except AdapterContextTooLong as exc:
                 return _adapter_failed("context_over_limit", str(exc), usages, log, started)
-            except (OSError, Unsupported):
+            except Unsupported:
                 raise
+            except OSError as exc:                       # this machine's (a full disk): the runner's staging_failed
+                from hermit.adapter.session import staging_failed
+                return staging_failed(f"staging_failed: {type(exc).__name__}: {exc}", started, log)
             except Exception as exc:
                 said = type(exc).__name__ + str(exc)
                 if IMAGE_CONTEXT_UNREAD in said or "EnvironmentUnavailable" in said or "AgentPhaseOver" in said:
                     raise                                # the environment's, or Harbor ended the phase: not the adapter
+                from hermit.adapter.session import host_fault, staging_failed
+                fault = host_fault(exc)                  # this machine's, whatever the adapter (the runner's staging)
+                if fault is not None:
+                    return staging_failed(fault, started, log)
                 return _adapter_failed("adapter_failed", f"{type(exc).__name__}: {exc}", usages, log, started)
         else:
             deployed, context_tool = _deploy(task, adapter, work, backend, params, remote=False)

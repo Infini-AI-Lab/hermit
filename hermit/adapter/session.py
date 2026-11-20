@@ -57,6 +57,28 @@ def confined() -> str | None:
     return CONFINED.get()
 
 
+def host_fault(exc: BaseException) -> str | None:
+    """This machine's failure behind `exc` (an adapter's deployment or context that failed), when the strict adapter
+    sandbox it ran in does not start here: the runner's staging_failed (infra, run again; never the adapter's scored
+    zero), as its message; None when the sandbox starts, or when nothing here is confined."""
+    from hermit.sandbox import sandbox_fault
+    enforce = confined()
+    fault = sandbox_fault(enforce) if enforce else None
+    if fault is None:
+        return None
+    return f"staging_failed: {fault} (the adapter's: {type(exc).__name__}: {str(exc)[-1500:]})"
+
+
+def staging_failed(message: str, started: float, log=None):
+    """A rollout whose staging failed on this machine before any session (the runner's staging_failed): infra, run
+    again, nothing spent."""
+    import time
+    from hermit.common import RunOutput
+    return RunOutput(output=None, log=log, cost_usd=0.0, tokens=0, wall_s=round(time.time() - started, 1),
+                     api_speed={"model_calls": 0},
+                     extra={"infra": "staging_failed", "infra_final": False, "exception_message": message[-2000:]})
+
+
 def _adapter_sandbox():
     """Strict, like the learner's: no network but the loopback endpoints the environment names (forwarded), none of
     the environment's keys; the framework's environment (sandbox.hide covered, carried in HA_SANDBOX_HIDE)."""

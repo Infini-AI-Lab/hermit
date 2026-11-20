@@ -15,6 +15,7 @@ verifier reads.
 """
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from typing import Callable
@@ -265,7 +266,11 @@ def tasks_of(tasks_dir: Path, *, rollouts: int = 1, view: Callable[[dict], dict]
                                 "verifier_memory_mb": resources({"environment": verifier_env})["memory_mb"]
                                 if verifier_env is not None else None,
                                 "steps": row.get("steps")}
-            out[row["id"]] = Task(id=row["id"], public=view(row) if view else row, private=private)
+            public = view(copy.deepcopy(row)) if view else row   # a view never changes the task it reads
+            if public.get("id", row["id"]) != row["id"]:     # the run's every record, split and key is the task's id
+                raise ValueError(f"data.view gave the task {row['id']!r} the id {public['id']!r}: a view keeps each "
+                                 "task's id (its directory's name), or gives none")
+            out[row["id"]] = Task(id=row["id"], public=public, private=private)
     if not out:
         raise ValueError(f"no task directories (with {TASK_FILE}) under {tasks_dir}")
     return out

@@ -30,11 +30,13 @@ def _given(pipeline, given: dict, adapter: Path | None, environment, needs: dict
 
 
 def _failed_record(task: Task, given: dict, started: float, exc: Exception, what: str) -> dict:
+    spent = getattr(exc, "spent", None)                  # what the failed call billed, when the agent said
     return {"id": given.get("id", task.id), "input": given, "status": "error", "error": f"{type(exc).__name__}: {exc}",
             "traceback": traceback.format_exc()[-3000:], "output": None,
             "judge": {"score": 0.0, "feedback": f"{what}: {type(exc).__name__}: {exc}"},
-            "cost_usd": None, "wall_s": round(time.time() - started, 2), "api_speed": None, "tokens": None,
-            "log": None, "messages": None}
+            "cost_usd": spent.cost_usd if spent is not None else None, "wall_s": round(time.time() - started, 2),
+            "api_speed": {"model_calls": (spent.api_speed or {}).get("model_calls")} if spent is not None else None,
+            "tokens": spent.tokens if spent is not None else None, "log": None, "messages": None}
 
 
 def run_one(task: Task | dict, adapter: Path | None, pipeline, judge, environments=None) -> dict:
@@ -226,15 +228,13 @@ def environment_rollout(task: Task, given: dict, adapter: Path | None, pipeline,
             raise LoginFailed("the run ended (a lost sign-in or the account's limit) before the task started")
         run = _environment_run(task, given, adapter, pipeline, environments, started)
         if isinstance(run, dict):                        # the pipeline's own failure: the run's failed record, with
-            if attempts.runs:                            # what the runs before it spent
-                earlier = attempts.output() if len(attempts.runs) > 1 else attempts.runs[0]
-                run = {**run, "tokens": earlier.tokens, "cost_usd": None,
-                       "api_speed": {"model_calls": (earlier.api_speed or {}).get("model_calls")},
-                       "pipeline_extra": {**(run.get("pipeline_extra") or {}),
-                                          "attempts": (earlier.extra or {}).get("attempts") or
-                                          [{"tokens": earlier.tokens, "cost_usd": earlier.cost_usd,
-                                            "model_calls": (earlier.api_speed or {}).get("model_calls"),
-                                            "unscored": (earlier.extra or {}).get("unscored")}]}}
+            if attempts.runs:                            # what the runs before it spent, and this one's (when it said)
+                attempts.add(RunOutput(output=None, cost_usd=run.get("cost_usd"), tokens=run.get("tokens"),
+                                       api_speed={"model_calls": (run.get("api_speed") or {}).get("model_calls")}))
+                total = attempts.output()
+                run = {**run, "tokens": total.tokens, "cost_usd": total.cost_usd,
+                       "api_speed": {"model_calls": (total.api_speed or {}).get("model_calls")},
+                       "pipeline_extra": {**(run.get("pipeline_extra") or {}), "attempts": total.extra["attempts"]}}
             return run
         out, final, said_by_agent = run
         _scrub_log(out)                                  # the log the record names, scrubbed of the run's keys
@@ -307,7 +307,8 @@ def _environment_run(task: Task, given: dict, adapter: Path | None, pipeline, en
                             return _failed_record(task, given, started, exc, "the pipeline failed")
                         cause, again = read
                         final = not again
-                        out = _infra_output(task, cause, f"{type(exc).__name__}: {exc}", begun, ran=True)
+                        out = _infra_output(task, cause, f"{type(exc).__name__}: {exc}", begun, ran=True,
+                                            spent=getattr(exc, "spent", None))   # what the agent said it spent
                 else:
                     out = _read(out, env, task, begun)
                     if out.extra.get("infra"):

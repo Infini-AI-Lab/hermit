@@ -412,10 +412,16 @@ class HarborEnvironments:
         logs = Path(verified.get("verifier_dir") or "") if verified.get("verifier_dir") else None
         read = errors.verifier_verdict(read, logs, self.redactions)
         feedback = ""
-        for name in ("feedback.txt", "test-stdout.txt"):
-            if logs is not None and (logs / name).is_file() and not (logs / name).is_symlink():
-                feedback = self.redact((logs / name).read_text(encoding="utf-8", errors="replace"))[-FEEDBACK_CHARS:]
-                break
+        for name in ("feedback.txt", "test-stdout.txt"):  # optional: one this process cannot read leaves the reward
+            try:
+                if logs is not None and (logs / name).is_file() and not (logs / name).is_symlink():
+                    text = (logs / name).read_text(encoding="utf-8", errors="replace")
+                else:
+                    continue
+            except OSError:
+                continue
+            feedback = self.redact(text)[-FEEDBACK_CHARS:]
+            break
         passed = None if self.pass_reward is None else (reward is not None and reward >= self.pass_reward)
         return {"reward": reward, "rewards": rewards, "status": read["status"], "failure_cause": read["failure_cause"],
                 "passed": passed,

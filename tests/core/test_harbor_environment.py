@@ -1821,6 +1821,8 @@ def test_the_usage_ledger_sums_once_with_unknown_costs_and_empty_ledgers_as_the_
     ledger.unreported(1)                                 # a call given up in flight: counted, its cost unknown
     assert ledger.cost() is None and ledger.calls() == 2 and ledger.total().unreported_calls == 1
     assert Ledger().cost(0.0) == 0.0 and Ledger().tokens(None) is None             # nothing ran / nothing known
+    cut = Ledger("m").unreported(0, sessions=1)        # a session cut off before any usage: unknown, never 0
+    assert (cut.tokens(0), cut.cost(0.0)) == (None, None)
     attempts = Attempts()
     for tokens, cost, cause in ((10, 0.1, "sandbox_failed"), (None, None, None)):
         attempts.add(RunOutput(output=None, tokens=tokens, cost_usd=cost, api_speed={"model_calls": 1},
@@ -2700,3 +2702,207 @@ def test_a_forced_teardown_signals_only_the_drivers_own_group(tmp_path):
         harbor_mod.DRIVER = original
         other.kill()
         other.wait()
+
+
+def test_a_sandbox_this_machine_cannot_start_is_infra_never_the_adapters_zero(tmp_path, monkeypatch):
+    """The runner's preflight and staging_failed: a run whose strict adapter sandbox does not start here is refused at
+    startup, and a deployment or context that fails because it stopped starting is infra (run again), not the
+    adapter's scored zero."""
+    from types import SimpleNamespace
+    from hermit import isolate, sandbox
+    from hermit.adapter.session import CONFINED
+    from hermit.agent.acting import answer as answer_mod
+    from hermit.agent.model.usage import Usage
+    fault = "the strict adapter sandbox did not start (exit 1): no user namespaces"
+    monkeypatch.setattr(sandbox, "sandbox_fault", lambda enforce, fresh=True: fault)
+    monkeypatch.setattr(isolate, "sandbox_fault", sandbox.sandbox_fault)
+    monkeypatch.setattr("hermit.agent.acting.agent.load_agent",
+                        lambda name, params, base: SimpleNamespace(run=lambda *a, **k: None))
+    config = SimpleNamespace(data={"sandbox": {"enabled": True, "enforce": "required", "hide": []},
+                                   "environment": {"harbor": {"tasks_dir": "x"}},
+                                   "agent": {"name": "codex", "params": {}}}, base=tmp_path)
+    with pytest.raises(ValueError, match="did not start"):
+        isolate.agent_pipeline(config, "rollout", records=None)
+
+    class Model:
+        model = "m"
+
+        def chat(self, messages, abort=None, **kwargs):
+            return {"role": "assistant", "content": "B"}, Usage(model="m", calls=1)
+
+    class Failing:
+        last_context = None
+
+        def context(self, **kw):
+            raise RuntimeError("the sandbox's server did not start")
+
+        def close(self):
+            pass
+
+    def server_fails(adapter):                     # the context tool's server, started in its sandbox, did not start
+        raise RuntimeError("bwrap: setting up uid map: Permission denied")
+
+    monkeypatch.setattr(answer_mod.ChatClient, "from_spec", staticmethod(lambda spec: Model()))
+    agent = answer_mod.AnswerAgent({"model": {"base_url": "https://x", "model": "m"}, "logs": str(tmp_path / "l")},
+                                   tmp_path)
+    env = Recorded(tmp_path)
+    env.instruction = "Which?"
+    token = CONFINED.set("required")
+    try:
+        for session in (lambda adapter: Failing(), server_fails):
+            monkeypatch.setattr(agent, "session", session)
+            out = agent.run({"id": "q"}, tmp_path, environment=env)
+            assert out.extra["infra"] == "staging_failed" and not out.extra["infra_final"]     # run again
+            assert (out.cost_usd, out.tokens) == (0.0, 0)                                      # nothing spent
+            assert "adapter_failed" not in out.extra
+    finally:
+        CONFINED.reset(token)
+    def disk_full(adapter):                        # the server's files not made: this machine's, whatever the sandbox
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(agent, "session", disk_full)
+    out = agent.run({"id": "q"}, tmp_path, environment=env)
+    assert out.extra["infra"] == "staging_failed" and out.cost_usd == 0.0 and "adapter_failed" not in out.extra
+    monkeypatch.undo()
+    monkeypatch.setattr(sandbox.shutil, "which", lambda name: None)                  # bubblewrap not installed
+    assert "not installed" in sandbox.sandbox_fault("required") and sandbox.sandbox_fault("best_effort") is None
+
+
+def test_the_usage_an_error_response_reports_is_counted(tmp_path, monkeypatch):
+    """A terminal HTTP error whose body reports usage (a relay's or provider's): counted on the agent's scored result
+    (an input refused) and kept on the infra end (a provider that could not serve), as the runner's relay priced it."""
+    from hermit.agent.acting import answer as answer_mod
+    from hermit.agent.model.llm import ChatHTTPError
+    from hermit.task import Task
+    from hermit.trainer import rollout
+    body = json.dumps({"error": {"message": "nope"}, "usage": {"prompt_tokens": 120, "completion_tokens": 20}})
+
+    def model_failing(code):
+        class Model:
+            model = "m"
+
+            def cost(self, prompt, cached, completion):
+                return (prompt + completion) / 1e6
+
+            def chat(self, messages, abort=None, **kwargs):
+                raise ChatHTTPError(code, body.encode(), {})
+        return Model()
+
+    params = {"model": {"base_url": "https://x", "model": "m"}, "logs": str(tmp_path / "l")}
+    monkeypatch.setattr(answer_mod.ChatClient, "from_spec", staticmethod(lambda spec: model_failing(400)))
+    env = Recorded(tmp_path)
+    env.instruction = "Which?"
+    out = answer_mod.AnswerAgent(params, tmp_path).run({"id": "q"}, None, environment=env)
+    assert out.tokens == 140 and out.api_speed["model_calls"] == 1 and out.cost_usd == pytest.approx(1.4e-4)
+    monkeypatch.setattr(answer_mod.ChatClient, "from_spec", staticmethod(lambda spec: model_failing(503)))
+    agent = answer_mod.AnswerAgent(params, tmp_path)
+    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo", "question": "Which?"})
+    record = rollout.environment_rollout(task, task.given(), None, lambda t, a, environment=None: agent.run(
+        t, a, environment=environment), Environments(tmp_path), 0.0, pause=lambda s: None)
+    calls = record.api_speed["model_calls"]                      # each run again's spend kept, its call counted
+    assert calls >= 2 and record.tokens == 140 * calls and record.extra["unscored"] == "model_provider_failed"
+    assert record.cost_usd == pytest.approx(1.4e-4 * calls)
+    from hermit.trainer.rollout import run_one                   # and outside a task's own environment: the record
+    failed = run_one(task, None, lambda t, a: agent.run(t, a), lambda row, out: {"score": 0.0})
+    assert failed["status"] == "error" and failed["tokens"] == 140 and failed["cost_usd"] == pytest.approx(1.4e-4)
+
+
+def test_an_unreadable_verifier_log_leaves_the_reward(tmp_path, monkeypatch):
+    """feedback.txt is optional (the runner's log reader tolerated one it could not read): its output's tail is read
+    instead, and a reward the verifier wrote stands."""
+    logs = tmp_path / "verifier"
+    logs.mkdir()
+    (logs / "feedback.txt").write_text("hidden")
+    (logs / "test-stdout.txt").write_text("1 passed")
+    original = Path.read_text
+
+    def read_text(self, *a, **k):
+        if self.name == "feedback.txt":
+            raise PermissionError(13, "Permission denied", str(self))
+        return original(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    envs = HarborEnvironments({"tasks_dir": str(tmp_path), "harbor": sys.executable}, base=tmp_path)
+    verdict = envs.verdict({"rewards": {"reward": 1.0}, "verifier_dir": str(logs)})
+    assert verdict["reward"] == 1.0 and verdict["status"] == "ok" and verdict["feedback"] == "1 passed"
+
+
+def test_a_staging_failure_is_run_again_and_spends_nothing(tmp_path):
+    """The runner's staging_failed (this machine's, before any session): infra, run again, its attempt's spend 0, so
+    the run that then passes keeps a known cost."""
+    from hermit.adapter.session import staging_failed
+    from hermit.task import Task
+    from hermit.trainer import rollout
+    runs = []
+
+    def pipeline(task, adapter, environment=None):
+        runs.append(1)
+        if len(runs) == 1:
+            return staging_failed("staging_failed: OSError: [Errno 28] No space left on device", 0.0)
+        return RunOutput(output="done", cost_usd=0.25, tokens=100, api_speed={"model_calls": 1})
+
+    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
+    out = rollout.environment_rollout(task, task.given(), None, pipeline, Environments(tmp_path), 0.0,
+                                      pause=lambda s: None)
+    assert len(runs) == 2 and out.cost_usd == pytest.approx(0.25) and out.tokens == 100
+    assert [a["unscored"] for a in out.extra["attempts"]] == ["staging_failed", None]
+
+
+def test_a_cli_agents_staging_folders_on_a_full_disk_are_staging_failed(tmp_path, monkeypatch):
+    """The runner guarded its job's folders with the staging: a full disk making them is staging_failed (run again,
+    nothing spent), never this machine's final host_failed."""
+    from hermit.agent.acting.workspace import CliAgent
+    monkeypatch.setenv("HERMIT_HOMES", str(tmp_path / "homes"))
+    original = Path.mkdir
+
+    def mkdir(self, *a, **k):
+        if self.name == "work":
+            raise OSError(28, "No space left on device", str(self))
+        return original(self, *a, **k)
+
+    monkeypatch.setattr(Path, "mkdir", mkdir)
+    env = Recorded(tmp_path, lambda c: ExecResult(0, CODEX_STREAM) if session_of(c) else ExecResult(0, ""))
+    out = CliAgent({"backend": "codex", "web_search": False, "bin": "codex", "workspaces": str(tmp_path / "ws")},
+                   tmp_path).run({"id": "t", "instruction": "do it"}, None, environment=env)
+    assert out.extra["infra"] == "staging_failed" and not out.extra["infra_final"]
+    assert (out.cost_usd, out.tokens, out.api_speed["model_calls"]) == (0.0, 0, 0)
+
+
+def test_a_terminal_failure_after_a_run_again_keeps_every_attempts_spend(tmp_path):
+    """A pipeline's own failure after an infra run again: the record sums the earlier attempts' spend and the failed
+    one's (what it said it billed), its cost known when each is."""
+    from hermit.task import Task
+    from hermit.trainer import rollout
+    runs = []
+
+    def pipeline(task, adapter, environment=None):
+        runs.append(1)
+        if len(runs) == 1:
+            return RunOutput(output=None, tokens=140, cost_usd=0.014, api_speed={"model_calls": 1},
+                             extra={"infra": "model_provider_failed", "infra_final": False, "exception_message": "x"})
+        failed = KeyError("a bug of the agent's own")
+        failed.spent = RunOutput(output=None, tokens=200, cost_usd=0.020, api_speed={"model_calls": 1})
+        raise failed
+
+    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
+    record = rollout.environment_rollout(task, task.given(), None, pipeline, Environments(tmp_path), 0.0,
+                                         pause=lambda s: None)
+    assert record["status"] == "error" and record["tokens"] == 340 and record["cost_usd"] == pytest.approx(0.034)
+    assert record["api_speed"]["model_calls"] == 2 and len(record["pipeline_extra"]["attempts"]) == 2
+
+
+def test_a_sessions_placeholder_usage_in_an_error_is_no_report(tmp_path, monkeypatch):
+    """A CLI endpoint's error carries all-zero usage when its session reported none: unknown, never a measured 0
+    (hermit.tools.failed_usage's rule)."""
+    from hermit.agent.acting.answer import _error_usage
+    from hermit.agent.model.llm import ChatHTTPError
+    zero = json.dumps({"error": {"message": "timed out"}, "usage": {"prompt_tokens": 0, "completion_tokens": 0,
+                                                                    "prompt_tokens_details": {"cached_tokens": 0}}})
+
+    class Client:
+        model = "m"
+
+        def cost(self, prompt, cached, completion):
+            return 0.0
+
+    assert _error_usage(Client(), ChatHTTPError(504, zero.encode(), {})) == []

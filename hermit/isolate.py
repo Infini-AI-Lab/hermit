@@ -51,7 +51,7 @@ from hermit.agent.base.endpoint import cli_endpoint, endpoint_spec
 from hermit.redact import redact_name, redact_tree
 from hermit.sandbox import (LIMITS, NETWORK_MODES, PACKAGE, AllowlistProxy, Bind, Sandbox, framework_env,
                             gpu_list, hidden_paths, model_access, network_mode, owner_readable, package_closure,
-                            program_paths, sanitized_copy, set_hidden)
+                            program_paths, sandbox_fault, sanitized_copy, set_hidden)
 from hermit.environment.bwrap import task_sandbox
 from hermit.environment.spec import EnvironmentSpec
 from hermit.task import RunOutput, load_callable, output_record
@@ -463,7 +463,12 @@ def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(),
     out.close()
     payload = json.loads(data)
     if not payload.get("ok"):
-        raise RuntimeError(f"{payload.get('error')}\n{payload.get('traceback', '')}".strip())
+        failed = RuntimeError(f"{payload.get('error')}\n{payload.get('traceback', '')}".strip())
+        spent = payload.get("spent")
+        if isinstance(spent, dict):                      # what the failed call billed (an endpoint's error usage)
+            failed.spent = RunOutput(output=None, cost_usd=spent.get("cost_usd"), tokens=spent.get("tokens"),
+                                     api_speed={"model_calls": spent.get("model_calls")})
+        raise failed
     return payload
 
 
@@ -531,7 +536,7 @@ class SandboxedAgent:
         self.logs = _agent_logs(self.name, self.base)
         for log_dir in self.logs:                        # the mount point of each call's own log directory
             log_dir.mkdir(exist_ok=True)
-        self.others: list[Sandbox] = []                  # the judge's sandboxes, closed with this one
+        self.others: list = []                           # the judge's sandboxes (a verifier's proxy), closed with it
         program = program_paths(CLIS[self.cli].program) if self.cli else []   # a CLI and its node, as installed
         # A CLI agent on a login waits for the login's plan with every session on the machine: the plan's directory
         # (its PAUSE, MAX_USED, SLOTS and report) is the one outside, shared into every call; the worker inside runs
@@ -548,6 +553,7 @@ class SandboxedAgent:
             self.plan.mkdir(parents=True, exist_ok=True)
         # The task sandbox is the bwrap backend's (hermit.environment.bwrap), with what is the agent's own added: its
         # model's hosts and key variable, a login's plan and its hosts, the CLI's installation.
+        self.records = records
         self.sandbox, self.allow_proxy = task_sandbox(
             self.spec, enforce=self.enforce, records=records, role=role,
             probe_absent=[*HOME_SECRETS, *run_secrets(config)], extra_readable=program,
@@ -809,7 +815,15 @@ def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path |
                 params["model"] = endpoint_spec(endpoint, params["model"])
             run = load_agent(d["agent"]["name"], params, config.base).run
             if d["environment"].get("harbor") and d["sandbox"]["enabled"]:
-                return confined_run(run, d["sandbox"].get("enforce", "required")), stop
+                enforce = d["sandbox"].get("enforce", "required")
+                fault = sandbox_fault(enforce, fresh=False)   # the runner's preflight: every deployment renders there
+                if fault is not None:
+                    stop()
+                    raise ValueError(f"a task in Harbor's environments deploys its adapter by rendering it in the "
+                                     f"strict adapter sandbox, and {fault}: every rollout would fail; let bubblewrap "
+                                     "make its namespaces (user namespaces on), or set sandbox.enforce: best_effort "
+                                     "(unconfined, recorded)")
+                return confined_run(run, enforce), stop
             return run, stop
         agent = SandboxedAgent(config, role, records=records, work_root=work_root, model_endpoint=endpoint)
     except BaseException:
@@ -843,8 +857,22 @@ class SandboxedJudge:
         # does any judge get a login's plan, which steers every session on the machine: its probe proves it absent.
         plan = [agent.plan] if agent.plan is not None else []
         own = [w for w in agent.sandbox.writable if Path(w) not in plan]
-        self.box = dataclasses.replace(agent.sandbox, probe_absent=[*HOME_SECRETS, *plan], role="judge", hide=[],
-                                       writable=[] if self.mode == "separate" else own)
+        self.forward = agent.forward
+        if self.script:
+            # The task author's verifier gets the task's environment only (environment.read, write, env, network and
+            # allowed_hosts, as Harbor's verifier gets its task's), never what is the acting agent's own: its model's
+            # key variable, its provider's hosts, a model server on the loopback, a login's plan, the CLI's install.
+            self.box, proxy = task_sandbox(agent.spec, enforce=agent.enforce, records=agent.records,
+                                           role="judge", probe_absent=[*HOME_SECRETS, *plan])
+            # sandbox.hide is what the agent may not read (a scoring module, say): a verifier reads it, as any judge
+            self.box = dataclasses.replace(self.box, hide=[], writable=[] if self.mode == "separate" else
+                                           self.box.writable)
+            self.forward = []
+            if proxy is not None:
+                agent.others.append(proxy)               # closed with the agent's sandboxes
+        else:
+            self.box = dataclasses.replace(agent.sandbox, probe_absent=[*HOME_SECRETS, *plan], role="judge", hide=[],
+                                           writable=[] if self.mode == "separate" else own)
         agent.others.append(self.box)
 
     def _timeout(self, task: dict) -> float | None:
@@ -902,7 +930,7 @@ class SandboxedJudge:
         try:
             payload = _run_worker(self.box, job, place, home=home, readable=[*self.readable, *log_copy],
                                   writable=writable, env=env, keep=keep,
-                                  forward=self.agent.forward, timeout=self._timeout(task), binds=binds)
+                                  forward=self.forward, timeout=self._timeout(task), binds=binds)
         finally:
             for kept in (place, *writable):              # the judge holds the task's keys too: none kept
                 redact_tree(kept)
