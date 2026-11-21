@@ -26,8 +26,7 @@ def fnmatch(path: str, pattern: str) -> bool:
 
 # group -> the paths (patterns, as `fnmatch` above reads them) that are the method's own
 METHODS = {
-    "aspire": ["hermit/agent/evolver/methods/aspire/*", "hermit/adapter/templates/aspire/*",
-               "examples/aspire_robosuite/*", "examples/libero/*"],
+    "aspire": ["hermit/agent/evolver/methods/aspire/*", "hermit/adapter/templates/aspire/*", "examples/*/aspire/*"],
     "she": ["hermit/agent/evolver/methods/she/*", "hermit/adapter/templates/she/*", "examples/*/she/*"],
     "ace": ["hermit/agent/evolver/methods/ace/*", "hermit/adapter/templates/ace/*", "examples/*/ace/*"],
     "ahe": ["hermit/agent/evolver/methods/ahe_adapter/*", "hermit/adapter/templates/ahe/*",
@@ -56,6 +55,9 @@ READ_BY = {"optimizers": {"ahe"},                       # the AHE example's conf
            "she": {"evosafe"},                         # AgentDyn runner tests freeze SHE configs
            "evosafe": {"she"},                         # SHE reuses the CLI roles and verdict contract
            "harness2": {"continual_harness"}}           # Continual Harness deploys with the harness2_codex template
+# an engine several benchmarks run on (examples/<engine>/) -> those benchmarks: a change to it runs the groups of every
+# method with an example under one of them
+ENGINES = {"cap_harness": ("robosuite", "libero", "robodojo_sim")}
 # what every method is built on: a change here runs every group (tests/core/test_selection.py checks that every
 # framework module these import, or a method's tests import, is here too)
 SHARED = ["hermit/agent/__init__.py", "hermit/agent/base/*", "hermit/environment/*",
@@ -93,9 +95,10 @@ def groups_for(path: str) -> set[str] | None:
     if path.startswith("examples/") and path.count("/") <= 2 and path.endswith("README.md"):
         return set()                                 # the examples' and a benchmark's description
     if path.startswith("examples/"):
-        # a benchmark's shared files (utils/, data): every method with an example under that benchmark
-        bench = path.split("/")[1]
-        users = {name for name, patterns in METHODS.items() for p in patterns
+        # a benchmark's shared files (utils/, data): every method with an example under that benchmark (an engine's:
+        # under any benchmark on it)
+        benches = ENGINES.get(path.split("/")[1], (path.split("/")[1],))
+        users = {name for name, patterns in METHODS.items() for p in patterns for bench in benches
                  if p.startswith("examples/*/") and _has_example(bench, p.split("/")[2])}
         return users | {"core"}
     if any(fnmatch(path, p) for p in CORE):

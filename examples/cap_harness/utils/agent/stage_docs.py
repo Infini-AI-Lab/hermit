@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sim  # noqa: E402
-from aspire_fields import task_rows  # noqa: E402
+from fields import task_rows  # noqa: E402
 
 
 def main() -> None:

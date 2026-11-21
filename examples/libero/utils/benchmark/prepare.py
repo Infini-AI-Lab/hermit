@@ -5,9 +5,9 @@ the engine sets, so that a seed is a scene of its own).
 
     python prepare.py                                  # ASPIRE's seeds
     python prepare.py --preset smoke                   # the smoke's: three development seeds, one unseen, three held-out
-    # tasks/<id>/ (task directories),
+    # tasks/<id>/ (task directories, and each one's rerun-<id>/),
     # splits/{all,libero,libero_90,libero_pro,libero_pro_long,<suite>,smoke,smoke_pro,libero_sample}.txt,
-    # their *_rerun.txt (rerun.txt for all), verify.txt
+    # their *_rerun.txt (rerun.txt for all)
 
 LIBERO's own five suites (Liu et al., 2023): `libero_object`, `libero_spatial`, `libero_goal` and `libero_10`
 (LIBERO-Long), ten tasks each, which splits/libero.txt holds in that order, and `libero_90` (splits/libero_90.txt).
@@ -18,8 +18,8 @@ task's name no longer states it: its language is the one `get_task_context()` gi
 splits/libero_pro_long.txt for LIBERO-Long-Pro (`libero_10_swap`, `libero_10_task`). A suite and its perturbations
 share task ids, so a row's id carries the suite.
 
-The tasks, the verifier's and the reruns are written by the Robosuite example's prepare.py (`write`), whose engine
-this benchmark runs on: one task directory each, read back as its row by its utils/agent/aspire_fields.py.
+The tasks are written by the cap-harness engine's helpers (../../../cap_harness/utils/benchmark/tasks.py), the engine
+this benchmark runs on: one task directory each, read back as its row by the engine's utils/agent/fields.py.
 """
 from __future__ import annotations
 
@@ -27,8 +27,8 @@ from pathlib import Path
 import sys
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parents[2] / "aspire_robosuite" / "utils" / "benchmark"))
-from prepare import seeds_from, write  # noqa: E402
+sys.path.insert(0, str(HERE.parents[2] / "cap_harness" / "utils" / "benchmark"))
+from tasks import seeds_from, write  # noqa: E402
 
 BENCHMARK = "libero-pro"                 # cap-harness's name for its LIBERO adapter
 SUITES = {"libero_object": 10, "libero_spatial": 10, "libero_goal": 10, "libero_10": 10, "libero_90": 90}
@@ -37,12 +37,12 @@ PRO_SUITES = {f"libero_{family}_{kind}": 10 for family in PRO_FAMILIES for kind 
 # A sample of the forty that a run on one GPU finishes in a day or two: task ids 0 and 5 of Object, Spatial and Goal
 # (Long's two-stage tasks are left out for their length)
 SAMPLE = [f"{suite}-t{n:02d}" for suite in ("libero_object", "libero_spatial", "libero_goal") for n in (0, 5)]
-PRESETS = {"aspire": {"dev": "51-65", "unseen": "66-80", "eval": "1-50", "verify": "51-55"},
-           "smoke": {"dev": "51-53", "unseen": "66", "eval": "1-3", "verify": "51-55"}}
+PRESETS = {"aspire": {"dev": "51-65", "unseen": "66-80", "eval": "1-50"},
+           "smoke": {"dev": "51-53", "unseen": "66", "eval": "1-3"}}
 
 
 def main() -> None:
-    seeds, verify = seeds_from(PRESETS)
+    seeds = seeds_from(PRESETS)
     # `t`: a task id is not read as the hex suffix of a rollout directory's name (the simulator service matches it)
     tasks = [{"id": f"{suite}-t{n:02d}", "benchmark": BENCHMARK, "suite": suite, "task_id": n}
              for suite, count in {**SUITES, **PRO_SUITES}.items() for n in range(count)]
@@ -50,7 +50,7 @@ def main() -> None:
     ids = [t["id"] for t in tasks]
     original = of(*[s for s in SUITES if s != "libero_90"])
     pro = of(*PRO_SUITES)
-    write(HERE, tasks, seeds, verify,
+    write(HERE, tasks, seeds,
           {"all": ids, "libero": original, "libero_90": of("libero_90"), "libero_pro": pro,
            "libero_pro_long": of("libero_10_swap", "libero_10_task"),
            **{suite: of(suite) for suite in (*SUITES, *PRO_SUITES) if suite != "libero_90"},

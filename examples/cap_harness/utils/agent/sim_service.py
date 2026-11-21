@@ -1,10 +1,10 @@
-"""The robot execution engine as a host service: ASPIRE's `cap-harness` for the actors in the task sandbox.
+"""The robot execution engine as a host service: ASPIRE's `cap-harness` for the sessions in the task sandbox.
 
 The task sandbox has no GPU, so the simulator runs here, on the host, beside ASPIRE's perception and planning
 services; a session reaches it through `bin/sim` (sim_cli.py) on a forwarded 127.0.0.1 port (ASPIRE_SIM_URL in
 environment.env). The service is the trusted side of the session's rules, and it trusts nothing the session sends
-but the workspace and its task's id: the seeds, the role and the budget are the task row's (--tasks, read here on
-the host, each task as its row: aspire_fields.py), and a rollout's directory (<workspaces>/<role>/<task id>-<hex>,
+but the workspace and its task's id: the seeds and the budget are the task row's (--tasks, read here on
+the host, each task as its row: fields.py), and a rollout's directory (<workspaces>/<role>/<task id>-<hex>,
 made by the framework outside the sandbox, which can write only inside it) registers one session, of the task its
 name carries:
 
@@ -13,8 +13,8 @@ name carries:
                     same workspace, finds its registration and what it spent as they were)
     POST /run       {workspace, cmd: run | run-batch | validate, program, seeds, output_root, no_videos}
                     runs cap-harness for the registered task: only its development and unseen-check seeds, the
-                    unseen check once, a verifier's two programs (by content; a single run on the first seed is
-                    free), the program and the output inside the workspace, the registration's max_steps
+                    unseen check once, a row's attempt budget (`max_programs`: programs by content; a single run on the
+                    first seed is free), the program and the output inside the workspace, the registration's max_steps
     GET  /health
 
 The session's files are never opened by path here, since the session may have put a link in it: the program is read
@@ -23,7 +23,7 @@ O_NOFOLLOW) and run as this service's own copy, the one its digest is taken of; 
 own directory, and the run is moved into the workspace the same way, each file replacing whatever entry has its name.
 A run is stopped after --run-timeout seconds, and the runs still going are stopped when the service is.
 
-Every refusal is a 200 with {ok: false, error}. The ledger (registrations, unseen checks, a verifier's programs) is
+Every refusal is a 200 with {ok: false, error}. The ledger (registrations, unseen checks, a budget's programs) is
 kept in --state, outside every sandbox. Started by launch.sh:
 
     python sim_service.py --port 8120 --aspire-root $ASPIRE_ROOT --tasks utils/benchmark/tasks --workspaces <logs>
@@ -50,7 +50,7 @@ import threading
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sim  # noqa: E402
 from sim import seeds_of  # noqa: E402
-from aspire_fields import task_rows  # noqa: E402
+from fields import task_rows  # noqa: E402
 
 
 class Ledger:
@@ -171,13 +171,13 @@ class Service:
                 return {"ok": True}
             if any(Path(w).is_relative_to(rollout) for w in self.ledger.data):
                 return {"ok": False, "error": "this rollout has registered its session already"}
-            verifier = row.get("role") == "verifier"
             self._check_row(row)
             self.ledger.data[str(workspace)] = {
-                "task": row["id"], "role": "verifier" if verifier else "actor", "suite": str(row["suite"]),
+                "task": row["id"], "suite": str(row["suite"]),
                 "benchmark": str(row.get("benchmark") or "robosuite"),
                 "task_id": int(row.get("task_id", 0)), "dev": seeds_of(row.get("debug_seeds")),
-                "unseen": seeds_of(row.get("unseen_seeds")), "max_programs": 2 if verifier else None,
+                "unseen": seeds_of(row.get("unseen_seeds")),
+                "max_programs": int(row["max_programs"]) if row.get("max_programs") else None,
                 "max_steps": body.get("max_steps"), "unseen_used": False, "programs": []}
             self.ledger.save()
         return {"ok": True}
@@ -210,7 +210,7 @@ class Service:
             shutil.rmtree(own, ignore_errors=True)
 
     def _run(self, body, session, program, code, own_out, rollout, out, swaps) -> dict:
-        """The rules every engine shares (the assigned seeds, the unseen check once, a verifier's programs, the
+        """The rules every engine shares (the assigned seeds, the unseen check once, a budget's programs, the
         output moved into the workspace without following a link); what is run is the engine's (`_validate`,
         `_launch`: cap-harness here, another simulator in a subclass)."""
         if body.get("cmd") == "validate":

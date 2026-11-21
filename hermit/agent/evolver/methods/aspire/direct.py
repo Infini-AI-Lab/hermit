@@ -1,17 +1,19 @@
-"""ASPIRE's actor on one Robosuite task: write a Code-as-Policy program, run it in the robot execution engine on the
-task's development seeds, diagnose from the per-primitive traces and keyframes, repair, and keep the best version
+"""ASPIRE's actor on one task of the cap-harness engine, in direct chat: write a Code-as-Policy program, run it in
+the robot execution engine on the task's development seeds, diagnose from the per-primitive traces and keyframes,
+repair, and keep the best version
 (ASPIRE §2.1, the iterative-debugging loop of NVlabs/ASPIRE .claude/skills/iterative-debugging/subagent-prompt.md);
 optionally continue with the evolutionary search over the program (ASPIRE §2.3, Algorithm 1;
 .claude/skills/evosearch/); then write the findings the coordinator distills skills from. The judge runs the
-selected program on the held-out seeds (utils/benchmark/judge.py).
+selected program on the held-out seeds (the engine's utils/benchmark/judge.py).
 
 The adapter is the shared skill library: its context (ADAPTER.md, and the skills it exports) is the "Shared skill
 library" section of the actor's instructions, the only thing that carries from one task to the next. adapter=None
 runs without one.
 
 Every model call is one Direct call (Layer 1, docs/framework/agent-layers.md); the loop is this file's.
-The robot execution engine is ASPIRE's harness in its own venv (sim.py), started in this process: this actor needs
-the GPU, so its configs run it on the host (environment.runner: host), a comparison, not the method.
+The robot execution engine is ASPIRE's harness in its own venv (the engine's sim.py, agent.params.engine: e.g.
+../../cap_harness/utils/agent/sim.py), started in this process: this actor needs the GPU, so its configs run it on
+the host (environment.runner: host), a comparison, not the method.
 
 Output: the development rate of the selected program. Log: a compact directory (every program version, each sweep's records and
 per-seed digests, the keyframes the model was shown, findings.md, skill_report.json, the transcript); ASPIRE's full
@@ -20,6 +22,7 @@ run directories stay under `agent.params.scratch`.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -30,12 +33,9 @@ import threading
 import time
 
 from hermit.agent.acting import Agent
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-import sim  # noqa: E402
-from sim import seeds_of  # noqa: E402,F401
 
 DEFAULT_MODEL = "fireworks/accounts/fireworks/models/glm-5p3-flash"
 PROMPTS = HERE / "prompts"
@@ -75,10 +75,25 @@ def json_of(reply: str):
         return None
 
 
-class AspireActor(Agent):
-    """`agent.name: ../utils/agent/agent.py:AspireActor`
+def engine_module(path: Path):
+    """The engine's sim.py (agent.params.engine), loaded from its own folder once."""
+    path = Path(path).resolve()
+    name = f"_cap_sim_{abs(hash(str(path)))}"
+    if name not in sys.modules:
+        if str(path.parent) not in sys.path:
+            sys.path.insert(0, str(path.parent))
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
 
-    params: aspire_root (an ASPIRE checkout with .venv-robosuite), sim_env (the engine's environment), model,
+
+class AspireActor(Agent):
+    """`agent.name: hermit.agent.evolver.methods.aspire.direct:AspireActor`
+
+    params: engine (the engine's sim.py, relative to the config), aspire_root (an ASPIRE checkout with
+    .venv-robosuite), sim_env (the engine's environment), model,
     effort, max_tokens, debug_seeds (a task row's own seeds win; its held-out seeds are the row's, for the judge),
     max_versions, search (debug | evo),
     evo {k, rounds, threshold, qualify_below, parents}, workers, max_steps, failed_shown, keyframes, evidence_chars,
@@ -133,18 +148,23 @@ class AspireActor(Agent):
         root = p.get("aspire_root") or os.environ.get("ASPIRE_ROOT")
         if not root:
             raise ValueError("agent.params.aspire_root (or ASPIRE_ROOT): an ASPIRE checkout")
+        if not p.get("engine"):
+            raise ValueError("agent.params.engine: the engine's sim.py (e.g. ../../cap_harness/utils/agent/sim.py)")
+        sim = engine_module(self.path(os.path.expandvars(str(p["engine"]))))
         engine = sim.Engine(self.path(os.path.expandvars(root)), env=p.get("sim_env"),
                             workers=int(p.get("workers", 4)), max_steps=p.get("max_steps"),
                             timeout_s=float(p.get("sweep_timeout_s", 3600)))
         # A task row's own settings win over agent.params: the verifier's rows carry its seeds and budget.
         p = {**p, **{k: task[k] for k in ROW_KEYS if k in task}}
-        debug = seeds_of(p.get("debug_seeds") or "101-125")
+        if task.get("rerun_of"):              # a rerun with the final library (ASPIRE §2.4): no findings to distill
+            p["findings"] = False
+        debug = sim.seeds_of(p.get("debug_seeds") or "101-125")
         if not debug:
             raise ValueError(f"{task['id']}: no development seeds")
         stamp = time.strftime("%Y%m%dT%H%M%S") + f"-{time.time_ns() % 10**6:06d}"
         log = self.log_dir() / f"{task['id']}-{stamp}"
         scratch = self.path(p.get("scratch") or (self.log_dir() / "scratch")) / f"{task['id']}-{stamp}"
-        run = _Run(self, engine, task, log, scratch, debug, self._skills(adapter, task), p)
+        run = _Run(self, sim, engine, task, log, scratch, debug, self._skills(adapter, task), p)
 
         try:
             run.explore()
@@ -164,12 +184,14 @@ class AspireActor(Agent):
 
         rate = best.passed / len(debug)       # the development rate; the judge runs the held-out seeds (Stage 2)
         role = "verifier" if p.get("role") == "verifier" else "actor"
-        # the facts in the Codex actor's schema (task.py:collect), which the judge and the coordinator read; a
-        # verifier's verdict is ASPIRE's rule on its own seeds (>= 4 of 5)
+        # the facts in the Codex actor's schema (actor.py:collect), which the judge and the coordinator read; a
+        # verifier's verdict is ASPIRE's rule on its own seeds (>= 4 of 5), and its program counts only when verified
         facts = {"role": role, "suite": task["suite"], "findings": findings, "skill_report": report,
                  "fix_code": best.source, "unseen": None, "max_steps": p.get("max_steps"),
                  **({"verification": {"verdict": "verified" if best.passed >= 0.8 * len(debug) else "refuted"}}
                     if role == "verifier" else {})}
+        if role == "verifier" and facts["verification"]["verdict"] != "verified":
+            facts.update(not_scored=f"verifier verdict {facts['verification']['verdict']}", fix_code=None)
         extra = {"task": facts, "selected": best.name, "debug_passed": best.passed, "debug_total": len(debug),
                  "versions": [v.summary() for v in run.versions], "usage": run.totals}
         return RunOutput(output=rate, log=log, wall_s=time.time() - started, **run.spent(),
@@ -213,9 +235,9 @@ class _Version:
 class _Run:
     """The state of one task's debugging: the versions, the transcript, the log directory."""
 
-    def __init__(self, actor: AspireActor, engine: sim.Engine, task: dict, log: Path, scratch: Path,
+    def __init__(self, actor: AspireActor, sim, engine, task: dict, log: Path, scratch: Path,
                  debug: list[int], skills: str, params: dict):
-        self.actor, self.engine, self.task, self.log, self.scratch = actor, engine, task, log, scratch
+        self.actor, self.sim, self.engine, self.task, self.log, self.scratch = actor, sim, engine, task, log, scratch
         self.debug, self.skills = debug, skills
         self.suite, self.task_id = task["suite"], int(task.get("task_id", 0))
         self.versions: list[_Version] = []
@@ -279,7 +301,7 @@ class _Run:
         out = self.log / "sweeps" / name
         out.mkdir(parents=True, exist_ok=True)
         (out / "records.json").write_text(json.dumps(records, indent=1))
-        (out / "digest.txt").write_text("\n\n".join(sim.digest(r) for r in records))
+        (out / "digest.txt").write_text("\n\n".join(self.sim.digest(r) for r in records))
         return _Version(name, source, records, parent, note)
 
     def evidence(self, version: _Version) -> list[dict]:
@@ -292,15 +314,15 @@ class _Run:
         parts: list[dict] = []
         budget = int(self.params.get("evidence_chars", 40000))   # per version shown: the digests share it
         for record in shown:
-            text.append(_clip_middle(sim.digest(record), max(2000, budget // max(1, len(shown)))))
+            text.append(_clip_middle(self.sim.digest(record), max(2000, budget // max(1, len(shown)))))
         n_frames = int(self.params.get("keyframes", 2))
         for record in shown[:2]:
-            for label, png in sim.keyframes(record.get("run_dir"), limit=n_frames):
+            for label, png in self.sim.keyframes(record.get("run_dir"), limit=n_frames):
                 kept = self.log / "keyframes" / version.name / f"seed{record['seed']}-{label}.png"
                 kept.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(png, kept)
                 parts.append({"type": "text", "text": f"keyframe {version.name} seed {record['seed']} {label}:"})
-                parts.append(sim.image_part(kept))
+                parts.append(self.sim.image_part(kept))
         return [{"type": "text", "text": "\n\n".join(text)}, *parts]
 
     # --- Stage 0: explore once ----------------------------------------------------------------------------------
@@ -308,14 +330,14 @@ class _Run:
         probe = (Path(self.engine.root) / ".claude/skills/iterative-debugging/scripts/scene_snapshot.py").read_text()
         version = self.sweep("probe", probe, self.debug[:1])
         record = version.records[0]
-        self.scene = sim.digest(record, call_chars=1500)
+        self.scene = self.sim.digest(record, call_chars=1500)
         for camera in ("agentview", "robot0_eye_in_hand"):
-            for label, png in sim.keyframes(record.get("run_dir"), camera=camera, limit=1):
+            for label, png in self.sim.keyframes(record.get("run_dir"), camera=camera, limit=1):
                 kept = self.log / "keyframes" / "probe" / f"{camera}-{label}.png"
                 kept.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(png, kept)
                 self.scene_images += [{"type": "text", "text": f"initial scene, camera {camera}:"},
-                                      sim.image_part(kept)]
+                                      self.sim.image_part(kept)]
 
     def _task_text(self) -> str:
         return (f"Task: robosuite suite `{self.suite}`, task id {self.task_id}. Development seeds: {self.debug}.\n\n"
@@ -401,7 +423,7 @@ class _Run:
     def findings(self, best: _Version):
         template = (PROMPTS / "findings.md").read_text().split("-->", 1)[1].strip()
         history = self.changelog() + "\n\n" + "\n\n".join(
-            f"{v.name} failures:\n" + "\n".join(sim.digest(r, call_chars=200) for r in v.failed()[:2])
+            f"{v.name} failures:\n" + "\n".join(self.sim.digest(r, call_chars=200) for r in v.failed()[:2])
             for v in self.versions if v.failed())
         prompt = template.format(selected=best.name, debug_passed=best.passed, debug_total=len(best.records),
                                  suite=self.suite, history=history[-60000:], program=best.source)

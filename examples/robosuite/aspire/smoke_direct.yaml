@@ -1,19 +1,21 @@
-# The structured direct-chat actor (utils/agent/agent.py) in place of Codex: a comparison with ASPIRE's coding agent.
+# ASPIRE's structured direct-chat actor (hermit/agent/evolver/methods/aspire/direct.py) in place of Codex: a
+# comparison with ASPIRE's coding agent.
 # Smoke: two tasks, three development seeds, three held-out seeds, two versions and no search; the verifier's own
 # rows (5 seeds, 2 attempts). Started by launch.sh: ASPIRE_CONFIG=smoke_direct.yaml ./launch.sh
 data:
-  tasks: ../utils/benchmark/tasks
-  view: ../utils/agent/aspire_fields.py:aspire_task   # each task as the row it always was
-  train: ../utils/benchmark/splits/smoke.txt
-  val: ../utils/benchmark/splits/verify.txt
-  test: ../utils/benchmark/splits/smoke_rerun.txt
+  tasks: tasks                      # the benchmark's tasks and ASPIRE's verifiers (tasks.sh)
+  view: ../../cap_harness/utils/agent/fields.py:task_row   # each task as the row it always was
+  train: splits/smoke.txt
+  val: splits/verify.txt
+  test: splits/smoke_rerun.txt
   step_size: 1
   shuffle: false
 task_info: ../utils/benchmark/task-info
 agent:
-  name: ../utils/agent/agent.py:AspireActor
+  name: hermit.agent.evolver.methods.aspire.direct:AspireActor
   concurrency: 1
   params:
+    engine: ../../cap_harness/utils/agent/sim.py   # the engine this actor runs its programs on
     aspire_root: $ASPIRE_ROOT
     sim_env: {}
     model: fireworks/accounts/fireworks/models/glm-5p3-flash
@@ -22,7 +24,7 @@ agent:
     search: debug
     workers: 3
 judge:
-  path: ../utils/benchmark/judge.py
+  path: ../../cap_harness/utils/benchmark/judge.py
 template: aspire
 evolver:                            # the coordinator, as in run.yaml
   name: aspire

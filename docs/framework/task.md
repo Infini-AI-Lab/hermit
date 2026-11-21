@@ -102,8 +102,9 @@ agent:
 
 `codex`, `claude-code`, `pi`, `mini-swe-agent`, `opencode`, `dsh` and `hermes` act with a coding-agent CLI in a
 workspace of Hermit's (or, for Codex and Claude Code, in a task's own Harbor environment: [Benchmarks](#benchmarks)):
-a task gives what is its own, in configuration and, where its workspace is
-built in code, in functions it names (`file.py:function`); the agent does the rest. OfficeQA's Codex runs are one such
+a task gives what is its own, in configuration and, where its workspace is built in code, in functions it names
+(`file.py:function`, or `package.module:function` for a method that brings its own session, as ASPIRE's
+`hermit.agent.evolver.methods.aspire.actor`); the agent does the rest. OfficeQA's Codex runs are one such
 configuration (`examples/officeqa/utils/task.py`):
 
 ```yaml
@@ -456,7 +457,7 @@ of your own is written as task directories by your `utils/benchmark/prepare.py` 
 goes into `tests/`, uploaded after the agent ran, so the answer is never where the agent can read it; see
 `examples/officeqa/utils/harbor/build_tasks.py`). A task set of task directories that Hermit runs in its own sandbox or
 on the host, with a judge on the host (`judge.mode: host`, no `tests/`), is what the examples whose agent owns its loop
-use (`examples/aspire_robosuite/`, `clbench_*`, `servelearnbench/`, `agentdyn/`, ...; [Task directories](#task-directories)).
+use (`examples/robosuite/`, `libero/`, `clbench_*`, `servelearnbench/`, `agentdyn/`, ...; [Task directories](#task-directories)).
 A task set is checked without a model by running a command of a known answer in each task's environment and verifying
 it (`tests/core/test_harbor_environment.py` does this against Docker).
 

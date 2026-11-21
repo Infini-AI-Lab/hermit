@@ -1,0 +1,58 @@
+# The smoke with Claude Code: two tasks; three development seeds, one unseen-check seed, three held-out seeds
+# (launch.sh writes them into the task rows: ASPIRE_SEEDS=smoke); Claude Code acting (ASPIRE's fix-loop subagent and
+# verifier prompts) and coordinating, Claude Opus 5.5 on the user's Claude subscription (login: claude, its token in
+# CLAUDE_CODE_OAUTH_TOKEN: docs/guides/claude-subscription.md). Started by launch.sh:
+# ASPIRE_CONFIG=smoke_claude.yaml ./launch.sh
+data:
+  tasks: tasks                      # the benchmark's tasks and ASPIRE's verifiers (tasks.sh)
+  view: ../../cap_harness/utils/agent/fields.py:task_row   # each task as the row it always was
+  train: splits/smoke.txt
+  val: splits/verify.txt   # the verifier's rows: run only by the coordinator, through run_agent
+  test: splits/smoke_rerun.txt
+  step_size: 1
+  shuffle: false
+task_info: ../utils/benchmark/task-info
+agent:
+  base: claude
+  concurrency: 1
+  params:
+    prompt: hermit.agent.evolver.methods.aspire.actor:prompt
+    prepare: hermit.agent.evolver.methods.aspire.actor:prepare
+    answer: hermit.agent.evolver.methods.aspire.actor:answer
+    collect: hermit.agent.evolver.methods.aspire.actor:collect
+    engine: ../../cap_harness/utils/agent/task.py   # the engine's task functions ASPIRE's build on
+    aspire_root: $ASPIRE_ROOT
+    aspire_docs: $ASPIRE_DOCS
+  model: {name: claude-opus-5-5, login: claude, effort: medium}   # a model name on the login
+  claude:
+    web_search: false               # set explicitly: WebSearch and WebFetch denied (they run at Anthropic)
+    timeout_s: 5400
+environment:                        # the task sandbox: the actor's code, ASPIRE's prompts and docs, nothing else of it
+  read:
+    - ../../cap_harness/utils/agent   # the engine's task functions, bin/sim's client
+    - $ASPIRE_DOCS                    # ASPIRE's docs as staged by launch.sh: nothing that names its worked programs
+    - $ASPIRE_ROOT/.claude/skills/iterative-debugging/subagent-prompt.md
+    - $ASPIRE_ROOT/.claude/skills/iterative-debugging/verifier-prompt.md
+    - $ASPIRE_ROOT/.claude/skills/iterative-debugging/scripts/scene_snapshot.py
+    - $ASPIRE_ROOT/.claude/skills/iterative-debugging/skills/task-exploration.md
+    - $ASPIRE_ROOT/.claude/skills/evosearch/subagent-prompt.md
+    - $ASPIRE_ROOT/.claude/skills/evosearch/skills/evosearch-iteration.md
+  env: [ASPIRE_SIM_URL]             # the host's simulator service (launch.sh): its 127.0.0.1 port is forwarded
+judge:
+  path: ../../cap_harness/utils/benchmark/judge.py           # on the host: Stage 2 on the held-out seeds
+template: aspire
+evolver:
+  name: aspire
+  base: claude
+  model: {name: claude-opus-5-5, login: claude, effort: medium}
+  claude: {web_search: false}
+sandbox:
+  enabled: true
+  enforce: required
+trainer:
+  run_name: smoke-aspire-claude
+  epochs: 1
+  call_timeout_min: 240
+  budget: {hours: 8}                # on the subscription: no dollar cost; the plan's own windows apply
+eval:
+  repeats: 1
