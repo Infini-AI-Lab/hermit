@@ -1,6 +1,6 @@
-"""ASPIRE's actor on one task of the cap-harness engine, in direct chat: write a Code-as-Policy program, run it in
-the robot execution engine on the task's development seeds, diagnose from the per-primitive traces and keyframes,
-repair, and keep the best version
+"""ASPIRE's actor on one Robosuite task of the cap-harness engine, in direct chat (its prompts and its runs are
+Robosuite's): write a Code-as-Policy program, run it in the robot execution engine on the task's development seeds,
+diagnose from the per-primitive traces and keyframes, repair, and keep the best version
 (ASPIRE §2.1, the iterative-debugging loop of NVlabs/ASPIRE .claude/skills/iterative-debugging/subagent-prompt.md);
 optionally continue with the evolutionary search over the program (ASPIRE §2.3, Algorithm 1;
 .claude/skills/evosearch/); then write the findings the coordinator distills skills from. The judge runs the

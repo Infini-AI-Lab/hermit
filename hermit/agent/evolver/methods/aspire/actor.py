@@ -1,4 +1,4 @@
-"""ASPIRE's acting sessions (agent.base: codex): its fix-loop subagent, its evolutionary search and its skill
+"""ASPIRE's acting sessions (agent.base: codex or claude): its fix-loop subagent, its evolutionary search and its skill
 verifier, as ASPIRE's own prompts run them, on any benchmark of the cap-harness engine. These are the task functions
 an ASPIRE config names (agent.params.prompt, prepare, answer, collect); they build on the engine's own
 (agent.params.engine: its utils/agent/task.py, e.g. examples/cap_harness/utils/agent/task.py), which give every

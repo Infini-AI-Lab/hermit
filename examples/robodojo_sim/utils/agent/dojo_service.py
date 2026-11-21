@@ -81,7 +81,7 @@ class Service(base.Service):
         if len(records) < len(seeds):
             lines.append(f"{len(seeds) - len(records)} layout(s) have no result (the evaluation ended early)")
         lines.append(f"{passed}/{len(records)} layouts succeeded")
-        # As the ASPIRE service reports a run it stopped: 124, and why
+        # As the cap-harness service reports a run it stopped: 124, and why
         summary = own_out / "records.json"                 # dojo.Engine.run's account of the run
         run = json.loads(summary.read_text()) if summary.is_file() else {}
         if run.get("timed_out"):

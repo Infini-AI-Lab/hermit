@@ -522,7 +522,7 @@ def test_the_service_runs_only_the_sessions_development_layouts_from_the_first(t
     assert done["ok"] and "1/2 layouts succeeded" in done["stdout"] and ran == [("stack_bowls", 2, 2)]
     assert "not assigned to you" in request([0, 1, 2, 3])["error"]         # more than its development layouts
     assert "from the first" in request([1, 2])["stderr"] and len(ran) == 1
-    # A run past its timeout is said, as the ASPIRE service says it (124); after stop() no simulator starts
+    # A run past its timeout is said, as the cap-harness service says it (124); after stop() no simulator starts
     timed_out = {"value": True}
 
     def summarized(program, *, task, layout_seed, layouts, out, private=None):

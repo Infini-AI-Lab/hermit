@@ -27,6 +27,9 @@ agent:
   claude:
     web_search: false               # set explicitly: WebSearch and WebFetch denied (they run at Anthropic)
     timeout_s: 5400
+    env:                            # Claude Code's Bash stops a command at 2 min (10 at most); a run-batch may take longer
+      BASH_DEFAULT_TIMEOUT_MS: "1800000"
+      BASH_MAX_TIMEOUT_MS: "3600000"
 environment:                        # the task sandbox: the actor's code, ASPIRE's prompts and docs, nothing else of it
   read:
     - ../../cap_harness/utils/agent   # the engine's task functions, bin/sim's client

@@ -16,12 +16,13 @@ service, `bin/sim`, its judge), which LIBERO shares; its README has the setup.
 ## ASPIRE on Robosuite
 
 The curriculum run as ASPIRE runs it ([`aspire`](../../docs/methods/aspire.md)): ASPIRE's fix-loop subagent (the
-actor), its skill verifier and its coordinator, each a Codex session given ASPIRE's own prompt. For each task the
-actor debugs its program from the per-primitive traces and RGB keyframes; the harness then scores it once on held-out
-seeds. After each task the coordinator updates the shared skill library, admitting the actor's proposals only if a
-fresh verifier re-solves the task from the library and the proposals alone, and chooses the next task. The actor's
-task functions are ASPIRE's (`hermit/agent/evolver/methods/aspire/actor.py`, built on the engine's), and its verifier
-rows are ASPIRE's too (`aspire/tasks.sh` derives them from the tasks `prepare.py` wrote).
+actor), its skill verifier and its coordinator, each a Codex session (or Claude Code, `smoke_claude.yaml`) given
+ASPIRE's own prompt. For each task the actor debugs its program from the per-primitive traces and RGB keyframes; the
+harness then scores it once on held-out seeds. After each task the coordinator updates the shared skill library,
+admitting the actor's proposals only if a fresh verifier re-solves the task from the library and the proposals alone,
+and chooses the next task. The actor's task functions are ASPIRE's (`hermit/agent/evolver/methods/aspire/actor.py`,
+built on the engine's), and its verifier rows are ASPIRE's too (`aspire/tasks.sh` derives them from the tasks
+`prepare.py` wrote).
 
 On the host that serves the providers, with the engine set up:
 

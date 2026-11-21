@@ -1,7 +1,7 @@
 # The cap-harness engine
 
-The robot execution engine of [ASPIRE](https://github.com/NVlabs/ASPIRE)'s Code-as-Policy harness (`cap-harness`), shared
-by the benchmarks that run on it: [Robosuite](../robosuite/) and [LIBERO](../libero/) (and, for its simulator
+The robot execution engine of [ASPIRE](https://github.com/NVlabs/ASPIRE)'s Code-as-Policy harness (`cap-harness`),
+shared by the benchmarks that run on it: [Robosuite](../robosuite/) and [LIBERO](../libero/) (and, for its simulator
 service, [RoboDojo-Sim](../robodojo_sim/)). A session writes a program (Python against the harness's perception,
 grasping and motion API), runs it in the engine on its task's development seeds through `bin/sim`, and the judge
 scores it once on held-out seeds. The engine is a benchmark's, not a method's: what a method brings to a session
@@ -58,11 +58,13 @@ the task functions here.
    MUJOCO_EGL_DEVICE_ID: "0"      # inside the sandbox the GPUs ASPIRE_SIM_GPU names count from 0
    ```
 
-4. **Codex and the sandboxes.** A session (and a method's learner, such as ASPIRE's coordinator) is a Codex CLI
-   session (`codex` on `PATH`; the configs bind them to GLM 5.3 Flash on Fireworks), each in the framework's sandbox (`sandbox.enabled: true`, `enforce:
-   required`; bubblewrap on `PATH`, docs/guides/sandbox.md). The task sandbox has no GPU, so the simulator runs on the
-   host as a service (`utils/agent/sim_service.py`, started by `launch.sh`), which the session reaches through `bin/sim`
-   on a forwarded loopback port; see [A session's rules](#a-sessions-rules).
+4. **The CLI and the sandboxes.** A session (and a method's learner, such as ASPIRE's coordinator) is a Codex CLI
+   session (`codex` on `PATH`; most configs bind them to GLM 5.3 Flash on Fireworks) or a Claude Code one (`claude` on
+   `PATH`, on a Claude subscription: Robosuite's `aspire/smoke_claude.yaml`), each in the framework's sandbox
+   (`sandbox.enabled: true`, `enforce: required`; bubblewrap on `PATH`, docs/guides/sandbox.md). The task sandbox has
+   no GPU, so the simulator runs on the host as a service (`utils/agent/sim_service.py`, started by `launch.sh`),
+   which the session reaches through `bin/sim` on a forwarded loopback port; see [A session's
+   rules](#a-sessions-rules).
 
 ## Disk
 
@@ -84,8 +86,8 @@ simulator service is the trusted side of the seed rules: it reads the task rows 
 session (its workspace and task id; one session per rollout directory, which the sandbox cannot create) before the
 agent starts, and the service runs only the row's development and unseen-check seeds, the unseen check once and, for
 a row with an attempt budget (`max_programs`), that many programs, writing the runs into the workspace. The held-out
-seeds are run only by the judge, on the host (ASPIRE's Stage 2), on the program the session selected. The session's
-Codex runs with its own sandbox off (`codex_sandbox: danger-full-access`), the task sandbox being the boundary.
+seeds are run only by the judge, on the host (ASPIRE's Stage 2), on the program the session selected. A Codex
+session runs with its own sandbox off (`codex_sandbox: danger-full-access`), the task sandbox being the boundary.
 
 The programs a session writes run inside cap-harness on the host, and ASPIRE's program validator is no boundary (a
 format string's attribute traversal passes it). So every cap-harness process, the service's, the judge's and the
