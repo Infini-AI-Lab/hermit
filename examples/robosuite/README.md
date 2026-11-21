@@ -11,12 +11,12 @@ service, `bin/sim`, its judge), which LIBERO shares; its README has the setup.
 |---|---|
 | `utils/benchmark/prepare.py` | The seven Robosuite tasks with their seeds, as task directories in Harbor's format (`tasks/`, each with its rerun, each read as its row through the engine's `utils/agent/fields.py`, the configs' `data.view`); `splits/` |
 | `utils/benchmark/task-info/` | What a task and its record are, for the learner |
-| `aspire/` | ASPIRE on Robosuite: `run.yaml` (ASPIRE's seeds), `smoke.yaml`, `smoke_claude.yaml` (Claude Code acting and coordinating on a Claude subscription), the `*_direct.yaml` comparison, `launch.sh`, and `tasks.sh`, which adds ASPIRE's verifiers to the tasks |
+| `aspire/` | ASPIRE on Robosuite: `run.yaml` (ASPIRE's seeds), `smoke.yaml`, the `*_direct.yaml` comparison, `launch.sh`, and `tasks.sh`, which adds ASPIRE's verifiers to the tasks |
 
 ## ASPIRE on Robosuite
 
 The curriculum run as ASPIRE runs it ([`aspire`](../../docs/methods/aspire.md)): ASPIRE's fix-loop subagent (the
-actor), its skill verifier and its coordinator, each a Codex session (or Claude Code, `smoke_claude.yaml`) given
+actor), its skill verifier and its coordinator, each a Codex session (or Claude Code: `agent.base: claude`) given
 ASPIRE's own prompt. For each task the actor debugs its program from the per-primitive traces and RGB keyframes; the
 harness then scores it once on held-out seeds. After each task the coordinator updates the shared skill library,
 admitting the actor's proposals only if a fresh verifier re-solves the task from the library and the proposals alone,

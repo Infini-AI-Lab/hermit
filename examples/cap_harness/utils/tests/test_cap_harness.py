@@ -158,7 +158,7 @@ def test_the_task_sandbox_is_shown_the_staged_docs_and_never_a_page_that_lost_it
     from hermit.config import Config
     configs = [p for folder in (ROBOSUITE / "aspire", LIBERO / "aspire", LIBERO / "prompt_only")
                for p in sorted(folder.glob("*.yaml"))]
-    assert len(configs) == 19
+    assert len(configs) == 18
     for path in configs:
         config = Config.load(path)
         data = config.data

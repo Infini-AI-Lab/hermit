@@ -18,8 +18,7 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   attempt budget is a row's `max_programs`, and the judge scores a row's `eval_seeds` (a verifier row's are its own
   five); a verifier's verdict rule is ASPIRE's `collect`, which withholds the program unless `verified` (`not_scored`).
   The prompts the Codex sessions see are unchanged, byte for byte; ASPIRE's header page names the CLI's context file
-  (`CLAUDE.md` for Claude Code), and Robosuite has a Claude Code smoke (`aspire/smoke_claude.yaml`). A task function
-  may be named `package.module:function`.
+  (`CLAUDE.md` for Claude Code). A task function may be named `package.module:function`.
   LIBERO's `prompt_only/` configs drop `evosearch: false`.
 
 - The old import paths of moved modules are gone, with no forward: 0.1's, which 0.2 forwarded (`hermit.agents`,

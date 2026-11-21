@@ -406,7 +406,7 @@ def test_the_aspire_configs_read_its_verifiers_and_name_its_session_and_the_engi
     from hermit.task import Benchmark
     from hermit.agent.acting import workspace as cli
     configs = sorted((ROBOSUITE / "aspire").glob("*.yaml")) + sorted((LIBERO / "aspire").glob("*.yaml"))
-    assert len(configs) == 15
+    assert len(configs) == 14
     prepared = {}
     for bench, seeds in ((ROBOSUITE, "101-105"), (LIBERO, "51-55")):
         P = _load(f"prepare_{bench.name}", bench / "utils" / "benchmark" / "prepare.py")

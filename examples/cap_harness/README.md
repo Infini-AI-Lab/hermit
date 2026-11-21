@@ -60,11 +60,11 @@ the task functions here.
 
 4. **The CLI and the sandboxes.** A session (and a method's learner, such as ASPIRE's coordinator) is a Codex CLI
    session (`codex` on `PATH`; most configs bind them to GLM 5.3 Flash on Fireworks) or a Claude Code one (`claude` on
-   `PATH`, on a Claude subscription: Robosuite's `aspire/smoke_claude.yaml`), each in the framework's sandbox
-   (`sandbox.enabled: true`, `enforce: required`; bubblewrap on `PATH`, docs/guides/sandbox.md). The task sandbox has
-   no GPU, so the simulator runs on the host as a service (`utils/agent/sim_service.py`, started by `launch.sh`),
-   which the session reaches through `bin/sim` on a forwarded loopback port; see [A session's
-   rules](#a-sessions-rules).
+   `PATH`, `agent.base: claude`; on a Claude subscription, `login: claude`: docs/guides/claude-subscription.md), each
+   in the framework's sandbox (`sandbox.enabled: true`, `enforce: required`; bubblewrap on `PATH`,
+   docs/guides/sandbox.md). The task sandbox has no GPU, so the simulator runs on the host as a service
+   (`utils/agent/sim_service.py`, started by `launch.sh`), which the session reaches through `bin/sim` on a forwarded
+   loopback port; see [A session's rules](#a-sessions-rules).
 
 ## Disk
 
