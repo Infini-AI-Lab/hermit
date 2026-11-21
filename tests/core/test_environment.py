@@ -294,6 +294,20 @@ def test_a_method_that_needs_tools_is_refused_an_agent_that_takes_none(tmp_path)
     assert adapter_needs_errors(sandboxed, ["tools"]) == []
 
 
+@pytest.mark.parametrize("method,parts", [("ahe_adapter", "skills, agents, hooks"),
+                                          ("continual_harness", "skills, agents"),
+                                          ("harness2_upstream", "skills, agents, hooks")])
+def test_a_method_whose_harness_has_skills_and_roles_is_refused_react(tmp_path, method, parts):
+    """A method that writes skills and sub-agents (and hooks) declares them: a run whose agent drops them is refused."""
+    from hermit.agent.evolver.loader import find
+    from hermit.trainer.trainer import adapter_needs_errors
+    needs = find(method).needs
+    react = _config(tmp_path, {"name": "react", "params": {"model": {"base_url": "u", "model": "m"}}}, method)
+    assert f"acting agent {parts}, which agent react" in adapter_needs_errors(react, needs)[0]
+    codex = _config(tmp_path, {"name": "codex", "params": {"web_search": False}}, method)
+    assert adapter_needs_errors(codex, needs) == []
+
+
 def _declared_supports(file: Path, name: str):
     """A task class's or function's `supports`, read from its source without importing it (None: not declared)."""
     import ast
