@@ -1,4 +1,4 @@
-"""ASPIRE's acting sessions (agent.base: codex or claude): its fix-loop subagent, its evolutionary search and its skill
+"""ASPIRE's acting sessions (agent.base: codex): its fix-loop subagent, its evolutionary search and its skill
 verifier, as ASPIRE's own prompts run them, on any benchmark of the cap-harness engine. These are the task functions
 an ASPIRE config names (agent.params.prompt, prepare, answer, collect); they build on the engine's own
 (agent.params.engine: its utils/agent/task.py, e.g. examples/cap_harness/utils/agent/task.py), which give every
@@ -100,7 +100,6 @@ def prompt(task: dict, params: dict, base: Path) -> str:
     header = (PROMPTS / "codex_header.md").read_text().format(
         role_name="fix-loop subagent" if s["role"] == "actor" else "skill verifier",
         template=TEMPLATES[s["role"]], benchmark=s["benchmark"], benchmark_doc=s["doc"],
-        context_file=context_file(params),
         your_dir=(f"`$RUN_ROOT` is this workspace (`.`), so `$TASK_DIR` is `{task_dir(s, eng)}`, as the template "
                   f"defines it." if s["role"] == "actor" else "`$VERIFY_DIR` is this workspace (`.`)."),
         proposed_line=("The proposals under test are `proposed_skills.md` in this workspace (the template's "
@@ -119,11 +118,6 @@ def prompt(task: dict, params: dict, base: Path) -> str:
     if s["role"] == "actor" and params.get("evosearch", True):
         text += "\n---\n\n" + evosearch_part(s, eng)
     return text
-
-
-def context_file(params: dict) -> str:
-    """The file the session's CLI reads the adapter's context from: Claude Code's CLAUDE.md, Codex's AGENTS.md."""
-    return "CLAUDE.md" if str(params.get("backend") or "codex") in ("claude", "claude-code") else "AGENTS.md"
 
 
 def evosearch_part(s: dict, eng) -> str:

@@ -276,10 +276,6 @@ def test_the_actor_prompt_is_the_header_the_assignment_and_aspires_template(tmp_
     assert "`TASK_DIR` is `evosearch/libero-pro/libero_90/task_33`" in libero and "DEV_SEEDS: 51-53" in libero
     with pytest.raises(ValueError, match="agent.params.engine"):
         A.prompt(ROW, {"aspire_root": params["aspire_root"]}, BASE)
-    # The library is in the context file of the session's CLI: Codex's AGENTS.md, Claude Code's CLAUDE.md
-    assert "section of your AGENTS.md" in text and "CLAUDE.md" not in text
-    claude = A.prompt(ROW, {**params, "backend": "claude"}, BASE)
-    assert "section of your CLAUDE.md" in claude and claude.replace("CLAUDE.md", "AGENTS.md") == text
 
 
 def test_aspires_workspace_is_the_engines_with_its_assignment_its_search_page_and_the_proposals(tmp_path, service):

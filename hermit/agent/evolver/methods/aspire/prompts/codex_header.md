@@ -17,7 +17,7 @@ things in it map onto your workspace as follows. Where the template and this pag
   `bin/sim` asks the harness's simulator to run them, with the benchmark ({benchmark}), suite, task id, init mode, GPU, render
   settings, `--flat-run-dir` and the results file (`<dir>/results.jsonl`, with the logs under `<dir>/logs/`); the
   runs appear in your workspace. It accepts only your assigned seeds, and the unseen-check seeds once. Perception, IK and planning services are already running; you need not check them.
-- **The shared skill library** is the "Shared skill library" section of your {context_file}, and the same files are under
+- **The shared skill library** is the "Shared skill library" section of your AGENTS.md, and the same files are under
   `hermit/aspire/skills/` in this workspace. Wherever the template says `.claude/skills/iterative-debugging/skills/`
   (or `skills/<file>.md`), it means these, except `skills/task-exploration.md`, which is `docs/task-exploration.md`.
   {proposed_line}
