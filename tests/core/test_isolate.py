@@ -261,7 +261,7 @@ def test_check_spec_takes_a_candidate_under_scratch_or_state_and_nothing_else(tm
 SNOOP = r'''
 import json, os, subprocess, sys
 from pathlib import Path
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 
 def _peek(path):
     try:
@@ -431,7 +431,7 @@ def score(task, out):
 
 PIPELINE_PLANTS = """
 import os
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 
 def run(task, adapter):
     work = os.getcwd()
@@ -589,7 +589,7 @@ def evil():
 
 PIPELINE_WITH_ADAPTER = """
 from hermit.adapter.session import Session
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 
 def run(task, adapter):
     s = Session(adapter)
@@ -644,7 +644,7 @@ def test_a_session_in_a_process_the_agent_starts_is_sandboxed_too(tmp_path):
     """A benchmark's own runner (another process) holding a Session: the setting is inherited."""
     from test_session_sandbox import adapter_copy
     pipeline = (
-        "import subprocess, sys\nfrom hermit.task import RunOutput\n\n"
+        "import subprocess, sys\nfrom hermit.common import RunOutput\n\n"
         "def run(task, adapter):\n"
         "    code = ('from hermit.adapter.session import Session\\n'\n"
         "            's = Session(sys.argv[1]); print(s.sandboxed); s.close()')\n"
@@ -793,7 +793,7 @@ def test_a_container_agent_runs_from_a_worker_that_sandboxes_the_adapters_code(t
     (tmp_path / "t").mkdir()
     config = Config.load(make_task(tmp_path / "t"), [])
     (tmp_path / "t" / "probe.py").write_text(
-        "import os\nfrom hermit.task import RunOutput\n"
+        "import os\nfrom hermit.common import RunOutput\n"
         "def run(task, adapter):\n"
         "    sandboxed, enforce = os.environ.get('HA_ADAPTER_SANDBOX'), os.environ.get('HA_ADAPTER_SANDBOX_ENFORCE')\n"
         "    return RunOutput(output=f'{sandboxed} {enforce} {os.getpid()}')\n")
@@ -831,7 +831,7 @@ def test_the_task_sandbox_shows_the_installation_of_the_clis_own_program(tmp_pat
 PIPELINE_LINKED_LOG = """
 import os
 from pathlib import Path
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 
 def run(task, adapter):
     trace = Path(os.getcwd()) / "trace"
@@ -1008,7 +1008,7 @@ def test_with_the_pipeline_on_the_host_a_task_tool_keeps_its_sandbox(tmp_path):
 PIPELINE_LOGS_ITS_KEY = """
 import os
 from pathlib import Path
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 def run(task, adapter):
     log = Path("logs") / "t1.txt"
     log.parent.mkdir(exist_ok=True)
@@ -1114,7 +1114,7 @@ def test_a_failed_agents_call_is_scrubbed_too(tmp_path, monkeypatch):
 
 def test_a_sandboxed_judges_directory_and_the_agents_it_wrote_are_scrubbed(tmp_path, monkeypatch):
     import hermit.isolate as isolate_module
-    from hermit.task import RunOutput
+    from hermit.common import RunOutput
     fake_bwrap(monkeypatch)
     key = "sk-judge-key-0123456789abcdef"
     monkeypatch.setenv("JUDGE_API_KEY", key)
@@ -1148,7 +1148,7 @@ def test_an_agent_file_beside_the_config_keeps_its_calls_directory(tmp_path):
     path = make_task(tmp_path, sandbox={"enabled": True}, agent={"name": "pipeline.py:run", "concurrency": 1},
                      environment={"read": ["pipeline.py"]})
     (tmp_path / "pipeline.py").write_text(
-        "import os\nfrom pathlib import Path\nfrom hermit.task import RunOutput\n"
+        "import os\nfrom pathlib import Path\nfrom hermit.common import RunOutput\n"
         "def run(task, adapter):\n"
         "    (Path(os.environ['HOME']) / 'mark').write_text('home')\n"
         "    return RunOutput(output=os.getcwd())\n")
@@ -1166,7 +1166,7 @@ def test_without_bubblewrap_a_best_effort_call_keeps_its_log(tmp_path, monkeypat
     file, is the one kept (no bind was applied to map it through)."""
     monkeypatch.setattr(sandbox_module.shutil, "which", lambda name, *a, **k: None if name == "bwrap"
                         else REAL_WHICH(name, *a, **k))
-    pipeline = ("from pathlib import Path\nfrom hermit.task import RunOutput\n"
+    pipeline = ("from pathlib import Path\nfrom hermit.common import RunOutput\n"
                 "def run(task, adapter):\n"
                 "    log = Path(__file__).resolve().parent / '.logs' / 't1.txt'\n"
                 "    log.parent.mkdir(exist_ok=True)\n    log.write_text('trajectory')\n"

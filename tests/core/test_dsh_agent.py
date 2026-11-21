@@ -20,9 +20,9 @@ import pytest
 
 from hermit.agent.base import cli as base_cli
 from hermit.agent.base import trajectory
-from hermit.agent.base.interface import Unsupported, make
+from hermit.agent.base.interface import make
 from hermit.agent.base.tool import Tool
-from hermit.environment import Container, Local, Sandboxed, placed
+from hermit.environment import Container, Local, Sandboxed, Unsupported, placed
 from hermit.agent.model.backends import bind_agent_params, registry
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -559,7 +559,7 @@ def test_what_dsh_cannot_use_is_refused_rather_than_dropped(fake, monkeypatch, t
 def test_a_tasks_data_is_bound_in_the_workspace_where_bubblewrap_can_bind_it(fake, monkeypatch, tmp_path):
     """dsh's glob and grep run ripgrep without --follow: without isolation a task's data inside the workspace is
     bound there, a real read-only directory that a search walks into (as for Claude Code), not linked."""
-    from hermit.agent.base.interface import Limits, Mount
+    from hermit.environment import Limits, Mount
     if base_cli._bwrap_binds() is None:
         pytest.skip("needs a working bubblewrap")
     data = tmp_path / "data"
@@ -1099,7 +1099,7 @@ def test_with_the_dsh_cli_a_tasks_data_is_found_by_dshs_own_search(tmp_path, mon
     """dsh's glob and grep run ripgrep without --follow, so a task's data linked into the workspace was never listed
     or matched. Without isolation it is bound there, a real directory: dsh's own search finds it, and dsh's own
     sandbox, nested in that mount namespace, runs a command that reads it."""
-    from hermit.agent.base.interface import Limits, Mount
+    from hermit.environment import Limits, Mount
     if base_cli._bwrap_binds() is None:
         pytest.skip("needs a working bubblewrap")
     data, work = tmp_path / "data", tmp_path / "work"

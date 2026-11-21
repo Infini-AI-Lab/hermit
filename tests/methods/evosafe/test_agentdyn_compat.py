@@ -228,7 +228,7 @@ def test_failed_episode_is_metered_and_recorded_as_a_failed_run(tmp_path):
     """Without a core change: the bridge returns the failed episode's usage and log, its judge raises, and the
     Trainer's rollout records a failed run (never a verdict) that keeps them."""
     from bridge import score
-    from hermit.task import RunOutput
+    from hermit.common import RunOutput
     from hermit.trainer.rollout import run_one
     task = {"id": "c1", "kind": "clean", "suite": "shopping", "user_task_id": "user_task_0"}
     out = RunOutput(output={"episode_error": "episode did not produce a terminal assistant response"},

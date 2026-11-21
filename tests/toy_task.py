@@ -8,7 +8,7 @@ TEMPLATE = Path(__file__).resolve().parents[1] / "hermit" / "adapter" / "templat
 
 PIPELINE = '''
 from pathlib import Path
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 
 def run(task, adapter):
     text = (Path(adapter) / "ADAPTER.md").read_text() if adapter else ""

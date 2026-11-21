@@ -17,7 +17,7 @@ import threading
 import pytest
 
 from hermit.agent.acting import load_agent
-from hermit.task import load_callable
+from hermit.common import load_callable
 
 ROOT = Path(__file__).resolve().parents[4]
 UTILS = ROOT / 'examples/agentdojo/utils'

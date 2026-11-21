@@ -20,7 +20,8 @@ from hermit.agent.evolver.loader import find, instantiate
 from hermit.agent.evolver.methods.ahe_adapter import debugger as D
 from hermit.agent.model.backends import registry
 from hermit.config import Config
-from hermit.task import RunOutput, TaskData, load_callable
+from hermit.common import RunOutput, load_callable
+from hermit.task import TaskData
 from hermit.trainer.material import Material
 from hermit.trainer.rollout import run_one
 

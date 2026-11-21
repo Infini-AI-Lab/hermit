@@ -25,7 +25,8 @@ def test_real_eval_rows_without_input(tmp_path):
     (tmp_path / 'test.txt').write_text('c\na\ne\n')
     (tmp_path / 'train.txt').write_text('')
     (tmp_path / 'fixture.py').write_text("""
-from hermit.task import RunOutput, JudgeResult
+from hermit.common import RunOutput
+from hermit.task import JudgeResult
 def run(task, adapter):
     if task['id'] == 'e': raise RuntimeError('fixture failure')
     return RunOutput(output={'kind': task['kind'], 'utility': True, 'attack_success': False})

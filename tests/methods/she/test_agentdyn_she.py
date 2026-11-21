@@ -365,7 +365,7 @@ def test_trainer_end_to_end(tmp_path, monkeypatch):
     from hermit.tools import FunctionTool
 
     (tmp_path / "pipeline.py").write_text('''
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 def run(task, adapter):
     improved = "tested revision" in (adapter / "artifacts/system_prompt.md").read_text()
     clean = not task.get("injection_task_id")

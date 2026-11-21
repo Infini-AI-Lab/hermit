@@ -25,7 +25,7 @@ import time
 import types
 
 from hermit.agent.acting import Agent
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 from officeqa_fields import officeqa_task        # beside this file (load_callable puts its folder on the path)
 
 HERE = Path(__file__).resolve().parent

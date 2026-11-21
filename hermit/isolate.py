@@ -54,7 +54,8 @@ from hermit.sandbox import (LIMITS, NETWORK_MODES, PACKAGE, AllowlistProxy, Bind
                             program_paths, sandbox_fault, sanitized_copy, set_hidden)
 from hermit.environment.bwrap import task_sandbox
 from hermit.environment.spec import EnvironmentSpec
-from hermit.task import RunOutput, load_callable, output_record
+from hermit.common import RunOutput, load_callable
+from hermit.task import output_record
 from hermit.task.verify import LOGS, SANDBOX_ENV, TESTS
 
 SCRIPT_VERIFIER = ("hermit.task.verify", "script")      # judge: {path, name} of a task directory's own verifier

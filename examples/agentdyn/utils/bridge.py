@@ -17,7 +17,8 @@ import tempfile
 import time
 import uuid
 
-from hermit.task import JudgeResult, RunOutput
+from hermit.task import JudgeResult
+from hermit.common import RunOutput
 from hermit.agent.evolver.methods.evosafe.hooks import ToolCallContext, ToolCallResult
 
 # The sibling modules (victim, auditor) are imported by file name, however this file was loaded.

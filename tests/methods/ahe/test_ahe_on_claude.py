@@ -58,7 +58,7 @@ def test_the_agent_debugger_stops_at_a_lost_sign_in_or_a_refused_setting(stand, 
     refuses is refused, not turned into every job's canned fallback; setup() refuses it first."""
     from hermit.agent.evolver.methods.ahe_adapter import debugger as D
     from hermit.agent.evolver.methods.ahe_adapter.evolver import AHEAdapterEvolver
-    from hermit.agent.base.interface import Unsupported
+    from hermit.environment import Unsupported
 
     def prepared(job, scratch, params=None, texts=None):
         d = Path(scratch) / "jobs" / job.task

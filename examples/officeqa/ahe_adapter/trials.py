@@ -21,7 +21,7 @@ import functools
 from pathlib import Path
 import shutil
 
-from hermit.task import load_callable
+from hermit.common import load_callable
 
 UTILS = Path(__file__).resolve().parent.parent / "utils"
 HOOK_LOGS = ".hermit-hooks"                 # the hook runner's log base under the session's workspace

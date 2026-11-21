@@ -1,5 +1,6 @@
 """Scores the offline echo task."""
-from hermit.task import JudgeResult, RunOutput
+from hermit.task import JudgeResult
+from hermit.common import RunOutput
 
 
 def score(task: dict, output: RunOutput) -> JudgeResult:

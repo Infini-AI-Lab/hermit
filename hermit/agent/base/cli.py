@@ -145,9 +145,9 @@ import urllib.parse
 
 from hermit.agent.base import login as codex_login
 from hermit.agent.base.credentials import held
-from hermit.environment import docker as container
+from hermit.environment import Limits, Mount, Unsupported, docker as container
 from hermit.environment.base import Environment, ExecResult, _descendants, as_environment
-from hermit.agent.base.interface import BaseAgent, Limits, Mount, Result, Unsupported
+from hermit.agent.base.interface import BaseAgent, Result
 from hermit.agent.base.records import (parse_claude, parse_codex, parse_dsh, parse_hermes, parse_mini_swe_agent,
                                        parse_opencode, parse_pi, price_usage)
 from hermit.agent.base.tool import Tool

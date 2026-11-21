@@ -105,7 +105,7 @@ def test_a_whole_training_proposes_on_pi_with_its_bound_model(tmp_path, monkeypa
     from hermit.trainer.trainer import Trainer
     monkeypatch.setenv("FAKE_KEY", "sk-fake")
     (tmp_path / "pipeline.py").write_text('''
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 def run(task, adapter):
     improved = "tested revision" in (adapter / "ADAPTER.md").read_text()
     return RunOutput(output={"kind": task["kind"], "utility": True,

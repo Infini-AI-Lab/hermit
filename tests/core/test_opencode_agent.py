@@ -15,11 +15,11 @@ import threading
 
 import pytest
 
-from hermit.environment import Container, placed
+from hermit.environment import Container, Unsupported, placed
 
 from hermit.agent.base import cli as base_cli
 from hermit.agent.base import trajectory
-from hermit.agent.base.interface import Unsupported, make
+from hermit.agent.base.interface import make
 from hermit.agent.base.tool import Tool
 from hermit.agent.model.backends import bind_agent_params, registry
 

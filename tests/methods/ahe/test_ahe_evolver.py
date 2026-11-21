@@ -28,7 +28,7 @@ TASKS = ("add-1", "add-2")
 PIPELINE = '''
 import json
 from pathlib import Path
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 
 def run(task, adapter):
     text = (Path(adapter) / "ADAPTER.md").read_text() if adapter else ""

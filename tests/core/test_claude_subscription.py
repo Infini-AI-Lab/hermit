@@ -20,7 +20,7 @@ import yaml
 from hermit.agent.acting import workspace as acting
 from hermit.agent.base import cli as base_cli, login as subscription
 from hermit.agent.base.endpoint import cli_endpoint, cli_model, cli_problems, endpoint_spec
-from hermit.agent.base.interface import Limits, LoginFailed, Result, Unsupported, make
+from hermit.agent.base.interface import LoginFailed, Result, make
 from hermit.agent.base.records import parse_log
 from hermit.agent.model.backends import normalize_config
 from hermit.agent.model.llm import ChatAborted, ChatClient, ChatHTTPError
@@ -28,7 +28,7 @@ from hermit.config import Config, layered
 from hermit.sandbox import Sandbox
 
 from claude_stand import INDEX, ROOT, STREAMS, TOKEN, bwrap_works, stand  # noqa: F401 (stand: the fixture)
-from hermit.environment import Container, Local, Sandboxed
+from hermit.environment import Container, Limits, Local, Sandboxed, Unsupported
 
 EXAMPLE = ROOT / "examples" / "claude_subscription"
 

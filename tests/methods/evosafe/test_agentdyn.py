@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "examples/agentdyn/
 from bridge import GuardedRuntime, run, score, validate_case
 from defenses import load_defense
 from hermit.spec import check_spec
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 
 ROOT = Path(__file__).resolve().parents[3]
 TEMPLATE = ROOT / "hermit/adapter/templates/evosafe"
@@ -231,7 +231,7 @@ def test_trainer_evosafe_end_to_end(tmp_path, monkeypatch):
     from hermit.tools import FunctionTool
 
     (tmp_path / "pipeline.py").write_text('''
-from hermit.task import RunOutput
+from hermit.common import RunOutput
 def run(task, adapter):
     improved = "tested revision" in (adapter / "ADAPTER.md").read_text()
     clean = task["kind"] == "clean"
