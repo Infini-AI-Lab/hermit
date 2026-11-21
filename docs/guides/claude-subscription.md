@@ -30,11 +30,18 @@ This is [Anthropic's way for scripts](https://code.claude.com/docs/en/authentica
 token can only make model requests and has no refresh. `hermit check` and `hermit train` refuse a run on the login
 when the variable is not set or the CLI is missing or too old (2.1.248 or later; these pages were tested on 2.1.318).
 
+Running the official CLI yourself on that sign-in, interactively or as `claude -p` from your own scripts, is an end user
+signing in to the unmodified binary with their own subscription, which the terms permit (within their "ordinary,
+individual usage"). What Hermit avoids is holding the sign-in itself.
+
 Why not the sign-in you already have (`claude auth login`, in `~/.claude/.credentials.json` or the macOS Keychain)? A
 session needs a home of its own, and one working from a copy of that file refreshes it when its access token nears
 expiry: the refresh token rotates, and your own Claude Code is left holding a dead one. A run could sign you out of your
 own sessions. Codex's route (`login: chatgpt`) keeps a shared copy of its login for this reason; here the token makes
-the copy unnecessary, and the terms above advise against one.
+the copy unnecessary. Hermit also keeps no copy because of how it reads the terms above: a shared copy would have
+Hermit store and refresh your credentials, which their rule that developers "may not collect, store, or intermediate
+Claude.ai credentials" may cover. That rule is written for products that serve other people, and the terms do not say
+whether a tool you run for yourself counts; Hermit takes the cautious reading.
 
 Nothing else may pay for a session on the login. In print mode the CLI takes an `ANTHROPIC_API_KEY` over any sign-in
 without asking, and a settings file can bring in another key, a key helper or another host. So the session's environment
