@@ -428,6 +428,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
+- Continual Harness and Harness² now declare the adapter parts they write (`needs: [llm, skills, agents]` and
+  `needs: [skills, agents, hooks]`), so a run whose acting agent does not take them (`react`) is refused before it
+  starts instead of training skills and sub-agents that no session runs.
 - In a task's Harbor environment, a CLI's output kept in `/logs/agent` as it ran reached a shared verifier unscrubbed
   when Harbor's agent timeout ended the phase before Hermit's own logs were copied over it. The phase's end now scrubs
   each such stream there of the credentials passed to the agent's commands (their variables and descriptors) before
