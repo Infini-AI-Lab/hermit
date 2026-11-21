@@ -11,8 +11,11 @@ from the sandbox's caller and hands its refresh back the same way (hermit.isolat
 the user exports as CLAUDE_CODE_OAUTH_TOKEN: Anthropic's way for scripts (a year, model requests only, no refresh). The
 token passes through the environment to the official CLI and nothing here reads, keeps or copies a credential: no
 shared copy, no write-back. The user's `claude` sign-in (~/.claude/.credentials.json, the Keychain on macOS) is left
-alone on purpose: a session refreshing a copy of it rotates the refresh token under the user's own Claude Code, and
-Anthropic's terms do not let a third-party tool collect, store or intermediate such credentials.
+alone on purpose: a session refreshing a copy of it rotates the refresh token under the user's own Claude Code. A shared
+copy, as Codex's login keeps, would have this tool store and refresh the credentials, which Anthropic's rule that
+developers "may not collect, store, or intermediate Claude.ai credentials" may cover; the terms speak of products that
+serve other users, and this reads them cautiously. Running the official CLI yourself on that sign-in (`claude -p` from
+your own scripts included) is ordinary use the terms permit; only this tool's holding of it is avoided.
 
 A sandbox that runs a login's sessions allows the hosts they reach (`hosts`); the token passes by name with each
 session that runs on it, never to the sandbox's other commands.
