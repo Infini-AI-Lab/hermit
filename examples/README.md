@@ -1,7 +1,9 @@
 # Examples
 
-Each folder is one task. Inside it the three things a task owner provides are kept apart, and the configs of every
-method that has been run on the task sit beside them:
+Each folder is one task, except [`cap_harness/`](cap_harness/), the engine that Robosuite and LIBERO run on (RoboDojo's
+simulator service builds on it too), and [`claude_subscription/`](claude_subscription/), the configs of the Claude
+subscription guide. Inside a task's folder the three things a task owner provides are kept apart, and the configs of
+every method that has been run on the task sit beside them:
 
 ```text
 examples/<task>/
