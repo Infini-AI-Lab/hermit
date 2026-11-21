@@ -1,21 +1,23 @@
-# The structured direct-chat actor (utils/agent/agent.py) in place of Codex: a comparison with ASPIRE's coding agent.
+# ASPIRE's structured direct-chat actor (hermit/agent/evolver/methods/aspire/direct.py) in place of Codex: a
+# comparison with ASPIRE's coding agent.
 # ASPIRE on Robosuite: the seven Robosuite tasks of ASPIRE's harness as one curriculum, one task per step; each
 # task's actor debugs its program on ASPIRE's development seeds (101-125) and is scored once on held-out seeds; after
 # every task the coordinator repairs and grows the skill library through the verifier gate. Started by launch.sh,
 # inside the host that runs ASPIRE's perception, IK and planning services (see ../README.md).
 data:
-  tasks: ../utils/benchmark/tasks
-  view: ../utils/agent/aspire_fields.py:aspire_task   # each task as the row it always was
-  train: ../utils/benchmark/splits/all.txt
-  val: ../utils/benchmark/splits/verify.txt   # the verifier's rows: run only by the coordinator, through run_agent
-  test: ../utils/benchmark/splits/rerun.txt   # every task again with the final library: ASPIRE's backward transfer
+  tasks: tasks                      # the benchmark's tasks and ASPIRE's verifiers (tasks.sh)
+  view: ../../cap_harness/utils/agent/fields.py:task_row   # each task as the row it always was
+  train: splits/all.txt
+  val: splits/verify.txt   # the verifier's rows: run only by the coordinator, through run_agent
+  test: splits/rerun.txt   # every task again with the final library: ASPIRE's backward transfer
   step_size: 1                      # one task per step: the coordinator acts on each task as it finishes
   shuffle: false                    # the curriculum in the split's order
 task_info: ../utils/benchmark/task-info
 agent:
-  name: ../utils/agent/agent.py:AspireActor
+  name: hermit.agent.evolver.methods.aspire.direct:AspireActor
   concurrency: 1                    # one simulator sweep at a time on the engine's GPU
   params:
+    engine: ../../cap_harness/utils/agent/sim.py   # the engine this actor runs its programs on
     aspire_root: $ASPIRE_ROOT       # an ASPIRE checkout with .venv-robosuite (launch.sh)
     sim_env: {}                     # the engine's environment; launch.sh fills it from ASPIRE_SIM_ENV
     model: fireworks/accounts/fireworks/models/glm-5p3-flash
@@ -25,7 +27,7 @@ agent:
     evo: {k: 8, rounds: 5, threshold: 0.8, qualify_below: 0.9, parents: 3}
     workers: 4
 judge:
-  path: ../utils/benchmark/judge.py
+  path: ../../cap_harness/utils/benchmark/judge.py
 template: aspire
 evolver:                            # the coordinator, as in run.yaml
   name: aspire

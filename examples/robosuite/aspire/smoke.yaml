@@ -1,12 +1,12 @@
-# ASPIRE on Robosuite: the seven Robosuite tasks of ASPIRE's harness, one task per step in the order the
-# coordinator chooses (its curriculum); ASPIRE's seeds (development 101-125, unseen-check 126-130, held-out 1-100,
-# written into the task rows by launch.sh); Codex acting and coordinating, GLM 5.3 Flash. Started by launch.sh.
+# Smoke: two tasks; three development seeds, one unseen-check seed, three held-out seeds (launch.sh writes them into
+# the task rows: ASPIRE_SEEDS=smoke); Codex acting (ASPIRE's fix-loop subagent and verifier prompts) and coordinating,
+# GLM 5.3 Flash. Started by launch.sh: ASPIRE_CONFIG=smoke.yaml ./launch.sh
 data:
-  tasks: ../utils/benchmark/tasks
-  view: ../utils/agent/aspire_fields.py:aspire_task   # each task as the row it always was
-  train: ../utils/benchmark/splits/all.txt
-  val: ../utils/benchmark/splits/verify.txt   # the verifier's rows: run only by the coordinator, through run_agent
-  test: ../utils/benchmark/splits/rerun.txt   # every task again with the final library: ASPIRE's backward transfer
+  tasks: tasks                      # the benchmark's tasks and ASPIRE's verifiers (tasks.sh)
+  view: ../../cap_harness/utils/agent/fields.py:task_row   # each task as the row it always was
+  train: splits/smoke.txt
+  val: splits/verify.txt   # the verifier's rows: run only by the coordinator, through run_agent
+  test: splits/smoke_rerun.txt
   step_size: 1
   shuffle: false
 task_info: ../utils/benchmark/task-info
@@ -14,22 +14,23 @@ agent:
   base: codex
   concurrency: 1
   params:
-    prompt: ../utils/agent/task.py:prompt
-    prepare: ../utils/agent/task.py:prepare
-    answer: ../utils/agent/task.py:answer
-    collect: ../utils/agent/task.py:collect
+    prompt: hermit.agent.evolver.methods.aspire.actor:prompt
+    prepare: hermit.agent.evolver.methods.aspire.actor:prepare
+    answer: hermit.agent.evolver.methods.aspire.actor:answer
+    collect: hermit.agent.evolver.methods.aspire.actor:collect
+    engine: ../../cap_harness/utils/agent/task.py   # the engine's task functions ASPIRE's build on
     aspire_root: $ASPIRE_ROOT
     aspire_docs: $ASPIRE_DOCS
   model: {ref: fireworks/accounts/fireworks/models/glm-5p3-flash, effort: medium}
   codex:
     web_search: false
-    timeout_s: 21600              # a fix loop and an evolutionary search on 25 seeds
+    timeout_s: 5400
     codex_sandbox: danger-full-access   # the task sandbox is the boundary; the session reaches bin/sim's service
     shell_env: all                  # only the declared variables are in the sandbox
     project_doc_max_bytes: 131072   # AGENTS.md carries the whole library (the template caps it at 100,000 bytes)
 environment:                        # the task sandbox: the actor's code, ASPIRE's prompts and docs, nothing else of it
   read:
-    - ../utils/agent
+    - ../../cap_harness/utils/agent   # the engine's task functions, bin/sim's client
     - $ASPIRE_DOCS                    # ASPIRE's docs as staged by launch.sh: nothing that names its worked programs
     - $ASPIRE_ROOT/.claude/skills/iterative-debugging/subagent-prompt.md
     - $ASPIRE_ROOT/.claude/skills/iterative-debugging/verifier-prompt.md
@@ -39,7 +40,7 @@ environment:                        # the task sandbox: the actor's code, ASPIRE
     - $ASPIRE_ROOT/.claude/skills/evosearch/skills/evosearch-iteration.md
   env: [ASPIRE_SIM_URL]             # the host's simulator service (launch.sh): its 127.0.0.1 port is forwarded
 judge:
-  path: ../utils/benchmark/judge.py           # on the host: Stage 2 on the held-out seeds
+  path: ../../cap_harness/utils/benchmark/judge.py           # on the host: Stage 2 on the held-out seeds
 template: aspire
 evolver:
   name: aspire
@@ -50,9 +51,9 @@ sandbox:
   enabled: true
   enforce: required
 trainer:
-  run_name: aspire
+  run_name: smoke-aspire
   epochs: 1
-  call_timeout_min: 720             # the coordinator, its verifiers included
-  budget: {usd: 300, hours: 120}
+  call_timeout_min: 240
+  budget: {usd: 10, hours: 8}
 eval:
   repeats: 1

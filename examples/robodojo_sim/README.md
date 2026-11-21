@@ -25,7 +25,7 @@ what is left is listed under [Not verified](#not-verified).
 | `utils/policy/install.py` | Copies the policy into the RoboDojo checkout (`XPolicyLab/policy/hermit_program`) |
 | `utils/agent/dojo.py` | The engine: one evaluation of a program (`scripts/robodojo.sh eval`), its result per layout |
 | `utils/agent/split_eval.sh` | One evaluation with the simulator in RoboDojo's container (`ROBODOJO_IMAGE`) |
-| `utils/agent/dojo_service.py`, `sim_cli.py` | The simulator service on the host and `bin/sim`, the actor's client of it (the ASPIRE example's service with this engine) |
+| `utils/agent/dojo_service.py`, `sim_cli.py` | The simulator service on the host and `bin/sim`, the actor's client of it (the cap-harness engine's service, `../cap_harness/utils/agent/sim_service.py`, with this engine) |
 | `utils/agent/task.py`, `prompts/`, `docs/interface.md` | The Codex actor's task functions, its prompt and the interface page it is given |
 | `utils/benchmark/prepare.py` | The forty-two tasks with their development and held-out layouts, as task directories in Harbor's format (`tasks/`, each read as its row through `utils/agent/robodojo_fields.py`, the configs' `data.view`), and `splits/` |
 | `utils/benchmark/judge.py` | The program on the held-out layout sets, on the host |

@@ -14,16 +14,21 @@ learns only the library: the actor's harness and prompts are fixed.
 
 ```yaml
 template: aspire                              # the skill library: skills/README.md and skills/<topic>.md
-data: {train: all.txt, val: verify.txt, test: rerun.txt, step_size: 1, shuffle: false}
+data:                                         # the benchmark's tasks with ASPIRE's verifiers (tasks.sh: rows.py)
+  {tasks: tasks, train: splits/all.txt, val: splits/verify.txt, test: splits/rerun.txt, step_size: 1, shuffle: false}
 agent:
   base: codex                                 # the actor: ASPIRE's fix-loop subagent prompt, verbatim
-  params: {prompt: ../utils/agent/task.py:prompt, prepare: ../utils/agent/task.py:prepare,
-           answer: ../utils/agent/task.py:answer, collect: ../utils/agent/task.py:collect}
+  params:                                     # ASPIRE's task functions, over the engine's
+    prompt: hermit.agent.evolver.methods.aspire.actor:prompt
+    prepare: hermit.agent.evolver.methods.aspire.actor:prepare
+    answer: hermit.agent.evolver.methods.aspire.actor:answer
+    collect: hermit.agent.evolver.methods.aspire.actor:collect
+    engine: ../../cap_harness/utils/agent/task.py
   codex: {codex_sandbox: danger-full-access, shell_env: all, web_search: false}   # the task sandbox is the boundary
-environment:                                  # the task sandbox: its code, ASPIRE's prompts and docs, the service
-  read: [../utils/agent, $ASPIRE_DOCS, ...]
+environment:                                  # the task sandbox: the engine's code, ASPIRE's prompts and docs
+  read: [../../cap_harness/utils/agent, $ASPIRE_DOCS, ...]
   env: [ASPIRE_SIM_URL]
-judge: {path: ../utils/benchmark/judge.py}    # on the host: Stage 2
+judge: {path: ../../cap_harness/utils/benchmark/judge.py}    # the engine's, on the host: Stage 2
 sandbox: {enabled: true, enforce: required}
 evolver:
   name: aspire                                # the coordinator: a Codex session with ASPIRE's guide
@@ -40,16 +45,22 @@ privileged access (simulator internals, success predicates, reflection), and ref
 No existing template fits: `prompt-only` is one file; `continual-harness` carries a policy, sub-agents and memory
 ASPIRE does not have; `reharness` retrieves per instance from an embedded bank.
 
-The example's task functions (`examples/aspire_robosuite/utils/agent/task.py`) give the actor its workspace in the
-task sandbox: `bin/sim`; ASPIRE's API and artifact docs and the benchmark's page (Robosuite's, or LIBERO's); the scene-snapshot program; and a page that maps
-the template's paths and commands onto the workspace. The sandbox shows nothing else of ASPIRE's checkout: not its
-shipped library, worked solutions or examples. It has no GPU, so the simulator runs on the host as a service
-(`utils/agent/sim_service.py`), which `bin/sim` reaches on a forwarded loopback port; the session registers there
-before the agent starts (its workspace and task id: one session per rollout), and the service runs only the seeds of
-the task row it reads on the host, the unseen check once and a verifier's two programs. The judge (`utils/benchmark/judge.py`,
-on the host) runs the selected program once on the held-out seeds: ASPIRE's Stage 2, the coordinator's in ASPIRE. The
-verifier is the same actor on the task's verifier row (`verify-<task>`, `data.val`): ASPIRE's verifier prompt, five
-seeds, two attempts, scored on its own seeds with its own verdict.
+The tasks run on the [cap-harness engine](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/cap_harness),
+which knows nothing of ASPIRE; ASPIRE brings its own session on it. ASPIRE's task functions
+(`hermit/agent/evolver/methods/aspire/actor.py`, named by module in the configs) build on the engine's
+(`agent.params.engine`): the engine gives the actor its workspace in the task sandbox (`bin/sim`; ASPIRE's API and
+artifact docs and the benchmark's page, Robosuite's or LIBERO's; the scene-snapshot program), and ASPIRE adds its
+assignment, the evolutionary search's page and a page that maps the template's paths and commands onto the
+workspace. The sandbox shows nothing else of ASPIRE's checkout: not its shipped library, worked solutions or
+examples. It has no GPU, so the simulator runs on the host as the engine's service (`utils/agent/sim_service.py`),
+which `bin/sim` reaches on a forwarded loopback port; the session registers there before the agent starts (its
+workspace and task id: one session per rollout), and the service runs only the seeds of the task row it reads on the
+host, the unseen check once and, for a row with an attempt budget, that many programs. The engine's judge
+(`utils/benchmark/judge.py`, on the host) runs the selected program once on the held-out seeds: ASPIRE's Stage 2, the
+coordinator's in ASPIRE. The verifier is the same actor on the task's verifier row (`verify-<task>`, `data.val`),
+which ASPIRE derives from the benchmark's tasks before a run (`rows.py`, run by the method folder's `tasks.sh`): ASPIRE's
+verifier prompt, five seeds, an attempt budget of two programs, scored on its own seeds and only with its own verdict
+`verified` (ASPIRE's `collect` withholds the program otherwise).
 
 ## The step
 
@@ -98,11 +109,12 @@ is the evaluation on the test split (`rerun-<task>` rows, the same seeds), compa
 
 The Codex actor's settings (`agent.params`) are `aspire_root`, `aspire_docs` (the docs as the launcher stages them), `max_steps` and
 `evosearch` (default true; false leaves out the evolutionary search: its part of the prompt, its page in the workspace, and its
-program as the scored one); its seeds are the task rows'
-(`utils/benchmark/prepare.py`, which the launcher runs: `ASPIRE_EVAL_SEEDS` for the held-out ones), and the simulator's
+program as the scored one) and `engine` (the engine's task functions, relative to the config); its seeds are the
+task rows' (the benchmark's `utils/benchmark/prepare.py`, which the launcher runs: `ASPIRE_EVAL_SEEDS` for the
+held-out ones), and the simulator's
 environment and workers are the simulator service's (`ASPIRE_SIM_ENV`). The direct comparison actor
-(`run_direct.yaml`) reads `debug_seeds`, `workers`, `aspire_root` and `sim_env` from `agent.params`, a task row's own
-seeds winning; the held-out seeds are the task rows' for both actors (the judge reads them there). The verifier's rows
+(`run_direct.yaml`) reads `engine` (the engine's `sim.py`), `debug_seeds`, `workers`, `aspire_root` and `sim_env` from
+`agent.params`, a task row's own seeds winning; the held-out seeds are the task rows' for both actors (the judge reads them there). The verifier's rows
 carry their own seeds.
 
 ## The authors' implementation against this one
@@ -124,12 +136,13 @@ carry their own seeds.
 | Library history | `<file>-changelog.md` beside each file | `state/changelog.md` | the adapter holds only the library |
 | Phase 3 | rerun of tasks below 80% whose library changed | the test split reruns every task | the evaluation measures it per task |
 | Models | Claude Opus 4.6 (and others) | GLM 5.3 Flash in every role | the first-evaluation row of the framework |
-| Perception | SAM3 | SAM3, or any service with its wire format (`utils/seg_service/`: Grounding-DINO + SAM) | SAM3's weights are gated |
+| Perception | SAM3 | SAM3, or any service with its wire format (the engine's `utils/seg_service/`: Grounding-DINO + SAM) | SAM3's weights are gated |
 | Evolutionary search (§2.3) | a separate evosearch subagent for tasks the fix loop leaves below 90%: K = 8 candidates per round from the top 3, stop at 80% or 5 rounds, Stage 2 on its best | the same template, verbatim, as Part 2 of the actor's session; the judge runs Stage 2 on `evosearch_best_code.py` | a decision: one session keeps the task's rollout one call |
 | Not ported | — | BEHAVIOR-1K, the real robot | scope |
 
-`examples/aspire_robosuite/aspire/run_direct.yaml` replaces the Codex actor with a structured loop of `direct` calls
-(`utils/agent/agent.py`), which sees a digest of each run instead of the files: a comparison, not the method.
+`examples/robosuite/aspire/run_direct.yaml` replaces the Codex actor with a structured loop of `direct` calls
+(`hermit/agent/evolver/methods/aspire/direct.py`, on the engine's `sim.py`), which sees a digest of each run instead of
+the files: a comparison, not the method.
 
 ## What it is not
 
@@ -140,7 +153,7 @@ Phase 3 does).
 
 ## Example
 
-[`examples/aspire_robosuite/`](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/aspire_robosuite): the
+[`examples/robosuite/aspire/`](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/robosuite/aspire): the
 seven Robosuite tasks of ASPIRE's harness.
 [`examples/libero/aspire/`](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/libero/aspire): LIBERO's five
 suites and LIBERO-Pro's eighty tasks on the same engine.

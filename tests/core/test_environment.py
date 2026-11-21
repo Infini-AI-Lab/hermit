@@ -350,7 +350,12 @@ def test_no_shipped_config_runs_a_method_on_an_agent_that_lacks_what_it_needs():
         supports = supports_of(name, path.parent, agent.get("params"), may_import=False)
         if supports is None and ":" in name:
             file, _, symbol = name.partition(":")
-            supports = _declared_supports((path.parent / file).resolve(), symbol)
+            if file.endswith(".py"):
+                source = (path.parent / file).resolve()
+            else:                                           # `package.module:Class`: its source, not imported
+                import importlib.util
+                source = Path(importlib.util.find_spec(file).origin)
+            supports = _declared_supports(source, symbol)
         assert supports is not None and needs <= set(supports), f"{path.relative_to(root)}: {name} lacks {needs}"
         checked += 1
     assert checked >= 10                                    # MWM, ASPIRE, ReHarness and AHE's examples

@@ -17,7 +17,8 @@ adds only what is its own.
                                              # give a reference or a login)
         effort: medium                       # Codex's model_reasoning_effort; absent: the CLI's default
         prompt: environment/prompt.md        # the task prompt; `{field}` placeholders take the task's fields; or
-                                             # `file.py:function` (task) -> the prompt
+                                             # `file.py:function` (task) -> the prompt; every function here may
+                                             # also be `package.module:function` (a method's own)
         files: [environment/fixtures]        # optional: copied into every workspace before the run
         mounts:                              # optional: read-only data in the workspace
           - {source: data/corpus, at: docs}
@@ -104,9 +105,15 @@ def _format(template: str, task: dict) -> str:
     return template.format_map(Fields({k: v for k, v in task.items() if not isinstance(v, (dict, list))}))
 
 
+# A task function by module, as a method that brings its own task functions names them (`package.module:function`)
+_MODULE_FUNCTION = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+:[A-Za-z_]\w*")
+
+
 def _task_function(value, base: Path):
-    """A `file.py:function` value as the function, else None."""
-    return load_callable(value, Path(base)) if isinstance(value, str) and ".py:" in value else None
+    """A `file.py:function` or `package.module:function` value as the function, else None."""
+    if not isinstance(value, str) or not (".py:" in value or _MODULE_FUNCTION.fullmatch(value)):
+        return None
+    return load_callable(value, Path(base))
 
 
 def _call(fn, *args, params: dict, base: Path):

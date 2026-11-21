@@ -11,26 +11,28 @@ on held-out seeds by the task's own success check.
 
 | Folder | What it is |
 |---|---|
-| `utils/benchmark/prepare.py` | The 210 tasks (a suite and a task id each) with their seeds, as task directories in Harbor's format (`tasks/`, read as their rows by the engine's `aspire_fields.py`), and splits; the verifier's tasks and the reruns |
-| `utils/agent/` | A method-neutral acting prompt (`prompt.md`, written here: LIBERO has none) and the workspace without ASPIRE's method pages, for a method that brings no prompt of its own |
+| `utils/benchmark/prepare.py` | The 210 tasks (a suite and a task id each) with their seeds, as task directories in Harbor's format (`tasks/`, each with its rerun, read as their rows by the engine's `fields.py`), and splits |
+| `utils/agent/` | A method-neutral acting prompt (`prompt.md`, written here: LIBERO has none), for a method that brings no prompt of its own; the workspace is the engine's |
 | `utils/benchmark/task-info/` | What a task and its record are, for the learner |
 | `utils/launch.sh` | Starts a method folder's run: the simulator service and hermit |
-| [`aspire/`](aspire/) | The ASPIRE method: its fix-loop prompts, verifier and coordinator. `run.yaml` (Object, Spatial, Goal, Long: 40 tasks), `run_90.yaml` (LIBERO-90), `run_pro.yaml` (LIBERO-Pro: 80), `run_pro_long.yaml` (LIBERO-Long-Pro), `run_luna.yaml` (`run.yaml` on Luna), `run_sample_luna.yaml` (six of the forty on Luna, for a run of a day or two), `smoke*.yaml`, `launch.sh` |
+| [`aspire/`](aspire/) | The ASPIRE method (its session's task functions, verifier and coordinator are ASPIRE's own; `tasks.sh` adds its verifiers to the tasks). `run.yaml` (Object, Spatial, Goal, Long: 40 tasks), `run_90.yaml` (LIBERO-90), `run_pro.yaml` (LIBERO-Pro: 80), `run_pro_long.yaml` (LIBERO-Long-Pro), `run_luna.yaml` (`run.yaml` on Luna), `run_sample_luna.yaml` (six of the forty on Luna, for a run of a day or two), `smoke*.yaml`, `launch.sh` |
 | [`prompt_only/`](prompt_only/) | The prompt-only template: one `ADAPTER.md` the built-in Codex Evolver revises after each task, with the method-neutral prompt. `run.yaml`, `run_pro.yaml`, `smoke.yaml`, `smoke_luna.yaml`, `launch.sh` |
 
 The `*_luna.yaml` configs run GPT-5.6-Luna on the machine's ChatGPT login; the others GLM 5.3 Flash on Fireworks.
 
 ## The engine and the protocol
 
-The engine is the [Robosuite example](../aspire_robosuite/)'s: its simulator service (`bin/sim` in the session's
-workspace), its task functions (the workspace, the record), its judge and its sandboxes, which that README describes.
+The engine is the [cap-harness engine](../cap_harness/), which Robosuite shares: its simulator service (`bin/sim` in
+the session's workspace), its task functions (the workspace, the record), its judge and its sandboxes, which its
+README describes.
 It takes the benchmark from the task row (`"benchmark": "libero-pro"`) and with it ASPIRE's settings for LIBERO (its
 fix-loop template's Benchmark Profiles):
 
 - `.venv-libero/bin/cap-harness`, with `LIBERO_CONFIG_PATH=$ASPIRE_ROOT/.libero` and
   `TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1`;
 - `--init-mode seeded` on every run, the session's and the judge's, so that each seed is a scene of its own;
-- ASPIRE's LIBERO seeds: development 51-65, unseen-check 66-80, held-out 1-50, the verifier's 51-55;
+- ASPIRE's LIBERO seeds: development 51-65, unseen-check 66-80, held-out 1-50 (and ASPIRE's verifier's, 51-55,
+  which its `tasks.sh` gives);
 - `docs/libero-pro.md` in the session's workspace without its "Task examples" section, which names ASPIRE's worked
   programs per task. The task sandbox is shown the staged copy only, not the checkout's page; a page without that
   section is refused rather than passed whole.
@@ -44,17 +46,14 @@ distinct for every task: where a task's placement leaves little room, a held-out
 layout.
 
 A method's number is measured the same way whatever its prompt: the workspace, `bin/sim`, the seeds, the scored
-program (`fix_code.py`) and the judge are the engine's. ASPIRE's configs give the session ASPIRE's own prompts (the
-fix-loop subagent and the evolutionary search); `prompt_only/` gives it a method-neutral one (`utils/agent/prompt.md`:
-the task, the workspace, what is scored) and `evosearch: false`, with which the engine neither stages ASPIRE's
-evolutionary-search page nor scores a search's program: the scored program is `fix_code.py`. Its workspace leaves out
-ASPIRE's assignment (`utils/agent/task.py:prepare`). Its task sandbox can still read the engine's folder
-(`../aspire_robosuite/utils/agent`), which holds the engine's adaptations of ASPIRE's prompts, beside the code the
-session runs.
+program (`fix_code.py`) and the judge are the engine's, and nothing of a method is in them. ASPIRE's configs give the
+session ASPIRE's own task functions (`hermit.agent.evolver.methods.aspire.actor`: the fix-loop subagent and the
+evolutionary search, whose best program it scores); `prompt_only/` gives it a method-neutral prompt
+(`utils/agent/prompt.md`: the task, the workspace, what is scored) and the engine's workspace and record as they are.
 
 ## Setup
 
-As [Robosuite's](../aspire_robosuite/README.md#setup) (the providers, the render device, Codex and the sandboxes),
+As [the engine's](../cap_harness/README.md#setup) (the providers, the render device, Codex and the sandboxes),
 with LIBERO's venv instead of Robosuite's in the ASPIRE checkout:
 
 ```bash
@@ -67,7 +66,7 @@ Serve Contact-GraspNet on 8115 beside the other three (`scripts/supervise_servic
 contact_graspnet`); the launcher refuses to start without it, since `generate_grasps` would have no backend to call.
 
 Segmentation is ASPIRE's SAM3 service (`--providers sam3`): LIBERO's scenes hold several similar objects, which
-the Robosuite example's stand-in does not tell apart.
+the engine's stand-in does not tell apart.
 
 ## Run
 
@@ -83,8 +82,8 @@ ASPIRE_SIM_GPU=0 ASPIRE_CONFIG=run_pro.yaml ./launch.sh      # LIBERO-Pro
 ./launch.sh eval --adapter root                              # the same with the empty one
 ```
 
-`utils/launch.sh` starts the Robosuite example's launcher on this folder and the method folder; its variables
+`utils/launch.sh` starts the engine's launcher on this folder and the method folder; its variables
 (`ASPIRE_SIM_ENV`, `ASPIRE_SIM_GPU`, `ASPIRE_OUT`, `ASPIRE_EVAL_SEEDS`, ...) are described there. A method on LIBERO
-is a folder of configs beside these: `utils/agent/task.py` as its prompt and workspace, or its own. Run one method
-folder at a time on a checkout and an `ASPIRE_OUT`: they share the task rows, the staged docs and the service's
-ledger, which each launch writes.
+is a folder of configs beside these: `utils/agent/task.py` as its prompt and the engine's workspace, or its own (and a
+`tasks.sh` if it adds rows of its own, as ASPIRE's verifiers). Run one method folder at a time on a checkout and an
+`ASPIRE_OUT`: they share the task rows, the staged docs and the service's ledger, which each launch writes.

@@ -158,6 +158,15 @@ def test_a_run_with_the_tasks_hooks_records_the_hosts_log(fake):
     assert [s.kind for s in steps] == ["reasoning", "command", "command", "message"]
 
 
+def test_a_task_function_may_be_named_by_its_module_and_a_prompt_stays_text(tmp_path):
+    """A method that brings its own task functions names them by module (`package.module:function`, ASPIRE's
+    hermit.agent.evolver.methods.aspire.actor); a prompt written as text is never read as one."""
+    assert cli._task_function("os.path:basename", tmp_path)("a/b.txt") == "b.txt"
+    for text in ("Answer: yes", "Solve it:now", "see notes.md:3", "json:loads"):
+        assert cli._task_function(text, tmp_path) is None, text
+    assert cli._prompt({"prompt": "Solve it:now"}, tmp_path, {}) == "Solve it:now"
+
+
 def test_the_answer_pattern_and_why_there_is_none(fake):
     tmp_path = fake
     params = {"web_search": False, "prompt": "go", "answer": "<answer>(.*?)</answer>", "workspaces": "ws"}

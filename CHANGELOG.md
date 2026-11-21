@@ -6,6 +6,20 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Breaking
 
+- The robot benchmarks and ASPIRE no longer share code: a benchmark holds nothing of a method, and ASPIRE nothing of
+  a benchmark. The engine Robosuite and LIBERO run on (the simulator service, `bin/sim`, the neutral task functions,
+  the judge, the task writer, the row view) is `examples/cap_harness/`, which RoboDojo's service also builds on;
+  `examples/aspire_robosuite/` is `examples/robosuite/`, the benchmark's tasks and an `aspire/` folder. ASPIRE's
+  session (its fix-loop and verifier prompts, the evolutionary search, the facts the coordinator reads) is
+  `hermit/agent/evolver/methods/aspire/actor.py`, built on the engine's task functions (`agent.params.engine`), and its
+  direct-chat actor `direct.py` (`agent.name: hermit.agent.evolver.methods.aspire.direct:AspireActor`). A benchmark's
+  `prepare.py` writes its tasks and their reruns (`rerun_of`) only; ASPIRE's verifier rows are derived by `rows.py`,
+  which an ASPIRE folder's `tasks.sh` runs before the run, into that folder's `tasks/` and `splits/`. The service's
+  attempt budget is a row's `max_programs`, and the judge scores a row's `eval_seeds` (a verifier row's are its own
+  five); a verifier's verdict rule is ASPIRE's `collect`, which withholds the program unless `verified` (`not_scored`).
+  The prompts the sessions see are unchanged, byte for byte. A task function may be named `package.module:function`.
+  LIBERO's `prompt_only/` configs drop `evosearch: false`.
+
 - The old import paths of moved modules are gone, with no forward: 0.1's, which 0.2 forwarded (`hermit.agents`,
   `hermit.evolver`, `hermit.llm`, `hermit.backends`, `hermit.trajectory`), and 0.2's `hermit.agent.base.direct` and
   `hermit.agent.base.container`, and `hermit.agent.environment` (never released). Import instead:

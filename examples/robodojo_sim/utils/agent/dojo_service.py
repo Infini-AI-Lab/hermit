@@ -1,6 +1,6 @@
 """RoboDojo's simulator as a host service for the actors in the task sandbox: `bin/sim` (sim_cli.py) asks it to
-evaluate a program on the session's development layouts. It is the ASPIRE example's simulator service
-(examples/aspire_robosuite/utils/agent/sim_service.py: the registration of a session by its rollout directory and
+evaluate a program on the session's development layouts. It is the cap-harness engine's simulator service
+(examples/cap_harness/utils/agent/sim_service.py: the registration of a session by its rollout directory and
 task id, the program read and the output written without following a link the session left, the ledger) with
 RoboDojo's engine (dojo.Engine) in place of cap-harness:
 
@@ -29,8 +29,8 @@ sys.path.insert(0, str(HERE))
 import dojo  # noqa: E402
 from robodojo_fields import task_rows  # noqa: E402
 
-sys.path.append(str(HERE.parents[2] / "aspire_robosuite" / "utils" / "agent"))
-import sim_service as base  # noqa: E402  (the ASPIRE example's)
+sys.path.append(str(HERE.parents[2] / "cap_harness" / "utils" / "agent"))
+import sim_service as base  # noqa: E402  (the cap-harness engine's)
 
 
 class Service(base.Service):
@@ -81,7 +81,7 @@ class Service(base.Service):
         if len(records) < len(seeds):
             lines.append(f"{len(seeds) - len(records)} layout(s) have no result (the evaluation ended early)")
         lines.append(f"{passed}/{len(records)} layouts succeeded")
-        # As the ASPIRE service reports a run it stopped: 124, and why
+        # As the cap-harness service reports a run it stopped: 124, and why
         summary = own_out / "records.json"                 # dojo.Engine.run's account of the run
         run = json.loads(summary.read_text()) if summary.is_file() else {}
         if run.get("timed_out"):
