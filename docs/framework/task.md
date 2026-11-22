@@ -245,6 +245,35 @@ whose manifest names a [`context_tool`](adapter.md#per-task-context), such a loo
 `session.context(query=<the instance's input>, task=<the row>)` and records `session.last_context` in
 `RunOutput.extra["context_tool"]`, as `react` does, so the Evolver knows what the agent read.
 
+## Two ways a benchmark runs
+
+Every benchmark is a set of task directories in Harbor's format (`instruction.md`, `task.toml`, `environment/`,
+`tests/`), and every agent and method is Hermit's. The agent works through the
+[environment](agent-layers.md#environments) its call is given (`exec`, `upload`, `download`) and does not know which
+of the two below runs it. What differs is who runs the task's environment and its verifier: Harbor (A), or Hermit
+itself (B).
+
+```{raw} html
+:file: ../_includes/benchmark-modes.html
+```
+
+| | A. In Harbor's environments | B. In Hermit's own environment |
+|---|---|---|
+| For | tasks that need an image of their own each (Terminal-Bench, SWE-bench, the Harbor hub's datasets) | tasks this machine can run as it is (LIBERO, OfficeQA, CL-Bench, AgentDyn, ...) |
+| Run config | `environment.harbor` ([Benchmarks](#benchmarks)) | `data.tasks` naming the task directories ([Task directories](#task-directories)), and `environment` as for any run |
+| `environment/` | a Dockerfile or a prebuilt `docker_image`, which Harbor builds or pulls | what the task asks of its environment (network, allowed hosts, memory), checked against the run's `environment`; no image is built |
+| Where the agent runs | the task's container (Docker, or another Harbor environment type); Harbor installs a CLI agent there unless the image has it | Hermit's bubblewrap sandbox by default; the host (`environment.runner: host`) or an image Hermit starts (`environment.image`) |
+| Who runs the task | Harbor's `Trial.run()` (the environment, the setup, the agent phase, the verifier, the teardown); the agent's commands reach it through a bridge ([How Harbor runs a task](../developer/harbor-design.md)) | Hermit's rollout (`hermit/trainer/rollout.py`) |
+| Verifier | Harbor's, in the task's environment (`[verifier] environment_mode`: shared or separate); the judge `hermit.task.verify:environment` reads its verdict | the task's `tests/test.sh`, run by Hermit in the judge's sandbox (`hermit.task.verify:script`, `mode: shared` or `separate`); a task without `tests/` is scored by a judge of the benchmark's own on the host |
+| `task.toml` limits | applied by Harbor; Hermit adds the agent's model hosts to `allowed_hosts` | the agent's timeout and the network applied by Hermit; a task that needs more memory than `environment.resources.memory_mb` is refused; `cpus` is not applied |
+| Harbor at run time | needed (in a venv of its own) | not needed (`hermit/task/directory.py` reads the format) |
+| Not supported yet (refused) | the adapter's tools, the agent's mounts, `prepare` and `collect`, multi-step tasks | files placed in the agent's workspace before it starts, multi-step tasks |
+| Examples | `terminal_bench_2_0`, `terminal_bench_science`, `swebench_verified`, `algotune`, `labbench`, `officeqa/gepa/run_codex_harbor.yaml` | `libero`, `robosuite`, `robodojo_sim`, `clbench_*`, `servelearnbench`, `agentdyn`, `agentdojo`, `officeqa` |
+
+The task format is the same, so a task set of B moves to A when its tasks need stricter isolation: give each task's
+`environment/` a Dockerfile (or a `docker_image`) and the run config `environment.harbor`. OfficeQA runs both ways:
+`utils/harbor/build_tasks.py` writes its questions as Harbor tasks, with the same task ids.
+
 ## Task directories
 
 `data.tasks` may name a directory of task directories in [Harbor's format](https://harborframework.com/docs/tasks)
