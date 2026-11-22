@@ -1,0 +1,80 @@
+<figure class="ha-hb">
+<div class="ha-hb-scroll">
+<svg viewBox="0 0 920 262" role="img" aria-label="A, in Harbor's environments: Hermit's rollout starts the task's Harbor trial and hands the agent its environment; Harbor's Trial.run() owns the task's container and its verifier; the agent's commands reach the container through the bridge; the verifier's verdict comes back to the rollout">
+<defs>
+<marker id="hbm-am" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-hermit" d="M0,0 L10,5 L0,10 z"/></marker>
+<marker id="hbm-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-harbor" d="M0,0 L10,5 L0,10 z"/></marker>
+</defs>
+<text class="t-h" x="20" y="22">A. In Harbor's environments</text>
+<rect class="b-hermit" x="20" y="40" width="230" height="70" rx="8"/>
+<text class="t-b" x="135" y="68" text-anchor="middle">Hermit's rollout</text>
+<text class="t-m" x="135" y="90" text-anchor="middle">reads the task, scores the verdict</text>
+<rect class="b-hermit" x="20" y="160" width="230" height="70" rx="8"/>
+<text class="t-b" x="135" y="188" text-anchor="middle">Agent</text>
+<text class="t-m" x="135" y="210" text-anchor="middle">Model · Base · Acting, the adapter</text>
+<line class="a a-hermit" x1="135" y1="110" x2="135" y2="156" marker-end="url(#hbm-am)"/>
+<text class="mono" x="145" y="138">run(task, adapter, environment)</text>
+<rect class="b-harbor" x="400" y="36" width="500" height="210" rx="8"/>
+<text class="t-b c-harbor" x="416" y="54">Harbor's trial: Trial.run()</text>
+<rect class="b-inner" x="416" y="64" width="220" height="66" rx="6"/>
+<text class="t-b" x="526" y="90" text-anchor="middle">task's container</text>
+<text class="t-m" x="526" y="110" text-anchor="middle">Docker, E2B, Modal, ...</text>
+<rect class="b-inner" x="660" y="64" width="224" height="66" rx="6"/>
+<text class="t-b" x="772" y="90" text-anchor="middle">Harbor's verifier</text>
+<text class="t-m" x="772" y="110" text-anchor="middle">runs tests/ after the agent phase</text>
+<rect class="b-inner" x="416" y="164" width="220" height="66" rx="6"/>
+<text class="t-b" x="526" y="190" text-anchor="middle">bridge</text>
+<text class="t-m" x="526" y="210" text-anchor="middle">relays each command, no logic</text>
+<line class="a a-harbor" x1="526" y1="164" x2="526" y2="134" marker-end="url(#hbm-ah)"/>
+<text class="t-m" x="536" y="153">runs it in</text>
+<line class="a a-hermit" x1="250" y1="62" x2="396" y2="62" marker-end="url(#hbm-am)"/>
+<text class="t-m" x="323" y="55" text-anchor="middle">start, stop</text>
+<line class="a a-harbor" x1="400" y1="96" x2="254" y2="96" marker-end="url(#hbm-ah)"/>
+<text class="t-m" x="323" y="89" text-anchor="middle">verdict: reward</text>
+<line class="a a-hermit" x1="250" y1="197" x2="412" y2="197" marker-end="url(#hbm-am)"/>
+<text class="t-m" x="331" y="189" text-anchor="middle">exec · upload · download</text>
+</svg>
+</div>
+<figcaption>Harbor runs the task's steps (the container, the agent phase, the verifier, the teardown) in its own
+order; the agent is Hermit's and only sends commands, which the bridge runs in the container.</figcaption>
+</figure>
+
+<figure class="ha-hb">
+<div class="ha-hb-scroll">
+<svg viewBox="0 0 920 262" role="img" aria-label="B, in Hermit's own environment: the same rollout and agent; Hermit runs the task in its bubblewrap sandbox, the host or an image of its own, and runs the task's tests/ itself; Harbor is not involved at run time">
+<defs>
+<marker id="hbm-bm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-hermit" d="M0,0 L10,5 L0,10 z"/></marker>
+</defs>
+<text class="t-h" x="20" y="22">B. In Hermit's own environment</text>
+<rect class="b-hermit" x="20" y="40" width="230" height="70" rx="8"/>
+<text class="t-b" x="135" y="68" text-anchor="middle">Hermit's rollout</text>
+<text class="t-m" x="135" y="90" text-anchor="middle">reads the task, scores the verdict</text>
+<rect class="b-hermit" x="20" y="160" width="230" height="70" rx="8"/>
+<text class="t-b" x="135" y="188" text-anchor="middle">Agent</text>
+<text class="t-m" x="135" y="210" text-anchor="middle">Model · Base · Acting, the adapter</text>
+<line class="a a-hermit" x1="135" y1="110" x2="135" y2="156" marker-end="url(#hbm-bm)"/>
+<text class="mono" x="145" y="138">run(task, adapter, environment)</text>
+<rect class="b-hermit" x="400" y="36" width="500" height="210" rx="8"/>
+<text class="t-b c-hermit" x="416" y="54">Hermit's own environment</text>
+<rect class="b-inner" x="416" y="64" width="220" height="66" rx="6"/>
+<text class="t-b" x="526" y="90" text-anchor="middle">bubblewrap sandbox</text>
+<text class="t-m" x="526" y="110" text-anchor="middle">or the host, or environment.image</text>
+<rect class="b-inner" x="660" y="64" width="224" height="66" rx="6"/>
+<text class="t-b" x="772" y="90" text-anchor="middle">verifier, run by Hermit</text>
+<text class="t-m" x="772" y="110" text-anchor="middle">tests/test.sh, or a host judge</text>
+<rect class="b-inner" x="416" y="164" width="220" height="66" rx="6"/>
+<text class="t-b" x="526" y="190" text-anchor="middle">environment</text>
+<text class="t-m" x="526" y="210" text-anchor="middle">runs each command directly</text>
+<line class="a a-hermit" x1="526" y1="164" x2="526" y2="134" marker-end="url(#hbm-bm)"/>
+<text class="t-m" x="536" y="153">runs it in</text>
+<line class="a a-hermit" x1="250" y1="62" x2="396" y2="62" marker-end="url(#hbm-bm)"/>
+<text class="t-m" x="323" y="55" text-anchor="middle">start, verify, stop</text>
+<line class="a a-hermit" x1="400" y1="96" x2="254" y2="96" marker-end="url(#hbm-bm)"/>
+<text class="t-m" x="323" y="89" text-anchor="middle">reward, feedback</text>
+<line class="a a-hermit" x1="250" y1="197" x2="412" y2="197" marker-end="url(#hbm-bm)"/>
+<text class="t-m" x="331" y="189" text-anchor="middle">exec · upload · download</text>
+</svg>
+</div>
+<figcaption>The left side is the same as in A: the agent and the method do not know which side runs the task. Here
+Hermit runs every step itself, and Harbor is not needed.</figcaption>
+</figure>
