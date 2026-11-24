@@ -1,7 +1,12 @@
-"""Run AHE's native demand/delivery pipeline against a dedicated adapter repository.
+"""AHE-Beta's own demand and delivery pipeline as an Evolver, against a dedicated adapter repository (../README.md:
+"AHE-Beta's own Evolver"). Unvalidated beyond scripted runs: the validated route is Hermit's Codex Evolver
+(../prepare.py's run.yaml).
 
-This is a trusted supervisor. It uses an already provisioned Gitea repository and
-OpenAgents worker; neither credentials nor delivery tools enter the task container.
+A trusted supervisor on this machine: it runs AHE-Beta's controller (its own checkout and Python) on a provisioned
+Gitea repository and OpenAgents worker; neither credentials nor delivery tools enter a task's environment. It reads
+each session's native records where the acting agent kept them (the user's private folder, user.py), which AHE-Beta's
+requirement roles read by design, and a round's rows from the cohort's assignments.json. A step that cannot deliver
+raises: the Trainer records it as failed and keeps the adapter.
 """
 
 from __future__ import annotations
@@ -18,16 +23,18 @@ import tempfile
 from hermit.adapter.manifest import files_of, read_manifest, structure_of
 from hermit.agent.evolver.base import Evolver, StepResult
 from hermit.agent.model.usage import Usage
-from hermit.task import RunUnavailable
 
-# Task-specific mailbox helpers stay with the example, outside Hermit's interfaces.
-EXAMPLE = Path(__file__).resolve().parents[5] / "examples/ahe_beta/utils"
-if str(EXAMPLE) not in sys.path:
-    sys.path.insert(0, str(EXAMPLE))
-if str(EXAMPLE.parent) not in sys.path:
-    sys.path.insert(0, str(EXAMPLE.parent))
-from binding import git, write
-from openagents_runtime import OpenAgentsSpec, ensure_checkout
+EXAMPLE = Path(__file__).resolve().parents[1]           # examples/ahe_beta: its helpers, beside this Evolver
+for folder in (EXAMPLE / "utils", EXAMPLE):
+    if str(folder) not in sys.path:
+        sys.path.insert(0, str(folder))
+from binding import git, write  # noqa: E402
+from openagents_runtime import OpenAgentsSpec, ensure_checkout  # noqa: E402
+
+
+class RunUnavailable(RuntimeError):
+    """AHE-Beta's delivery could not run (its configuration, its checkout, its controller): the step fails and the
+    adapter stays as it was; the native receipts stay for the next attempt."""
 
 
 class AHEBetaEvolver(Evolver):
@@ -87,10 +94,12 @@ class AHEBetaEvolver(Evolver):
             for path in sorted((material / "tasks").glob("*.json"))
         ]
         if len(rows) != cfg["sessions_per_round"] or any(
-            row["status"] != "ok" for row in rows
+            row["status"] != "ok" or not ((row.get("pipeline_extra") or {}).get("user") or {}).get("private")
+            for row in rows
         ):
             raise RunUnavailable("AHE requires a complete valid cohort before feedback")
-        rounds = {row["input"]["ahe_session"]["round"] for row in rows}
+        assignments = json.loads(Path(cfg["assignments"]).read_text())
+        rounds = {assignments[row["id"]]["round"] for row in rows}
         if len(rounds) != 1:
             raise RunUnavailable("one AHE step must contain one complete logical round")
         round_no = rounds.pop()
@@ -129,10 +138,7 @@ class AHEBetaEvolver(Evolver):
         request.update(
             round=round_no,
             user_sha=binding["harness_sha"],
-            session_roots=[
-                str((material / row["trajectory"] / "ahe-session").resolve())
-                for row in rows
-            ],
+            session_roots=[str(Path(row["pipeline_extra"]["user"]["private"]).resolve()) for row in rows],
         )
         call = Path(cfg["root"]) / "calls" / f"round-{round_no}"
         call.mkdir(parents=True, exist_ok=True)

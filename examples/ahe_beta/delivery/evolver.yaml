@@ -1,0 +1,4 @@
+description: AHE-Beta's own demand and delivery pipeline (Gitea, OpenAgents), one round per step; unvalidated
+class: evolver.py:AHEBetaEvolver
+needs: [send_material_out]
+params: {}

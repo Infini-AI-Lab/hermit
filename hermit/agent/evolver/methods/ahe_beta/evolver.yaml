@@ -1,4 +1,0 @@
-description: Native AHE-Beta demand and OpenAgents adapter delivery
-class: evolver.py:AHEBetaEvolver
-needs: [send_material_out]
-params: {}
