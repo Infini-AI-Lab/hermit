@@ -373,8 +373,7 @@ def write_home(home: Path, settings: dict, roles: Sequence[dict] = (), tools_url
     lines = list(CODEX_HOME_SETTINGS)
     if settings.get("project_doc_max_bytes"):
         lines.append(f"project_doc_max_bytes = {int(settings['project_doc_max_bytes'])}")
-    web_search = "live" if settings.get("web_search") else "disabled"
-    lines.append(f'web_search = "{web_search}"')   # set either way
+    lines.append(f'web_search = "{'live' if settings.get('web_search') else 'disabled'}"')   # set either way
     if settings.get("login") == "chatgpt":
         lines += ['forced_login_method = "chatgpt"', *codex_login.config_lines()]
     if roles:
@@ -1312,8 +1311,7 @@ class Codex(CliAgent):
     def web_search_args(cls, enabled: bool) -> list[str]:
         """Codex's hosted search (`web_search`, `live` or `disabled`): it runs at the provider, so no sandbox,
         container or proxy can stop it, only this setting does."""
-        value = "live" if enabled else "disabled"
-        return ["-c", f'web_search="{value}"']
+        return ["-c", f'web_search="{'live' if enabled else 'disabled'}"']
 
     def system_settings(self, system, prompt):
         extra, prompt = codex_instructions(system, prompt)
