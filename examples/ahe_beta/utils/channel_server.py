@@ -16,6 +16,7 @@ import json
 import os
 import re
 import socket
+import sys
 import time
 from pathlib import Path
 
@@ -277,14 +278,23 @@ def _proc_start_time(pid: int) -> int:
         return 0
 
 
-def host_command(root: Path, operation: str, value: str | None = None) -> None:
+def host_command(root: Path, operation: str, value: str | None = None, wait: float = 0.0) -> None:
+    """The host's side, as root: `enqueue` a record (base64 JSON in `value`, else JSON on stdin), `drain` the events
+    after sequence `value` (waiting up to `wait` seconds for one, so that the host polls with one command, not a
+    loop), `stop` the bridge."""
     paths = _paths(root)
     if operation == "enqueue":
-        if not value:
-            raise SystemExit("enqueue needs a base64 JSON record")
-        _enqueue(root, json.loads(base64.b64decode(value).decode()))
+        record = json.loads(base64.b64decode(value).decode()) if value else json.loads(sys.stdin.read() or "null")
+        if not isinstance(record, dict):
+            raise SystemExit("enqueue needs a JSON record")
+        _enqueue(root, record)
     elif operation == "drain":
-        print(json.dumps(_drain(root, int(value or 0)), ensure_ascii=False))
+        since, deadline = int(value or 0), time.monotonic() + max(0.0, wait)
+        found = _drain(root, since)
+        while not found["events"] and time.monotonic() < deadline and not paths["stop"].exists():
+            time.sleep(0.2)
+            found = _drain(root, since)
+        print(json.dumps(found, ensure_ascii=False))
     elif operation == "stop":
         paths["stop"].write_text("stop\n")
         print(json.dumps({"ok": True}))
@@ -299,11 +309,12 @@ def main() -> None:
     parser.add_argument("--pid-file", type=Path, default=SERVICE_DIR / "ahe-user-channel.pid")
     parser.add_argument("--mirror", type=Path)
     parser.add_argument("--value")
+    parser.add_argument("--wait", type=float, default=0.0)
     args = parser.parse_args()
     if args.operation == "serve":
         serve(args.root, args.pid_file, args.mirror)
     else:
-        host_command(args.root, args.operation, args.value)
+        host_command(args.root, args.operation, args.value, args.wait)
 
 
 if __name__ == "__main__":

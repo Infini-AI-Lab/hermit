@@ -1,0 +1,49 @@
+# The user channel's smoke: one task in its own Harbor environment (Docker), Codex on a real model, the scripted user
+# (../utils/scripted_user.py) inserting a message, asking a follow-up, interrupting and asking for a summary; the score
+# is the fraction of those steps that worked (the channel, not the agent).
+#
+#   export HERMIT_CODEX_RELEASE=~/.codex/packages/standalone/releases/0.170.0-x86_64-unknown-linux-musl
+#   hermit eval --config examples/ahe_beta/smoke/run.yaml --adapter none
+#
+# The Codex CLI is this machine's static release, mounted read-only into the task's container (a task's own acting
+# class is not asked what to install: hermit.isolate); its version must be the one below.
+data:
+  tasks: tasks                         # the task directory (Harbor's format)
+  train: train.txt
+  test: test.txt
+task_info: task-info
+template: ../template
+agent:
+  name: ../utils/user.py:UserCodexAgent
+  base: codex
+  concurrency: 1
+  model: {name: gpt-5.6-luna, login: chatgpt, effort: low}
+  codex:
+    web_search: false
+    bin: /opt/hermit-codex/bin/codex   # the mounted release (environment.harbor.environment.mounts)
+    version: "0.170.0"
+  params:
+    user:
+      simulate: scripted_user:simulate  # ../utils/scripted_user.py (user.py's folder is on sys.path)
+      params: {turn_timeout_s: 600}
+      wait_s: 900
+      exit_wait_s: 60
+environment:
+  harbor:
+    tasks_dir: tasks
+    jobs_dir: ~/.cache/hermit/harbor/jobs/ahe-beta-smoke
+    docker_cleanup: images_keep
+    infra_retries: 0
+    environment:
+      delete: true
+      mounts:
+        - {type: bind, source: $HERMIT_CODEX_RELEASE, target: /opt/hermit-codex, read_only: true}
+judge:
+  path: ../utils/judge.py              # the user's verdict, kept on this machine
+  name: user
+evolver: {name: eval-only}             # placeholder: hermit eval trains nothing
+trainer:
+  run_name: ahe-beta-smoke
+  output_dir: runs
+eval:
+  repeats: 1

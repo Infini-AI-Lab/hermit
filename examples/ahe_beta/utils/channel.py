@@ -17,7 +17,7 @@ class ConversationTransport(Protocol):
 
     async def asend(self, record: dict) -> None: ...
 
-    def read(self, since: int) -> tuple[int, list[dict]]: ...
+    def read(self, since: int, wait: float = 0.0) -> tuple[int, list[dict]]: ...
 
     def close(self) -> None: ...
 
@@ -30,6 +30,7 @@ class Conversation:
     """The running session, as the user's code holds it. Called from the thread `simulate` runs in."""
 
     capabilities = frozenset({"turns", "insert", "interrupt", "progress"})
+    wait_s = 5.0             # the longest a transport's read waits for new events (one call), while poll waits
 
     def __init__(self, mail: Path | None, start, alive, stop, *, transport: ConversationTransport | None = None):
         if mail is None and transport is None:
@@ -150,9 +151,10 @@ class Conversation:
             self._transport.close()
 
     # ----- from the agent ---------------------------------------------------------------------------------------------
-    def _read(self) -> None:
+    def _read(self, wait: float = 0.0) -> None:
+        """What the agent did since the last read; a transport may wait up to `wait` seconds for it (one call)."""
         if self._transport is not None:
-            self._transport_seq, events = self._transport.read(self._transport_seq)
+            self._transport_seq, events = self._transport.read(self._transport_seq, wait)
             for event in events:
                 self.transcript.append({"from": "agent", **event})
                 (self._replies if event.get("kind") == "reply" else self._events).append(
@@ -177,7 +179,8 @@ class Conversation:
         seconds; None when it is still working. Raises ConversationClosed when Codex is gone."""
         deadline = time.monotonic() + max(0.0, timeout)
         while True:
-            self._read()
+            left = deadline - time.monotonic()
+            self._read(min(max(0.0, left), self.wait_s) if self._transport is not None and self._replies == [] else 0.0)
             if self._replies:
                 return self._replies.pop(0)
             if self.closed or not self._alive():
@@ -187,7 +190,8 @@ class Conversation:
                 raise ConversationClosed("Codex exited without a reply")
             if time.monotonic() >= deadline:
                 return None
-            time.sleep(0.2)
+            if self._transport is None:
+                time.sleep(0.2)
 
     def send(self, text: str, timeout: float | None = None) -> str:
         """Say something and wait for the whole reply."""

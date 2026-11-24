@@ -1,4 +1,5 @@
-"""Prepare the complete local Gitea/OpenAgents side of an AHE-Hermit run."""
+"""The Gitea and OpenAgents side of AHE-Beta's own delivery Evolver (./delivery/): the adapter repository, its
+delivery clone and its worker clone, then prepare.py's configuration with delivery.json and run-delivery.yaml."""
 
 from __future__ import annotations
 
@@ -20,10 +21,7 @@ def bootstrap(
     cohort,
     ahe_root,
     ahe_python,
-    harbor,
     run_id,
-    actor_model,
-    actor_url,
     gitea_url,
     gitea_owner,
     gitea_repo,
@@ -31,13 +29,13 @@ def bootstrap(
     delivery_repo=None,
     worker_clone=None,
     openagents_checkout=None,
-    http_only=False,
+    **models,
 ):
     cohort = Path(cohort).resolve()
     token = os.environ.get(gitea_token_env)
     if not token:
         raise RuntimeError(f"missing Gitea credential in ${gitea_token_env}")
-    template = Path(__file__).resolve().parents[2] / "hermit/adapter/templates/ahe_beta"
+    template = Path(__file__).resolve().parent / "template"
     repository = ensure_repository(
         base_url=gitea_url,
         owner=gitea_owner,
@@ -101,13 +99,10 @@ def bootstrap(
         cohort=cohort,
         ahe_root=ahe_root,
         ahe_python=ahe_python,
-        harbor=harbor,
         delivery_repo=delivery,
         run_id=run_id,
-        actor_model=actor_model,
-        actor_url=actor_url,
-        http_only=http_only,
         openagents_checkout=openagents_checkout,
+        **{key: value for key, value in models.items() if value is not None},
     )
     delivery_config = json.loads((cohort / "delivery.json").read_text())
     delivery_config["tracker"] = {
@@ -132,7 +127,7 @@ def bootstrap(
         + "\n"
     )
     return {
-        "run": str(cohort / "run.yaml"),
+        "run": str(cohort / "run-delivery.yaml"),
         "delivery": str(cohort / "delivery.json"),
         "worker": str(worker_config),
         "repository": repository.get("full_name", f"{gitea_owner}/{gitea_repo}"),
@@ -147,20 +142,18 @@ def main():
         "cohort",
         "ahe-root",
         "ahe-python",
-        "harbor",
         "run-id",
-        "actor-model",
-        "actor-url",
         "gitea-url",
         "gitea-owner",
         "gitea-repo",
     ):
         parser.add_argument("--" + name, required=True)
+    for name in ("actor-model", "actor-effort", "user-model", "user-effort", "codex-version"):
+        parser.add_argument("--" + name)
     parser.add_argument("--gitea-token-env", default="GITEA_TOKEN")
     parser.add_argument("--delivery-repo")
     parser.add_argument("--worker-clone")
     parser.add_argument("--openagents-checkout")
-    parser.add_argument("--http-only", action="store_true")
     args = parser.parse_args()
     result = bootstrap(**vars(args))
     print(json.dumps({key: value for key, value in result.items() if key != "config"}, indent=2))

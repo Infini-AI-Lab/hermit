@@ -90,8 +90,8 @@ def test_root_bridge_delivers_to_hook_without_a_shared_mailbox(tmp_path):
                 }
             )
         )
-        codex = tmp_path / "codex"
-        codex.write_text(f"#!/bin/sh\nexec {sys.executable} \"$1\" Stop\n")
+        codex = tmp_path / "codex"      # a parent named codex that stays (no exec), as Codex stays a hook's parent
+        codex.write_text(f"#!/bin/sh\n{sys.executable} \"$1\" Stop\n")
         codex.chmod(0o755)
         channel_server._enqueue(
             root,
