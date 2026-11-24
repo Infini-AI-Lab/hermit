@@ -98,6 +98,10 @@ class UserFailed(RuntimeError):
     """The user's side failed: no verdict of the agent's session (not the agent's result)."""
 
 
+class ChannelUnavailable(UserFailed):
+    """The task's environment cannot run the channel (no python3): no run again does better (infra, final)."""
+
+
 def load(spec: dict, base: Path):
     """The simulate function `user.simulate` names, with `user.pythonpath` on sys.path first."""
     for folder in spec.get("pythonpath") or []:
@@ -209,7 +213,7 @@ class _Session:
         """The bridge, its hook and its settings, as root, outside the workspace; then the processes already running,
         which the session's end leaves alone (processes.py)."""
         if self.environment.exec(["sh", "-c", "command -v python3"], timeout=60).code != 0:
-            raise UserFailed("the user channel needs python3 in the task's environment")
+            raise ChannelUnavailable("the user channel needs python3 in the task's environment")
         self.install((HERE / "channel_server.py").read_text(), SERVER, "0755")
         self.install((HERE / "user_hook.py").read_text(), HOOK, "0555")
         self.install(json.dumps(self.settings, indent=1), ROOT + "/user_hook.json", "0444")
@@ -362,18 +366,20 @@ class _Session:
         _write(log / "user-verdict.json", json.dumps(visible, indent=1, ensure_ascii=False, default=str) + "\n")
         (log / "user-reward.txt").unlink(missing_ok=True)
         said = [e for e in transcript if e.get("from") == "user"]
-        extra["user"] = {**kept, "session_id": self.session_id, "private": str(self.private),
+        # what the run records of the verdict (the learning material holds it): the visible part, the user's usage, the
+        # counts; the private folder by its path, for a trusted reader on this machine (AHE-Beta's own Evolver)
+        extra["user"] = {**visible, **({"usage": kept["usage"]} if isinstance(kept.get("usage"), dict) else {}),
+                         "session_id": self.session_id, "private": str(self.private),
                          "messages": sum(1 for e in said if e.get("kind") == "message"),
                          "interrupts": sum(1 for e in said if e.get("kind") == "interrupt"),
                          "inserted": sum(1 for e in transcript if e.get("kind") == "delivered"
                                          and e.get("at") == "PostToolUse"),
-                         "replies": sum(1 for e in transcript if e.get("kind") == "reply"),
-                         **({"error": visible["error"]} if error is not None else {})}
+                         "replies": sum(1 for e in transcript if e.get("kind") == "reply")}
         if extra.get("infra") or extra.get("adapter_failed"):
             out.extra = extra                            # the session's own word stands (infra, or the adapter's)
             return out
         if error is not None:                            # the user failed: not the agent's result
-            extra.update(infra="user_failed", infra_final=False,
+            extra.update(infra="user_failed", infra_final=isinstance(error, ChannelUnavailable),
                          exception_message=f"the user's session failed: {visible['error']}"[-2000:])
             out.extra = extra
             return out

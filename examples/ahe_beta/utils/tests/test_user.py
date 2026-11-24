@@ -121,7 +121,15 @@ def test_a_learner_reads_the_visible_verdict_and_the_rest_stays_private(tmp_path
         ["message", "reply", "interrupt"]
     assert (log / "user-reward.txt").read_text().strip() == f"{2 / 3:g}"
     assert out.extra["user"]["rating"] == 3 and out.extra["user"]["interrupts"] == 1
+    assert "secret" not in json.dumps(out.extra) and "record" not in out.extra["user"]   # the learning material's too
     assert "infra" not in out.extra and out.tokens == 10                       # the agent's own usage
+
+
+def test_an_environment_without_python_is_final_infra(tmp_path):
+    s = session(tmp_path)
+    finished(s, tmp_path)
+    out = s.result(None, user.ChannelUnavailable("the user channel needs python3"), 0.0)
+    assert out.extra["infra"] == "user_failed" and out.extra["infra_final"] is True
 
 
 def test_a_user_that_failed_is_infra_and_leaves_no_reward(tmp_path):
