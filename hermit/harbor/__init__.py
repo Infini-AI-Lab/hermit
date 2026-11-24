@@ -1,33 +1,9 @@
-"""Benchmarks in Hermit: one acting agent for every task set in Harbor's format, the protocol a benchmark enters by.
+"""Benchmarks in Harbor's format: the task sets Harbor's registry holds (Terminal-Bench, SWE-bench, ...), made into an
+example's data, and an eval's figures read from its results.
 
-    agent:
-      name: harbor
-      params:
-        tasks_dir: ../utils/tasks            # the Harbor task directories (task.toml, environment/, tests/)
-        acting_agent: {cli: codex}           # the CLI in the container: codex, claude, pi, opencode, dsh,
-                                             # mini-swe-agent, or answer (one model call); or a Harbor built-in by name
-        model: fireworks/glm-5               # a `<backend>/<model>` reference, or with `login` the CLI's model name
-        web_search: false                    # the CLI's web search, always set
-        agent_timeout_sec: 3600              # uniform agent budget; null: each task's own
-        jobs_dir: ~/.cache/hermit/harbor/jobs
+    python -m hermit.harbor.dataset prepare utils/benchmark.yaml    # the download, tasks.jsonl, splits, a lock
+    python -m hermit.harbor.report runs/<run>/eval/<adapter>        # pass@1 over the runs that are the agent's result
 
-The runner (`runner.HarborAgent`) turns one Hermit rollout into one Harbor trial. Hermit renders the trial and
-harborside carries it out: the adapter is deployed for the acting CLI (`staging`, by the CLI's own host, with the
-task's context when the adapter's is per task: `context`), its tools are served from this machine (`tools`), and the
-CLI's launch plan is rendered by Hermit's own CLI Base Agent (`launch`: the CLI's home, command and environment, with
-`clis`, the table of what differs per CLI). Harbor then starts the task's container and the HermitXXX class runs the
-plan in it (harborside/hermit.py), then the task's own verifier; the trial's reward and the CLI's own stream come back,
-read as Hermit reads its own sessions (`errors` for the trial's verdict, the Base Agent's `outcome` and `parse` for
-the session's, `signin` for what a trial in a container adds to them: a Codex sign-in or key refused, a refreshed
-ChatGPT sign-in handed back), and `judge.score` scores it. A trial that is not the agent's result (infra) runs again
-in the runner, and one that stays so gets no score (the run records a failed run, which `hermit eval` counts as 0);
-`report` gives an eval's pass@1 over the trials that are the agent's result. A lost sign-in or an API account's usage
-limit ends the run (hermit.agent.base.interface.LoginFailed). A task with `[[steps]]` (a stream: one environment that lives through
-many steps, each with its instruction and verifier) is run one step per rollout by a driver (`stream`,
-`harborside/driver.py`) that keeps the environment between the Trainer's steps, so a learner acts between them.
-
-`dataset` makes a benchmark's data from its benchmark file (`python -m hermit.harbor.dataset prepare`: the download,
-`tasks.jsonl` rows, splits, a content lock); `curate` and `docker` are the runner's parts. `harborside/` is the half
-that runs under Harbor's own interpreter (harbor, two of Harbor's own dependencies, pydantic and certifi where it is
-installed, and the standard library only): the container-side agents and the stream driver.
+Harbor itself gives each task its environment and its verifier (hermit.environment.harbor, `environment.harbor` in a
+run config); the agent that works in it is Hermit's, any acting agent (docs/framework/task.md#benchmarks).
 """

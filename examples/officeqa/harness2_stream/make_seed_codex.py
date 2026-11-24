@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Write seed_adapter_codex/ beside this file: SkillOpt's initial OfficeQA skill (../utils/seed_adapter/ADAPTER.md,
-written by ../utils/prepare.py) as a `harness2-codex` adapter: the skill text is AGENTS.md (and ADAPTER.md, its
-copy), and the on-demand directories hold only the template's placeholders. Harness² under Codex then starts from
-exactly the text the GEPA and SkillOpt runs start from, as Codex reads it.
+"""Write seed_adapter_codex/ beside this file: SkillOpt's initial OfficeQA skill
+(../utils/benchmark/seed_adapter/ADAPTER.md, written by ../utils/benchmark/prepare.py) as a `harness2-codex` adapter:
+the skill text is AGENTS.md (and ADAPTER.md, its copy), and the on-demand directories hold only the template's
+placeholders. Harness² under Codex then starts from exactly the text the GEPA and SkillOpt runs start from, as Codex
+reads it.
 
     python examples/officeqa/harness2_stream/make_seed_codex.py
 """
@@ -14,7 +15,7 @@ from hermit.spec import check_spec
 
 HERE = Path(__file__).resolve().parent
 TEMPLATE = Path(hermit.__file__).resolve().parent / "adapter" / "templates" / "harness2_codex"
-seed = (HERE.parent / "utils" / "seed_adapter" / "ADAPTER.md").read_text()
+seed = (HERE.parent / "utils" / "benchmark" / "seed_adapter" / "ADAPTER.md").read_text()
 out = HERE / "seed_adapter_codex"
 if out.exists():
     shutil.rmtree(out)

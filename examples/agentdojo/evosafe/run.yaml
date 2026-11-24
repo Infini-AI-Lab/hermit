@@ -1,11 +1,12 @@
 data:
-  tasks: ../utils/data/tasks.jsonl
-  train: ../utils/data/train.txt
-  val: ../utils/data/val.txt
-  test: ../utils/data/test.txt
+  tasks: ../utils/benchmark/data/tasks
+  view: ../../agentdyn/utils/benchmark/cases.py:case_row   # each case as the row it always was
+  train: ../utils/benchmark/data/train.txt
+  val: ../utils/benchmark/data/val.txt
+  test: ../utils/benchmark/data/test.txt
   step_size: 4
   shuffle: false
-task_info: ../utils/task-info
+task_info: ../utils/benchmark/task-info
 template: evosafe@1.0
 agent:
   name: ../utils/task.py:run
@@ -20,7 +21,7 @@ agent:
     logs: runs/episodes
     benchmark: agentdojo               # the experiment supervisor's provenance reads it
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 evolver:
   name: evosafe
   params:

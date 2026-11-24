@@ -12,7 +12,7 @@ simulator's process (hermit_program/deploy.py) and the policy's server (model.py
 copies must be byte for byte the ones here, or the evaluation is refused.
 
 An evaluation is a layout set (RoboDojo's `--seed`: a directory of saved layouts) and the first N of its layouts
-(`--eval-num`); development and held-out evaluations use different layout sets (utils/prepare.py).
+(`--eval-num`); development and held-out evaluations use different layout sets (utils/benchmark/prepare.py).
 
 Where Isaac Sim does not install on the host, the simulator runs in RoboDojo's container (`image`, ROBODOJO_IMAGE)
 and the policy server, with the program's worker, on the host (split_eval.sh): the same policy, the same result.
@@ -182,7 +182,7 @@ class Engine:
         """Run `program` on layout set `layout_seed` until RoboDojo has scored `layouts` layouts; one record per
         scored layout: layout_id, task_success, score. RoboDojo takes the set's layouts from the first and replaces
         one it abandons (an unstable scene) by the next, so a record's layout_id can be `layouts` or more: a caller
-        that scores counts the ids below `layouts` and treats a missing one as failed (utils/judge.py).
+        that scores counts the ids below `layouts` and treats a missing one as failed (utils/benchmark/judge.py).
 
         `out` receives what the program's author may see (the result, the videos, the program's own log and
         stderr); `private` (default: a directory beside `out`) the rest: RoboDojo's log and the sandbox's record,

@@ -13,17 +13,17 @@ data:
   shuffle_seed: 42
 task_info: ../utils/task-info
 agent:
-  name: harbor
+  base: claude                         # Claude Code in each task's own Harbor environment, installed there by Harbor
   concurrency: 2
-  params:
-    benchmark: ../utils/benchmark.yaml
-    acting_agent: {cli: claude}        # Claude Code in the task's container, installed there by Harbor
-    model: claude-haiku-5-5            # a Claude Code model name, on the subscription
-    login: claude                      # the subscription's plan, shared with Hermit's other sessions on it
-    effort: medium
-    jobs_dir: ~/.cache/hermit/harbor/jobs/labbench-claude-smoke  # the smoke's trials, apart from the run's
+  model: {name: claude-haiku-5-5, login: claude, effort: medium}  # the subscription's plan, shared
+  claude: {web_search: false}           # the CLI's web search off
+environment:
+  harbor:                            # each task in its own Harbor environment, verified by Harbor's verifier
+    benchmark: ../utils/benchmark.yaml  # the settings every config of this example shares
+    jobs_dir: ~/.cache/hermit/harbor/jobs/labbench-claude-smoke  # the smoke's environments, apart from the run's
 judge:
-  path: hermit.harbor.judge            # the verifier's reward
+  path: hermit.task.verify            # Harbor's verifier, in the task's environment: the verifier's reward
+  name: environment
 template: prompt-only@1.0              # the skill is ADAPTER.md, with no instructions at first (`--adapter root`)
 evolver:
   name: skillopt

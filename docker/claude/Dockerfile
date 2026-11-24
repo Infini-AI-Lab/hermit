@@ -1,4 +1,4 @@
-# The Claude Code agent's container (hermit/agent/base/container.py): Ubuntu 24.04, python3 (for the session's
+# The Claude Code agent's container (hermit/environment/docker.py): Ubuntu 24.04, python3 (for the session's
 # scripts), ripgrep, bubblewrap and socat (Claude Code's own sandbox, which runs the session's commands, needs both), and
 # the machine's own Claude Code, its native build (one file), copied here first:
 #
@@ -6,7 +6,7 @@
 #   docker build --build-context codex=docker/codex -t officeqa-claude:2.1.318 docker/claude
 #
 # A run names the tag it built (environment.image, or a CLI model endpoint's container.image); a session given none
-# takes HERMIT_CLAUDE_IMAGE, else hermit-claude:2.1.318 (container.py's default).
+# takes HERMIT_CLAUDE_IMAGE, else hermit-claude:2.1.318 (docker.py's default).
 #
 # The egress proxy's script is the Codex images' (docker/codex/egress_proxy.py, the `codex` build context), so an
 # egress container can run this image too. The CLI does not update itself here (DISABLE_AUTOUPDATER): the image is

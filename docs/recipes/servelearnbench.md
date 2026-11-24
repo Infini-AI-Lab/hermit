@@ -83,5 +83,6 @@ test episodes do not update the learning method. Since window serving counts do 
 11 cases of a window can remain unlearned at that window's test. Preserve this timing when comparing runs.
 
 `MW_TRAIN_SPLIT` can select a prepared prefix for smoke testing; prefix results do not reproduce the full stream.
-The task contract is implemented under `examples/servelearnbench/utils/`. For the world-model requirements see
+The task contract is implemented under `examples/servelearnbench/utils/` (the task set, as task directories in
+Harbor's format, and its judge under `utils/benchmark/`). For the world-model requirements see
 [MWM](../methods/mwm.md), and for experiment reporting see [Evaluation](../guides/evaluation.md).

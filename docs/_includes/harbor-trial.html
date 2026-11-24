@@ -1,0 +1,53 @@
+<figure class="ha-hb">
+<div class="ha-hb-scroll">
+<svg viewBox="0 0 860 500" role="img" aria-label="A trial in order: Hermit starts the driver after the disk gate; Harbor starts the container and runs the bridge's setup; the agent phase begins and Hermit is told; Hermit's agent sends exec, upload and download through the bridge into the container; Hermit says done or Harbor's timeout ends the phase and the bridge ends what still runs; Harbor runs the verifier, stops the container and scrubs the trial's files; the verdict comes back to Hermit">
+<defs>
+<marker id="hbt-m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-hermit" d="M0,0 L10,5 L0,10 z"/></marker>
+<marker id="hbt-h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-harbor" d="M0,0 L10,5 L0,10 z"/></marker>
+</defs>
+<rect class="b-hermit" x="20" y="14" width="200" height="40" rx="8"/>
+<text class="t-b" x="120" y="39" text-anchor="middle">Hermit process</text>
+<rect class="b-harbor" x="330" y="14" width="200" height="40" rx="8"/>
+<text class="t-b" x="430" y="39" text-anchor="middle">driver · Trial.run()</text>
+<rect class="b-box" x="640" y="14" width="200" height="40" rx="8"/>
+<text class="t-b" x="740" y="39" text-anchor="middle">task's container</text>
+<line class="lane" x1="120" y1="54" x2="120" y2="490"/>
+<line class="lane" x1="430" y1="54" x2="430" y2="490"/>
+<line class="lane" x1="740" y1="54" x2="740" y2="490"/>
+<!-- 1 -->
+<line class="a a-hermit" x1="120" y1="86" x2="426" y2="86" marker-end="url(#hbt-m)"/>
+<text x="132" y="79">① start, after the disk gate</text>
+<!-- 2, 3, 4 -->
+<line class="a a-harbor" x1="430" y1="118" x2="736" y2="118" marker-end="url(#hbt-h)"/>
+<text x="442" y="111">② pull or build, healthcheck</text>
+<line class="a a-harbor" x1="430" y1="150" x2="736" y2="150" marker-end="url(#hbt-h)"/>
+<text x="442" y="143">③ bridge setup(): install what the agent needs</text>
+<text class="t-m" x="442" y="176">④ agent phase: its network, its user, its clock</text>
+<!-- 5 -->
+<line class="a a-harbor" x1="430" y1="206" x2="124" y2="206" marker-end="url(#hbt-h)"/>
+<text x="142" y="199">⑤ start answered: the instruction, the workspace</text>
+<!-- 6 -->
+<rect class="b-loop" x="100" y="222" width="660" height="104" rx="8"/>
+<text class="t-m" x="112" y="240">⑥ Hermit's agent works; each of its commands goes through the bridge</text>
+<line class="a a-hermit" x1="120" y1="262" x2="426" y2="262" marker-end="url(#hbt-m)"/>
+<text class="mono" x="132" y="256">exec / upload / download</text>
+<line class="a a-harbor" x1="430" y1="276" x2="736" y2="276" marker-end="url(#hbt-h)"/>
+<text class="t-m" x="442" y="270">exec as the agent user; transfers by Harbor's copy</text>
+<line class="a a-harbor" x1="736" y1="296" x2="434" y2="296" marker-end="url(#hbt-h)"/>
+<line class="a a-harbor" x1="430" y1="310" x2="124" y2="310" marker-end="url(#hbt-h)"/>
+<text class="t-m" x="142" y="304">exec: exit code, output</text>
+<!-- 7 -->
+<line class="a a-hermit" x1="120" y1="352" x2="426" y2="352" marker-end="url(#hbt-m)"/>
+<text x="132" y="345">⑦ done (or Harbor's agent timeout)</text>
+<text class="t-m" x="442" y="374">bridge: kill what still runs, remove sign-ins, scrub, copy logs</text>
+<!-- 8 -->
+<line class="a a-harbor" x1="430" y1="404" x2="736" y2="404" marker-end="url(#hbt-h)"/>
+<text x="442" y="397">⑧ tests in, verifier, reward; stop; scrub</text>
+<!-- 9 -->
+<line class="a a-harbor" x1="430" y1="442" x2="124" y2="442" marker-end="url(#hbt-h)"/>
+<text x="142" y="435">⑨ rewards, exception (result.json)</text>
+<text class="t-m" x="142" y="464">Hermit: the outcome, retries, usage; the judge scores</text>
+</svg>
+</div>
+<figcaption>A trial with a shared verifier, in the order of Harbor's <code>Trial.run()</code>. Hermit's agent works only in ⑥, where each command it runs is one <code>exec</code> relayed by the bridge.</figcaption>
+</figure>

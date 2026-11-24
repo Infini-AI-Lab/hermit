@@ -168,7 +168,7 @@ rewrite before returning it.
 
 Step 1 and step 2 use different task batches. A higher score on step 2 alone does not show improvement: the questions
 also changed. Run separate evaluations on the same held-out test split to compare `final`, the adapter the run started
-from (`root`, or the `start_from` adapter when the config sets one, such as OfficeQA's `../utils/seed_adapter`), and
+from (`root`, or the `start_from` adapter when the config sets one, such as OfficeQA's `../utils/benchmark/seed_adapter`), and
 `none`; see [OfficeQA evaluation](../recipes/officeqa.md#check-train-evaluate).
 
 `final` means the adapter selected by `finalize`, which defaults to the current adapter. It does not mean “the

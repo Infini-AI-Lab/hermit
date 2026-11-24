@@ -6,13 +6,109 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Breaking
 
+- The robot benchmarks and ASPIRE no longer share code: a benchmark holds nothing of a method, and ASPIRE nothing of
+  a benchmark. The engine Robosuite and LIBERO run on (the simulator service, `bin/sim`, the neutral task functions,
+  the judge, the task writer, the row view) is `examples/cap_harness/`, which RoboDojo's service also builds on;
+  `examples/aspire_robosuite/` is `examples/robosuite/`, the benchmark's tasks and an `aspire/` folder. ASPIRE's
+  session (its fix-loop and verifier prompts, the evolutionary search, the facts the coordinator reads) is
+  `hermit/agent/evolver/methods/aspire/actor.py`, built on the engine's task functions (`agent.params.engine`), and its
+  direct-chat actor `direct.py` (`agent.name: hermit.agent.evolver.methods.aspire.direct:AspireActor`). A benchmark's
+  `prepare.py` writes its tasks and their reruns (`rerun_of`) only; ASPIRE's verifier rows are derived by `rows.py`,
+  which an ASPIRE folder's `tasks.sh` runs before the run, into that folder's `tasks/` and `splits/`. The service's
+  attempt budget is a row's `max_programs`, and the judge scores a row's `eval_seeds` (a verifier row's are its own
+  five); a verifier's verdict rule is ASPIRE's `collect`, which withholds the program unless `verified` (`not_scored`).
+  The prompts the sessions see are unchanged, byte for byte. A task function may be named `package.module:function`.
+  LIBERO's `prompt_only/` configs drop `evosearch: false`.
+
+- The old import paths of moved modules are gone, with no forward: 0.1's, which 0.2 forwarded (`hermit.agents`,
+  `hermit.evolver`, `hermit.llm`, `hermit.backends`, `hermit.trajectory`), and 0.2's `hermit.agent.base.direct` and
+  `hermit.agent.base.container`, and `hermit.agent.environment` (never released). Import instead:
+
+  | Old | New |
+  |---|---|
+  | `hermit.agents` (`.base`, `.cli`, `.react`, `.tools`, `.container`, `.login`) | `hermit.agent.acting` (`.agent`, `.workspace`, `.react`, `.tools`), `hermit.environment.docker`, `hermit.agent.base.login` |
+  | `hermit.evolver` (`.base`, `.agent`, `.loader`, `.dependencies`) | `hermit.agent.evolver` (the same submodules) |
+  | `hermit.llm`, `hermit.backends` | `hermit.agent.model.llm`, `hermit.agent.model.backends` |
+  | `hermit.trajectory` | `hermit.agent.base.trajectory` |
+  | `hermit.agent.base.direct` | `hermit.agent.model.direct` |
+  | `hermit.agent.base.container` | `hermit.environment.docker` |
+  | `hermit.agent.environment` (`.base`, `.docker`) | `hermit.environment` (`.base`, `.docker`) |
+
+- Harbor gives a task set its data, its environments and its verifier; every agent is Hermit's
+  ([Benchmarks](docs/framework/task.md#benchmarks)). `agent.name: harbor` is gone, with `hermit/harbor/runner.py`,
+  `hermit/harbor/harborside/` (the HermitXXX classes, the scripted agent, the stream driver) and the runner's parts
+  (`clis`, `launch`, `staging`, `context`, `curate`, `errors`, `judge`, `signin`, `stream`, `tools`). A run config
+  names the task set's environments as `environment.harbor` (the settings that were `agent.params`: `benchmark`,
+  `tasks_dir`, `environment`, `verifier`, the multipliers, `agent_timeout_sec`, `docker_cleanup` and the disk gates,
+  `jobs_dir`, `harbor`, `pass_reward`, `reward_key`, `verifier_timeout`), its acting agent as any other
+  (`agent.base: codex` or `claude` with `agent.model` and `agent.<cli>.web_search`; `agent.name: answer` for the
+  answer-only agent that replaces HermitAnswer), and its judge as `{path: hermit.task.verify, name: environment}`.
+  Each task's environment is Harbor's own trial of it, run whole by Harbor's `Trial.run()` (`hermit/environment/
+  harbor.py` and its driver under Harbor's venv), whose agent is a bridge relaying the Hermit agent's commands
+  (`HermitBridge`: its setup installs what the agent declares, `Agent.installs`; its run ends its commands still
+  running before Harbor verifies): the run starts it behind the disk gate, hands it to the agent (`run(task, adapter,
+  environment=...)`), ends the agent phase and reads the trial's verdict; `hermit/harbor/docker.py` moved unchanged to
+  `hermit/environment/harbor_docker.py`. Codex and Claude Code run in it through its `exec` (isolation `remote`); the
+  agent has no worker (its loop runs in the run's process, every command in the task's container; the adapter's own
+  code, its context tool and its exports' render, in the strict adapter sandbox as before), and a CLI there signs in
+  by its model binding or a named `login` only (no copy of this machine's own sign-in). A rollout
+  that is not the agent's result keeps the runner's semantics (`hermit/environment/harbor_errors.py`, ported from
+  `hermit/harbor/errors.py`): it runs again in a fresh environment (`environment.harbor.infra_retries`, default 2,
+  after `infra_wait_s`, never for `disk` or `model_rejected`), and one that stays infra is `unscored`, which the judge
+  refuses (a failed run, never the agent's 0). A session in a task's environment is not resumed (refused: its home
+  there is made anew for each call). Eval rows of such a task keep its `outcome` (the runner's status); a setting
+  of `environment.harbor` is overridden on the command line by its path. The CLI agent's usage now counts every
+  attempt it ran (a provider it ran again on, as the runner counted a trial's runs); a provider that could not serve
+  runs the task again in a fresh environment (`environment.harbor.busy_retries`, `busy_wait_s`, the runner's).
+  An acting agent's model a CLI reaches (`agent.params.model: {cli: ...}`) is refused for a task in Harbor's
+  environments (its plan's wait would fall inside the task's time). What the runner read of a
+  session (a lost sign-in or a bill refused: the run ends; a configuration refused: `model_rejected`; the plan's
+  refusal: run again once it allows) is read the same way (`hermit/agent/base/codex_stream.py`, ported). Codex there
+  keeps the runner's `project_doc_max_bytes` of 262144 unless the config sets one. A hook audit that cannot be read
+  back leaves the session's result and usage (`hooks_audit_missing`). A task's environment refuses Hermit's network,
+  hidden-path and mount limits (the task's own say what it reaches). As the runner did:
+  `verifier_redact`, the named `reward_key` only (none there is infra), the agent's setup (a CLI's install) within
+  1200 s unless `environment.harbor.setup_timeout_sec` says (Harbor's own default, 360 s, is too short under load), a ChatGPT sign-in taken back only when valid
+  (64 KiB, both tokens, its clock), a session's missing usage as an unknown cost. Not carried
+  over: multi-step tasks (streams), the adapter's tools in a task's environment, the `<cli>_bin` mount (a config
+  mounts a binary through `environment.harbor.environment.mounts` and names it as `agent.<cli>.bin`), Harbor's own agents
+  (`acting_agent: {name}`), the Pi, OpenCode, dsh and mini-swe-agent CLIs in a task's environment, and the curated
+  trial log (the trial's directory under `jobs_dir` is kept as Harbor writes it). Every example config moved.
+
+- OfficeQA's task set is task directories in Harbor's format under `examples/officeqa/utils/benchmark/` (with its
+  `prepare.py`, `judge.py`, `task-info/`, splits, `data.json` and seed adapter): run `prepare.py` again. The agents read
+  each task as the row they always read, so prompts are unchanged.
+
+- More task sets are task directories in Harbor's format, under each example's `utils/benchmark/` with its
+  `prepare.py`, `judge.py`, `task-info/` and splits; their configs read each task through `data.view` as the row they
+  always read, so prompts, records and learning material are unchanged (`hermit.task.directory.write_task` writes
+  one). `examples/claude_subscription/`: its nine tasks, judge, splits and task-info moved to `utils/benchmark/`.
+  `examples/aspire_robosuite/` and `examples/libero/`: their launchers run `utils/benchmark/prepare.py`;
+  `sim_service.py` and `stage_docs.py --tasks` take the task directories.
+  `examples/robodojo_sim/`: its launcher runs `utils/benchmark/prepare.py`; `dojo_service.py --tasks` takes the task
+  directories.
+  `examples/servelearnbench/`: run `utils/benchmark/prepare.py` again (`windows.py` and `windows.json` moved there
+  too).
+  `examples/clbench_database/` and `examples/clbench_poker/`: run `utils/benchmark/prepare.py` again (`task-info/`
+  moved there too).
+  `examples/agentdyn/` and `examples/agentdojo/`: prepare each protocol again under `utils/benchmark/data/` (each
+  writes `tasks/`, `cases.txt` with every case in its order, the splits and the manifest, whose `tasks_sha256` is still
+  that of the rows as JSON lines, as `DATA.md` lists them); `report.py` and `compare.py --tasks` take a protocol's
+  `tasks/`.
+
+- Tasks and environments are packages of their own beside the agents: `hermit/environment/` (moved from
+  `hermit/agent/environment/`) and `hermit/task/` (from `hermit/task.py`: `Task` with
+  a public half the agent is handed and a private half only the judge reads, `Benchmark`, the verifier). `RunOutput`
+  and `load_callable` live in `hermit/common.py`; every name importable from `hermit.task` before still is. Tasks and
+  agents never import each other (`tests/core/test_layers.py`).
+
 - One agent abstraction (#111, [agent layers](docs/framework/agent-layers.md#from-the-one-agent-refactor)): where an
   agent works is an environment given with each call. `BaseAgent.run(prompt, environment=..., tools=, session=,
   roles=)` replaces `run(prompt, workspace=, limits=)` (a path is a `Local` environment), and a CLI Base Agent
   refuses `isolation`, `sandbox` or `container` given as settings (use `Sandboxed(path, sandbox=...)` or
   `Container(path, settings=...)`). A single model call is Layer 1: `Direct(settings, model)` in
-  `hermit.agent.model.direct` returns a `Reply`, and `make("direct")` is refused. `hermit.agent.base.direct` and
-  `hermit.agent.base.container` (now `hermit.agent.environment.docker`) forward for one release. A run whose acting
+  `hermit.agent.model.direct` returns a `Reply`, and `make("direct")` is refused. `hermit.agent.base.container` is
+  now `hermit.environment.docker`. A run whose acting
   agent does not take what its method needs of an adapter (`supports` against `evolver.yaml` `needs`) is refused
   before it starts.
 
@@ -46,6 +142,17 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   again when a task file's mode was other than 644 or 755 or a task holds a link.
 
 ### Added
+
+- `hermit convert` names the adapter's folder and files as a deployment does: a Claude Code plugin prints, from a
+  `SessionStart` hook, where its embedded adapter is and the files no export connects (the list a deployment's
+  context gives); Codex, Pi and Hermes plugins list those files under `unnamed_files` in the result and their README.
+- A test that training deploys an adapter into a task's workspace as `hermit deploy` does, file for file on every
+  host, the tools' server entry aside (calls approved; the session's own tool server for a host that cannot start it).
+- Task directories in Harbor's format as a task set (`data.tasks: <directory>`, `data.rollouts`), read without Harbor
+  (`hermit/task/directory.py`), with their own verifier script run in the judge's sandbox (`judge: {path:
+  hermit.task.verify, name: script}`: `/tests`, `/logs/verifier/reward.txt` or `reward.json`, and `feedback.txt`).
+  The task sandbox is built from an `EnvironmentSpec` by the bubblewrap backend (`hermit/environment/spec.py`,
+  `bwrap.py`), which refuses a task that asks for more network or memory than the run's environment gives.
 
 - RoboDojo-Sim (`examples/robodojo_sim/`), a first implementation (its smoke run on the real simulator; no
   training run yet): its forty-two tasks with a Codex session writing a program that controls the robot,
@@ -335,6 +442,17 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
+- Continual Harness and Harness² now declare the adapter parts they write (`needs: [llm, skills, agents]` and
+  `needs: [skills, agents, hooks]`), so a run whose acting agent does not take them (`react`) is refused before it
+  starts, instead of running a harness whose skills and sub-agents the acting agent drops.
+- In a task's Harbor environment, a CLI's output kept in `/logs/agent` as it ran reached a shared verifier unscrubbed
+  when Harbor's agent timeout ended the phase before Hermit's own logs were copied over it. The phase's end now scrubs
+  each such stream there of the credentials passed to the agent's commands (their variables and descriptors) before
+  the verifier runs, in a local Docker environment, whose `/logs/agent` is the trial's folder on this machine (best
+  effort: a stream this machine cannot read stays as it came). Elsewhere a shared verifier still gets it as it came;
+  the trial's files are scrubbed after the trial.
+  A multi-step task (`[[steps]]`) was refused as an environment that failed to start and run again after
+  `infra_wait_s`; it is now refused as unsupported (`unsupported_task`) and never run again.
 - `Sandbox.wrap` ran a virtual environment's interpreter (`<venv>/bin/python`, a link to its base interpreter) by
   its real path, so it started without the environment and its packages failed to import. An interpreter whose
   environment is granted (the sandbox's `readable` or `writable`, the call's, or `interpreters`) now runs by its own

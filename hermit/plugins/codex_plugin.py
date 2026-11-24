@@ -13,7 +13,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from hermit.plugins.common import (ADAPTER_DIR, AUDIT_LOG, FRAMEWORK_VERSION, SERVER_COMMAND, clear, copy_skills,
-                                           embed_adapter, load, prepare_output, record, refuse, server_args, write_json)
+                                           embed_adapter, load, prepare_output, record, refuse, server_args,
+                                           unnamed_line, write_json)
 
 PLUGIN_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
 MCP_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
@@ -53,9 +54,11 @@ def build(adapter: Path, output: Path, python: str, *, allow_lossy: bool = False
         f"codex plugin add {bundle.id}@{bundle.id}-adapters", "```", "",
         "The tools run as `hermit serve`, so `hermit` must be installed and on PATH.", "",
         f"- Skills: {', '.join(skills) or 'none'}", f"- Tools: {', '.join(t['name'] for t in bundle.tools) or 'none'}",
+        unnamed_line(bundle, "Codex"),
         f"- Left out (--allow-lossy): {', '.join(omitted)}" if omitted else "- Left out: nothing", ""]))
     return {"target": "codex", "adapter_id": bundle.id, "version": bundle.version, "framework": FRAMEWORK_VERSION,
             "output": str(output),
             "plugin": str(plugin), "install": [f"codex plugin marketplace add {output}",
                                                f"codex plugin add {bundle.id}@{bundle.id}-adapters"],
-            "skills": skills, "server_name": bundle.server if bundle.tools else None, "omitted": omitted}
+            "skills": skills, "server_name": bundle.server if bundle.tools else None,
+            "unnamed_files": bundle.other_files, "omitted": omitted}

@@ -24,7 +24,7 @@ python -m pytest --changed    # the test groups this branch touches (tests/READM
 - Inspect the relevant implementation, callers and tests to understand current
   behavior. Agents follow [Model → Base Agent → Acting / Evolver Agent](docs/framework/agent-layers.md):
   reuse shared model and CLI execution through Base Agents; keep task-specific
-  logic in `examples/`. Where an agent runs is the environment its call gives (`hermit.agent.environment`), never
+  logic in `examples/`. Where an agent runs is the environment its call gives (`hermit.environment`), never
   a setting; a benchmark's own agent subclasses a core agent (a `ReactAgent` with `@tool` methods and hooks) in its
   example folder instead of copying a loop; a different prompt or model is configuration, not a new agent.
 - For method reproductions, read the [reproduction guide](docs/developer/reproducing-a-method.md)

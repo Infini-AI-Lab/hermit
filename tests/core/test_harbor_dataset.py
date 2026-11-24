@@ -1,7 +1,7 @@
 """A benchmark's task set in Harbor's format made Hermit data by `python -m hermit.harbor.dataset prepare` (its
 benchmark file's `dataset:` block), without Harbor or a registry: the download (a stand-in), the patch, the rows with
 their resources and network modes, the lock and its check on reuse, the splits, the smoke rows and the images'
-sizes; and, without Docker, the teardown of a trial's compose projects (hermit.harbor.docker)."""
+sizes; and, without Docker, the teardown of a trial's compose projects (hermit.environment.harbor_docker)."""
 import errno
 import json
 import os
@@ -718,9 +718,9 @@ def test_a_relative_data_directory_is_the_benchmark_files_not_the_working_direct
 @pytest.mark.skipif(not shutil.which("git"), reason="needs git")
 
 def test_a_trials_compose_projects_are_taken_down_from_an_empty_directory_of_their_own(tmp_path, monkeypatch):
-    """hermit.harbor.docker.compose_down names the trial's projects alone (`-p`): it runs where no compose file or
-    .env of this process's working directory can be read, whose volumes `down --volumes` would remove too."""
-    from hermit.harbor import docker
+    """hermit.environment.harbor_docker.compose_down names the trial's projects alone (`-p`): it runs where no compose
+    file or .env of this process's working directory can be read, whose volumes `down --volumes` would remove too."""
+    from hermit.environment import harbor_docker as docker
     (tmp_path / "compose.yaml").write_text("services: {}\nvolumes: {mine: {}}\n")
     (tmp_path / ".env").write_text("COMPOSE_FILE=compose.yaml\n")
     monkeypatch.chdir(tmp_path)
@@ -744,7 +744,7 @@ def test_a_trials_compose_projects_are_taken_down_with_none_of_this_processs_com
     """A compose file this process's environment selects (COMPOSE_FILE, and its profiles, env files, project
     directory) is not read by the teardown either, whose `down --volumes` would remove its volumes too: each `down`
     runs with none of the COMPOSE_* variables, and with every other one (the Docker daemon it reaches)."""
-    from hermit.harbor import docker
+    from hermit.environment import harbor_docker as docker
     (tmp_path / "compose.yaml").write_text("services: {}\nvolumes: {mine: {name: mine}}\n")
     for name, value in (("COMPOSE_FILE", str(tmp_path / "compose.yaml")), ("COMPOSE_PROFILES", "all"),
                         ("COMPOSE_ENV_FILES", str(tmp_path / ".env")), ("COMPOSE_PROJECT_DIRECTORY", str(tmp_path)),
@@ -770,7 +770,7 @@ def test_a_trials_compose_projects_are_taken_down_with_none_of_this_processs_com
 def test_with_no_room_for_an_empty_directory_a_trials_projects_are_taken_down_from_the_root(tmp_path, monkeypatch):
     """With no room for an empty directory (a full /tmp) the teardown still takes the trial's projects down, from
     `/`, not from this process's working directory and its compose file."""
-    from hermit.harbor import docker
+    from hermit.environment import harbor_docker as docker
     (tmp_path / "compose.yaml").write_text("services: {}\nvolumes: {mine: {}}\n")
     monkeypatch.chdir(tmp_path)
 
@@ -807,7 +807,7 @@ def test_a_verifier_sessions_name_is_harbors_own_and_a_cut_one_is_taken_down_by_
     63 characters, past them cut and named by its digest, which no prefix of the trial's name finds. compose_down
     takes the one of each key down by that exact name (a single-step trial's "trial", a stream's step names), and any
     other Harbor kept whole by the prefix, each project once."""
-    from hermit.harbor import docker
+    from hermit.environment import harbor_docker as docker
     for (trial, key), name in VERIFIER_SESSIONS.items():
         assert docker.verifier_session(trial, key) == name
     trial = "long-task-name-for-a-stream-of-steps-x__s1__0a1b2c3d"           # a stream's trial: 52 characters

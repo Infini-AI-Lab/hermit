@@ -92,7 +92,8 @@ def test_metrics_direction_and_separate_denominators():
 
 
 def test_split_groups_and_no_answer_leakage(tmp_path):
-    spec = importlib.util.spec_from_file_location("prepare_expanded", ROOT / "examples/agentdyn/utils/prepare_expanded.py")
+    spec = importlib.util.spec_from_file_location("prepare_expanded",
+                                                  ROOT / "examples/agentdyn/utils/benchmark/prepare_expanded.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     for suite in module.SUITES:
@@ -380,7 +381,8 @@ def test_native_three_suite_initialization():
         get_suite("v1.2.2", "shopping")
     except KeyError:
         pytest.skip("upstream AgentDojo installed, not AgentDyn")
-    spec = importlib.util.spec_from_file_location("prepare_expanded", ROOT / "examples/agentdyn/utils/prepare_expanded.py")
+    spec = importlib.util.spec_from_file_location("prepare_expanded",
+                                                  ROOT / "examples/agentdyn/utils/benchmark/prepare_expanded.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     cases = {}
@@ -416,8 +418,16 @@ def test_report_rejects_missing_and_separates_goal_namespaces():
         module.compare(tasks,['a','b','c'],{'baseline':rows[:2]})
 
 
+def _cases():
+    spec = importlib.util.spec_from_file_location("agentdyn_cases", ROOT / "examples/agentdyn/utils/benchmark/cases.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_a_clean_case_with_empty_injection_fields_is_the_same_case(tmp_path):
-    spec = importlib.util.spec_from_file_location("prepare_cases", ROOT / "examples/agentdyn/utils/prepare.py")
+    spec = importlib.util.spec_from_file_location("prepare_cases",
+                                                  ROOT / "examples/agentdyn/utils/benchmark/prepare.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     cases = [{"suite": "shopping", "user_task_id": f"user_task_{n}", "injection_task_id": "injection_task_0",
@@ -425,13 +435,55 @@ def test_a_clean_case_with_empty_injection_fields_is_the_same_case(tmp_path):
     cases += [{"suite": "shopping", "user_task_id": "user_task_0"},
               {"suite": "shopping", "user_task_id": "user_task_0", "injection_task_id": None, "injections": {}}]
     module.prepare(cases, tmp_path / "out")
-    rows = [json.loads(s) for s in (tmp_path / "out/tasks.jsonl").read_text().splitlines()]
+    rows = _cases().read_cases(tmp_path / "out")                    # the cases' task directories, as their rows
     assert sum(r["user_task_id"] == "user_task_0" and r["kind"] == "clean" for r in rows) == 1
+
+
+def test_cases_are_task_directories_read_back_as_the_rows_tasks_jsonl_held(tmp_path, monkeypatch):
+    """write_cases writes each case as a task directory and the rows' order; read_cases and every AgentDyn and AgentDojo
+    config (data.view: cases.py:case_row) read each back as exactly its row, the injections' key order and the id's
+    place among sorted keys kept; the hash is the JSON lines'."""
+    import hashlib
+    from hermit.config import Config
+    from hermit.task import Benchmark
+    cases = _cases()
+    rows = [{"suite": "shopping", "user_task_id": "user_task_3", "injection_task_id": "injection_task_1",
+             "injections": {"z_vector": "frozen \u2019payload\" \\ \n<b>", "a_vector": "x"}, "id": "case-1",
+             "kind": "injected", "group": "shopping/user_task_3", "domain": "shopping"},
+            {"id": "shopping-user_task_3-clean", "suite": "shopping", "user_task_id": "user_task_3", "kind": "clean",
+             "group": "shopping/user_task_3", "domain": "shopping"}]
+    for sort_keys in (False, True):
+        out = tmp_path / f"sorted-{sort_keys}"
+        digest = cases.write_cases(out, rows, benchmark="agentdyn", sort_keys=sort_keys)
+        lines = "".join(json.dumps(r, sort_keys=sort_keys) + "\n" for r in rows)
+        assert digest == hashlib.sha256(lines.encode()).hexdigest()
+        assert [json.dumps(r) for r in cases.read_cases(out)] == lines.splitlines()
+    out = tmp_path / "sorted-True"
+    (out / "split.txt").write_text("".join(r["id"] + "\n" for r in rows))
+    configs = [*sorted((ROOT / "examples/agentdyn").glob("*/run*.yaml")),
+               *sorted((ROOT / "examples/agentdojo").glob("*/run*.yaml"))]
+    assert len(configs) == 11
+    for path in configs:
+        config = Config.load(path)
+        data = config.data["data"]
+        assert config.path(data["view"].split(":")[0]) == ROOT / "examples/agentdyn/utils/benchmark/cases.py", path
+        monkeypatch.setitem(data, "tasks", str(out / "tasks"))
+        for key in ("train", "val", "test"):
+            if data.get(key):
+                monkeypatch.setitem(data, key, str(out / "split.txt"))
+        bench = Benchmark.from_config(config)
+        assert [json.dumps(t.given()) for t in bench.split("train")] == \
+            [json.dumps(r, sort_keys=True) for r in rows], path
+        assert bench.split("train")[0].private["tests"] is None                 # judged by judge.py
+    assert cases.rows(out / "tasks") == cases.read_cases(out)                   # what report.py --tasks reads
+    legacy = [{**rows[1], "injection_task_id": None, "injections": {}}]          # a clean case of an old tasks.jsonl
+    cases.write_cases(tmp_path / "none", legacy, benchmark="agentdyn")
+    assert cases.read_cases(tmp_path / "none") == legacy                         # null kept, not dropped
 
 
 @pytest.mark.parametrize("goals", [0, -1])
 def test_all_groups_needs_a_positive_goal_count(tmp_path, goals):
-    path = ROOT / "examples/agentdyn/utils/prepare_all_groups.py"
+    path = ROOT / "examples/agentdyn/utils/benchmark/prepare_all_groups.py"
     spec = importlib.util.spec_from_file_location("prepare_groups", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -440,7 +492,7 @@ def test_all_groups_needs_a_positive_goal_count(tmp_path, goals):
 
 
 def test_full_test_keeps_search_cases_and_only_adds_test_owned_variants(tmp_path):
-    path = ROOT / "examples/agentdyn/utils/prepare_all_groups.py"
+    path = ROOT / "examples/agentdyn/utils/benchmark/prepare_all_groups.py"
     spec = importlib.util.spec_from_file_location("prepare_groups", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -450,7 +502,7 @@ def test_full_test_keeps_search_cases_and_only_adds_test_owned_variants(tmp_path
     rows, groups = [], []
     for split in module.SPLITS:
         groups.append({"suite": "github", "user_task_id": split, "split": split})
-        members = [dict(id=f"{split}-{n}", suite="github", user_task_id=split,
+        members = [dict(id=f"{split}-{n}", suite="github", user_task_id=split,     # a clean case: null, {}
                         injection_task_id=f"injection_task_{n}" if n else None,
                         injections={"vector": f"frozen-{n}"} if n else {}) for n in range(4)]
         rows.extend(members)
@@ -465,8 +517,8 @@ def test_full_test_keeps_search_cases_and_only_adds_test_owned_variants(tmp_path
     for split in ("train", "val"):
         assert (expanded / f"{split}.txt").read_bytes() == (original / f"{split}.txt").read_bytes()
     assert (expanded / "test.txt").read_text() == (original / "test.txt").read_text() + "test-3\n"
-    old_rows = {r["id"]: r for r in map(json.loads, (original / "tasks.jsonl").read_text().splitlines())}
-    new_rows = {r["id"]: r for r in map(json.loads, (expanded / "tasks.jsonl").read_text().splitlines())}
+    old_rows = {r["id"]: r for r in _cases().read_cases(original)}
+    new_rows = {r["id"]: r for r in _cases().read_cases(expanded)}
     assert {i: new_rows[i] for i in old_rows} == old_rows
     assert new_rows.keys() - old_rows.keys() == {"test-3"}
     assert new_rows["test-3"]["injections"] == {"vector": "frozen-3"}

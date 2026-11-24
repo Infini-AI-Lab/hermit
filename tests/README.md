@@ -33,6 +33,10 @@ selected with the benchmark’s `evosafe` example (plus `core` and the existing
 installed instead; model responses come from a local HTTP server. The Docker
 hook check also skips without an engine and the `python:3.12-slim` image.
 
+The cap-harness engine that Robosuite and LIBERO share has its tests in `examples/cap_harness/utils/tests/` (its
+stand-ins, `cap_fakes.py`, are ASPIRE's tests' too); a change to the engine runs the groups of the methods with an
+example on one of its benchmarks (`ENGINES` in `selection.py`), and `core`.
+
 CI (`.github/workflows/tests.yml`) runs `--changed` on a pull request and the whole suite on main, daily and on
 demand.
 

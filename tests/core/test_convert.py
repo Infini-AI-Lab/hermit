@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 
 import pytest
@@ -264,3 +265,69 @@ def test_hooks_are_refused_by_every_target(tmp_path, target):
         build(target, a, tmp_path / "x", sys.executable)
     assert not (tmp_path / "x").exists()
     assert build(target, a, tmp_path / "y", sys.executable, allow_lossy=True)["omitted"] == ["hooks"]
+
+
+# ---- the adapter's files: named to the session as a deployment names them ------------------------------------------
+def _session_start(plugin: Path, cwd: Path) -> str:
+    """What the plugin's SessionStart hooks print, run as Claude Code runs them: `sh -c` with CLAUDE_PLUGIN_ROOT set."""
+    hooks = json.loads((plugin / "hooks" / "hooks.json").read_text())["hooks"]["SessionStart"]
+    return "".join(subprocess.run(["sh", "-c", h["command"]], cwd=cwd, capture_output=True, text=True, check=True,
+                                  env={**os.environ, "CLAUDE_PLUGIN_ROOT": str(plugin)}).stdout
+                   for group in hooks for h in group["hooks"])
+
+
+def test_claude_code_names_the_adapters_folder_and_files_at_session_start(tmp_path):
+    from hermit.hosts.codex import prepare
+    installed = tmp_path / "plugins dir"                          # a path with a space stays one word
+    result = build("claude-code", EXAMPLE, installed, sys.executable)
+    plugin = installed / "plugins" / "file-example"
+    assert result["folder_hook"] == "hooks/hooks.json" and result["unnamed_files"] == []
+    text = _session_start(plugin, tmp_path)
+    assert text.startswith(f"The files of the `file-example` adapter are in `{plugin}/adapter/`.")
+    # the same list a deployment's context gives, with paths in the adapter's folder
+    prepare(EXAMPLE, tmp_path / "w", sys.executable)
+    deployed = (tmp_path / "w" / "AGENTS.md").read_text()
+    listed = [line.replace("hermit/file-example/", "") for line in deployed.splitlines()
+              if line.startswith("- `hermit/file-example/")]
+    assert listed == ["- `README.md`: File interface example",
+                      "- `tools.py`: A fixed tool used to demonstrate the adapter's deployment interface."]
+    assert [line for line in text.splitlines() if line.startswith("- `")] == listed
+    assert all((plugin / "adapter" / line[3:line.index("`", 3)]).is_file() for line in listed)
+
+
+def test_claude_code_names_no_folder_when_nothing_of_the_adapter_lives_there(tmp_path):
+    a = variant(tmp_path, roles=False)
+    shutil.rmtree(a / "skills")
+    (a / "README.md").unlink()
+    (a / "exports.yaml").write_text("context: ADAPTER.md\n")
+    (a / "tools.py").unlink()
+    result = build("claude-code", a, tmp_path / "cc", sys.executable)
+    assert result["folder_hook"] is None and not (Path(result["plugin"]) / "hooks").exists()
+
+
+def test_a_reconversion_drops_the_list_of_files_the_adapter_no_longer_has(tmp_path):
+    a = variant(tmp_path)
+    build("claude-code", a, tmp_path / "cc", sys.executable)
+    plugin = tmp_path / "cc" / "plugins" / "file-example"
+    assert (plugin / "hermit-files.md").is_file()
+    (a / "README.md").unlink()
+    (a / "exports.yaml").write_text("context: ADAPTER.md\nagents: agents\nskills: skills\n")
+    (a / "tools.py").unlink()
+    build("claude-code", a, tmp_path / "cc", sys.executable)
+    assert not (plugin / "hermit-files.md").exists()             # the folder is still named: skills and a role
+    text = _session_start(plugin, tmp_path)
+    assert "Other files" not in text and "adapter/`." in text
+    shutil.rmtree(a / "skills")
+    shutil.rmtree(a / "agents")
+    (a / "exports.yaml").write_text("context: ADAPTER.md\n")
+    result = build("claude-code", a, tmp_path / "cc", sys.executable)
+    assert result["folder_hook"] is None and not (plugin / "hooks").exists()   # nothing left for a hook to name
+    assert "none is named to the session" in (plugin / "README.md").read_text()
+
+
+@pytest.mark.parametrize("target", ["codex", "pi", "hermes"])
+def test_codex_pi_and_hermes_report_the_files_the_session_is_not_told_about(tmp_path, target):
+    result = build(target, variant(tmp_path, roles=False, context=False), tmp_path / target, sys.executable)
+    assert result["unnamed_files"] == ["README.md", "tools.py"]
+    readme = (Path(result.get("plugin") or result["output"]) / "README.md").read_text()
+    assert "- Files the session is not told about: README.md, tools.py (under `adapter/`)" in readme

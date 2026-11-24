@@ -4,21 +4,23 @@
 # rows by launch.sh; every run --init-mode seeded); Codex acting and coordinating, GLM 5.3 Flash. Started by
 # launch.sh.
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/libero_pro.txt
-  val: ../utils/splits/verify.txt   # the verifier's rows: run only by the coordinator, through run_agent
-  test: ../utils/splits/libero_pro_rerun.txt   # every task again with the final library: ASPIRE's backward transfer
+  tasks: tasks                      # the benchmark's tasks and ASPIRE's verifiers (tasks.sh)
+  view: ../../cap_harness/utils/agent/fields.py:task_row   # each task as the row it always was
+  train: splits/libero_pro.txt
+  val: splits/verify.txt   # the verifier's rows: run only by the coordinator, through run_agent
+  test: splits/libero_pro_rerun.txt   # every task again with the final library: ASPIRE's backward transfer
   step_size: 1
   shuffle: false
-task_info: ../utils/task-info
+task_info: ../utils/benchmark/task-info
 agent:
   base: codex
   concurrency: 1
   params:
-    prompt: ../../aspire_robosuite/utils/agent/task.py:prompt
-    prepare: ../../aspire_robosuite/utils/agent/task.py:prepare
-    answer: ../../aspire_robosuite/utils/agent/task.py:answer
-    collect: ../../aspire_robosuite/utils/agent/task.py:collect
+    prompt: hermit.agent.evolver.methods.aspire.actor:prompt
+    prepare: hermit.agent.evolver.methods.aspire.actor:prepare
+    answer: hermit.agent.evolver.methods.aspire.actor:answer
+    collect: hermit.agent.evolver.methods.aspire.actor:collect
+    engine: ../../cap_harness/utils/agent/task.py   # the engine's task functions ASPIRE's build on
     aspire_root: $ASPIRE_ROOT
     aspire_docs: $ASPIRE_DOCS
   model: {ref: fireworks/accounts/fireworks/models/glm-5p3-flash, effort: medium}
@@ -30,7 +32,7 @@ agent:
     project_doc_max_bytes: 131072   # AGENTS.md carries the whole library (the template caps it at 100,000 bytes)
 environment:                        # the task sandbox: the actor's code, ASPIRE's prompts and docs, nothing else of it
   read:
-    - ../../aspire_robosuite/utils/agent   # the engine's task functions, bin/sim's client, the prompt pages
+    - ../../cap_harness/utils/agent   # the engine's task functions and bin/sim's client
     - $ASPIRE_DOCS                    # ASPIRE's docs as staged by launch.sh: nothing that names its worked programs
     - $ASPIRE_ROOT/.claude/skills/iterative-debugging/subagent-prompt.md
     - $ASPIRE_ROOT/.claude/skills/iterative-debugging/verifier-prompt.md
@@ -40,7 +42,7 @@ environment:                        # the task sandbox: the actor's code, ASPIRE
     - $ASPIRE_ROOT/.claude/skills/evosearch/skills/evosearch-iteration.md
   env: [ASPIRE_SIM_URL]             # the host's simulator service (launch.sh): its 127.0.0.1 port is forwarded
 judge:
-  path: ../../aspire_robosuite/utils/judge.py           # on the host: Stage 2 on the held-out seeds
+  path: ../../cap_harness/utils/benchmark/judge.py           # on the host: Stage 2 on the held-out seeds
 template: aspire
 evolver:
   name: aspire

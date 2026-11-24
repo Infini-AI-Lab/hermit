@@ -67,7 +67,7 @@ def main() -> None:
         graded = graded[:hand_num - 1]
         ledger.write_text("".join(json.dumps(o) + "\n" for o in graded))
     from hermit.agent.evolver.methods.mwm import deployment as _dep
-    venue_texts = TASKS / "task-info" / "mwm"
+    venue_texts = TASKS / "benchmark" / "task-info" / "mwm"
     deployment = _dep.host_settings(venue_texts)
 
     task = Poker(schedule="default", run_index=order)

@@ -1,0 +1,5 @@
+aspire-docs/
+runs/
+# Where utils/prepare.py wrote before utils/benchmark/: kept out of git in a checkout prepared then
+tasks.jsonl
+splits/

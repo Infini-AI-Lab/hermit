@@ -4,16 +4,17 @@
 # session per step, the learner model through its meter, reasoning effort high).
 # Started per order by `launch.sh`, which sets the per-order paths and the learner's provider arguments.
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/order0.txt         # launch.sh: order<i>.txt
+  tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/poker_fields.py:poker_task   # each task as the row it always was
+  train: ../utils/benchmark/splits/order0.txt         # launch.sh: order<i>.txt
   step_size: 5                                               # one step per block of 5 host hands
   shuffle: false                                             # the stream's own order
-task_info: ../utils/task-info
+task_info: ../utils/benchmark/task-info
 agent:
   name: ../utils/agent/agent.py:CLBenchPokerAgent
   concurrency: 1
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 template: prompt-only@1.0
 evolver:
   name: codex                      # the built-in Codex AgentEvolver, with GLM 5.3 Flash through the learner's meter
@@ -24,7 +25,7 @@ evolver:
     home: []                       # no login files: the provider key is the backend's variable
     tools: [check_spec]            # no run_agent, llm or budget: the MWM learner of this venue has none either
 environment:                         # the task sandbox: the host runner, clbench's checkout and venv
-  read: [../utils/agent, ../utils/task-info/mwm, $MWM_CLBENCH]
+  read: [../utils/agent, ../utils/benchmark/task-info/mwm, $MWM_CLBENCH]
   write: [$MWM_TASK_WORKDIR]       # the run's task directory: evidence, host records
   env: ["MWM_*", "CLB_*", "MW_*", "LITELLM_*"]   # the launcher's settings (launch.sh)
                                    # + the host's litellm key variable (launch.sh): the benchmark's own loop calls

@@ -16,10 +16,10 @@
 data:
   tasks: rows/tasks.jsonl              # make_rows.py: own rows, then k = 2 trial rows per training question
   train: rows/train_k2.txt             # 50 questions x k = 2, by trial
-  test: ../utils/splits/test.txt
+  test: ../utils/benchmark/splits/test.txt
   step_size: 100                       # one step = one AHE iteration over every trial
   shuffle: false
-task_info: ../utils/task-info/
+task_info: ../utils/benchmark/task-info/
 agent:
   base: codex                          # Layer 2: Codex as a Base Agent (hermit/agent/base/cli.py)
   concurrency: 8
@@ -39,7 +39,7 @@ agent:
     project_doc_max_bytes: 65536       # 64 KiB: the skill (up to 40 KB) with the deployment's notes; past
                                        # Codex's default 32 KiB it would cut AGENTS.md (deploy refuses that)
 judge:
-  path: trials.py                      # the question's score (../utils/judge.py)
+  path: trials.py                      # the question's score (../utils/benchmark/judge.py)
 template: ahe@1.0
 start_from: seed_adapter               # make_seed.py: H_0
 evolver:

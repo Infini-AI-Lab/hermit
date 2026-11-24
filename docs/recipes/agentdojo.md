@@ -11,7 +11,7 @@ upstream logs, removes prior trajectories/scores, audits native initialization,
 and splits by user task. It has 57 TRAIN, 54 reserved validation and 406 TEST
 cases. Both Codex recipes select on TRAIN only and reserve TEST for frozen
 no-defense/initial/final evaluation. See the
-[data protocol](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/agentdojo/utils/DATA.md)
+[data protocol](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/agentdojo/utils/benchmark/DATA.md)
 for source revision, exclusions, ownership and hashes.
 
 Both methods use the same fixed Nemotron 3.5 Lightning victim, 25 tool iterations,

@@ -21,7 +21,7 @@ Fireworks). A local server:
 
 ```bash
 git clone git@github.com:haizhongzheng/clbench-mwm.git ~/code/clbench && (cd ~/code/clbench && uv sync)
-python examples/clbench_database/utils/prepare.py --clbench ~/code/clbench      # the five ordered streams
+python examples/clbench_database/utils/benchmark/prepare.py --clbench ~/code/clbench      # the five ordered streams
 ```
 
 ## Run
@@ -81,8 +81,10 @@ venue's observation names after each answer.
 ```text
 utils/agent/        CLBenchDatabaseAgent (agent.py) starts database_runner.py in clbench's virtualenv through
                     clbench_host.py; host.py is the acting host, built over hermit.Session
-utils/prepare.py    tasks.jsonl and one ordered split per order      utils/judge.py   the venue's score and feedback
-utils/task-info/    the task for the learner; task-info/mwm/ is what MWM needs to know about the venue
+utils/benchmark/    prepare.py: the tasks (task directories in Harbor's format, read back as their rows by
+                    utils/agent/*_fields.py, the configs' data.view) and one ordered split per order; judge.py: the
+                    venue's score and feedback; task-info/: the task for the learner (task-info/mwm/ is what MWM
+                    needs to know about the venue)
 utils/tests/        golden tests of the MWM texts (both venues) and the host test, which runs under clbench's own
                     interpreter: PYTHONPATH=<hermit> MWM_CLBENCH=<clbench> <clbench>/.venv/bin/python -m pytest utils/tests/test_host.py
 mwm/ prompt_only/   run.yaml and launch.sh per method; mwm/sql_tool.py is the learner's SQL channel

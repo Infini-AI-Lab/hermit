@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Write seed_adapter/ beside this file: SkillOpt's initial OfficeQA skill (../utils/seed_adapter/ADAPTER.md, written
-by ../utils/prepare.py) as a `meta-harness-adapter` adapter, its ADAPTER.md and nothing else. Meta-Harness Adapter
-then starts from exactly the text the GEPA, SkillOpt, Harness² and Continual Harness runs start from.
+"""Write seed_adapter/ beside this file: SkillOpt's initial OfficeQA skill (../utils/benchmark/seed_adapter/ADAPTER.md,
+written by ../utils/benchmark/prepare.py) as a `meta-harness-adapter` adapter, its ADAPTER.md and nothing else.
+Meta-Harness Adapter then starts from exactly the text the GEPA, SkillOpt, Harness² and Continual Harness runs start
+from.
 
     python examples/officeqa/meta_harness_adapter/make_seed.py
 """
@@ -13,7 +14,7 @@ from hermit.spec import check_spec
 
 HERE = Path(__file__).resolve().parent
 TEMPLATE = Path(hermit.__file__).resolve().parent / "adapter" / "templates" / "meta_harness_adapter"
-seed = (HERE.parent / "utils" / "seed_adapter" / "ADAPTER.md").read_text()
+seed = (HERE.parent / "utils" / "benchmark" / "seed_adapter" / "ADAPTER.md").read_text()
 out = HERE / "seed_adapter"
 if out.exists():
     shutil.rmtree(out)

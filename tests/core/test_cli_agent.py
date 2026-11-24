@@ -15,8 +15,8 @@ from hermit.agent.acting import workspace as cli
 from hermit.agent.base import cli as base_cli
 from hermit.agent.base.interface import Limits as LIMITS
 from hermit.agent.base import login
-from hermit.agent.environment import docker as container
-from hermit.agent.environment import Sandboxed
+from hermit.environment import docker as container
+from hermit.environment import Sandboxed
 from hermit.agent.base.interface import make
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -156,6 +156,15 @@ def test_a_run_with_the_tasks_hooks_records_the_hosts_log(fake):
     assert out.tokens == 1050 and out.cost_usd == pytest.approx((1000 * 1 + 50 * 2) / 1e6)   # cached at the input price
     steps = trajectory.log_steps(log)
     assert [s.kind for s in steps] == ["reasoning", "command", "command", "message"]
+
+
+def test_a_task_function_may_be_named_by_its_module_and_a_prompt_stays_text(tmp_path):
+    """A method that brings its own task functions names them by module (`package.module:function`, ASPIRE's
+    hermit.agent.evolver.methods.aspire.actor); a prompt written as text is never read as one."""
+    assert cli._task_function("os.path:basename", tmp_path)("a/b.txt") == "b.txt"
+    for text in ("Answer: yes", "Solve it:now", "see notes.md:3", "json:loads"):
+        assert cli._task_function(text, tmp_path) is None, text
+    assert cli._prompt({"prompt": "Solve it:now"}, tmp_path, {}) == "Solve it:now"
 
 
 def test_the_answer_pattern_and_why_there_is_none(fake):
@@ -1201,7 +1210,7 @@ def test_a_stopped_session_takes_a_descendant_in_a_session_of_its_own(tmp_path, 
     import subprocess
     import time
     if not proc_fs:
-        from hermit.agent.environment import base as environment_base       # where _parents reads /proc
+        from hermit.environment import base as environment_base       # where _parents reads /proc
         monkeypatch.setattr(environment_base, "Path",
                             lambda p: Path("/no-proc") if p == "/proc/self/stat" else Path(p))
     pid_file = tmp_path / "pid"

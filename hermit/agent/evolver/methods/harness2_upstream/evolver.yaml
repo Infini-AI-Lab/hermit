@@ -7,7 +7,7 @@ description: Harness² (Xu et al., arXiv:2610.14224) under the paper's own proto
   upstream's claude_cli channel on the bound model or on a login, each in its own sandbox; executions go through
   run_agent, with the run's acting agent (Codex, Claude Code or Pi). No judge score reaches any session.
 class: evolver.py:Harness2UpstreamEvolver
-needs: []
+needs: [skills, agents, hooks]   # the harness's components the editors write, which the acting agent runs
 params:
   backend: claude            # the editor sessions run Claude Code (upstream's claude_cli channel) on the bound model;
                              # codex: Codex (a model only Codex reaches: login: chatgpt with model a Codex model name);

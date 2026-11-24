@@ -35,7 +35,7 @@ class OfficeQADomain(AdapterDomain):
     critic_patterns = [
         (r"\bUID\d{4}\b", "question id in diff"),
         (r"treasury_bulletin_\d{4}_\d{2}", "a specific bulletin file name in diff"),
-        (r"answers\.jsonl|/\.private/|utils/judge\.py|skillopt\.envs\.officeqa|normalize_answer|exact_match",
+        (r"answers\.jsonl|/\.private/|utils/(benchmark/)?judge\.py|skillopt\.envs\.officeqa|normalize_answer|exact_match",
          "answers, judge or scoring code referenced in diff"),
     ]
 

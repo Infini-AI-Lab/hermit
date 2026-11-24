@@ -24,7 +24,8 @@ def test_a_methods_own_files_run_its_group_and_core():
     assert groups_for("docs/methods/ahe_adapter.md") == {"ahe", "core"}          # its capability table is held
     # a pattern's `*` is one directory: a benchmark's shared folder named like a method, or a method's own folder
     # named like another, is not that method's
-    assert groups_for("examples/clbench_database/utils/task-info/mwm/host.json") >= {"mwm", "reharness", "core"}
+    assert groups_for("examples/clbench_database/utils/benchmark/task-info/mwm/host.json") >= {"mwm", "reharness",
+                                                                                               "core"}
     assert groups_for("examples/officeqa/rrsi_adapter/texts/ace/SKILL.md") == {"rrsi_adapter", "core"}
     assert groups_for("examples/officeqa/gepa/run.yaml") == {"optimizers", "core", "ahe"}     # read by AHE's
     assert groups_for("hermit/adapter/templates/harness2_codex/exports.yaml") == {"harness2", "core",
@@ -60,6 +61,10 @@ def test_a_benchmarks_shared_files_run_the_methods_with_an_example_there():
         "ace", "ahe", "continual_harness", "harness2", "meta_harness_adapter", "opro", "optimizers", "reharness",
         "rrsi_adapter", "core"}
     assert groups_for("examples/servelearnbench/utils/x.py") == {"mwm", "core"}
+    # an engine several benchmarks run on: the methods with an example under any of them
+    assert groups_for("examples/cap_harness/utils/agent/sim.py") == {"aspire", "core"}
+    assert groups_for("examples/libero/utils/agent/task.py") == {"aspire", "core"}
+    assert groups_for("examples/robosuite/aspire/run.yaml") == {"aspire", "core"}
     groups, why = select(["hermit/cli.py", "examples/officeqa/rrsi_adapter/README.md", "docs/index.md"])
     assert groups == {"core", "rrsi_adapter"} and why == {"core": "hermit/cli.py",
                                                          "rrsi_adapter": "examples/officeqa/rrsi_adapter/README.md"}

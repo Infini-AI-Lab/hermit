@@ -449,16 +449,33 @@ def test_a_program_is_scored_by_what_it_does_and_reads_nothing_of_robodojos_chec
 
 
 def test_the_rows_keep_development_and_held_out_layouts_in_different_sets(tmp_path, monkeypatch):
-    P = _load("robodojo_prepare", UTILS / "prepare.py")
+    """prepare.py's task directories, each read as the row it was in tasks.jsonl (robodojo_fields.py: its keys in
+    order, its types), by every config through its data.view."""
+    from hermit.config import Config
+    from hermit.task import Benchmark
+    P = _load("robodojo_prepare", UTILS / "benchmark" / "prepare.py")
+    F = _load("robodojo_fields", UTILS / "agent" / "robodojo_fields.py")
     assert sum(len(tasks) for tasks in P.DIMENSIONS.values()) == 42
     assert len({t for tasks in P.DIMENSIONS.values() for t in tasks}) == 42
     monkeypatch.setattr(P, "HERE", tmp_path)
     P.main([])
-    rows = [json.loads(line) for line in (tmp_path / "tasks.jsonl").read_text().splitlines()]
+    found = F.task_rows(tmp_path / "tasks")
+    rows = [found[i] for i in (tmp_path / "splits" / "all.txt").read_text().split()]
     assert len(rows) == 42 and all(r["layout_set"] not in r["eval_layout_sets"] for r in rows)
-    assert rows[0] == {"id": "robodojo-stack_bowls", "benchmark": "robodojo", "suite": "stack_bowls", "task_id": 0,
-                       "dimension": "generalization", "layout_set": 2, "debug_seeds": "0-9",
-                       "eval_layout_sets": [0, 1], "eval_layouts": 25}
+    assert json.dumps(rows[0]) == json.dumps(
+        {"id": "robodojo-stack_bowls", "benchmark": "robodojo", "suite": "stack_bowls", "task_id": 0,
+         "dimension": "generalization", "layout_set": 2, "debug_seeds": "0-9", "eval_layout_sets": [0, 1],
+         "eval_layouts": 25})
+    task = Benchmark.load(tmp_path / "tasks", view=F.robodojo_task).tasks["robodojo-stack_bowls"]
+    assert task.private["tests"] is None and task.private["needs"]["network"]["agent"] == "no-network"
+    for path in sorted((EXAMPLE / "prompt_only").glob("*.yaml")):
+        config = Config.load(path)
+        data = config.data["data"]
+        assert config.path(data["tasks"]) == (UTILS / "benchmark" / "tasks").resolve(), path
+        monkeypatch.setitem(data, "tasks", str(tmp_path / "tasks"))
+        for key in ("train", "test"):
+            monkeypatch.setitem(data, key, str(tmp_path / "splits" / Path(data[key]).name))
+        assert {t.id: t.given() for t in Benchmark.from_config(config).tasks.values()} == found, path
     assert len((tmp_path / "splits" / "all.txt").read_text().split()) == 42
     assert (tmp_path / "splits" / "sample.txt").read_text().split() == [
         "robodojo-stack_bowls", "robodojo-press_by_number", "robodojo-general_pickup"]
@@ -468,8 +485,7 @@ def test_the_rows_keep_development_and_held_out_layouts_in_different_sets(tmp_pa
     assert P.EVAL_25 <= set(held) and held["push_T"] == 25 and held["press_by_number"] == 50
     assert sorted(held.values()).count(25) == 12 and set(held.values()) == {25, 50}
     P.main(["--eval", "40"])                                            # at most RoboDojo's own, as its main.py
-    capped = {json.loads(line)["suite"]: json.loads(line)["eval_layouts"]
-              for line in (tmp_path / "tasks.jsonl").read_text().splitlines()}
+    capped = {r["suite"]: r["eval_layouts"] for r in F.task_rows(tmp_path / "tasks").values()}
     assert capped["press_by_number"] == 40 and capped["push_T"] == 25
     with pytest.raises(SystemExit):
         P.main(["--dev-set", "0"])                           # the development set is a held-out set
@@ -506,7 +522,7 @@ def test_the_service_runs_only_the_sessions_development_layouts_from_the_first(t
     assert done["ok"] and "1/2 layouts succeeded" in done["stdout"] and ran == [("stack_bowls", 2, 2)]
     assert "not assigned to you" in request([0, 1, 2, 3])["error"]         # more than its development layouts
     assert "from the first" in request([1, 2])["stderr"] and len(ran) == 1
-    # A run past its timeout is said, as the ASPIRE service says it (124); after stop() no simulator starts
+    # A run past its timeout is said, as the cap-harness service says it (124); after stop() no simulator starts
     timed_out = {"value": True}
 
     def summarized(program, *, task, layout_seed, layouts, out, private=None):
@@ -552,7 +568,7 @@ def test_the_service_runs_only_the_sessions_development_layouts_from_the_first(t
 
 
 def test_the_judge_scores_the_program_on_the_held_out_sets_only(tmp_path, monkeypatch):
-    J = _load("robodojo_judge", UTILS / "judge.py")
+    J = _load("robodojo_judge", UTILS / "benchmark" / "judge.py")
     ran = []
 
     made = []

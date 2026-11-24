@@ -208,10 +208,6 @@ class React(BaseAgent):
 
 
 def total(client, usages: list):
-    """The usage of this run: the sum of its calls' usage."""
-    from hermit.agent.model.usage import Usage
-    costs = [u.cost_usd for u in usages]
-    return Usage(model=getattr(client, "model", ""), input_tokens=sum(u.input_tokens for u in usages),
-                 cached_input_tokens=sum(u.cached_input_tokens for u in usages),
-                 output_tokens=sum(u.output_tokens for u in usages), calls=sum(u.calls for u in usages),
-                 cost_usd=None if not costs or any(c is None for c in costs) else sum(costs))
+    """The usage of this run: the sum of its calls' usage (the Ledger's)."""
+    from hermit.agent.model.usage import Ledger
+    return Ledger(getattr(client, "model", "")).add(usages).total()

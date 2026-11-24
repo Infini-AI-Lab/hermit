@@ -11,6 +11,11 @@ integration smoke test, and it promises no gain.
 | `run_react.yaml` | `react`, whose model is the endpoint (`agent.model: {cli: claude}`) | ACE, the same | A pipeline that takes a model instead of a workspace |
 | `run_workspace_learner.yaml` | Claude Code in a workspace | The `claude` Evolver edits the adapter | The learner's Base Agent path: tools, files, sessions |
 
+The nine tasks are task directories in [Harbor's format](../../docs/framework/task.md#task-directories)
+(`utils/benchmark/tasks/<id>/`: the review to classify as `instruction.md`), with their splits, the judge (`judge.py`,
+which keeps the labels) and the learner's `task-info/` beside them in `utils/benchmark/`. Each config reads a task as
+the row `{id, prompt}` it always was (`data.view: utils/benchmark/sentiment_fields.py:sentiment_task`).
+
 The [guide](../../docs/guides/claude-subscription.md) has the sign-in, the boundaries, the plan, what a failed session
 becomes, the model contract and which methods go which way.
 

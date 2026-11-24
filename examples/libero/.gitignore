@@ -1,1 +1,4 @@
 runs/
+# ASPIRE's tasks and splits, written by aspire/tasks.sh at launch
+aspire/tasks/
+aspire/splits/

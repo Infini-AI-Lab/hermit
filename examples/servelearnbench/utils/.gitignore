@@ -1,3 +1,5 @@
+# Where utils/prepare.py wrote before utils/benchmark/: kept out of git in a checkout prepared then
 tasks.jsonl
 splits/
 windows.json
+task-info/mwm/environment/docs/

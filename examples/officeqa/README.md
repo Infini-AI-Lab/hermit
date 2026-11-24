@@ -27,11 +27,11 @@ harness also needs Docker, set up once as in the [recipe](../../docs/recipes/off
 
 ```bash
 python -m pip install -e . --group skillopt --group gepa
-python examples/officeqa/utils/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
+python examples/officeqa/utils/benchmark/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
 ```
 
-`prepare.py` writes the questions, the paper's split, SkillOpt's initial skill (`utils/seed_adapter/`) and a link to the
-corpus (`utils/documents`, what the agent's sandbox is granted) to `utils/`.
+`prepare.py` writes the questions, the paper's split, SkillOpt's initial skill (`utils/benchmark/seed_adapter/`) and a link to the
+corpus (`utils/benchmark/documents`, what the agent's sandbox is granted) to `utils/`.
 
 ## Run
 
@@ -41,7 +41,7 @@ hermit train --config examples/officeqa/skillopt/run.yaml      # SkillOpt
 hermit eval  --config examples/officeqa/gepa/run.yaml     --adapter final                  # GEPA's skill
 hermit eval  --config examples/officeqa/skillopt/run.yaml --adapter final                  # SkillOpt's skill
 hermit eval  --config examples/officeqa/skillopt/run.yaml --adapter none                   # no skill
-hermit eval  --config examples/officeqa/skillopt/run.yaml --adapter ../utils/seed_adapter  # initial skill
+hermit eval  --config examples/officeqa/skillopt/run.yaml --adapter ../utils/benchmark/seed_adapter  # initial skill
 FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh run        # ReHarness: the 50 as one stream
 FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh run eval   # its bank on the 172, three passes
 FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh stream     # the paper's protocol: the 172 as one stream
@@ -83,7 +83,7 @@ hermit train --config examples/officeqa/skillopt/run_codex_luna.yaml            
 hermit eval  --config examples/officeqa/gepa/run_codex_luna.yaml     --adapter final                     # GEPA's skill
 hermit eval  --config examples/officeqa/skillopt/run_codex_luna.yaml --adapter final                     # SkillOpt's skill
 hermit eval  --config examples/officeqa/skillopt/run_codex_luna.yaml --adapter none                      # no skill
-hermit eval  --config examples/officeqa/skillopt/run_codex_luna.yaml --adapter ../utils/seed_adapter     # initial skill
+hermit eval  --config examples/officeqa/skillopt/run_codex_luna.yaml --adapter ../utils/benchmark/seed_adapter     # initial skill
 python examples/officeqa/continual_harness/make_seed.py                                                  # Continual Harness
 hermit train --config examples/officeqa/continual_harness/stream_codex_luna.yaml                         # the 172 as one stream
 FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh stream_codex_luna               # ReHarness (embeddings on Fireworks)
@@ -244,11 +244,14 @@ utils/task.py       OfficeQA's task functions for the framework's Codex agent (t
                     Code's image
 utils/harbor/       the Codex harness through Harbor: build_tasks.py writes one Harbor task per question (private,
                     with the answers in tests/), judge.py is the exact-match judge run inside the container;
-                    gepa/run_codex_harbor.yaml runs it (agent.name: harbor; recipe: "Through Harbor")
+                    gepa/run_codex_harbor.yaml runs it (environment.harbor; recipe: "Through Harbor")
 utils/tests/        test_harbor_judge.py: utils/harbor/judge.py finds the <answer> of the final message in either
-                    Codex stream a trial leaves in /logs/agent (HermitCodex's, Harbor's own Codex agent's)
-utils/prepare.py    tasks.jsonl, the splits, data.json and seed_adapter/      utils/judge.py   SkillOpt's exact match
-utils/task-info/    the task for the learner
+                    Codex stream a task leaves in /logs/agent (Hermit's Codex agent's, Harbor's own Codex agent's)
+utils/benchmark/    the task set: prepare.py writes tasks/ (one task directory per question, Harbor's format), the
+                    splits, data.json and seed_adapter/; judge.py is SkillOpt's exact match (on the host);
+                    task-info/ is the task for the learner
+utils/agent/        OfficeQAAgent (SkillOpt's direct-chat rollout) and officeqa_fields.py (a task directory's row
+                    as the row the agents read)
 gepa/ skillopt/     smoke.yaml and run.yaml per method, smoke_codex.yaml and run_codex.yaml for the Codex harness,
                     run_codex_flash.yaml and run_codex_luna.yaml for the first two columns of Results, and
                     skillopt/run_claude_haiku.yaml for the third (its no-skill evaluation);
@@ -273,6 +276,6 @@ rrsi_adapter/       RRSI Adapter on the GPT-5.6-Luna column: run_luna.yaml and s
                     upstream's), trials.py and make_rows.py (two trials per training question as rows <id>#k),
                     make_seed.py
 opro/               OPRO on the prompt-only template: run_codex_luna.yaml and smoke_codex_luna.yaml in the
-                    GPT-5.6-Luna setting, starting from utils/seed_adapter/; adapter/ is the measured run's final
+                    GPT-5.6-Luna setting, starting from utils/benchmark/seed_adapter/; adapter/ is the measured run's final
                     instruction, with its .hermit/CARD.md
 ```

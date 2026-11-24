@@ -9,13 +9,14 @@
 # the egress proxy lets through api.anthropic.com; each learner call is one session in a bubblewrap sandbox of its own,
 # as the luna learner's is (docs/guides/claude-subscription.md; the recipe's "The Flash row with Claude Haiku 5.5").
 data:
-  tasks: ../utils/tasks.jsonl
-  train: ../utils/splits/train.txt
-  val: ../utils/splits/val.txt
-  test: ../utils/splits/test.txt
+  tasks: ../utils/benchmark/tasks
+  view: ../utils/agent/officeqa_fields.py:officeqa_task   # each task as the row SkillOpt's loader gives
+  train: ../utils/benchmark/splits/train.txt
+  val: ../utils/benchmark/splits/val.txt
+  test: ../utils/benchmark/splits/test.txt
   step_size: 40
   shuffle_seed: 42
-task_info: ../utils/task-info/
+task_info: ../utils/benchmark/task-info/
 agent:
   base: claude                         # Layer 2: Claude Code as a Base Agent (hermit/agent/base/cli.py)
   concurrency: 8
@@ -33,9 +34,9 @@ agent:
     web_search: false                  # set explicitly: WebSearch and WebFetch denied (they run at Anthropic)
     timeout_s: 3600
 judge:
-  path: ../utils/judge.py
+  path: ../utils/benchmark/judge.py
 template: prompt-only@1.0
-start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
+start_from: ../utils/benchmark/seed_adapter  # SkillOpt's initial OfficeQA skill
 evolver:
   name: skillopt
   params:

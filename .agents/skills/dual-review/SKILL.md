@@ -1,6 +1,6 @@
 ---
 name: dual-review
-description: Review a PR with two independent reviewers (this session and a fresh Codex gpt-6.1-sol at high effort), merge and verify their findings, fix, and repeat until the PR is ready for merge; minor points are recorded, not fixed. Ends with the merge verdict, the changes made and every unresolved finding with its reason. Invoke with /dual-review <PR number | URL | branch> [repo].
+description: Review a PR with two independent reviewers (this session and a fresh Codex gpt-6.2-sol at high effort), merge and verify their findings, fix, and repeat until the PR is ready for merge; minor points are recorded, not fixed. Ends with the merge verdict, the changes made and every unresolved finding with its reason. Invoke with /dual-review <PR number | URL | branch> [repo].
 user-invocable: true
 ---
 
@@ -14,7 +14,7 @@ left alone, since fixing them costs rounds and tends to break real paths. It sto
 that blocks the merge.
 
 Run it in a Claude Opus 5.5 session at high effort (`/model`, `/effort`); say so at the start if the session is on
-something else. The independent reviewer is always Codex with `gpt-6.1-sol` at `model_reasoning_effort="high"`.
+something else. The independent reviewer is always Codex with `gpt-6.2-sol` at `model_reasoning_effort="high"`.
 
 ## Inputs
 
@@ -45,7 +45,7 @@ status) so it does not re-report them. Then run, with `run_in_background: true` 
 `W` the worktree):
 
 ```bash
-codex exec --skip-git-repo-check -C "$W" -s read-only -m gpt-6.1-sol -c model_reasoning_effort="high" \
+codex exec --skip-git-repo-check -C "$W" -s read-only -m gpt-6.2-sol -c model_reasoning_effort="high" \
   -o "$S/dual-review-<pr>-r<N>-codex.md" - < "$S/dual-review-<pr>-r<N>-prompt.md" \
   > "$S/dual-review-<pr>-r<N>-codex.log" 2>&1
 ```

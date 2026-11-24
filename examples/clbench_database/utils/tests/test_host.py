@@ -38,7 +38,7 @@ class HostDrivenByAFakeTurn(unittest.TestCase):
         shutil.copytree(TEMPLATE, self.adapter, ignore=shutil.ignore_patterns("__pycache__"))
         (self.adapter / "ADAPTER.md").write_text("CONTEXT FOR THE HOST\n")
         from hermit.agent.evolver.methods.mwm import deployment as _dep
-        deployment = _dep.host_settings(TASK / "utils/task-info/mwm")
+        deployment = _dep.host_settings(TASK / "utils/benchmark/task-info/mwm")
         from hermit import Session
         session = Session(self.adapter, evidence=self.tmp / "evidence", deployment=deployment)
         self.system = host.AdapterHost(session, model="m", workspace=self.tmp / "ws", venue="database")
