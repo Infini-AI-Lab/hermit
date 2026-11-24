@@ -7,8 +7,9 @@ with the user's verdict beside it.
 `user` scores the verdict the acting agent kept on this machine (`RunOutput.extra["user"]`), not a file in the task's
 environment, which the agent's commands could have written. Its feedback is what the user said of the session (the
 rating, the outcome, the reason, the issues): what AHE-Beta's requirement roles start from. The verifier's verdict,
-which the run takes anyway, is neither score nor feedback, so a learner under AHE-Beta's protocol never reads a
-benchmark's tests through it (an AHE-Beta exported task's verifier only copies the rating).
+which the run takes anyway, is neither its score nor its feedback; the run still records it with the rollout
+(`pipeline_extra.verified`), which is harmless for AHE-Beta's exported tasks (their verifier only copies the rating) and
+the reason to train only on those.
 
 `verified` is hermit.task.verify's environment judge (the task's tests decide the score: pass@1), with the user's
 rating and outcome added to its record when the session had a user.

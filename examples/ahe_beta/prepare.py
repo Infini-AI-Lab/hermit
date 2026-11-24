@@ -13,7 +13,8 @@ and final-round.txt (round N). This writes beside them:
     task-info/          what the learner reads first: AHE-Beta's evolution protocol
     run.yaml            Codex acts with AHE-Beta's simulated user; Hermit's Codex Evolver learns from the users'
                         verdicts (the judge: utils/judge.py:user); one step is one round (step_size: a round's sessions)
-    delivery.json, run-delivery.yaml    with --delivery-repo: AHE-Beta's own demand and delivery Evolver (../delivery/)
+    delivery.json, run-delivery.yaml    with --delivery-repo: AHE-Beta's own demand and delivery Evolver (delivery/);
+                        on a cohort prepared before, only these (bootstrap.py, after prepare.py)
 
 A model is a Codex model name on the ChatGPT login (`gpt-5.6-luna`) or a `<backend>/<model>` reference.
 """
@@ -76,6 +77,12 @@ def prepare(*, cohort, ahe_root, run_id, actor_model="gpt-5.6-luna", actor_effor
     cohort, ahe_root = Path(cohort).resolve(), Path(ahe_root).resolve()
     info = json.loads((cohort / "cohort.json").read_text())
     exported = [json.loads(line) for line in (cohort / "tasks.jsonl").read_text().splitlines() if line.strip()]
+    if (cohort / "run.yaml").exists() and delivery_repo is not None:   # prepared before: the delivery files only
+        config = yaml.safe_load((cohort / "run.yaml").read_text())
+        _delivery(cohort, config, info, ahe_root=ahe_root, ahe_python=ahe_python, run_id=run_id,
+                  delivery_repo=delivery_repo, openagents_repository=openagents_repository,
+                  openagents_commit=openagents_commit, openagents_checkout=openagents_checkout)
+        return config
     for name in ("rows.jsonl", "assignments.json", "run.yaml"):
         if (cohort / name).exists():
             raise FileExistsError(cohort / name)

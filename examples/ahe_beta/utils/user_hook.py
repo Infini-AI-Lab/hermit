@@ -23,6 +23,8 @@ What each event does:
                   user's words, `end` lets it stop
 """
 
+from __future__ import annotations       # the image's python3 may be 3.8: no annotation is evaluated
+
 import json
 import os
 import socket

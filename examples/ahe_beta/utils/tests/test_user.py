@@ -116,7 +116,7 @@ def test_a_learner_reads_the_visible_verdict_and_the_rest_stays_private(tmp_path
     visible = json.loads((log / "user-verdict.json").read_text())
     assert set(visible) == {"score", "rating", "outcome", "reason", "issues"}
     assert "secret" not in (log / "user-verdict.json").read_text()
-    assert (s.private / "session.json").read_text() == "{}" and (s.private / "record.json").is_file()
+    assert (s.private / "files/session.json").read_text() == "{}" and (s.private / "record.json").is_file()
     assert [json.loads(line)["kind"] for line in (log / "user-transcript.jsonl").read_text().splitlines()] == \
         ["message", "reply", "interrupt"]
     assert (log / "user-reward.txt").read_text().strip() == f"{2 / 3:g}"
@@ -171,7 +171,8 @@ def test_the_judges_refuse_a_rollout_that_is_not_the_agents_result():
         with pytest.raises(Unscored):
             judge.user({}, RunOutput(output=None, extra=extra))
     with pytest.raises(Unscored):
-        judge.verified({}, RunOutput(output=None, extra={"unscored": "sandbox_failed", "verified": {"status": "infra"}}))
+        judge.verified({}, RunOutput(output=None, extra={"unscored": "sandbox_failed",
+                                                         "verified": {"status": "infra"}}))
     failed = judge.user({}, RunOutput(output=None, extra={"adapter_failed": "context_over_limit"}))
     assert failed.score == 0.0 and failed.extra["status"] == "agent_error"
 
@@ -181,3 +182,192 @@ def test_the_verified_judge_scores_the_tests_and_keeps_the_users_rating():
                                        "user": {"score": 0.0, "rating": 1}})
     result = judge.verified({}, out)
     assert result.score == 1.0 and result.extra["user_rating"] == 1 and result.extra["passed"] is True
+
+
+# --- the session's lifecycle, through UserCodexAgent.run: the channel's container side stood in by an in-memory
+# transport, Codex by a stand-in that replies to the first message and ends on the user's end (or not at all)
+
+class Memory:
+    """The bridge as _Channel reaches it: records the user's records, hands the stand-in Codex's events back."""
+
+    def __init__(self, session):
+        self.session, self.sent, self.events, self.ended = session, [], [], __import__("threading").Event()
+        session.memory = self
+
+    def send(self, record):
+        self.sent.append(record)
+        if record.get("kind") == "end":
+            self.ended.set()
+
+    def read(self, since, wait=0.0):
+        new = [e for e in self.events if e["seq"] > since]
+        return (max([since, *(e["seq"] for e in new)]), new)
+
+    def close(self):
+        pass
+
+
+class Codex:
+    """Codex's session: it reads its prompt (the user's first message), replies, and runs until the user ends it,
+    unless `extra` says it stopped by itself (its clock ran out)."""
+    seen: list = []
+
+    def __init__(self, params, base):
+        self.params = params
+
+    def run(self, task, adapter, environment):
+        Codex.seen.append({"prompt": environment.instruction, "timeout_s": self.params.get("timeout_s")})
+        memory = _session().memory
+        memory.events.append({"seq": 1, "kind": "reply", "text": "done: " + environment.instruction})
+        stops = Codex.stops
+        if stops is None:
+            memory.ended.wait(30)
+        log = Path(Codex.log)
+        log.mkdir(parents=True, exist_ok=True)
+        return RunOutput(output="done", log=log, tokens=7, extra=dict(stops or {}))
+
+
+def _session():
+    return Codex.session
+
+
+SIMULATE = '''
+def simulate(task, agent, workspace, params):
+    agent.write("please " + task["instruction"])
+    reply = agent.poll(30)
+    if params.get("then") == "raise":
+        raise RuntimeError("the user model was unreachable")
+    if params.get("then") == "phase":
+        raise RuntimeError("AgentPhaseOver: exec: the agent's phase ended")
+    if params.get("then") == "poll":
+        agent.write("and more")
+        agent.poll(30)                     # Codex is gone: ConversationClosed
+    if params.get("then") == "service":
+        workspace.service_run("measure", service="capture", timeout=10, cwd="/")
+    return {"score": 1.0, "rating": 4, "reason": reply["text"], "persona": "secret"}
+'''
+
+
+@pytest.fixture
+def run(tmp_path, monkeypatch):
+    """UserCodexAgent.run on a stand-in environment with a 1,000 s agent budget, then: its RunOutput."""
+    (tmp_path / "sim.py").write_text(SIMULATE)
+    real = user._Session.__init__
+
+    def init(self, *args, **kwargs):
+        real(self, *args, **kwargs)
+        Codex.session = self
+    monkeypatch.setattr(user._Session, "__init__", init)
+    monkeypatch.setattr(user._Session, "start_channel", lambda self: None)
+    monkeypatch.setattr(user._Session, "stop_channel", lambda self: None)
+    monkeypatch.setattr(user, "_Channel", Memory)
+    monkeypatch.setattr(user, "CliAgent", Codex)
+    Codex.seen, Codex.log = [], str(tmp_path / "codex-log")
+
+    def go(then=None, stops=None, exit_wait_s=5):
+        Codex.stops = stops
+        env = Remote()
+        env.limits = Limits(timeout_s=1000)
+        spec = {"simulate": "sim.py:simulate", "params": {"then": then}, "exit_wait_s": exit_wait_s, "review_s": 300}
+        agent = user.UserCodexAgent({"user": spec, "workspaces": str(tmp_path / "ws"), "prompt": "ignored"}, tmp_path)
+        return agent.run({"id": "r01-s00-t"}, None, environment=env)
+    return go
+
+
+def test_the_first_message_is_codexs_prompt_and_its_clock_leaves_the_user_time(run):
+    out = run()
+    assert Codex.seen == [{"prompt": "please do the task", "timeout_s": 700.0}]     # 1,000 s less review_s
+    assert out.extra["user"]["score"] == 1.0 and out.extra["user"]["reason"] == "done: please do the task"
+    assert "infra" not in out.extra and "persona" not in out.extra["user"] and out.tokens == 7
+    assert [r["kind"] for r in Codex.session.memory.sent] == ["end"]                # the session ended by the user
+
+
+def test_a_user_that_raises_ends_codex_and_is_infra(run):
+    out = run("raise")
+    assert Codex.session.memory.ended.is_set() and not Codex.session.thread.is_alive()
+    assert out.extra["infra"] == "user_failed" and out.extra["infra_final"] is False
+
+
+def test_harbors_end_of_the_phase_is_the_agents_timeout_not_infra(run):
+    out = run("phase", exit_wait_s=0.5)
+    Codex.session.memory.ended.set()                     # the stand-in's session ends as the phase's end ends a CLI's
+    Codex.session.thread.join(5)
+    assert "infra" not in out.extra and out.extra["timed_out"] is True
+    assert out.extra["user"]["score"] == 0.0 and out.extra["user"]["rating"] == 1
+    assert "AgentPhaseOver" in out.extra["user_error"]
+
+
+def test_a_codex_that_ran_out_of_its_time_is_scored_zero_not_retried(run):
+    out = run("poll", stops={"timed_out": True})
+    assert "infra" not in out.extra and out.extra["user"]["outcome"] == "timed_out"
+
+
+def test_a_task_that_needs_a_companion_container_fails_for_good(run):
+    out = run("service")
+    assert out.extra["infra"] == "user_failed" and out.extra["infra_final"] is True
+    assert "companion container 'capture'" in out.extra["exception_message"]
+
+
+# --- AHE-Beta's verdict: what a learner may read of it (ahe_user.visible)
+
+def test_ahe_betas_outcome_and_session_stay_private():
+    import ahe_user
+    native = {"score": 1 / 3, "rating": 2, "score_kind": "user_experience", "session_id": "s", "artifact_root": "/p",
+              "outcome": {"status": "completed", "review_verdict": "unfulfilled", "harness_reply": "x",
+                          "review_trace": [{"system": "# PERSONA (id: sr-secret) PERSONA-SECRET"}]},
+              "feedback": {"experience": {"reason": "slow, no progress"}, "task_assessment": {"status": "unfulfilled"},
+                           "opportunities": [{"kind": "diagnostic", "title": "t", "body": "show progress"}]},
+              "usage": {"total_tokens": 9}, "files": {"session.json": "{}"}}
+    out = ahe_user.visible(native)
+    shown = {k: v for k, v in out.items() if k not in ("files", "record")}
+    assert "PERSONA-SECRET" not in json.dumps(shown) and "PERSONA-SECRET" in out["files"]["outcome.json"]
+    assert out["outcome"] == {"status": "completed", "review_verdict": "unfulfilled"}
+    assert out["reason"] == "slow, no progress" and out["issues"][0]["body"] == "show progress"
+    assert out["usage"] == {"total_tokens": 9} and out["files"]["session.json"] == "{}"
+
+
+# --- the container side on the oldest Python the channel supports
+
+def _old_python():
+    import shutil
+    for name in ("python3.8", "python3.9"):
+        found = shutil.which(name)
+        if found:
+            return found
+    uv = shutil.which("uv")
+    if uv:
+        done = subprocess.run([uv, "python", "find", "3.8"], capture_output=True, text=True)
+        if done.returncode == 0 and done.stdout.strip():
+            return done.stdout.strip()
+    return None
+
+
+def test_the_bridge_and_the_hook_run_on_python_3_8(tmp_path):
+    old = _old_python()
+    if old is None:
+        pytest.skip("no Python 3.8 or 3.9 on this machine (an image's python3 may be that old)")
+    server = subprocess.Popen([old, "-B", str(UTILS / "channel_server.py"), "serve", "--root", "root", "--pid-file",
+                               "pid"], cwd=tmp_path, stderr=subprocess.PIPE, text=True)
+    try:
+        for _ in range(100):
+            if (tmp_path / "root/channel.sock").exists():
+                break
+            __import__("time").sleep(0.05)
+        __import__("time").sleep(1.0)                    # past its accept timeout: still serving
+        assert server.poll() is None, server.stderr.read()
+        (tmp_path / "user_hook.py").write_bytes((UTILS / "user_hook.py").read_bytes())
+        (tmp_path / "user_hook.json").write_text(json.dumps({"channel": "root/channel.sock", "wait_s": 1,
+                                                             "adapter_stop": [], "reply_frame": "{text}",
+                                                             "insert_frame": "{text}", "interrupt_frame": "{text}"}))
+        (tmp_path / "codex").write_text(f"#!/bin/sh\n{old} \"$1\" Stop\n")
+        (tmp_path / "codex").chmod(0o755)
+        subprocess.run([old, "-B", str(UTILS / "channel_server.py"), "enqueue", "--root", "root"], cwd=tmp_path,
+                       input=json.dumps({"id": "u1", "kind": "message", "text": "go on"}), text=True, check=True)
+        hook = subprocess.run(["./codex", "./user_hook.py"], cwd=tmp_path, capture_output=True, text=True, timeout=20,
+                              input=json.dumps({"last_assistant_message": "done"}))
+        assert hook.returncode == 0, hook.stderr
+        assert json.loads(hook.stdout) == {"decision": "block", "reason": "go on"}
+    finally:
+        (tmp_path / "root").mkdir(exist_ok=True)
+        (tmp_path / "root/STOP").write_text("stop\n")
+        server.wait(timeout=10)

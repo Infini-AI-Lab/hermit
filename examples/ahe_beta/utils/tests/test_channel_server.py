@@ -1,10 +1,13 @@
 """The simulated-user bridge keeps its queue and event log outside Actor writes."""
 
 import json
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import channel_server
@@ -45,10 +48,16 @@ def test_service_marker_requires_root_and_matching_start_time(tmp_path):
     marker.write_text("4242:77\n")
     marker.chmod(0o666)
     assert 4242 not in processes.exclusions(rows, (), marker_dir)
-    if marker.stat().st_uid != 0:
-        return
-    marker.chmod(0o600)
-    assert 4242 in processes.exclusions(rows, (), marker_dir)
+
+
+def test_a_root_owned_marker_with_its_start_time_keeps_its_service(tmp_path):
+    if os.geteuid() != 0:
+        pytest.skip("a marker counts only when root owns it: run as root")
+    marker_dir = tmp_path / "services"
+    marker_dir.mkdir()
+    (marker_dir / "demo.pid").write_text("4242:77\n")
+    (marker_dir / "demo.pid").chmod(0o600)
+    assert 4242 in processes.exclusions({1: (0, 1), 4242: (1, 77)}, (), marker_dir)
 
 
 def test_root_bridge_delivers_to_hook_without_a_shared_mailbox(tmp_path):

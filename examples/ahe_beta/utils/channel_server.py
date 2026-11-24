@@ -260,10 +260,14 @@ def serve(root: Path, pid_file: Path, mirror: Path | None = None) -> None:
         while not paths["stop"].exists():
             try:
                 conn, _ = server.accept()
-            except TimeoutError:
+            except (TimeoutError, socket.timeout):     # distinct classes before Python 3.10
                 continue
             with conn:
-                _handle(root, conn, mirror)
+                try:
+                    conn.settimeout(10)
+                    _handle(root, conn, mirror)
+                except OSError:                          # one hook's broken connection ends its request, not the
+                    continue                             # bridge
     finally:
         server.close()
         paths["socket"].unlink(missing_ok=True)

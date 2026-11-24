@@ -15,10 +15,13 @@
           task_field: user                     # the row's field that holds it
           wait_s: 3600                         # how long a Stop waits for the user's next message
           exit_wait_s: 120                     # how long Codex has to exit once the user ends the session
+          review_s: 600                        # of the task's agent budget, what Codex leaves the user for its last
+                                               # turn and review (Codex's own clock ends this much sooner)
 
 Without `user` it is Hermit's Codex agent as it is. The Codex CLI is the environment's: a task's own class is not
 asked what to install (hermit.isolate), so `bin` names one the environment mounts (`environment.harbor.environment.
-mounts`; a static release of this machine, as ../codex/run.yaml does).
+mounts`; a static release of this machine, as ../smoke/run.yaml does). The environment needs python3 (3.8 or later)
+for the bridge and the hooks.
 
 The function the user's side writes:
 
@@ -30,7 +33,8 @@ The function the user's side writes:
     params     user.params, the row's assignment, `session_id`, `artifact_root` (a private folder of this machine) and
                `adapter_sha256` (the adapter the session runs, None without one)
     returns    {"score": a number in [0, 1], "rating", "outcome", "reason", "issues", "feedback", "usage", "files",
-               ...}
+               "record", ...}: VISIBLE's keys are what a learner reads, so a simulator puts nothing private in them
+               (ahe_user.py maps AHE-Beta's verdict so); `files` ({name: text}) and `record` stay private
 
 The first `write` starts Codex with that message as its prompt: one `codex exec` for the whole conversation. Three
 hooks (user_hook.py) carry the conversation through a bridge (channel_server.py), both installed as root outside the
@@ -43,18 +47,22 @@ What the run keeps:
     log/user-transcript.jsonl   every message, reply and tool event the user could see, with times
     log/user-verdict.json       what a learner may read of the verdict (VISIBLE: score, rating, outcome, reason, ...)
     log/user-reward.txt         the score, for a task whose verifier copies it (AHE-Beta's exported tasks)
-    <workspaces>/user/<run>/    everything else simulate left (its session record, the persona, its private checks):
-                                never in the log, so never in a learner's material
-    RunOutput.extra["user"]     the verdict a judge reads (judge.py)
+    <workspaces>/user/<run>/    everything else: what simulate wrote under artifact_root, its `files` (files/) and
+                                `record` (record.json): never in the log, so never in a learner's material
+    RunOutput.extra["user"]     the visible verdict, the user's usage and the counts, which a judge reads (judge.py)
 
 A session whose user failed (simulate raised, or returned no valid score) is not the agent's result: `extra.infra`
-(`user_failed`), which the run runs again in a fresh environment and, failing again, records unscored; so is one whose
-Codex session was infra. A session the adapter failed before Codex started stays the agent's result.
+(`user_failed`), which the run runs again in a fresh environment and, failing again, records as a failed run; final
+(not run again) when the environment cannot run the channel or the task needs what a Hermit environment does not
+reach (a companion container's service). So is a Codex session that was infra. A session that ran out of its time (Codex
+timed out, or Harbor ended the agent's phase) before the user's verdict is the agent's result: score 0, as AHE-Beta
+rates a session that delivered nothing. A session the adapter failed before Codex started is the agent's result too.
 """
 from __future__ import annotations
 
 import base64
 import contextlib
+import contextvars
 import hashlib
 import inspect
 import json
@@ -90,8 +98,11 @@ FRAMES = {
                        "two sentences where things stand, then wait for the user's next message.",
 }
 VISIBLE = ("score", "rating", "score_kind", "outcome", "reason", "issues", "feedback")   # what a learner may read
-RESERVED = {"transcript.jsonl", "verdict.json", "reward.txt"}
 MARK = "hermit-user-run:"
+REVIEW_S = 600.0
+PYTHON = "import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)"
+TIMED_OUT = {"score": 0.0, "rating": 1, "outcome": "timed_out",
+             "reason": "the session ran out of its time before the user's verdict"}
 
 
 class UserFailed(RuntimeError):
@@ -99,7 +110,7 @@ class UserFailed(RuntimeError):
 
 
 class ChannelUnavailable(UserFailed):
-    """The task's environment cannot run the channel (no python3): no run again does better (infra, final)."""
+    """The task's environment cannot run the channel (no python3 3.8 or later): no run again does better (final)."""
 
 
 def load(spec: dict, base: Path):
@@ -142,7 +153,12 @@ class UserCodexAgent(CliAgent):
             raise Unsupported("a session with a user runs in the task's own environment (environment.harbor): the "
                               "channel lives there")
         simulate = load(spec, self.base)                 # a wrong name fails before the session
-        codex = CliAgent({k: v for k, v in self.params.items() if k not in ("user", "prompt")}, self.base)
+        params = {k: v for k, v in self.params.items() if k not in ("user", "prompt")}
+        budget = environment.limits.timeout_s            # the task's agent budget (Harbor's, less its margin)
+        if budget:                                       # Codex's clock ends before the user's last turn and review
+            own = float(budget) - float(spec.get("review_s", REVIEW_S))
+            params["timeout_s"] = max(60.0, min(own, float(params.get("timeout_s") or own)))
+        codex = CliAgent(params, self.base)
         return _Session(codex, task, adapter, environment, spec, self.private_root(),
                         self.assignment(task, spec)).run(simulate)
 
@@ -190,6 +206,8 @@ class _Session:
         self.stopped = False
         self.stop_lock = threading.Lock()
         self.conversation: Conversation | None = None
+        self.phase_over = False                          # Harbor ended the agent's phase: the environment takes no
+        self.unsupported: str | None = None              # more commands; what the task needs that is not reachable
 
     # --- the environment's side -----------------------------------------------------------------------------------
     def root(self, command: str, timeout: float = 60, stdin: str | None = None) -> str:
@@ -212,8 +230,8 @@ class _Session:
     def start_channel(self) -> None:
         """The bridge, its hook and its settings, as root, outside the workspace; then the processes already running,
         which the session's end leaves alone (processes.py)."""
-        if self.environment.exec(["sh", "-c", "command -v python3"], timeout=60).code != 0:
-            raise ChannelUnavailable("the user channel needs python3 in the task's environment")
+        if self.environment.exec(["python3", "-c", PYTHON], timeout=60).code != 0:
+            raise ChannelUnavailable("the user channel needs python3 3.8 or later in the task's environment")
         self.install((HERE / "channel_server.py").read_text(), SERVER, "0755")
         self.install((HERE / "user_hook.py").read_text(), HOOK, "0555")
         self.install(json.dumps(self.settings, indent=1), ROOT + "/user_hook.json", "0444")
@@ -250,11 +268,24 @@ class _Session:
         return merged
 
     def deployed(self, staging: Path) -> None:
-        """The adapter's `.codex/` as the deployment staged it, before its upload: its hooks merged with the user's."""
+        """The adapter's `.codex/` as the deployment staged it, before its upload: its hooks merged with the user's. A
+        hooks file that does not parse, or a Stop hook the user's cannot run, is the adapter's (ValueError: the
+        adapter failed); the channel's own commands failing there is the environment's (EnvironmentUnavailable)."""
         path = staging / "hooks.json"
         adapter = json.loads(path.read_text()).get("hooks") or {} if path.is_file() else {}
         path.write_text(json.dumps({"hooks": self.merged(adapter)}, indent=2) + "\n")
-        self.install(json.dumps(self.settings, indent=1), ROOT + "/user_hook.json", "0444")
+        self.environmental(lambda: self.install(json.dumps(self.settings, indent=1), ROOT + "/user_hook.json", "0444"))
+
+    @staticmethod
+    def environmental(operation) -> None:
+        """One of the channel's commands while the deployment uploads: its failure the environment's."""
+        from hermit.environment.harbor import EnvironmentUnavailable
+        try:
+            operation()
+        except EnvironmentUnavailable:
+            raise
+        except Exception as exc:                         # noqa: BLE001 - the environment's, never the adapter's
+            raise EnvironmentUnavailable(f"the user channel failed in the task's environment: {exc}") from exc
 
     def lock_hooks(self) -> None:
         """`.codex/` root's and read-only: the agent's commands cannot drop the user's hooks or add their own."""
@@ -266,7 +297,9 @@ class _Session:
     def start(self, text: str) -> None:
         """The user's first message: Codex starts with it as its prompt."""
         self.first = text
-        self.thread = threading.Thread(target=self._codex, name=f"codex-{self.session_id}", daemon=True)
+        context = contextvars.copy_context()             # the run's (the adapter's confinement: hermit.isolate)
+        self.thread = threading.Thread(target=context.run, args=(self._codex,), name=f"codex-{self.session_id}",
+                                       daemon=True)
         self.thread.start()
 
     def _codex(self) -> None:
@@ -284,6 +317,11 @@ class _Session:
         with self.stop_lock:
             if self.stopped:
                 return
+            if self.phase_over:                          # the phase's end stopped every command (harbor_driver)
+                if self.thread is not None:
+                    self.thread.join(self.exit_wait_s)
+                self.stopped = True
+                return
             if self.conversation is not None:
                 with contextlib.suppress(Exception):    # a channel that is gone: the processes are stopped anyway
                     self.conversation.end()
@@ -300,6 +338,8 @@ class _Session:
 
     def stop_channel(self) -> None:
         q = shlex.quote
+        if self.phase_over:
+            return
         with contextlib.suppress(Exception):
             self.root(f"touch {q(ROOT + '/STOP')}; if [ -f {q(PID_FILE)} ]; then "
                       f"kill $(cut -d: -f1 {q(PID_FILE)}) 2>/dev/null || true; fi", timeout=30)
@@ -323,10 +363,9 @@ class _Session:
             if score is None or isinstance(score, bool) or not isinstance(score, (int, float)) or \
                     not math.isfinite(score) or not 0 <= score <= 1:
                 raise UserFailed(f"simulate's score must be a number in [0, 1], not {score!r}")
-        except Exception as exc:                         # noqa: BLE001 - the user's failure: recorded below
-            if "AgentPhaseOver" in f"{type(exc).__name__}: {exc}":
-                self.stop_channel()                      # Harbor's agent timeout ended the phase: the agent's time
-                raise                                    # ran out (the user's shares it), the run's to read
+        except Exception as exc:                         # noqa: BLE001 - the user's failure, or the time's: below
+            if _phase_over(exc):                         # Harbor's agent timeout ended the phase: the agent's time
+                self.phase_over = True                   # ran out (the user's shares it)
             error = exc
         finally:
             try:
@@ -338,23 +377,35 @@ class _Session:
 
     def result(self, verdict: dict | None, error: BaseException | None, started: float) -> RunOutput:
         out = self.output
-        if self.codex_error is not None and not isinstance(self.codex_error, Exception):
-            raise self.codex_error                       # an interrupt, not a failure: never a record
-        if self.codex_error is not None:                 # the environment's or this machine's: the run's to classify
-            raise self.codex_error
+        if self.codex_error is not None and _phase_over(self.codex_error):
+            self.phase_over = True                       # the phase's end reached Codex's session first
+        elif self.codex_error is not None:               # an interrupt, the environment's or this machine's failure:
+            raise self.codex_error                       # the run's to classify, never a record of the user's
         transcript = self.conversation.transcript if self.conversation is not None else []
-        if out is None:                                  # Codex never started (the user failed first)
-            log = self.private / "log"
+        if out is None:                                  # Codex never ended its session here (never started, or the
+            log = self.private / "log"                   # phase ended under it): its usage is not known
             log.mkdir(parents=True, exist_ok=True)
-            out = RunOutput(output=None, log=log, cost_usd=0.0, wall_s=0.0, tokens=0, api_speed={"model_calls": 0})
+            ran = self.thread is not None
+            out = RunOutput(output=None, log=log, cost_usd=None if ran else 0.0, wall_s=0.0, tokens=None if ran else 0,
+                            api_speed={"model_calls": None if ran else 0})
         log = Path(out.log)
         extra = dict(out.extra or {})
+        deadline = getattr(self.environment, "deadline_at", None)
+        out_of_time = self.phase_over or bool(extra.get("timed_out")) or (deadline is not None and
+                                                                          time.time() >= float(deadline) - 5)
+        if error is not None and out_of_time and not extra.get("infra") and not extra.get("adapter_failed") and \
+                not self.unsupported and not isinstance(error, ChannelUnavailable):
+            extra["user_error"] = f"{type(error).__name__}: {error}"[-2000:]   # the time ran out before a verdict:
+            verdict, error = dict(TIMED_OUT), None       # the agent's result, as AHE-Beta rates no delivery
+            extra["timed_out"] = True
         kept = {k: v for k, v in (verdict or {}).items() if k not in ("files", "record")}
-        for name, text in ((verdict or {}).get("files") or {}).items():   # the user's own records: private
-            if Path(str(name)).name != name or name in RESERVED:
-                error = error or UserFailed(f"simulate's file {name!r} is reserved or names a folder")
+        files = self.private / "files"                   # the user's own records: private
+        for name, text in ((verdict or {}).get("files") or {}).items():
+            if not str(name) or Path(str(name)).name != name or name in (".", ".."):
+                error = error or UserFailed(f"simulate's file {name!r} names a folder")
                 continue
-            (self.private / name).write_text(str(text), encoding="utf-8")
+            files.mkdir(parents=True, exist_ok=True)
+            (files / name).write_text(str(text), encoding="utf-8")
         if verdict and verdict.get("record") is not None:
             (self.private / "record.json").write_text(json.dumps(verdict["record"], indent=1, ensure_ascii=False,
                                                                  default=str), encoding="utf-8")
@@ -379,8 +430,9 @@ class _Session:
             out.extra = extra                            # the session's own word stands (infra, or the adapter's)
             return out
         if error is not None:                            # the user failed: not the agent's result
-            extra.update(infra="user_failed", infra_final=isinstance(error, ChannelUnavailable),
-                         exception_message=f"the user's session failed: {visible['error']}"[-2000:])
+            why = f"; the task needs {self.unsupported}" if self.unsupported else ""
+            extra.update(infra="user_failed", infra_final=isinstance(error, ChannelUnavailable) or bool(why),
+                         exception_message=f"the user's session failed: {visible['error']}{why}"[-2000:])
             out.extra = extra
             return out
         _write(log / "user-reward.txt", f"{float(verdict['score']):g}\n")
@@ -388,6 +440,17 @@ class _Session:
         if out.wall_s is not None:
             out.wall_s = round(time.time() - started, 1)
         return out
+
+
+def _phase_over(exc: BaseException) -> bool:
+    """Whether a failure is Harbor's end of the agent's phase (harbor_driver's AgentPhaseOver), however wrapped."""
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if getattr(exc, "kind", None) == "AgentPhaseOver" or "AgentPhaseOver" in f"{type(exc).__name__}: {exc}":
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
 
 
 def _write(path: Path, text: str) -> None:
@@ -475,14 +538,18 @@ class Workspace:
     def service_identity(self, name: str) -> str:
         return f"{self.environment.name}:{name}"
 
+    def _companion(self, service: str) -> None:
+        self.session.unsupported = f"the companion container {service!r}, which a Hermit environment does not reach"
+        raise Unsupported(f"the companion service {service!r} is not reachable from a Hermit environment yet")
+
     def service_run(self, command: str, *, service: str | None, timeout: float, cwd: str | None) -> dict:
         if service is not None:
-            raise Unsupported(f"the companion service {service!r} is not reachable from a Hermit environment yet")
+            self._companion(service)
         return self._run(command, timeout, cwd, "root")
 
     def service_read(self, path: str, *, service: str | None, max_bytes: int) -> bytes:
         if service is not None:
-            raise Unsupported(f"the companion service {service!r} is not reachable from a Hermit environment yet")
+            self._companion(service)
         q = shlex.quote(path)
         size = self.service_run(f"test -f {q} && test ! -L {q} && stat -c %s {q}", service=None, timeout=30, cwd="/")
         if size["code"] != 0:
@@ -533,7 +600,7 @@ class _Hooked(Environment):
         if PurePosixPath(str(target)).as_posix() == ".codex" and Path(source).is_dir():
             self._session.deployed(Path(source))         # the deployment's .codex/: its hooks with the user's
             placed = self._inner.upload(source, target)
-            self._session.lock_hooks()
+            self._session.environmental(self._session.lock_hooks)
             return placed
         return self._inner.upload(source, target)
 
