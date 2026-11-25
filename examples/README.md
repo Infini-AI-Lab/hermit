@@ -185,6 +185,7 @@ These show one part of the framework and report no number.
 | [`lean_swarm/`](lean_swarm/) | Check and deploy a finished adapter: five Codex agents prove one formal-conjectures theorem together; no training config |
 | [`docs/_examples/first_training/`](../docs/_examples/first_training/) | The whole loop offline, with a scripted learner and no model ([Quick Start](../docs/get-started/quickstart.md)) |
 | [`docs/_examples/first_model/`](../docs/_examples/first_model/) | A first training with a real model, on included data, without benchmark assets ([First real-model training](../docs/get-started/first-model.md)) |
+| [`ahe_beta_adapter/`](ahe_beta_adapter/) | AHE-Beta's harness evolution from simulated users, confined to a Codex adapter: Codex in each task's Harbor environment led by AHE-Beta's own user simulator (messages while it works, follow-ups, interrupts, a 1–4 rating), Hermit's Codex Evolver learning from the users' verdicts; run end to end, no experiment of the paper's yet ([AHE-Beta Adapter](../docs/methods/ahe_beta_adapter.md)) |
 | [`claude_subscription/`](claude_subscription/) | Acting and learning on your Claude subscription with no API key: a text-reply learner, an acting pipeline on the same endpoint, and a workspace learner ([Claude subscription](../docs/guides/claude-subscription.md)) |
 
 The methods themselves are described in [`docs/methods/`](../docs/methods/).

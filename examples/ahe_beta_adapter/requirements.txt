@@ -1,0 +1,3 @@
+# Install into Hermit's own environment: AHE-Beta's simulated user (its checkout's backend/, on user.pythonpath) runs in
+# the acting agent's process. Harbor runs in its own venv (README.md: Setup).
+openai>=2.29,<4

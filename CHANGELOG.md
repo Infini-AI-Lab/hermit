@@ -143,6 +143,14 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- The AHE-Beta Adapter (AHE-Beta, arXiv:2611.24924, `examples/ahe_beta_adapter/`, `docs/methods/ahe_beta_adapter.md`):
+  AHE-Beta's requirement-centered harness evolution confined to a Codex adapter. `utils/user.py`'s `UserCodexAgent`
+  (a `CliAgent`) runs one Codex session in each task's Harbor environment while a simulated user, written against
+  `simulate(task, agent, workspace, params)`, talks to it through Codex hooks and a root-owned bridge (messages while it
+  works, follow-ups, interrupts, then a verdict); `utils/ahe_user.py` puts AHE-Beta's own simulator behind it, its
+  model reached through Hermit; `utils/judge.py` scores the verdict the host kept; `prepare.py` turns an AHE-Beta
+  cohort into a run whose learner never reads a persona. AHE-Beta's own demand and delivery Evolver (Gitea,
+  OpenAgents) is in `delivery/`: its controller and worker run in the run's sandbox; not validated end to end.
 - `hermit convert` names the adapter's folder and files as a deployment does: a Claude Code plugin prints, from a
   `SessionStart` hook, where its embedded adapter is and the files no export connects (the list a deployment's
   context gives); Codex, Pi and Hermes plugins list those files under `unnamed_files` in the result and their README.
