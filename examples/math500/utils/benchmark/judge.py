@@ -10,6 +10,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[2] / "math_grading" / "utils"))
 import grade  # noqa: E402
 
+grade.require()                        # Math-Verify, before any agent session
+
 PRIVATE = HERE / ".private"            # prepare.py's references
 _answers: dict[str, str] | None = None
 
