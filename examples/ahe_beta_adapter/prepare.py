@@ -35,6 +35,7 @@ import json
 import math
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from urllib.parse import urlparse
@@ -47,11 +48,11 @@ from binding import ignored  # noqa: E402
 CODEX_MOUNT = "/opt/hermit-codex"
 ACTING_S = 300                       # the least a session's budget leaves Codex: after Harbor's delivery margin
 DELIVERY_MARGIN_S = 60               # (hermit.environment.harbor: min(60 s, a tenth)) and the user's review (review_s)
-MODEL_URLS = ("HARNESS_LLM_BASE_URL", "DEMAND_LLM_BASE_URL", "ANTHROPIC_BASE_URL")   # the team's models (env file)
+MODEL_URLS = ("DEMAND_LLM_BASE_URL", "ANTHROPIC_BASE_URL")   # the team's models (env file)
 DEFAULT_URLS = {"ANTHROPIC_BASE_URL": "https://api.anthropic.com"}   # the developers' Claude Code without one
-CONTROLLER_ENV = ["HARNESS_LLM_BASE_URL", "HARNESS_LLM_API_KEY", "HARNESS_LLM_MODEL", "HARNESS_LLM_REASONING_EFFORT",
-                  "HARNESS_LLM_MAX_CONTEXT_TOKENS", "DEMAND_LLM_BASE_URL", "DEMAND_LLM_API_KEY", "DEMAND_LLM_MODEL",
-                  "DEMAND_LLM_REASONING_EFFORT"]   # what AHE-Beta's controller reads (demand/agent_runtime.py, ...)
+# What AHE-Beta's controller reads: its demand roles' model (demand/agent_runtime.py, ...). Its HARNESS_LLM_* are the
+# NexAU harness's own model, which upstream hands its harness and worker container: no process here reads them.
+CONTROLLER_ENV = ["DEMAND_LLM_BASE_URL", "DEMAND_LLM_API_KEY", "DEMAND_LLM_MODEL", "DEMAND_LLM_REASONING_EFFORT"]
 LOGIN_HOSTS = ["chatgpt.com", "auth.openai.com"]
 TASK_INFO = """# AHE-Beta: sessions with simulated users
 
@@ -80,7 +81,10 @@ def model(value: str, effort: str | None, *, cli: bool = False, shared_plan: boo
     if "/" in value:
         return {"ref": value, **effort_}
     if cli:
-        return {"cli": "codex", "model": value, "login": "chatgpt", **effort_, "unapplied": ["temperature"],
+        # without an effort AHE-Beta's simulator asks for no thinking (`enable_thinking`), which no Codex session
+        # applies: the endpoint would refuse its terminal review, which, unlike its other calls, is not retried without
+        return {"cli": "codex", "model": value, "login": "chatgpt", **effort_,
+                "unapplied": ["temperature", "enable_thinking"],
                 **({"shared_plan": True} if shared_plan else {})}
     return {"name": value, "login": "chatgpt", **effort_}
 
@@ -219,6 +223,42 @@ def _hosts(*urls) -> set[str]:
     return {name for name in names if name}
 
 
+def _snapshot(ahe_root: Path, commit: str, into: Path) -> Path:
+    """AHE-Beta's code and role definitions as `commit` has them (its tracked files only: none of the checkout's own,
+    such as backend/ahe_beta/user/.env, which its simulator loads), which the delivery's controller and sessions run
+    whatever the checkout becomes, and its pins (backend/compatibility.json: OpenAgents', Claude Code's) as the commit
+    has them: `into`/<commit>/backend/{ahe_beta,agent_defs,compatibility.json}, made once."""
+    snapshot = into / commit
+    pins = subprocess.run(["git", "-C", str(ahe_root), "cat-file", "-e", f"{commit}:backend/compatibility.json"],
+                          capture_output=True).returncode == 0
+    if not (snapshot / "backend/ahe_beta").is_dir() or pins and not (snapshot / "backend/compatibility.json").is_file():
+        partial = into / f".{commit}.partial"            # (an earlier one without the pins: made again, whole)
+        shutil.rmtree(partial, ignore_errors=True)
+        partial.mkdir(parents=True)
+        archive = subprocess.run(["git", "-C", str(ahe_root), "archive", "--format=tar", commit, "backend/ahe_beta",
+                                  "backend/agent_defs", *(["backend/compatibility.json"] if pins else [])],
+                                 check=True, capture_output=True).stdout
+        subprocess.run(["tar", "-x", "-C", str(partial)], input=archive, check=True, capture_output=True)
+        shutil.rmtree(snapshot, ignore_errors=True)
+        os.replace(partial, snapshot)
+    return snapshot
+
+
+def start_problem(cohort: Path) -> str | None:
+    """Why the cohort's prepared run.yaml cannot be the delivery's: it starts from the bundled template, the seed of the
+    delivery repository and of the binding round 1's sessions carry (another start finds no commit of its own)."""
+    if not (cohort / "run.yaml").exists():
+        return None
+    config = yaml.safe_load((cohort / "run.yaml").read_text()) or {}
+    if config.get("start_from"):
+        return (f"run.yaml starts from {config['start_from']!r}: AHE-Beta's own delivery starts from the bundled "
+                "template, which its repository and binding hold")
+    template = Path(os.path.expandvars(str(config.get("template") or HERE / "template"))).expanduser()
+    if (template if template.is_absolute() else cohort / template).resolve() != (HERE / "template").resolve():
+        return f"run.yaml's template is {config['template']!r}: AHE-Beta's own delivery seeds the bundled one"
+    return None
+
+
 def _delivery(cohort: Path, config: dict, info: dict, *, sessions: int, rounds: dict, ahe_root: Path, ahe_python,
               run_id, delivery_repo, openagents_repository, openagents_commit, openagents_checkout, tracker=None,
               worker=None, hosts=()) -> None:
@@ -232,7 +272,15 @@ def _delivery(cohort: Path, config: dict, info: dict, *, sessions: int, rounds: 
     from openagents_runtime import ensure_checkout, from_compatibility, write_manifest
     if (cohort / "run-delivery.yaml").exists():          # an interrupted run of this is redone
         raise FileExistsError(cohort / "run-delivery.yaml")
-    openagents = from_compatibility(ahe_root, repository=openagents_repository, commit=openagents_commit)
+    why = start_problem(cohort)
+    if why:
+        raise ValueError(why)
+    controller_sha = subprocess.check_output(["git", "-C", str(ahe_root), "rev-parse", "HEAD"], text=True).strip()
+    snapshot = _snapshot(ahe_root, controller_sha, cohort / "ahe-beta")   # the controller's code and its pins: one
+    openagents = from_compatibility(snapshot, repository=openagents_repository, commit=openagents_commit)   # commit
+    if worker and openagents is None:                    # its worker would be refused at setup, the run published
+        raise ValueError(f"AHE-Beta {controller_sha[:12]} pins no OpenAgents commit (backend/compatibility.json): "
+                         "the delivery's worker runs that one")
     manifest = None
     if openagents is not None:
         checkout = Path(openagents_checkout or cohort / "openagents").resolve()
@@ -252,13 +300,13 @@ def _delivery(cohort: Path, config: dict, info: dict, *, sessions: int, rounds: 
         "rounds": str(cohort / "rounds.json"),
         "identity": {
             "experiment_id": run_id, "run_id": run_id, "config_hash": info["source_config_sha256"],
-            "controller_sha": subprocess.check_output(["git", "-C", str(ahe_root), "rev-parse", "HEAD"],
-                                                      text=True).strip(),
+            "controller_sha": controller_sha,
             "plan_hash": hashlib.sha256((cohort / "tasks.jsonl").read_bytes()).hexdigest(),
         },
         "roster": {**{name: info["roles"][name] for name in ("triager", "architect", "divergent")},
                    "owner": 0 if info["roles"]["owner_mode"] == "mechanical" else 1},
-        "definitions_root": str(ahe_root / "backend/agent_defs"),
+        "definitions_root": str(snapshot / "backend/agent_defs"),
+        "snapshot": str(snapshot),
         "sessions_per_round": sessions,
         "delivery_timeout": 86400,
         "tracker": tracker,
@@ -269,7 +317,7 @@ def _delivery(cohort: Path, config: dict, info: dict, *, sessions: int, rounds: 
     agent = copy.deepcopy(config["agent"])
     agent["params"]["user"]["params"]["binding"] = str(binding)
     agent["params"]["user"]["params"]["run_id"] = run_id   # the sessions' and the delivery's: one run
-    agent["params"]["user"]["pythonpath"] = [str(ahe_root / "backend")]   # and one AHE-Beta: its simulator, its team
+    agent["params"]["user"]["pythonpath"] = [str(snapshot / "backend")]   # and one AHE-Beta: its simulator, its team
     allowed = sorted(host for host in _hosts(*hosts, tracker["base_url"], *(os.environ.get(name) or
                                                                              DEFAULT_URLS.get(name)
                                                                              for name in MODEL_URLS))

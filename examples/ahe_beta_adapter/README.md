@@ -20,7 +20,7 @@ with the paper's numbers; the [method page](../../docs/methods/ahe_beta_adapter.
 | Route | Acting | User | Learning | State |
 |---|---|---|---|---|
 | `run.yaml` from [`prepare.py`](prepare.py) | Codex in each task's Harbor environment ([`utils/user.py`](utils/user.py)) | AHE-Beta's own simulator ([`utils/ahe_user.py`](utils/ahe_user.py)), its model through Hermit | Hermit's Codex Evolver on the users' verdicts | run (Validation, below) |
-| `run-delivery.yaml` from [`bootstrap.py`](bootstrap.py) | the same | the same | AHE-Beta's own demand and delivery pipeline ([`delivery/`](delivery/): Triage, Architect, PM, admission; OpenAgents developers on a Gitea repository), in the run's sandbox | not validated end to end (unit-tested with stand-ins) |
+| `run-delivery.yaml` from [`bootstrap.py`](bootstrap.py) | the same | the same | AHE-Beta's own demand and delivery pipeline ([`delivery/`](delivery/): Triage, Architect, PM, admission; OpenAgents developers on a Gitea repository), in the run's sandbox | run end to end once (Validation), not evaluated |
 | [`smoke/run.yaml`](smoke/run.yaml) | the same | a scripted user ([`utils/scripted_user.py`](utils/scripted_user.py)) | none (`hermit eval`) | run (Validation) |
 
 The simulated user lives in this example for now. Its contract, `simulate(task, agent, workspace, params)`, is the one
@@ -50,7 +50,9 @@ carry the conversation through a bridge ([`utils/channel_server.py`](utils/chann
 outside the workspace before Codex starts: PostToolUse inserts a waiting message, PreToolUse denies tool calls after an
 interrupt, Stop hands the reply to the user and continues the session with the user's next message. The adapter's own
 hooks stay; its Stop hooks run inside the user's Stop hook first (Codex runs one event's hooks at the same time), so
-they must be command hooks without a matcher (the template's check refuses others). This machine talks to the bridge
+they must be command hooks without a matcher (the template's check refuses others); they run one after another, the
+first that blocks or ends the session deciding (the later ones are tried again at the next Stop, after the earlier
+ones). This machine talks to the bridge
 with one command at a time in the environment (a read waits there up to 5 s for new events), so nothing is mounted from
 this machine and the agent's writable workspace holds no queue. Codex's clock ends `user.review_s` (600 s) before the
 task's deadline (taken when Codex starts, so that the channel's setup and the user's first turn come off Codex's time),
@@ -81,8 +83,12 @@ session fails). A tool's input and output reach the user whole up to 20,000 char
 else cut. Once the user ends the session, every tool call the agent still tries is denied and no queued message is
 handed over; so is a tool call while the channel cannot be read (an end may be waiting there). After an interrupt that
 does not wait (AHE-Beta's), the stopped turn's reply comes as an
-`interrupted_reply` event; AHE-Beta's own handle closes a request only on a reply, so its native records count the
-interrupted request and the next as one (this transcript keeps both). The exported
+`interrupted_reply` event (a stop reply names the interrupts it answers, so an interrupt that does wait gets the reply
+it shares with an earlier one); AHE-Beta's own handle closes a request only on a reply, so `ahe_user.py` has its
+interrupt end the request it stops (otherwise its native records counted the interrupted request and the next as one).
+An adapter's Stop hook that ends the session (`continue: false`) is recorded by AHE-Beta's handle as a completed
+request, and a message the user writes after it reaches AHE-Beta's user loop as a harness error (the agent is gone),
+which it shows the persona. The exported
 tasks declare no network, so the agent's phase has the public network (Harbor's default for a task that says nothing),
 as AHE-Beta's E2B sandboxes do: they require internet access.
 
@@ -116,8 +122,9 @@ agent's result too (0).
 ```bash
 python -m pip install -e '.[test]' -r examples/ahe_beta_adapter/requirements.txt   # Hermit's environment: the simulator runs here
 uv venv --python 3.13 ~/.cache/hermit/harbor-venv && uv pip install --python ~/.cache/hermit/harbor-venv/bin/python harbor==0.25.0
+export AHE_ROOT=~/src/AHE-Beta                  # where AHE-Beta's checkout goes (any folder outside the cohort)
 git clone https://github.com/Curry09/AHE-Beta "$AHE_ROOT" && git -C "$AHE_ROOT" checkout 43b165fff7b01e01f4fe4697b7597ccd61700727
-codex login                                     # the ChatGPT login the configs use (or give <backend>/<model> references)
+codex -c 'cli_auth_credentials_store="file"' login   # the ChatGPT login the configs use, in the file Hermit copies
 export HERMIT_CODEX_RELEASE=~/.codex/packages/standalone/releases/0.170.0-x86_64-unknown-linux-musl
 ```
 
@@ -156,10 +163,21 @@ reaches only the login's hosts (hermit.isolate.cli_sandbox). When the actor is o
 `shared_plan`), those sessions count as their rollout's on the login's plan (the run admitted the task's environment:
 they take no slot of their own); otherwise each waits for the plan and takes a slot as any session does. A reference is
 reached through a local relay (hermit.agent.base.endpoint.relay), refused before a session when its backend needs a key
-that is not set or its binding sets `extra_body` (which the relay cannot add to AHE-Beta's requests). The user model is
+that is not set, its binding sets `extra_body` (which the relay cannot add to AHE-Beta's requests), or its endpoint
+refuses the key (401) when asked for its model list before a process's first session (no model call, no redirect
+followed with the key; a 403 may refuse the list alone, and a session finds out): otherwise
+each session's review met the refusal after its actor ran, and the session ran again. Its endpoint must also take
+AHE-Beta's terminal review as AHE-Beta sends it, once and unretried: `max_tokens: 32768`, and for a model other than
+GLM-5.2 or GLM-5.3 given no effort, `enable_thinking: false` in the body (Fireworks' GLM-5.3 takes both; an endpoint
+that refuses either, or caps output below that, fails every review). On a task whose repository
+tracks `AGENTS.md`, the user's live view of the workspace shows what the deployment added to it until the deployment
+is put back, before the review. The user model is
 part of the rollout, and so is its spend: a session's tokens and cost add the user model's (AHE-Beta's usage of the
-session, priced from the reference's binding; no cost on a subscription login, as for the actor) and `trainer.budget`
-counts them with the learner's; the actor's own are kept in `extra.actor` (the paper's "Tokens" are the actor's). A
+session, each call as it reported, priced from the reference's binding; no cost on a subscription login, as for the
+actor) and `trainer.budget` counts them with the learner's; the actor's own are kept in `extra.actor` (the paper's
+"Tokens" are the actor's). As Hermit prices any run, the session's cost is unknown (None, which an evaluation counts
+as an unknown cost) when a part of it is: the actor's or the user model's without a price, or a user model's call
+that reported none or part of its usage (`extra.user_cost_unknown`; its tokens still count, at least those reported). A
 session whose user failed counts what its user model had spent all the same (AHE-Beta's usage ledger of the session),
 and so does one that Codex's side failed (in what the failed run spent, which the run's budget counts).
 
@@ -172,20 +190,49 @@ skipped, each delivery shows its execution evidence), then has `prepare.py` writ
 round 1 carries (AHE-Beta's feedback import requires it). The controller runs on AHE-Beta's own environment, the
 developers on Claude Code (`claude` on this machine's PATH, run as a user other than root: as root Claude Code refuses
 to run its tools unattended); the Evolver's setup checks these (AHE-Beta's interpreter a virtual environment's own,
-the OpenAgents pin), the enforced sandbox, the Gitea token, a Claude Code credential for the developers and the demand
-roles' model before the run pays for a round of sessions. The Gitea is one of your own, reached at the URL given
+started in the controller's view importing its entry point and NexAU; the OpenAgents pin), the enforced sandbox, the Gitea token, a Claude Code credential for the developers, the demand
+roles' model and each process's folders (apart, none holding the cohort; AHE-Beta's environment too) before the run
+pays for a round of sessions. The controller and the delivery run's sessions run AHE-Beta as the commit the run's
+identity names (`controller_sha`): `prepare.py` writes its tracked code, role definitions and pins
+(`backend/compatibility.json`, which choose the OpenAgents commit) to `ahe-beta/<commit>/` in the cohort, so that
+neither a later change to the checkout nor its own untracked files (the simulator's `backend/ahe_beta/user/.env`,
+which its persona client loads) reach them; each step checks the OpenAgents checkout is
+still at its pin and unedited (the worker is shown it whole, its ignored files too: give it a checkout of its own,
+`bootstrap.py`'s default). A folder `worker.readable` shows the worker is shown whole: give the file or folder a
+wrapper needs, never one holding a credential (`~/.config` with the filled `experiment.env` in it, say), since the
+developers run model-written commands. No folder the worker is given or shown (`worker.readable` too) may hold or
+overlap the sessions' private records (the cohort's `.logs`, and at each step the stores the round's sessions used),
+nor the Trainer's `runs`; a session rated without its native record (only one rated out of time has none) stops the step
+rather than leaving its evidence out. Setup also runs the developers' `claude --version` in the worker's view of the
+sandbox. Every round runs that file, checked again in that view at each step: its path, digest and version are kept
+beside the binding (`delivery-developers.json`), so an update between rounds stops the step instead of changing the
+developers. Upstream pins Claude Code 2.1.284 (its `backend/compatibility.json`, with the Linux binary's digest):
+install that one for a reproduction; the record says whether it is. The delivery state belongs to one Trainer run (its
+claim, with the delivery configuration's digest, is in the Evolver's state folder, which a restart keeps): a run
+started over (`resume_mode=disable`) on one an earlier run used is refused at setup (bootstrap a new cohort instead),
+and so is a step whose `delivery.json` changed since setup. The Gitea
+is one of your own, reached at the URL given
 (`--gitea-url`: the seed, both clones and the Evolver's mirror use it, not the one Gitea's API advertises; over https,
 or on this machine as localhost or 127.0.0.1): AHE-Beta's Hermit controller cannot read Gitea.com's attachments back,
 and the Evolver refuses it.
-`bootstrap.py` refuses a cohort already delivered on (`run-delivery.yaml`), folders that overlap (the delivery clone,
-the worker's clone, the OpenAgents checkout) and, on a cohort prepared before, a model or Codex setting (the run's own
-are the delivery's). Fill a copy of
+`bootstrap.py` refuses a cohort already delivered on (`run-delivery.yaml`), folders that overlap or hold the cohort
+(the delivery clone, the worker's clone and its home beside it, the OpenAgents checkout, the controller's state), a
+repository, clone or worker's home it did not make itself (it notes what it makes in the cohort's `bootstrap.json`
+before making it, the repository by a marker of the cohort's own in its description, and a retry takes those again):
+an earlier cohort's open issues would be this one's (AHE-Beta's triage takes every open issue), Git run here in a
+clone a team wrote could run that team's configuration, and an earlier cohort's home would start the developers from
+its files. It also refuses, on a cohort prepared before, a model or Codex setting
+(the run's own are the delivery's) and a run.yaml that starts from another adapter than the bundled template (the
+seed its repository and binding hold). `run-delivery.yaml` keeps run.yaml's schedule, which `prepare.py` writes as
+one logical round a step, unshuffled, one epoch: AHE-Beta's controller takes one round a step, so keep it. The worker
+runs as many developers as the exported experiment names
+(`cohort.json`'s `roles.developer`, upstream's `vigil --parallel`), unless `--developers` says otherwise. Fill a copy of
 [`experiment.env.example`](experiment.env.example) (the Gitea token, the demand roles' models, the developers'
 Anthropic-compatible endpoint), keep it outside the checkout (it holds live credentials) and source it before
 `bootstrap.py` and `hermit train`:
 
 ```bash
-(cd "$AHE_ROOT" && uv sync --locked --extra experiments)      # AHE-Beta's environment, for its controller
+(cd "$AHE_ROOT" && UV_PROJECT_ENVIRONMENT="$AHE_ROOT/.venv" uv sync --locked --extra experiments)   # its own venv
 . ~/.config/ahe-beta/experiment.env                          # the filled copy, chmod 600
 python examples/ahe_beta_adapter/bootstrap.py --cohort <cohort> --ahe-root "$AHE_ROOT" \
   --ahe-python "$AHE_ROOT/.venv/bin/python" --run-id u8-ahe \
@@ -194,7 +241,8 @@ cd <cohort> && hermit train --config run-delivery.yaml
 ```
 
 AHE-Beta's team is the paper's learner (its Algorithm 1: Triage, PM, Architect, Developers after each round's
-sessions), so it runs where a learner runs. Each step of the Evolver ([`delivery/evolver.py`](delivery/evolver.py))
+sessions), so it runs where a learner runs. Its Architects run ungrouped, as in every configuration upstream ships (an
+experiment of its own with `policies.architect_grouping: true` is not reproduced here). Each step of the Evolver ([`delivery/evolver.py`](delivery/evolver.py))
 starts the OpenAgents worker (`openagents vigil` in its clone, from the pinned checkout's environment) and AHE-Beta's
 controller (its own Python), each in a view of the run's sandbox that shows nothing of the run's own folders (its
 adapter, material, history and output); neither starts without an enforced sandbox. Each is shown only its own folders
@@ -204,34 +252,44 @@ developers), and its configuration as this machine keeps it (read-only: a round'
 cannot change the next round's); the controller AHE-Beta's code and role definitions (not the checkout's experiments,
 persona library, secrets file or the records of its standalone runs), started outside the developers' tree, the round's
 native session records and the delivery state and clone. The developers run with every tool allowed and commit as
-`openagents`, as AHE-Beta runs them (`OPENAGENTS_PERMISSION_MODE`, `bypassPermissions`: in the default mode Claude Code
-neither commits nor pushes, and a ticket waits for a person). Neither process reads the cohort's `assignments.json` (the
+`openagents`, as AHE-Beta runs them (`OPENAGENTS_PERMISSION_MODE`, `bypassPermissions` unless `worker.env` names and
+sets another: in the default mode Claude Code neither commits nor pushes, and a ticket waits for a person). Neither process reads the cohort's `assignments.json` (the
 personas) or this machine's home; the network is the sandbox's (`sandbox.evolver.allowed_hosts`: the Gitea host, the
 hosts of the model variables set when `bootstrap.py` ran, `api.anthropic.com` when no `ANTHROPIC_BASE_URL` is set, and
 `--delivery-host`), a Gitea on this machine's loopback forwarded into it (a loopback name is never on the proxy's list,
 which would open every local port), as is a model on this machine's loopback that the handed variables name when a
 step starts. The developers
 learn of the sessions what the controller publishes to Gitea, as in AHE-Beta: each user's issue, which ends with
-AHE-Beta's `_auto-collected` line for their triage (the persona's id, capability tier and error-correction style; the
-validated route cuts it from what its learner reads); a session rated out of its time here, which left no native
+AHE-Beta's `_auto-collected` line for their triage (the persona's id, capability tier and error-correction style). That
+line is kept as upstream sends it, by the maintainer's decision: it is the one part of a persona the team sees (the
+validated route cuts it from what its learner reads). A session rated out of its time here, which left no native
 record, keeps its rating but gives the team no evidence. The Evolver runs nothing the team can write: it takes the
 delivered adapter from Gitea itself (a mirror of its own, the commit checked on main), copies back only the files the
-template's contract covers and checks them with `check_spec` (refusing a key's value, which the Trainer would scrub,
-the Gitea token under any name, and a file this machine's Git ignores, which Hermit's tree would leave out),
-has a Git in the sandbox move the team's clone to the new commit, and writes the binding last, unless the Trainer
-stopped the call meanwhile; a step that cannot deliver fails (the adapter stays).
+template's contract covers as Hermit's tree keeps them (its `git add -A` and `git archive`: a file this machine's Git or
+the delivery's own `.gitignore` files ignore, and the delivery's `.gitattributes` files, are left out, and the step's
+summary names them; the commit of what it keeps, the delivered commit's child without any `.gitattributes` (an archive
+of the delivered one would apply its root's too), is then pushed on main and bound, so that AHE-Beta's roles, which
+read the bound commit back, see the files the sessions ran; made from the delivered commit's own time, a replay makes
+the same commit), checks them with
+`check_spec` (refusing a key's value, which the Trainer would scrub, and the Gitea token under any name), has a Git in
+the sandbox move the team's clone to the bound commit, and writes the binding last, unless the Trainer stopped the
+call meanwhile. A step that cannot deliver fails with what the team spent (its demand roles' calls in AHE-Beta's usage
+store, from where the round's first attempt found it, each as it reported, and the developers' as unreported once the
+worker started); the Trainer keeps the adapter, and the
+next round's sessions run the last delivered one: the binding keeps each round's commit, and a session takes the
+latest one, up to its round, that holds its adapter. A round AHE-Beta sealed in an attempt the Trainer never recorded
+(this machine stopped before the Trainer's checkpoint) is taken again from its receipt or, when the stop came before
+the receipt, its recovery record, nothing of the team rerun.
 [`openagents_launcher.py`](openagents_launcher.py) remains for looking at a worker by hand; it refuses `vigil`, the
 worker itself.
 
-Not validated end to end: no run against a real Gitea and OpenAgents has been made, and these are known to need work
-there: a failed round, or a step the Trainer stops or discards after the team's clone moved (its timeout, at a call's
-very end), leaves the binding or the clone behind the adapter the run keeps, so the later rounds' sessions refuse the
-binding before they start (NotBound) and the run delivers nothing more; a crash between delivery and Hermit's
-checkpoint makes the retry replay a different
-cohort; the developers' usage (Claude Code in the worker) is not counted, each step records it as unreported (the
-budget's unknown-cost calls), and demand usage is reported only for a delivered round; the mirror fetches main with its
-whole history each step (a large file committed there once is fetched again); `bootstrap.py` reuses an existing
-repository or clone without checking that it is private and the same project.
+Run end to end once, on one round (Validation). Known limits: the
+developers' usage (Claude Code in the worker) is not counted, each step records it as unreported (the budget's
+unknown-cost calls), and the demand roles' calls are counted in tokens with no price (their model is no Hermit
+backend: a dollar budget leaves both out); a delivery the step refused stays on the repository's main, where the next round's team builds on
+it; a step this machine stopped while AHE-Beta's controller ran (a round frozen, not sealed) fails when redone, upstream
+refusing the redone round's new sessions, and the run goes on with the next round; the mirror fetches main with its
+whole history each step (a large file committed there once is fetched again).
 
 ## Benchmarks
 
@@ -261,7 +319,7 @@ reaches the acting agent anyway fails for good (`user_failed`, final).
 
 ## Validation
 
-Run on 2026-11-24 and 2026-11-25 with Hermit at this branch, Harbor 0.25.0 (local Docker), Codex 0.170.0 (the static
+Run on 2026-11-24 to 2026-11-26 with Hermit at this branch, Harbor 0.25.0 (local Docker), Codex 0.170.0 (the static
 release, mounted), AHE-Beta at `43b165f`, every model GPT-5.6-Luna on a ChatGPT login unless said (the learner
 GPT-6-Sol, medium effort; the actor medium, the user low). These check that the route runs end to end on real models;
 they are not the paper's experiment and measure no effect.
@@ -270,7 +328,8 @@ they are not the paper's experiment and measure no effect.
 |---|---|---|
 | `smoke/run.yaml` (`hermit check`'s probe and `hermit eval`), the scripted user | a message inserted mid-run (delivered at PostToolUse, acted on), a follow-up (delivered at Stop), an interrupt (the next tool call denied, the reply marked interrupted), a final question, the review of the workspace | 2026-11-24, no adapter: 6 of 6 checks, 76 s. 2026-11-25, after the dual review's fixes, the template deployed as the adapter (`--adapter ../template`, relative to the config) and eight checks tied to what the channel did (each message's delivery site by its id, the denied call for `four`, the final reply against the file in order): 8 of 8, 77 s |
 | AHE-Beta's simulator on `010-pivot-product-revenue` (`hermit check`'s probe of an exported u8 seed, no adapter) | the persona's own first request, the session, the terminal review, the native session record kept privately | rating 4, 286 s; 4 user-model sessions in their sandboxes |
+| `run-delivery.yaml` (`bootstrap.py`, a Gitea 1.22.6 of this machine), the paper's models for AHE-Beta's team on Fireworks: GLM-5.3 for Triage, the Architect and the PM (its OpenAI-compatible API), Claude Code 2.1.332 calling GLM-5.3 for one developer (its Anthropic-compatible endpoint); four U4 seeds (`o14`, `m03`, `o01`, `m01`), two rounds: `hermit train`, then `hermit eval --adapter final` | bootstrap's retry (the repository taken again by its marker, the clones by its record), round 1's sessions with AHE-Beta's users and their native records, the controller publishing their reports, Triage, the Architect's RFC, the divergent PM, admission, the OpenAgents worker's pull requests, review and merge, the sealed receipt, its import, round 2's binding and round 2's sessions on the delivered adapter | 3 Triage issues merged into an RFC, 3 PM requirements; 4 pull requests reviewed and merged; the delivered commit imported as delivered and bound; each round-2 session's native record names it. Ratings round 1: 4, 1, 2, 1; round 2: 1, 2, 1, 2 (no difference four sessions could show). About $9.2 of GLM-5.3 (the team; the actor and the user on a ChatGPT login), 1 h 53 min for the training step. On this branch as of the sixteenth review round; later review rounds have tightened setup and channel checks since (unit- and smoke-tested) |
 | A mini cohort of four u8 seeds (`010-pivot-product-revenue`, `superset-goal-discovery`, `pylint-dev__astroid-2240`, `sqlfluff-subagent-review`, their u8 personas) and two rounds, a 2,400 s task budget: `hermit train` (round 1, the template's seed adapter, then one Codex Evolver step), `hermit eval --adapter final` (round 2) | rollouts with AHE-Beta's users, the learner reading only the users' verdicts and transcripts (no persona: checked in the material; the cohort had no session without interaction, whose verdict `utils/ahe_user.py` maps apart, unit-tested), an adapter change, the change's rollouts | round 1 ratings 4, 3, 3, 3 (mean 3.25); round 2 ratings 2, 3, 3, 4 (mean 3.0): no difference that four sessions could show. The learner's change: `ADAPTER.md` asks for an initial action, evidence-backed progress updates, prompt answers to status requests and identifiable reviewer findings, from the users' complaints (waits without visible progress, having to prompt for progress, merged reviewer results); it names no task. 2.45 M actor tokens in round 1, 3.04 M in round 2, 0.39 M for the learner |
 
-Not run: the paper's cohorts (U8, U16, U32 over six rounds), its held-out evaluation on Harbor-index, AHE-Beta's own
-delivery Evolver against Gitea and OpenAgents, and any task with a companion container.
+Not run: the paper's cohorts (U8, U16, U32 over six rounds), its held-out evaluation on Harbor-index, more than one
+round of AHE-Beta's own delivery Evolver, and any task with a companion container.

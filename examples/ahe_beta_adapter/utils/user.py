@@ -237,6 +237,7 @@ class _Session:
         self.thread: threading.Thread | None = None
         self.output: RunOutput | None = None
         self.codex_error: BaseException | None = None
+        self.start_error: BaseException | None = None   # Codex could not start: the user waits for no reply
         self.baseline: dict | None = None
         self.stopped = False
         self.stop_lock = threading.Lock()
@@ -430,10 +431,11 @@ class _Session:
         if deadline is not None:                         # the whole call's window (Hermit's deadline_s): the deployment
             left = float(deadline) - time.time() - self.review_s    # and the sign-in come off it too
             if left <= 0:
-                raise UserFailed(f"the task's time ran out before Codex could start (review_s {self.review_s:g} s "
-                                 "is all that is left)")
-            given = self.codex.params.get("timeout_s")
-            self.codex.params = {**self.codex.params, "deadline_s": left,
+                self.start_error = UserFailed(f"the task's time ran out before Codex could start (review_s "
+                                              f"{self.review_s:g} s is all that is left)")
+                raise self.start_error
+            given, whole = self.codex.params.get("timeout_s"), self.codex.params.get("deadline_s")
+            self.codex.params = {**self.codex.params, "deadline_s": min(left, float(whole)) if whole else left,
                                  "timeout_s": min(left, float(given)) if given else left}
         context = contextvars.copy_context()             # the run's (the adapter's confinement: hermit.isolate)
         self.thread = threading.Thread(target=context.run, args=(self._codex,), name=f"codex-{self.session_id}",
@@ -447,7 +449,7 @@ class _Session:
             self.codex_error = exc
 
     def alive(self) -> bool:
-        return self.thread is None or self.thread.is_alive()
+        return self.start_error is None and (self.thread is None or self.thread.is_alive())
 
     def stop(self) -> None:
         """The session over: the user's end sent, Codex given exit_wait_s to exit, then whatever the rollout started
@@ -582,13 +584,8 @@ class _Session:
         spent = usage if usage else failed_usage if isinstance(failed_usage, dict) else {}
         if isinstance(spent.get("tokens"), int) or "cost_usd" in spent:   # the user model's spend is the rollout's
             extra["actor"] = {"tokens": out.tokens, "cost_usd": out.cost_usd}   # (the paper's Tokens: the actor's)
-            if isinstance(spent.get("tokens"), int):
-                out.tokens = (out.tokens or 0) + spent["tokens"]
-            cost = spent.get("cost_usd")
-            priced = isinstance(cost, (int, float)) and not isinstance(cost, bool)
-            if priced:
-                out.cost_usd = (out.cost_usd or 0.0) + float(cost)   # what is priced counts, whatever is not
-            if ("cost_usd" in spent and not priced) or spent.get("uncounted_calls"):
+            out.tokens, out.cost_usd, unknown = _with_user(out.tokens, out.cost_usd, spent)
+            if unknown:
                 extra["user_cost_unknown"] = True        # a model without a price, or calls it could not count
         if extra.get("infra") or extra.get("adapter_failed"):
             out.extra = extra                            # the session's own word stands (infra, or the adapter's)
@@ -618,19 +615,26 @@ def _phase_over(exc: BaseException) -> bool:
     return False
 
 
+def _with_user(tokens, cost_usd, usage: dict) -> tuple:
+    """The rollout's tokens and cost with the user model's spend added (a verdict's `usage`, or a failed user's), and
+    whether the user's cost is unknown: the tokens summed (those reported); the cost as Hermit prices a run
+    (Usage.cost), unknown when a part of it is: the actor's, or the user's (no price, or calls it could not count)."""
+    said, cost = usage.get("tokens"), usage.get("cost_usd")
+    priced = isinstance(cost, (int, float)) and not isinstance(cost, bool) and not usage.get("uncounted_calls")
+    return ((tokens or 0) + said if isinstance(said, int) else tokens,
+            cost_usd + float(cost) if priced and cost_usd is not None else None, not priced)
+
+
 def _spent(error: BaseException, usage) -> None:
     """The user model's spend (a verdict's `usage`, or a failed user's) added to what `error`, a failed run, says it
-    spent (the Trainer's `spent`): the priced part counts whichever side has no price, as on a run that ends."""
+    spent (the Trainer's `spent`), as on a run that ends (_with_user): a run that said nothing has an unknown cost."""
     if not isinstance(usage, dict) or not (isinstance(usage.get("tokens"), int) or "cost_usd" in usage):
         return
     spent = getattr(error, "spent", None) or RunOutput(output=None, cost_usd=None, tokens=None)
     if not dataclasses.is_dataclass(spent):              # not the Trainer's RunOutput: the failure goes on as it is
         return
-    tokens, cost = usage.get("tokens"), usage.get("cost_usd")
-    error.spent = dataclasses.replace(
-        spent, tokens=(spent.tokens or 0) + tokens if isinstance(tokens, int) else spent.tokens,
-        cost_usd=(spent.cost_usd or 0.0) + float(cost) if isinstance(cost, (int, float)) and
-        not isinstance(cost, bool) else spent.cost_usd)
+    tokens, cost, _ = _with_user(spent.tokens, spent.cost_usd, usage)
+    error.spent = dataclasses.replace(spent, tokens=tokens, cost_usd=cost)
 
 
 def _unlinked(paths) -> list[str]:
@@ -657,14 +661,19 @@ def _valid(verdict) -> dict:
     and its files named as files."""
     if not isinstance(verdict, dict):
         raise UserFailed(f"simulate returned {type(verdict).__name__}, not a dict")
+
+    def refused(why):                                    # what the result says it spent still counts (the rollout's)
+        exc = UserFailed(why)
+        exc.usage = verdict["usage"] if isinstance(verdict.get("usage"), dict) else None
+        return exc
     score = verdict.get("score")
     if score is None or isinstance(score, bool) or not isinstance(score, (int, float)) or \
             not math.isfinite(score) or not 0 <= score <= 1:
-        raise UserFailed(f"simulate's score must be a number in [0, 1], not {score!r}")
+        raise refused(f"simulate's score must be a number in [0, 1], not {score!r}")
     files = verdict.get("files")
     if files is not None and (not isinstance(files, dict) or any(
             not isinstance(name, str) or not name or Path(name).name != name or name in (".", "..") for name in files)):
-        raise UserFailed("simulate's files must be {name: text}, each name a file's")
+        raise refused("simulate's files must be {name: text}, each name a file's")
     return verdict
 
 

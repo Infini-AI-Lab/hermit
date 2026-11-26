@@ -481,6 +481,16 @@ def _session():
 
 SIMULATE = '''
 def simulate(task, agent, workspace, params):
+    if params.get("then") == "caught":         # AHE-Beta's _await_harness: the first write's failure an observation
+        try:
+            agent.write("please " + task["instruction"])
+        except Exception as exc:
+            seen = str(exc)
+        try:
+            agent.poll(30)                     # no Codex to wait for
+        except Exception as exc:
+            return {"score": 0.0, "rating": 1, "reason": seen + " | " + type(exc).__name__}
+        return {"score": 1.0, "rating": 4, "reason": "waited"}
     agent.write("please " + task["instruction"])
     reply = agent.poll(30)
     if params.get("then") == "raise":
@@ -546,7 +556,7 @@ def run(tmp_path, monkeypatch):
     Codex.seen, Codex.log, Codex.phase_at_end, Codex.cost = [], str(tmp_path / "codex-log"), False, None
     Codex.fail = None
 
-    def go(then=None, stops=None, exit_wait_s=5, deadline_in=None, review_s=300):
+    def go(then=None, stops=None, exit_wait_s=5, deadline_in=None, review_s=300, params=None):
         Codex.stops = stops
         env = Remote()
         env.limits = Limits(timeout_s=1000)
@@ -554,7 +564,8 @@ def run(tmp_path, monkeypatch):
             env.deadline_at = time.time() + deadline_in
         spec = {"simulate": "sim.py:simulate", "params": {"then": then}, "exit_wait_s": exit_wait_s,
                 "review_s": review_s}
-        agent = user.UserCodexAgent({"user": spec, "workspaces": str(tmp_path / "ws"), "prompt": "ignored"}, tmp_path)
+        agent = user.UserCodexAgent({"user": spec, "workspaces": str(tmp_path / "ws"), "prompt": "ignored",
+                                     **(params or {})}, tmp_path)
         return agent.run({"id": "r01-s00-t"}, None, environment=env)
     return go
 
@@ -572,6 +583,18 @@ def test_codexs_clock_ends_review_s_before_the_tasks_deadline(run):
     run(deadline_in=400)
     seen = Codex.seen[0]                                 # the whole call's window: the deployment comes off it too
     assert 90 <= seen["deadline_s"] <= 100 and seen["timeout_s"] == seen["deadline_s"]   # 400 s left less review_s
+    run(deadline_in=400, params={"deadline_s": 30})      # a shorter whole-call deadline configured: kept
+    assert Codex.seen[-1]["deadline_s"] == 30
+
+
+def test_a_codex_that_could_not_start_is_not_waited_for(run):
+    """Setup and the persona's first turn used the agent's window: the start failed, AHE-Beta took the failure as an
+    observation, and its next poll waited for a reply no Codex could send."""
+    started = time.monotonic()
+    out = run("caught", deadline_in=100, review_s=300)
+    assert time.monotonic() - started < 20
+    assert out.extra["user"]["reason"].endswith("| ConversationClosed")
+    assert "before Codex could start" in out.extra["user"]["reason"]
 
 
 def test_a_direct_session_whose_codex_clock_ended_is_the_agents_zero_though_its_error_lost_the_cause(run):
@@ -604,20 +627,23 @@ def test_the_user_models_spend_is_the_rollouts_and_the_actors_own_is_kept(run):
     assert out.cost_usd is None and out.extra["user_cost_unknown"] is True
 
 
-def test_what_is_priced_counts_whichever_side_has_no_price(run):
-    """An API actor with a subscription user, or the other way round: the known part is not lost (a None cost
-    counts as 0 in the run's budget)."""
-    assert run("priced").cost_usd == 0.25                                       # a subscription actor, a paid user
+def test_a_rollout_whose_actor_or_user_has_no_price_has_no_known_cost(run):
+    """An API actor with a subscription user, or the other way round: the known part alone was the rollout's cost,
+    which an evaluation published as its exact total (it counts unknown costs by a None). As Hermit prices a run
+    (Usage.cost), unknown when a part is; the tokens still count, the user's too."""
+    out = run("priced")                                                         # a subscription actor, a paid user
+    assert out.cost_usd is None and out.tokens == 12 and out.extra["user"]["usage"]["cost_usd"] == 0.25
     Codex.cost = 0.75
     out = run("usage")                                                          # a paid actor, a subscription user
-    assert out.cost_usd == 0.75 and out.extra["user_cost_unknown"] is True
-    assert run("priced").cost_usd == 1.0
+    assert out.cost_usd is None and out.extra["user_cost_unknown"] is True and out.extra["actor"]["cost_usd"] == 0.75
+    assert run("priced").cost_usd == 1.0                                        # both priced: their sum
 
 
-def test_the_counted_calls_cost_counts_though_one_call_went_uncounted(run):
-    """A failed attempt the persona client retried reports no usage: the session's known cost still counts."""
+def test_a_user_call_left_uncounted_leaves_the_rollouts_cost_unknown(run):
+    """A failed attempt the persona client retried reports no usage: the known cost is a lower bound, not the cost."""
+    Codex.cost = 0.75
     out = run("partly")
-    assert out.cost_usd == 0.25 and out.extra["user_cost_unknown"] is True
+    assert out.cost_usd is None and out.extra["user_cost_unknown"] is True
 
 
 def test_a_user_whose_model_lost_its_sign_in_ends_the_run(run):
@@ -645,18 +671,44 @@ def test_a_session_no_run_mends_stays_so_past_the_deadline(run):
     assert out.extra["user"].get("outcome") != "timed_out"
 
 
+def test_a_refused_result_keeps_what_its_user_model_spent(run, monkeypatch):
+    """A result refused as no verdict (no score) still said what the user model spent: dropped with it, an infra
+    retry bought it again unrecorded."""
+    import user
+    Codex.cost = 0.75
+    real = user._valid
+
+    def no_score(verdict):                                                     # the simulator's result, no score
+        return real({**verdict, "score": None})
+    monkeypatch.setattr(user, "_valid", no_score)
+    out = run("priced")
+    assert out.extra["infra"] == "user_failed" and out.tokens == 12 and out.cost_usd == 1.0
+
+
 def test_a_failed_users_spend_still_counts(run):
+    Codex.cost = 0.75
     out = run("spent")
-    assert out.extra["infra"] == "user_failed" and out.tokens == 12 and out.cost_usd == 0.25
+    assert out.extra["infra"] == "user_failed" and out.tokens == 12 and out.cost_usd == 1.0
 
 
 def test_a_codex_failure_still_carries_what_the_user_model_spent(run):
     """An environment's failure under Codex is the run's to classify (run again): the user's spend of that attempt
-    goes with it (the Trainer's `spent`), else its model calls are never counted."""
+    goes with it (the Trainer's `spent`), else its model calls are never counted. Its cost as on a run that ends: the
+    user's alone was published as the failed rollout's whole cost, though Codex said nothing of its own."""
     Codex.fail = RuntimeError("the environment's exec failed")
     with pytest.raises(RuntimeError, match="exec failed") as failed:
         run("priced")
-    assert (failed.value.spent.tokens, failed.value.spent.cost_usd) == (5, 0.25)
+    assert (failed.value.spent.tokens, failed.value.spent.cost_usd) == (5, None)
+    Codex.fail = RuntimeError("the environment's exec failed")
+    Codex.fail.spent = RunOutput(output=None, cost_usd=0.75, tokens=7)          # what Codex said it spent
+    with pytest.raises(RuntimeError, match="exec failed") as failed:
+        run("priced")
+    assert (failed.value.spent.tokens, failed.value.spent.cost_usd) == (12, 1.0)
+    Codex.fail = RuntimeError("the environment's exec failed")
+    Codex.fail.spent = RunOutput(output=None, cost_usd=0.75, tokens=7)
+    with pytest.raises(RuntimeError, match="exec failed") as failed:
+        run("usage")                                                            # a subscription user
+    assert failed.value.spent.cost_usd is None
 
 
 def test_a_quote_in_a_placed_paths_folder_stays_a_name_in_roots_script(tmp_path):
@@ -709,8 +761,10 @@ def test_a_persona_reply_that_failed_to_parse_stays_in_the_runs_records(tmp_path
     monkeypatch.setattr(ahe_user, "_MODEL", None)
     monkeypatch.setattr(ahe_user, "_CLOSE", [])
     for name, value in (("USER_LLM_BASE_URL", "http://127.0.0.1:9/v1"), ("USER_LLM_MODEL", "m"),
-                        ("AHE_BETA_USAGE_PATH", "")):
+                        ("USER_LLM_API_KEY", "k"), ("AHE_BETA_USAGE_PATH", "")):
         monkeypatch.setenv(name, value)
+    for name in ("NO_PROXY", "no_proxy", "AHE_BETA_OBSERVATION_ROOT"):        # put back as they were (it sets them)
+        monkeypatch.setenv(name, os.environ.get(name, ""))
     ahe_user.simulate({"id": "r01-s00-t", "name": "t"}, None, None,
                       {"artifact_root": str(tmp_path / "users/s1"), "session_id": "s1", "persona": {},
                        "scenario": {"workspace": {"params": {}}}})
@@ -829,6 +883,7 @@ def test_a_keyless_backend_is_sent_a_placeholder_and_a_reference_keeps_its_effor
     from hermit.agent.base import endpoint
     from hermit.agent.model import backends
     monkeypatch.setattr(endpoint, "relay", lambda url: url)
+    monkeypatch.setattr(ahe_user, "_refused", lambda base_url, key: None)      # settings only: no request goes out
     monkeypatch.setattr(backends, "registry", functools.partial(backends.registry, user_file=None, environ={}))
     monkeypatch.delenv("VLLM_API_KEY", raising=False)                         # vllm: key_required false
     monkeypatch.setenv("USER_LLM_REASONING_EFFORT", "high")
@@ -839,10 +894,27 @@ def test_a_keyless_backend_is_sent_a_placeholder_and_a_reference_keeps_its_effor
 
 def test_a_sessions_user_tokens_are_priced_as_hermit_prices_a_call():
     import ahe_user
-    usage = {"input_tokens": 1000, "cached_input_tokens": 400, "output_tokens": 100, "total_tokens": 1100}
+    calls = [{"input_tokens": 1000, "cached_input_tokens": 400, "output_tokens": 100, "total_tokens": 1100}]
     price = {"input": 1.0, "cached_input": 0.5, "output": 4.0}                 # USD per million tokens
-    assert ahe_user.spend(usage, price) == {"tokens": 1100, "cost_usd": (600 * 1.0 + 400 * 0.5 + 100 * 4.0) / 1e6}
-    assert ahe_user.spend(usage, None) == {"tokens": 1100, "cost_usd": None}
+    assert ahe_user.spend(calls, price) == {"tokens": 1100, "cost_usd": (600 * 1.0 + 400 * 0.5 + 100 * 4.0) / 1e6}
+    assert ahe_user.spend(calls, None) == {"tokens": 1100, "cost_usd": None}
+
+
+def test_ahe_betas_own_variables_need_their_own_key_and_no_model_named_otherwise(tmp_path, monkeypatch):
+    """Without USER_LLM_API_KEY, AHE-Beta's client sent the operator's OPENAI_API_KEY to USER_LLM_BASE_URL (a gateway of
+    someone else's, a local server); a mapping naming neither a CLI nor a reference fell back to those variables."""
+    import ahe_user
+    monkeypatch.setenv("USER_LLM_BASE_URL", "http://gateway.example/v1")
+    monkeypatch.setenv("USER_LLM_MODEL", "m")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-the-operators-openai-key")
+    monkeypatch.delenv("USER_LLM_API_KEY", raising=False)
+    with pytest.raises(ahe_user.Misconfigured, match="without USER_LLM_API_KEY") as refused:
+        ahe_user._model_env(None, tmp_path)
+    assert refused.value.final
+    monkeypatch.setenv("USER_LLM_API_KEY", "its-own")
+    assert ahe_user._model_env(None, tmp_path) == {}                          # its own key: as the caller set it
+    with pytest.raises(ahe_user.Misconfigured, match="names the user's model"):
+        ahe_user._model_env({"effort": "low"}, tmp_path)                       # a mapping with no model in it
 
 
 def test_a_reference_whose_backend_needs_a_missing_key_or_sets_extra_body_is_refused(tmp_path, monkeypatch):
@@ -863,6 +935,111 @@ def test_a_reference_whose_backend_needs_a_missing_key_or_sets_extra_body_is_ref
                         lambda ref, registry: dataclasses.replace(real(ref, registry), extra_body={"top_k": 5}))
     with pytest.raises(ValueError, match="extra_body"):
         ahe_user._model_env({"ref": "vllm/m"}, tmp_path)
+
+
+def test_a_reference_whose_endpoint_refuses_the_key_is_refused_before_a_session(tmp_path, monkeypatch):
+    """A revoked key passed the presence check: each session's review met the 401 after its actor ran, scored as the
+    user's failure, which runs the whole session again."""
+    import dataclasses
+    import http.server
+    import threading
+    import ahe_user
+    from hermit.agent.base import endpoint
+    from hermit.agent.model import backends
+    asked = []
+
+    class Refusing(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):                                                      # its model list: no model call
+            asked.append((self.path, self.headers.get("Authorization")))
+            self.send_response(self.server.status)
+            if getattr(self.server, "location", None):
+                self.send_header("Location", self.server.location)
+            self.end_headers()
+            self.wfile.write(b'{"error": {"message": "invalid api key"}}')
+
+        def log_message(self, *args):
+            pass
+    server = http.server.HTTPServer(("127.0.0.1", 0), Refusing)
+    server.status = 401
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    for name in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"):
+        monkeypatch.delenv(name, raising=False)                                # this endpoint, not a proxy's
+    try:
+        monkeypatch.setattr(endpoint, "relay", lambda url: "http://127.0.0.1:1/relay")   # sessions' way, not asked
+        monkeypatch.setattr(backends, "registry", functools.partial(backends.registry, user_file=None, environ={}))
+        real = backends.as_binding
+        def bound(ref, registry):                                              # the backend at this endpoint
+            binding = real(ref, registry)
+            return dataclasses.replace(binding, backend=dataclasses.replace(
+                binding.backend, base_url=f"http://127.0.0.1:{server.server_port}/v1"))
+        monkeypatch.setattr(backends, "as_binding", bound)
+        monkeypatch.setenv("VLLM_API_KEY", "revoked")
+        with pytest.raises(ahe_user.Misconfigured, match="refuses the run's key") as refused:
+            ahe_user._model_env({"ref": "vllm/m"}, tmp_path)
+        assert refused.value.final and asked == [("/v1/models", "Bearer revoked")]
+        server.status = 429                                                    # busy, or anything else: a session
+        assert ahe_user._model_env({"ref": "vllm/m"}, tmp_path)["USER_LLM_MODEL"] == "m"   # finds out
+        server.status = 403                                                    # the list refused, chat perhaps not
+        assert ahe_user._model_env({"ref": "vllm/m"}, tmp_path)["USER_LLM_MODEL"] == "m"
+        elsewhere = http.server.HTTPServer(("127.0.0.1", 0), Refusing)        # a redirect: the key not carried on
+        elsewhere.status = 200
+        threading.Thread(target=elsewhere.serve_forever, daemon=True).start()
+        try:
+            asked.clear()
+            server.status, server.location = 302, f"http://127.0.0.1:{elsewhere.server_port}/models"
+            assert ahe_user._refused(f"http://127.0.0.1:{server.server_port}/v1", "the-key") is None
+            assert asked == [("/v1/models", "Bearer the-key")]                 # the first origin only
+        finally:
+            elsewhere.shutdown()
+    finally:
+        server.shutdown()
+
+
+def test_this_machines_proxy_never_carries_a_loopback_request(monkeypatch):
+    """AHE-Beta's persona clients (httpx) and the key probe (urllib) gave a proxy every host NO_PROXY did not name: the
+    loopback relay's requests, the user's prompts and the key in clear, to a proxy that cannot reach them anyway."""
+    import urllib.request
+    import ahe_user
+    monkeypatch.setenv("http_proxy", "http://proxy.invalid:3128")
+    monkeypatch.setenv("NO_PROXY", "corp.example")
+    monkeypatch.delenv("no_proxy", raising=False)
+    assert not urllib.request.proxy_bypass("127.0.0.1")
+    ahe_user._loopback_direct()
+    assert os.environ["NO_PROXY"] == os.environ["no_proxy"] == "corp.example,127.0.0.1,localhost,::1"
+    assert urllib.request.proxy_bypass("127.0.0.1") and urllib.request.proxy_bypass("localhost")
+    assert urllib.request.proxy_bypass("corp.example")                         # the operator's own: still bypassed
+    assert not urllib.request.proxy_bypass("api.fireworks.ai")                 # a remote provider: its proxy still
+    monkeypatch.setenv("NO_PROXY", "*")                                        # every host already: so it stays
+    monkeypatch.delenv("no_proxy")
+    ahe_user._loopback_direct()
+    assert os.environ["no_proxy"] == "*" and urllib.request.proxy_bypass("api.fireworks.ai")
+
+
+def test_the_key_probe_goes_the_way_the_relays_client_goes(tmp_path, monkeypatch):
+    """The relay's client follows this machine's proxy settings: a probe sent around them waited out a blocked direct
+    route, or heard another answer than the gateway the sessions reach."""
+    import http.server
+    import threading
+    import ahe_user
+    asked = []
+
+    class Proxy(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            asked.append(self.path)                                            # a proxy is asked the whole URL
+            self.send_response(401)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+    proxy = http.server.HTTPServer(("127.0.0.1", 0), Proxy)
+    threading.Thread(target=proxy.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setenv("http_proxy", f"http://127.0.0.1:{proxy.server_port}")
+        monkeypatch.setenv("no_proxy", "")
+        assert ahe_user._refused("http://gateway.invalid/v1", "k") == 401
+        assert asked == ["http://gateway.invalid/v1/models"]
+    finally:
+        proxy.shutdown()
 
 
 def test_the_persona_line_ahe_beta_appends_to_an_issue_stays_private():
@@ -888,6 +1065,8 @@ def test_the_users_usage_ledger_is_the_runs_though_another_was_inherited(tmp_pat
         monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
     monkeypatch.setitem(sys.modules, "ahe_beta.integrations.hermit.session", module)
     monkeypatch.setenv("AHE_BETA_USAGE_PATH", "")
+    for name in ("NO_PROXY", "no_proxy", "AHE_BETA_OBSERVATION_ROOT"):        # put back as they were (it sets them)
+        monkeypatch.setenv(name, os.environ.get(name, ""))
     monkeypatch.setattr(ahe_user, "_MODEL", None)
     monkeypatch.setattr(ahe_user, "_model_env", lambda spec, records, admitted=False: {})
     monkeypatch.setattr(ahe_user.atexit, "register", lambda function: None)
@@ -939,6 +1118,73 @@ def test_a_cli_user_model_that_cannot_serve_is_refused_before_any_sandbox_opens(
     assert refused.value.final and opened == []
 
 
+def test_an_interrupt_ends_the_request_it_stops_in_ahe_betas_record(monkeypatch):
+    """AHE-Beta's handle closes a request only on a reply, and an interrupt does not wait for one (its stop reply is
+    kept apart): the next message joined the interrupted request, one outcome for two."""
+    import ahe_user
+    runtime = types.ModuleType("ahe_beta.user.sim.runtime")
+    runtime.utc_now = lambda: "2026-11-25T00:00:00+00:00"
+    monkeypatch.setitem(sys.modules, "ahe_beta.user.sim.runtime", runtime)
+
+    class Handle:                                        # upstream's ConversationHandle, as far as control goes
+        def __init__(self):
+            self.in_flight, self._request, self.request_outcomes = True, {"request_id": "1"}, []
+            self.last_request_status = ""
+            self.interrupted = 0
+
+        def control(self, action):
+            self.interrupted += 1
+    Handle.control = ahe_user._closing(ahe_user._closing(Handle.control))      # applied once, however often asked
+    handle = Handle()
+    handle.control("interrupt")
+    assert handle.interrupted == 1 and not handle.in_flight and handle._request is None
+    assert handle.request_outcomes == [{"request_id": "1", "status": "interrupted",
+                                        "finished_at": "2026-11-25T00:00:00+00:00",
+                                        "termination_reason": "interrupted"}]
+    handle.control("interrupt")                          # nothing in flight: nothing more recorded
+    assert len(handle.request_outcomes) == 1
+
+
+def test_a_native_ahe_beta_runs_observation_store_is_not_the_sessions(tmp_path, monkeypatch):
+    """AHE-Beta's simulator preflights AHE_BETA_OBSERVATION_ROOT when it is set: one a native run left in the shell
+    (read-only, or with a backlog) failed every session before it began, its own artifact_root unused."""
+    import ahe_user
+    seen = {}
+    module = types.ModuleType("ahe_beta.integrations.hermit.session")
+
+    def simulate(task, agent, workspace, native):
+        seen["root"] = os.environ.get("AHE_BETA_OBSERVATION_ROOT")
+        raise RuntimeError("stop here")
+    module.simulate = simulate
+    sim = types.ModuleType("ahe_beta.user.sim")
+
+    def imported(name):                                  # the persona client, imported: it loads the checkout's .env,
+        if name != "persona_client":                     # which may name the old store again
+            raise AttributeError(name)
+        os.environ.setdefault("AHE_BETA_OBSERVATION_ROOT", str(tmp_path / "named-by-dotenv"))
+        return types.SimpleNamespace()
+    sim.__getattr__ = imported
+    monkeypatch.setitem(sys.modules, "ahe_beta.user", types.ModuleType("ahe_beta.user"))
+    monkeypatch.setitem(sys.modules, "ahe_beta.user.sim", sim)
+    usage = types.ModuleType("ahe_beta.usage")
+    usage.default_usage_store = lambda: types.SimpleNamespace(events=lambda session_id: [])
+    for name in ("ahe_beta", "ahe_beta.integrations", "ahe_beta.integrations.hermit"):
+        monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+    monkeypatch.setitem(sys.modules, "ahe_beta.integrations.hermit.session", module)
+    monkeypatch.setitem(sys.modules, "ahe_beta.usage", usage)
+    monkeypatch.setattr(ahe_user, "_MODEL", None)                              # the process's first session
+    for name in ("NO_PROXY", "no_proxy"):                                     # put back as they were (it sets them)
+        monkeypatch.setenv(name, os.environ.get(name, ""))
+    monkeypatch.setattr(ahe_user, "_model_env", lambda spec, records, admitted=False: {})
+    monkeypatch.setenv("AHE_BETA_OBSERVATION_ROOT", str(tmp_path / "an-old-store"))
+    monkeypatch.setenv("AHE_BETA_USAGE_PATH", str(tmp_path / "an-old-ledger.jsonl"))
+    params = {"artifact_root": str(tmp_path / "s1"), "session_id": "s1", "persona": {"identity": "p"},
+              "scenario": {"workspace": {"params": {}}}}
+    with pytest.raises(RuntimeError, match="stop here"):
+        ahe_user.simulate({"id": "r01-s00-t", "name": "t"}, None, None, params)
+    assert seen == {"root": None} and os.environ["AHE_BETA_USAGE_PATH"] != str(tmp_path / "an-old-ledger.jsonl")
+
+
 def test_a_failed_session_carries_what_its_user_model_spent(tmp_path, monkeypatch):
     """AHE-Beta raises on a failed capture or review before it returns the session's usage; its ledger has every
     call already, under the session's id."""
@@ -949,9 +1195,9 @@ def test_a_failed_session_carries_what_its_user_model_spent(tmp_path, monkeypatc
         raise RuntimeError("task output collection failed; no score may be emitted")
     module.simulate = simulate
     usage = types.ModuleType("ahe_beta.usage")
-    usage.default_usage_store = lambda: types.SimpleNamespace(summary=lambda session_id: {
-        "input_tokens": 1000, "output_tokens": 100, "cached_input_tokens": 0, "total_tokens": 1100,
-        "unavailable_count": 0} if session_id == "s1" else {})
+    usage.default_usage_store = lambda: types.SimpleNamespace(events=lambda session_id: [
+        {"input_tokens": 1000, "output_tokens": 100, "cached_input_tokens": 0, "total_tokens": 1100}]
+        if session_id == "s1" else [])
     for name in ("ahe_beta", "ahe_beta.integrations", "ahe_beta.integrations.hermit"):
         monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
     monkeypatch.setitem(sys.modules, "ahe_beta.integrations.hermit.session", module)
@@ -963,18 +1209,28 @@ def test_a_failed_session_carries_what_its_user_model_spent(tmp_path, monkeypatc
     with pytest.raises(RuntimeError) as failed:
         ahe_user.simulate({"id": "r01-s00-t", "name": "t"}, None, None, params)
     assert failed.value.usage == {"tokens": 1100, "cost_usd": (1000 * 1.0 + 100 * 4.0) / 1e6}
-    assert ahe_user.spend({"total_tokens": 1100, "input_tokens": 1000, "output_tokens": 100, "unavailable_count": 1},
-                          {"input": 1.0, "output": 4.0}) == {"tokens": 1100, "cost_usd": 0.0014, "uncounted_calls": 1}
-    assert ahe_user.spend({"unavailable_count": 1}, {"input": 1.0}) == {"tokens": 0, "cost_usd": None,
-                                                                         "uncounted_calls": 1}   # unknown, not 0
-    assert ahe_user.spend({"total_tokens": 1000}, {"input": 1.0})["cost_usd"] is None   # a total alone: no split
-    assert ahe_user.spend({}, {"input": 1.0})["cost_usd"] is None                # an unreadable ledger
-    missing = {"input_tokens": 0, "output_tokens": 0, "cached_input_tokens": 0, "total_tokens": 0,
-               "unavailable_count": 0, "event_count": 0}                         # AHE-Beta's summary of no ledger
-    assert ahe_user.spend(missing, {"input": 1.0})["cost_usd"] is None
-    mixed = {"input_tokens": 100, "output_tokens": 10, "total_tokens": 1110}     # a call counted, one a total alone
-    assert ahe_user.spend(mixed, {"input": 1.0, "output": 4.0}) == {"tokens": 1110, "cost_usd": 0.00014,
-                                                                    "uncounted_calls": 1}
+    full = {"total_tokens": 1100, "input_tokens": 1000, "output_tokens": 100}
+    assert ahe_user.spend([full, {"usage_source": "unavailable"}], {"input": 1.0, "output": 4.0}) == {
+        "tokens": 1100, "cost_usd": 0.0014, "uncounted_calls": 1}
+    assert ahe_user.spend([{"usage_source": "unavailable"}], {"input": 1.0}) == {"tokens": 0, "cost_usd": None,
+                                                                                  "uncounted_calls": 1}   # unknown
+    assert ahe_user.spend([{"total_tokens": 1000}], {"input": 1.0}) == {"tokens": 1000, "cost_usd": None,
+                                                                         "uncounted_calls": 1}   # a total alone
+    assert ahe_user.spend([], {"input": 1.0})["cost_usd"] is None                # no call read: unknown, not 0
+    # AHE-Beta's summary sums each field apart: a call that reported its prompt alone, another its total alone, were
+    # 60 input and 100 total there (100 tokens, the two "agreeing"), 160 known
+    assert ahe_user.spend([{"input_tokens": 60}, {"total_tokens": 100}], {"input": 1.0}) == {
+        "tokens": 160, "cost_usd": None, "uncounted_calls": 2}
+    # cached tokens alone, or past the prompt's (a prompt that does not count them): at least those, counted short
+    assert ahe_user.spend([{"cached_input_tokens": 8000}], {"input": 1.0}) == {"tokens": 8000, "cost_usd": None,
+                                                                                "uncounted_calls": 1}
+    assert ahe_user.spend([{"input_tokens": 50, "output_tokens": 10, "cached_input_tokens": 8000}], {"input": 1.0}) \
+        == {"tokens": 8010, "cost_usd": None, "uncounted_calls": 1}
+    assert ahe_user.spend([{"input_tokens": 60}, {"input_tokens": 20, "output_tokens": 10, "total_tokens": 30}],
+                          {"input": 1.0}) == {"tokens": 90, "cost_usd": 0.00002, "uncounted_calls": 1}
+    # a total its parts leave short (a provider's own count): the parts priced, the call said to be priced short
+    assert ahe_user.spend([{"input_tokens": 60, "output_tokens": 20, "total_tokens": 100}], {"input": 1.0}) == {
+        "tokens": 100, "cost_usd": 0.00006, "uncounted_calls": 1}
 
 
 def test_the_user_models_lost_sign_in_is_named_in_its_sessions_failure(tmp_path, monkeypatch):

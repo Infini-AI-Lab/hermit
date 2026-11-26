@@ -150,7 +150,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   works, follow-ups, interrupts, then a verdict); `utils/ahe_user.py` puts AHE-Beta's own simulator behind it, its
   model reached through Hermit; `utils/judge.py` scores the verdict the host kept; `prepare.py` turns an AHE-Beta
   cohort into a run whose learner never reads a persona. AHE-Beta's own demand and delivery Evolver (Gitea,
-  OpenAgents) is in `delivery/`: its controller and worker run in the run's sandbox; not validated end to end.
+  OpenAgents) is in `delivery/`: its controller and worker run in the run's sandbox; run end to end once (a U4 round
+  on the paper's models, its delivery bound for the next round), not evaluated.
 - `hermit convert` names the adapter's folder and files as a deployment does: a Claude Code plugin prints, from a
   `SessionStart` hook, where its embedded adapter is and the files no export connects (the list a deployment's
   context gives); Codex, Pi and Hermes plugins list those files under `unnamed_files` in the result and their README.

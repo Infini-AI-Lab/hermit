@@ -1,9 +1,12 @@
 """Mailbox races and adapter hook decisions must not fabricate a successful turn."""
 
 import importlib.util
+import io
 import json
+import os
 from pathlib import Path
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -89,6 +92,65 @@ def test_a_large_tool_output_reaches_the_user_cut_and_a_small_input_as_it_is(tmp
                 if e["kind"] == "tool")
     assert len(tool["output"]) < 21000 and "more characters" in tool["output"]
     assert tool["input"] == CALL["tool_input"]
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="a hook's processes are found by their environment in /proc")
+def test_a_timed_out_adapter_stop_hook_leaves_no_process_behind(tmp_path, monkeypatch):
+    """Only the hook's shell was killed at its timeout: a pipeline's child went on writing the workspace into the
+    user's next turn. And only the hook's: the caller's own processes were killed with them."""
+    hook(tmp_path, incoming=[], event="PreToolUse", payload=CALL)
+    spec = importlib.util.spec_from_file_location("ahe_user_hook_stop_test", tmp_path / "user_hook.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    bystander = subprocess.Popen(["sleep", "30"])                              # the caller's own, not the hook's
+    marker = tmp_path / "written-late"
+    started = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        module.run_hook(f"(sleep 2; touch {marker}) & sleep 30", "{}", str(tmp_path), 1)
+    assert time.monotonic() - started < 10
+    time.sleep(2.5)
+    assert not marker.exists()
+    done = module.run_hook("cat; exit 2", "in", str(tmp_path), 5)
+    assert (done.stdout, done.returncode) == ("in", 2)                         # its input, its exit code
+    started = time.monotonic()                                                 # a child that left the group, its
+    late = tmp_path / "written-by-the-detached"                                # pipes open: not waited for, and
+    with pytest.raises(subprocess.TimeoutExpired):                             # ended with the hook all the same
+        module.run_hook(f"setsid sh -c 'sleep 2; touch {late}' & sleep 30", "{}", str(tmp_path), 1)
+    assert time.monotonic() - started < 10
+    time.sleep(2.5)
+    assert not late.exists()
+    orphan = tmp_path / "written-by-the-orphan"                                # its launcher gone at once: the
+    with pytest.raises(subprocess.TimeoutExpired):                             # helper an orphan, found by the
+        module.run_hook(f"setsid sh -c 'sleep 2; touch {orphan}' & exit 0", "{}", str(tmp_path), 1)   # hook's mark
+    time.sleep(2.5)
+    assert not orphan.exists()
+    real, meanwhile = module.marked, []
+
+    def look(mark):                                                            # one the hook starts between a look
+        found = real(mark)                                                     # and its kills: the next look takes
+        if not meanwhile:                                                      # it
+            meanwhile.append(subprocess.Popen(["sleep", "30"], env={**os.environ, module.HOOK_MARK: mark}))
+        return found
+    monkeypatch.setattr(module, "marked", look)
+    with pytest.raises(subprocess.TimeoutExpired):
+        module.run_hook("sleep 30", "{}", str(tmp_path), 1)
+    assert meanwhile[0].wait(timeout=5) == -signal.SIGKILL
+    assert bystander.poll() is None
+    bystander.kill()
+    bystander.wait()
+
+
+def test_the_hook_reads_no_message_still_being_written(tmp_path):
+    """The host writes a message as a dot-file, then renames it: the hook took it half-written."""
+    hook(tmp_path, incoming=[], event="PreToolUse", payload=CALL)
+    spec = importlib.util.spec_from_file_location("ahe_user_hook_dot_test", tmp_path / "user_hook.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.TO_AGENT.mkdir(parents=True, exist_ok=True)
+    (module.TO_AGENT / ".1764000000.000001-message.json").write_text('{"id": "u1", "kind": "mess')
+    assert module.waiting("message") == []
+    (module.TO_AGENT / ".1764000000.000001-message.json").rename(module.TO_AGENT / "1764000000.000001-message.json")
+    assert [p.name for p in module.waiting("message")] == ["1764000000.000001-message.json"]
 
 
 def test_a_follow_up_claimed_at_stop_is_handed_over_though_its_report_fails(tmp_path, monkeypatch, capsys):
@@ -177,6 +239,61 @@ def test_an_interrupt_of_an_agent_waiting_at_its_stop_returns_at_the_acknowledge
     assert c.interrupt("stop", timeout=10) is None and time.monotonic() - started < 5
 
 
+def test_a_waited_interrupt_sharing_a_stop_with_an_earlier_one_gets_the_shared_reply():
+    """Both interrupts reach Codex before its Stop, which takes them together into one reply: counted, the reply went
+    to the first (nobody waits for it) and the second caller waited out its timeout for nothing."""
+    shared = {"seq": 1, "kind": "reply", "text": "stopped", "interrupted": True, "interrupts": 2,
+              "interrupt_ids": ["u2", "u3"]}
+    feed = Feed([[shared], [{"seq": 2, "kind": "reply", "text": "the answer", "interrupted": False}]])
+    c = channel.Conversation(None, lambda text: None, lambda: True, lambda: None, transport=feed)
+    c.write("start")
+    assert c.interrupt("first", timeout=0) is None
+    started = time.monotonic()
+    assert c.interrupt("second", timeout=10)["text"] == "stopped" and time.monotonic() - started < 5
+    c.write("a new question")
+    assert c.poll(1)["text"] == "the answer"
+
+
+def test_a_reply_the_hook_handed_over_twice_is_read_once():
+    """The hook tries a reply again when the bridge did not answer, which it may have kept: under its id, one."""
+    first = {"seq": 1, "kind": "reply", "text": "first", "interrupted": False, "rid": "r1"}
+    feed = Feed([[first], [{**first, "seq": 2}], [{"seq": 3, "kind": "reply", "text": "second", "rid": "r2"}]])
+    c = channel.Conversation(None, lambda text: None, lambda: True, lambda: None, transport=feed)
+    c.write("start")
+    assert c.poll(1)["text"] == "first"
+    c.write("next")
+    assert c.poll(1)["text"] == "second"
+
+
+def test_the_hook_hands_a_reply_over_again_under_one_id(tmp_path, monkeypatch):
+    """A terminal reply (an adapter's `continue: false`) went through told(): one try, its failure swallowed, and Codex
+    exits on that Stop, so nothing could hand the session's answer over later."""
+    import importlib.util
+    script = tmp_path / "user_hook.py"
+    script.write_bytes((UTILS / "user_hook.py").read_bytes())
+    script.with_suffix(".json").write_text(json.dumps({"mail": str(tmp_path)}))
+    spec = importlib.util.spec_from_file_location("hook_under_test", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sent = []
+
+    def report(kind, _timeout=10.0, **fields):
+        sent.append(fields)
+        if kind == "reply" and len([f for f in sent if "rid" in f]) == 1:   # the first try of the reply
+            raise RuntimeError("user channel report failed")
+    monkeypatch.setattr(module, "report", report)
+    monkeypatch.setattr(module.time, "sleep", lambda s: None)
+    module.CFG["adapter_stop"] = [{"command": 'printf \'%s\' \'{"continue":false,"stopReason":"done"}\''}]
+    module.CFG["wait_s"] = 0.01
+    for folder in ("to-agent", "to-user", "taken"):
+        (tmp_path / folder).mkdir(exist_ok=True)
+    monkeypatch.setattr(sys, "argv", ["user_hook.py", "Stop"])                 # the Stop hook's terminal branch
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"last_assistant_message": "done"})))
+    module.main()
+    replies = [f for f in sent if f.get("terminal")]
+    assert len(replies) == 2 and replies[0]["rid"] == replies[1]["rid"] and replies[1]["text"] == "done"
+
+
 def test_after_the_adapters_stop_hook_ended_the_session_nothing_more_is_sent():
     """Its `continue: false` ended Codex: a message written after it would wait for a process that is gone."""
     feed = Feed([[], [{"seq": 1, "kind": "reply", "text": "finished", "interrupted": False, "terminal": True}]])
@@ -197,6 +314,27 @@ def test_an_interrupt_that_comes_while_the_adapters_stop_hooks_run_marks_the_rep
     assert [(e["kind"], e.get("interrupted"), e.get("interrupts")) for e in told if e["kind"] == "reply"] == [
         ("reply", True, 1)]
     assert not any(e["kind"] == "interrupt_ack" for e in told) and not queued.exists()
+
+
+def test_an_end_or_interrupt_that_comes_while_the_adapters_stop_hooks_run_comes_first(tmp_path):
+    """The adapter's block printed after the user had ended the session (another turn bought), and its stop published
+    the reply unmarked though an interrupt it consumed came meanwhile."""
+    end = json.dumps({"id": "8", "kind": "end", "text": "bye"})
+    queued = tmp_path / "to-agent" / "0008-end.json"
+    block = json.dumps({"decision": "block", "reason": "run the checks again"})
+    said = hook(tmp_path, incoming=[], adapter=[{"command": f"printf '%s' {shlex.quote(end)} > "
+                                                            f"{shlex.quote(str(queued))}; echo {shlex.quote(block)}"}])
+    assert "run the checks again" not in said.stdout                           # the end: the agent stops
+    other = tmp_path / "second"
+    other.mkdir()
+    interrupt = json.dumps({"id": "9", "kind": "interrupt", "text": "stop"})
+    stop = json.dumps({"continue": False, "stopReason": "done here"})
+    hook(other, incoming=[], adapter=[{"command": f"printf '%s' {shlex.quote(interrupt)} > "
+                                                  f"{shlex.quote(str(other / 'to-agent' / '0009-interrupt.json'))}; "
+                                                  f"echo {shlex.quote(stop)}"}])
+    told = [json.loads(p.read_text()) for p in sorted((other / "to-user").glob("*.json"))]
+    replies = [e for e in told if e["kind"] == "reply"]
+    assert [(e.get("interrupted"), e.get("terminal")) for e in replies] == [(True, None)]   # the interrupt's reply
 
 
 def test_a_tool_call_waits_when_the_channel_cannot_be_read(tmp_path):

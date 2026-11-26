@@ -43,7 +43,8 @@ data: {step_size: <a round's sessions>, shuffle: false}            # one step = 
 
 The example's [README](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/ahe_beta_adapter) has the setup
 (AHE-Beta's pinned checkout, Harbor, the Codex release mounted into each task's container) and AHE-Beta's own demand
-and delivery Evolver (`examples/ahe_beta_adapter/delivery/`: its team in the run's sandbox, not validated end to end).
+and delivery Evolver (`examples/ahe_beta_adapter/delivery/`: its team in the run's sandbox, run end to end once, not
+evaluated).
 
 ## The template
 
@@ -112,7 +113,7 @@ records (its session, the persona, its private checks, AHE-Beta's full outcome) 
 | When learning happens | after each round: every seed once with its persona; five rounds learn, the sixth is observed | the same: one step is one round (`step_size`: the round's sessions), one epoch; the last round is the evaluation split | Same | no |
 | What the learner sees | Triage: issues with their evidence, interaction records, harness logs; PM: ratings and summaries; never a persona prompt or a verifier | the users' verdicts (rating, outcome, reason, issues), their transcripts, the agent's event stream; no persona and no simulator record; the task's verifier verdict is recorded with each rollout (AHE-Beta's exported tasks only copy the user's rating) | Framework: the learning material | no |
 | Each component's carrier | NexAU's whole seed harness: configuration, entry point, tool definitions and their code, prompts, parameters; written by the developer agents | the adapter's files (the table above): instructions, command hooks, scripts and skills, roles; written by the learner only; Codex's loop, tools, context handling and sampling fixed | Framework: the acting agent is fixed; the reason for the name | no |
-| The update | requirement-driven: Triage, the Architect's RFC, the PM, admission, developers' pull requests, review; a change merges only for a verified requirement | one Codex learner session with AHE-Beta's protocol as text (`.hermit/EVOLVER.md`), `check_spec`; every step kept, no gate, no rollback | Decision: the validated route; AHE-Beta's own pipeline is in the example, not validated | yes: requirement-driven selection |
+| The update | requirement-driven: Triage, the Architect's RFC, the PM, admission, developers' pull requests, review; a change merges only for a verified requirement | one Codex learner session with AHE-Beta's protocol as text (`.hermit/EVOLVER.md`), `check_spec`; every step kept, no gate, no rollback | Decision: the validated route; AHE-Beta's own pipeline is in the example, run end to end once | yes: requirement-driven selection |
 | User simulation | its persona loop, private checks, terminal review | the same code, its transport Hermit's channel in each task's Harbor environment | Same | no |
 | Tasks and runtime | 32 seeds; U8, U16 and U32 over six rounds; E2B sandboxes with internet access | the same cohorts as Harbor task directories (local Docker, the public network), without the sessions whose task needs a companion container (one a round in U8 and U16, two in U32) | Framework: a Hermit environment does not reach a companion container yet | yes: companion containers |
 | Models and budgets | GLM-5.3-Flash acting and user, GLM-5.3 team, Claude Code developers; the recipes' budgets | configuration (GPT-5.6-Luna on a ChatGPT login by default, GLM-5.3-Flash by reference); the exporter's budgets, Codex's clock ending `review_s` before the deadline | Decision | no |
@@ -122,7 +123,9 @@ records (its session, the persona, its private checks, AHE-Beta's full outcome) 
 
 No experiment of the paper's has run yet. The runs so far check the route end to end on real models: the channel's
 smoke, AHE-Beta's simulator on one seed, and four U8 seeds over two rounds with one Codex Evolver step, whose ratings
-(4, 3, 3, 3, then 2, 3, 3, 4) four sessions a round cannot tell apart
+(4, 3, 3, 3, then 2, 3, 3, 4) four sessions a round cannot tell apart; and AHE-Beta's own pipeline once on four U4
+seeds with the paper's team models (GLM-5.3, its developers Claude Code), which delivered four requirements, bound them
+and ran the next round's sessions on them (ratings 4, 1, 2, 1, then 1, 2, 1, 2): no matched evaluation of either
 ([validation](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/ahe_beta_adapter#validation)).
 
 ## What it is not
@@ -130,5 +133,6 @@ smoke, AHE-Beta's simulator on one seed, and four U8 seeds over two rounds with 
 The learner cannot change Codex's own loop, tools, context handling or sampling: a tool is a script the shell runs or a
 skill, and a behaviour at run time acts only through what Codex's hooks allow (add context after a tool call, deny a
 tool call, block a stop). The validated run (`run.yaml`) gives the learner AHE-Beta's protocol as text; it has neither
-AHE-Beta's team nor its requirement-driven selection, which only `run-delivery.yaml` runs (not validated end to end).
+AHE-Beta's team nor its requirement-driven selection, which only `run-delivery.yaml` runs (run end to end once on one
+round, not evaluated).
 The held-out evaluation is not packaged.

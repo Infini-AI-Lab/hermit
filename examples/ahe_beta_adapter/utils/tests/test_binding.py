@@ -1,12 +1,13 @@
 """Tested adapter bindings compare content, not unrelated repository commit IDs."""
 
+import json
 from pathlib import Path
 import sys
 import subprocess
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from binding import fingerprint, read, write
+from binding import bound, fingerprint, read, record, write
 
 
 def test_binding_rejects_different_bytes_and_ignores_generated_card(tmp_path):
@@ -23,6 +24,9 @@ def test_binding_rejects_different_bytes_and_ignores_generated_card(tmp_path):
     git("add", ".")
     git("commit", "-m", "fixture")
     binding = tmp_path / "binding.json"
+    with pytest.raises(ValueError, match="not on its origin's main"):         # a commit Gitea never had
+        write(binding, adapter=repo, repo=repo, run_id="run", round_no=1)
+    git("update-ref", "refs/remotes/origin/main", "HEAD")
     expected = write(binding, adapter=repo, repo=repo, run_id="run", round_no=1)
     assert read(binding, repo) == expected
     (repo / ".hermit").mkdir()
@@ -31,6 +35,30 @@ def test_binding_rejects_different_bytes_and_ignores_generated_card(tmp_path):
     (repo / "ADAPTER.md").write_text("Changed")
     with pytest.raises(ValueError, match="differs"):
         read(binding, repo)
+
+
+def test_the_binding_keeps_each_rounds_commit_and_a_session_finds_its_adapters(tmp_path):
+    """One binding file used to hold the latest commit alone: after a failed step every later round's sessions, which
+    run the adapter the Trainer kept, refused it; a step redone after a crash found the next round's."""
+    seed, delivered = tmp_path / "seed", tmp_path / "delivered"
+    for root, text in ((seed, "seed"), (delivered, "delivered")):
+        root.mkdir()
+        (root / "ADAPTER.md").write_text(text)
+    binding = tmp_path / "binding.json"
+    record(binding, adapter=seed, commit="c1", run_id="run", round_no=1, anew=True)
+    record(binding, adapter=delivered, commit="c3", run_id="run", round_no=3)      # round 2's delivery failed
+    value = json.loads(binding.read_text())
+    assert (value["round"], value["harness_sha"]) == (3, "c3")                    # the latest, at the top
+    assert bound(value, adapter_sha256=fingerprint(seed), round_no=2)["harness_sha"] == "c1"
+    assert bound(value, adapter_sha256=fingerprint(seed), round_no=3)["harness_sha"] == "c1"   # a step redone
+    assert bound(value, adapter_sha256=fingerprint(delivered), round_no=3)["harness_sha"] == "c3"
+    assert bound(value, adapter_sha256=fingerprint(delivered), round_no=2) is None   # a later round's only
+    record(binding, adapter=delivered, commit="c3", run_id="run", round_no=3)      # written again: one entry
+    assert [e["round"] for e in json.loads(binding.read_text())["history"]] == [1, 3]
+    with pytest.raises(ValueError, match="run 'run'"):
+        record(binding, adapter=seed, commit="c4", run_id="another", round_no=4)
+    record(binding, adapter=seed, commit="c9", run_id="another", round_no=1, anew=True)   # a new run starts over
+    assert [e["harness_sha"] for e in json.loads(binding.read_text())["history"]] == ["c9"]
 
 
 def test_the_fingerprint_keeps_only_the_executable_bit_git_keeps(tmp_path):

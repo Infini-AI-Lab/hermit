@@ -32,10 +32,12 @@ from __future__ import annotations       # the image's python3 may be 3.8: no an
 
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 HERE = Path(__file__).resolve()
@@ -93,7 +95,7 @@ def waiting(kind: str) -> list[Path] | list[dict]:
         if not response.get("ok"):
             raise RuntimeError(response.get("error") or "user channel read failed")
         return list(response.get("messages") or [])
-    return sorted(TO_AGENT.glob(f"*-{kind}.json")) if TO_AGENT.is_dir() else []
+    return sorted(TO_AGENT.glob(f"[!.]*-{kind}.json")) if TO_AGENT.is_dir() else []   # not one still being written
 
 
 def take(paths: list[Path] | list[dict]) -> list[dict]:
@@ -121,6 +123,20 @@ def take(paths: list[Path] | list[dict]) -> list[dict]:
         except ValueError:
             pass
     return out
+
+
+def handed(kind: str, **fields) -> None:
+    """report(), for a reply: the session's answer, so tried again while the bridge fails a moment, under one id that
+    the host reads once (a report that reached it though its answer did not is no second reply)."""
+    fields.setdefault("rid", uuid.uuid4().hex)
+    for attempt in range(3):
+        try:
+            report(kind, **fields)
+            return
+        except Exception:                # noqa: BLE001 - the last failure is the caller's
+            if attempt == 2:
+                raise
+            time.sleep(1.0)
 
 
 def told(kind: str, **fields) -> None:
@@ -162,23 +178,69 @@ def said(messages: list[dict], frame: str) -> str:
     return frame.format(text="\n\n".join(str(m.get("text") or "") for m in messages))
 
 
+HOOK_MARK = "AHE_ADAPTER_HOOK"   # in a hook run's environment, a value of its own: every process it starts inherits it
+
+
+def marked(mark: str) -> list:
+    """The processes whose environment carries a hook run's mark: all it started, one that left its group or lost its
+    parent too, none of another run's or of this process's own."""
+    entry = f"{HOOK_MARK}={mark}".encode()
+    found = []
+    for pid in os.listdir("/proc") if os.path.isdir("/proc") else []:
+        if pid.isdigit():
+            try:
+                with open(f"/proc/{pid}/environ", "rb") as environ:
+                    if entry in environ.read().split(b"\0"):
+                        found.append(int(pid))
+            except OSError:                              # gone, or another user's
+                pass
+    return found
+
+
+def run_hook(command: str, raw: str, cwd, timeout: float) -> subprocess.CompletedProcess:
+    """An adapter's hook command (a shell line) with `raw` on its stdin, in a process group of its own: past its timeout
+    every process it started is killed (a pipeline's children, or a helper that left the group, would go on writing the
+    workspace into the user's next turn), then TimeoutExpired."""
+    mark = uuid.uuid4().hex
+    process = subprocess.Popen(command, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True, cwd=cwd, start_new_session=True,
+                               env={**os.environ, HOOK_MARK: mark})
+    try:
+        out, err = process.communicate(raw, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        deadline = time.monotonic() + 5
+        while True:                                      # until none is left: one may start another meanwhile
+            left = marked(mark)
+            for pid in left:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            try:
+                os.killpg(process.pid, signal.SIGKILL)   # one that cleared its environment, still in the group
+            except OSError:
+                pass
+            if not left or time.monotonic() > deadline:
+                break
+            time.sleep(0.05)
+        try:  # a child that left the group still holds the pipes: not waited for
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            for pipe in (process.stdout, process.stderr):
+                pipe.close()
+            process.wait()
+        raise
+    return subprocess.CompletedProcess(command, process.returncode, out, err)
+
+
 def adapter_stop(raw: str, payload: dict) -> dict | None:
-    """The adapter's own Stop hooks, one after another; the first block, or None when all of them let the agent
-    stop. Codex would run them at the same time as this hook, so the user would hear a reply the adapter is still
-    sending back for more work."""
+    """The adapter's own Stop hooks, one after another; the first block, else what they said without blocking (a
+    systemMessage), or None. Codex would run them at the same time as this hook, so the user would hear a reply the
+    adapter is still sending back for more work."""
     passthrough = {}
     for hook in CFG.get("adapter_stop") or []:
         try:
-            run = subprocess.run(
-                hook["command"],
-                shell=True,
-                input=raw,
-                capture_output=True,
-                text=True,
-                check=False,
-                cwd=payload.get("cwd") or None,
-                timeout=float(hook.get("timeout") or 60),
-            )
+            run = run_hook(hook["command"], raw, payload.get("cwd") or None, float(hook.get("timeout") or 60))
         except (OSError, subprocess.TimeoutExpired):
             continue
         if run.returncode == 2:  # the exit-code form of a block: stderr is the reason
@@ -279,31 +341,36 @@ def main() -> None:
     ends = waiting("end")
     if not interrupted and not ends:
         block = adapter_stop(raw, payload)
-        if block and (
-            block.get("decision") == "block" or block.get("continue") is False
-        ):
+        interrupts += take(waiting("interrupt"))   # the user's, while they ran: before their decision
+        interrupted = bool(interrupts)
+        decided = bool(block) and (block.get("decision") == "block" or block.get("continue") is False)
+        if decided and not interrupted and not waiting("end"):
             print(json.dumps(block), flush=True)
             told(
                 "adapter_stop" if block.get("continue") is False else "adapter_block",
                 reason=short(block.get("stopReason") or block.get("reason") or ""),
             )
-            if block.get("continue") is False:
-                told(
-                    "reply",
-                    text=reply_text(payload),
-                    interrupted=False,
-                    turn=payload.get("turn_id"),
-                    terminal=True,
-                )
+            if block.get("continue") is False:   # Codex exits on it: no later Stop could hand this reply over
+                try:
+                    handed(
+                        "reply",
+                        text=reply_text(payload),
+                        interrupted=False,
+                        turn=payload.get("turn_id"),
+                        terminal=True,
+                    )
+                except Exception:        # noqa: BLE001 - the decision stands; the host reads Codex gone
+                    pass
             return
-        passthrough = block or {}
+        passthrough = {} if decided else (block or {})   # an end or interrupt overrode its block or stop
     interrupts += take(waiting("interrupt"))   # one that came while the adapter's Stop hooks ran: this reply is its
     interrupted = bool(interrupts)
-    report(
+    handed(
         "reply",
         text=reply_text(payload),
         interrupted=interrupted,
         interrupts=len(interrupts),
+        interrupt_ids=[m.get("id") for m in interrupts],   # which interrupts it answers: whoever waits for one
         turn=payload.get("turn_id"),
     )
     deadline = time.monotonic() + float(CFG.get("wait_s") or 3600)

@@ -45,6 +45,37 @@ def test_the_template_checks_and_refuses_a_conditional_stop_hook(tmp_path):
     for hooks in ({"Stop": {}}, {"PostToolUse": [{"hooks": [{"type": "command", "command": "  "}]}]}):
         (candidate / ".codex/hooks.json").write_text(json.dumps({"hooks": hooks}))   # Hermit refuses to load them:
         assert not check_spec(candidate, TEMPLATE).passed                         # every session would fail
+    (candidate / ".codex/hooks.json").write_text(json.dumps({"hooks": {}}))
+    for roles, passes in ((["Reviewer"], False), (["code-review", "code_review"], False), (["code-review"], True)):
+        shutil.rmtree(candidate / "agents")                                    # Codex's deployment refused these:
+        (candidate / "agents").mkdir()                                         # every session failed
+        (candidate / "agents/.gitkeep").write_text("")
+        for i, name in enumerate(roles):
+            (candidate / f"agents/role{i}.md").write_text(f"---\nname: {name}\ndescription: d\n---\nreview\n")
+        assert check_spec(candidate, TEMPLATE).passed is passes, roles
+    from hermit.spec import repair
+    (candidate / "agents/role0.md").write_text("---\nname: Reviewer\ndescription: d\n---\nreview\n")
+    (candidate / "ADAPTER.md").write_text((TEMPLATE / "ADAPTER.md").read_text() + "\nKeep the user posted.\n")
+    issues = check_spec(candidate, TEMPLATE).issues
+    assert [i.path for i in issues] == ["agents/role0.md"]                    # the role's own file: a folder named
+    final, repaired = repair(candidate, TEMPLATE, TEMPLATE)                   # there, Hermit's repair failed on it
+    assert final.passed and [r["path"] for r in repaired] == ["agents/role0.md"]
+    assert "Keep the user posted." in (candidate / "ADAPTER.md").read_text()  # the valid edit kept
+    for malformed in ("no frontmatter at all\n", "---\nname: reviewer\n---\nno description\n"):
+        (candidate / "agents/role0.md").write_text(malformed)                  # Hermit's deploy check names the
+        assert not check_spec(candidate, TEMPLATE).passed                      # file, its repair restores it
+        final, repaired = repair(candidate, TEMPLATE, TEMPLATE)
+        assert final.passed and [r["path"] for r in repaired] == ["agents/role0.md"]
+        assert "Keep the user posted." in (candidate / "ADAPTER.md").read_text()
+    (candidate / "agents/role0.md").write_text("---\nname: reviewer\ndescription: Review: flag regressions\n---\nx\n")
+    assert not [i for i in check_spec(candidate, TEMPLATE).issues if i.check == 6]   # not YAML: the template's check
+    shutil.rmtree(candidate / "agents")                                              # runs (Hermit's reports it)
+    (candidate / "agents").mkdir()
+    (candidate / "agents/.gitkeep").write_text("")
+    for timeout, passes in (("30s", False), (True, False), (0, False), (7200, False), (12.5, False), (30, True)):
+        (candidate / ".codex/hooks.json").write_text(json.dumps(   # "30s": the deployment's float() failed every
+            {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "true", "timeout": timeout}]}]}}))   # session
+        assert check_spec(candidate, TEMPLATE).passed is passes, timeout
 
 
 def test_the_operators_default_git_ignore_file_is_not_read_by_the_tests(tmp_path, monkeypatch):
@@ -82,7 +113,8 @@ def test_rows_hold_no_persona_and_one_step_is_one_round(tmp_path):
     user = agent["params"]["user"]
     assert user["simulate"] == "ahe_user:simulate" and user["assignments"] == "assignments.json"
     assert user["params"]["model"] == {"cli": "codex", "model": "gpt-5.6-luna", "login": "chatgpt", "effort": "low",
-                                       "unapplied": ["temperature"], "shared_plan": True}   # the actor holds the plan
+                                       "unapplied": ["temperature", "enable_thinking"],
+                                       "shared_plan": True}   # the actor holds the plan
     assert cfg.data["judge"]["name"] == "user" and cfg.data["evolver"]["name"] == "codex"
     assert cfg.data["environment"]["harbor"]["environment"]["mounts"][0]["target"] == "/opt/hermit-codex"
 

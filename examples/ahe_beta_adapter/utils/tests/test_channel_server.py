@@ -14,7 +14,21 @@ import channel_server
 import processes
 
 
-def test_host_queue_and_event_stream_are_bounded_and_repeatable(tmp_path):
+def test_a_message_still_being_queued_is_neither_peeked_nor_taken(tmp_path):
+    """The producer writes it as a dot-file, then renames it: a reader matching `*-message.json` saw it half-written,
+    or moved it before the rename, which then failed and lost the user's message."""
+    channel_server._enqueue(tmp_path, {"id": "u0", "kind": "message", "text": "first"})
+    queue = channel_server._paths(tmp_path)["queue"]
+    (queue / ".1764000000.000001-message.json").write_text('{"id": "u1", "kind": "mess')   # being written
+    (queue / ".1764000000.000002-interrupt.json").write_text("{")
+    assert [m["id"] for m in channel_server._peek(tmp_path, "message")] == ["u0"]
+    assert [m["id"] for m in channel_server._take(tmp_path, "message")] == ["u0"]
+    assert channel_server._take(tmp_path, "interrupt") == []
+    assert sorted(p.name for p in queue.iterdir()) == [".1764000000.000001-message.json",
+                                                         ".1764000000.000002-interrupt.json"]   # left to its writer
+
+
+def test_host_queue_and_event_stream_are_repeatable(tmp_path):
     record = {"id": "u1", "kind": "message", "text": "continue"}
     channel_server._enqueue(tmp_path, record)
     peeked = channel_server._peek(tmp_path, "message")

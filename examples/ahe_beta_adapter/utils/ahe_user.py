@@ -141,11 +141,49 @@ def _model_env(spec, records: Path, admitted: bool = False) -> dict:
             raise Misconfigured(f"user.params.model {ref!r}: " + "; ".join(problems))
         global _PRICE
         _PRICE = bound.price or None
-        return {"USER_LLM_BASE_URL": relay(bound.base_url), "USER_LLM_API_KEY": bound.key() or NO_KEY,
-                "USER_LLM_MODEL": bound.model, "USER_LLM_REASONING_EFFORT": str(effort or "")}
-    if os.environ.get("USER_LLM_BASE_URL") and os.environ.get("USER_LLM_MODEL"):
-        return {}                                        # AHE-Beta's own variables, set by the caller
+        url, key = relay(bound.base_url), bound.key() or NO_KEY
+        refused = _refused(bound.base_url, key)
+        if refused:                                      # each session's review would meet it, after its actor ran,
+            raise Misconfigured(f"user.params.model {ref!r}: its endpoint refuses the run's key ({refused})")   # again
+        return {"USER_LLM_BASE_URL": url, "USER_LLM_API_KEY": key, "USER_LLM_MODEL": bound.model,
+                "USER_LLM_REASONING_EFFORT": str(effort or "")}
+    if not spec and os.environ.get("USER_LLM_BASE_URL") and os.environ.get("USER_LLM_MODEL"):   # AHE-Beta's own
+        if not os.environ.get("USER_LLM_API_KEY"):       # variables, set by the caller: their own key, else its
+            raise Misconfigured("USER_LLM_BASE_URL is set without USER_LLM_API_KEY: AHE-Beta's client would send "
+                                "OPENAI_API_KEY there (any value for a keyless endpoint)")   # client sends OpenAI's
+        return {}
     raise Misconfigured("user.params.model names the user's model: a <backend>/<model> reference or {cli: ...}")
+
+
+def _loopback_direct() -> None:
+    """This machine's own addresses named in NO_PROXY for the process: AHE-Beta's persona clients (httpx) and the key
+    probe (urllib) send a proxy every host it does not name, the loopback relay too, with the user's prompts and the
+    key in clear (and a proxy cannot reach it)."""
+    present = os.environ["no_proxy"] if "no_proxy" in os.environ else os.environ.get("NO_PROXY", "")   # as urllib
+    names = [n.strip() for n in present.split(",") if n.strip()]                                   # reads it
+    merged = present.strip() if present.strip() == "*" else ",".join(   # "*": every host already
+        names + [h for h in ("127.0.0.1", "localhost", "::1") if h not in names])
+    os.environ["NO_PROXY"] = os.environ["no_proxy"] = merged
+
+
+def _refused(base_url: str, key: str) -> int | None:
+    """401 when a reference's endpoint refuses the key to its model list, else None (a 403 may refuse the list alone,
+    a redirect is not followed with the key, any other answer or none: a session finds out). No model call (nothing
+    billed); asked before a process's first session, where the relay sends the same key."""
+    from urllib.error import HTTPError
+    from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+    class Stay(HTTPRedirectHandler):                     # urllib would carry the key to wherever it is sent
+        def redirect_request(self, *args, **kwargs):
+            return None
+    request = Request(base_url.rstrip("/") + "/models", headers={"Authorization": f"Bearer {key}"})
+    try:
+        with build_opener(Stay()).open(request, timeout=60):   # this machine's proxy, as the relay's client
+            return None
+    except HTTPError as exc:
+        return exc.code if exc.code == 401 else None
+    except (OSError, ValueError):
+        return None
 
 
 def _unparsed(path: Path):
@@ -156,6 +194,28 @@ def _unparsed(path: Path):
             with path.open("a", encoding="utf-8") as stream:
                 stream.write(json.dumps({"first_raw": first[:4000], "retry_raw": second[:4000]}) + "\n")
     return dump
+
+
+def _closing(control):
+    """AHE-Beta's ConversationHandle.control, ending the request it interrupts. Its handle closes a request only on a
+    reply, which an interrupt that does not wait never gets (the channel keeps that stop reply apart): the user's next
+    message then joined the interrupted request, and the session's record (its request outcomes, which its audit and
+    its deadline check read) merged the two."""
+    if getattr(control, "ends_the_request", False):
+        return control
+
+    def interrupt(self, action):
+        said = control(self, action)
+        if self.in_flight:
+            from ahe_beta.user.sim.runtime import utc_now
+            self.in_flight = False
+            self.last_request_status = "interrupted"
+            self.request_outcomes.append({**(self._request or {}), "status": "interrupted", "finished_at": utc_now(),
+                                          "termination_reason": "interrupted"})
+            self._request = None
+        return said
+    interrupt.ends_the_request = True
+    return interrupt
 
 
 def _close() -> None:
@@ -203,6 +263,7 @@ def simulate(task: dict, agent, workspace, params: dict) -> dict:
     global _MODEL
     with _LOCK:
         if _MODEL is None:
+            _loopback_direct()                           # before the key probe and AHE-Beta's clients
             records = Path(params["artifact_root"]).parent / "user-model"
             records.mkdir(parents=True, exist_ok=True)
             _MODEL = _model_env(params.get("model"), records, bool(params.get("plan_admitted")))
@@ -211,20 +272,27 @@ def simulate(task: dict, agent, workspace, params: dict) -> dict:
             with contextlib.suppress(ImportError, AttributeError):   # its replies that failed to parse: the run's
                 from ahe_beta.user.sim import persona_client         # records, not its checkout's backend/data
                 persona_client._dump_unparseable = _unparsed(records / "parse_failures.jsonl")
+            with contextlib.suppress(ImportError, AttributeError):   # an interrupt ends the request it stops
+                from ahe_beta.integrations.hermit.conversation import ConversationHandle
+                ConversationHandle.control = _closing(ConversationHandle.control)
+            # each session's own observation store (its artifact_root), not one a native AHE-Beta run left in this
+            # shell or its checkout's .env (which the persona client, imported above, loads)
+            os.environ.pop("AHE_BETA_OBSERVATION_ROOT", None)
             atexit.register(_close)
     native = copy.deepcopy(dict(params))
     native.setdefault("run_id", "hermit")
     if params.get("binding"):                            # AHE-Beta's own Evolver: the commit the round's adapter is
-        try:                                             # (its feedback import requires it of each session)
-            bound = json.loads(Path(params["binding"]).read_text())
+        from binding import bound, entries               # (its feedback import requires it of each session)
+        try:
+            value = json.loads(Path(params["binding"]).read_text())
         except (OSError, ValueError) as exc:
             raise NotBound(f"the delivery binding cannot be read ({params['binding']}): {exc}") from exc
-        if bound.get("adapter_sha256") != params.get("adapter_sha256") or (
-                params.get("round") is not None and bound.get("round") != int(params["round"])) or (
-                params.get("run_id") is not None and bound.get("run_id") != params["run_id"]):
-            raise NotBound(f"this session's adapter, round and run are not the ones bound to the delivery commit "
-                           f"({params['binding']}: round {bound.get('round')} of {bound.get('run_id')})")
-        native["harness_sha"] = bound["harness_sha"]
+        commit = bound(value, adapter_sha256=params.get("adapter_sha256"), round_no=params.get("round"))
+        if commit is None or (params.get("run_id") is not None and value.get("run_id") != params["run_id"]):
+            raise NotBound(f"no delivery commit of this run, up to this session's round, holds its adapter "
+                           f"({params['binding']}: rounds {[e.get('round') for e in entries(value)]} of "
+                           f"{value.get('run_id')})")
+        native["harness_sha"] = commit["harness_sha"]
     native.setdefault("harness_sha", params.get("adapter_sha256") or "no-adapter")
     scenario = ((native.get("scenario") or {}).get("workspace") or {}).get("params")
     if isinstance(scenario, dict):                       # an untitled issue's title: the task, never the persona
@@ -235,7 +303,7 @@ def simulate(task: dict, agent, workspace, params: dict) -> dict:
     except Exception as exc:                             # what it spent before failing still counts (its ledger)
         with contextlib.suppress(Exception):
             from ahe_beta.usage import default_usage_store
-            exc.usage = spend(default_usage_store().summary(session_id=native["session_id"]), _PRICE)
+            exc.usage = spend(default_usage_store().events(session_id=native["session_id"]), _PRICE)
         if _SIGN_IN_LOST.is_set():                       # AHE-Beta's client retried it into a plain failure
             from hermit.agent.base.interface import LOGIN_FAILED
             raise SignInLost(f"the simulated user's model lost its sign-in ({type(exc).__name__}: {exc})"[:1500]
@@ -243,21 +311,34 @@ def simulate(task: dict, agent, workspace, params: dict) -> dict:
         raise
     usage = verdict.get("usage")
     if isinstance(usage, dict):                          # the session's tokens, priced as Hermit prices a call
-        verdict["usage"] = {**usage, **spend(usage, _PRICE)}
+        from ahe_beta.usage import default_usage_store   # from its calls, each as it reported (AHE-Beta's summary
+        verdict["usage"] = {**usage, **spend(default_usage_store().events(session_id=native["session_id"]),
+                                             _PRICE)}   # sums each field apart)
     return verdict
 
 
-def spend(usage: dict, price: dict | None) -> dict:
-    """AHE-Beta's usage of one session (its prompt tokens count the cached ones) as user.py adds it to the rollout's:
-    `tokens`, `cost_usd` (of the calls it counted; None without a price, a subscription say) and `uncounted_calls`
-    (calls whose usage went unreported: the cost is then a lower bound)."""
-    number = lambda key: int(usage.get(key) or 0)   # noqa: E731
-    tokens = number("total_tokens") or number("input_tokens") + number("output_tokens")
-    counted = number("input_tokens") + number("output_tokens")   # what a price applies to: none counted (a total
-    cost = None                                     # alone, calls unreported, a ledger missing, which sums to
-    if price and counted:                           # zeros) is unknown, not 0
-        cost = ((number("input_tokens") - number("cached_input_tokens")) * price.get("input", 0)
-                + number("cached_input_tokens") * price.get("cached_input", price.get("input", 0))
-                + number("output_tokens") * price.get("output", 0)) / 1e6
-    uncounted = number("unavailable_count") or (1 if number("total_tokens") > counted or not counted else 0)
-    return {"tokens": tokens, "cost_usd": cost, **({"uncounted_calls": uncounted} if uncounted else {})}
+def spend(events: list, price: dict | None) -> dict:
+    """AHE-Beta's usage events of one session, a call each (its prompt tokens count the cached ones), as user.py
+    adds them to the rollout's: `tokens` (each call's known ones: the larger of its total and its parts, its cached
+    ones a lower bound), `cost_usd` (of the calls that reported both parts; None without a price, a subscription say,
+    or with no call counted) and `uncounted_calls` (calls that reported none, a part alone, or cached tokens past their
+    prompt's, which then does not count them: the cost is a lower bound, and user.py takes the rollout's as unknown)."""
+    def known(event, key):
+        value = event.get(key)
+        return value if isinstance(value, int) and not isinstance(value, bool) else None
+    tokens = counted = uncounted = 0
+    cost = 0.0
+    for event in (e for e in events if isinstance(e, dict)):
+        given, said, total = known(event, "input_tokens"), known(event, "output_tokens"), known(event, "total_tokens")
+        cached = known(event, "cached_input_tokens") or 0
+        tokens += max(total or 0, (given or 0) + (said or 0), cached + (said or 0))
+        if event.get("usage_source") == "unavailable" or given is None or said is None or cached > given:
+            uncounted += 1
+            continue
+        counted += 1
+        uncounted += (total or 0) > given + said        # a total its parts do not explain: priced short, said so
+        if price:
+            cost += ((given - cached) * price.get("input", 0) + said * price.get("output", 0)
+                     + cached * price.get("cached_input", price.get("input", 0))) / 1e6
+    return {"tokens": tokens, "cost_usd": cost if price and counted else None,
+            **({"uncounted_calls": uncounted} if uncounted else {})}

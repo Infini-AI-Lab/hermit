@@ -40,7 +40,9 @@ class Conversation:
         self.transcript: list[dict] = []
         self.closed = False
         self.gone = False        # the session found Codex gone without a reply (its clock, its failure)
-        self._unclaimed = 0      # interrupts whose stop reply nobody waited for (interrupt)
+        self._owed: list[str] = []      # interrupts whose stop reply (or acknowledgement) nobody waits for any more
+        self._waiting: set[str] = set()   # interrupts a caller of interrupt() waits on
+        self._rids: set[str] = set()      # the replies read, by the id the hook gives each (a retried one is one)
         self._started = False
         self._seen: set[str] = set()
         self._events: list[dict] = []
@@ -113,21 +115,29 @@ class Conversation:
         def heard():                                     # stopped at its Stop already: no reply of its own follows
             return any(e.get("kind") == "interrupt_ack" and mine in (e.get("ids") or ()) for e in self._events)
         reply, deadline = None, time.monotonic() + max(0.0, timeout)
-        while timeout > 0 and reply is None and not heard() and time.monotonic() < deadline:
-            reply = self.poll(min(1.0, max(0.0, deadline - time.monotonic())))
-        acknowledged = heard()
-        if (reply is None or not reply.get("interrupted")) and not acknowledged:   # its stop reply still to come
-            self._unclaimed += 1
+        self._waiting.add(mine)                          # a stop reply that answers it is this caller's (_reply)
+        try:
+            while timeout > 0 and reply is None and not heard() and time.monotonic() < deadline:
+                reply = self.poll(min(1.0, max(0.0, deadline - time.monotonic())))
+        finally:
+            self._waiting.discard(mine)
+        answered = bool(reply and reply.get("interrupted") and mine in (reply.get("interrupt_ids") or [mine]))
+        if not answered and not heard():                 # its stop reply, or its acknowledgement, still to come
+            self._owed.append(mine)
         return reply
 
     def _reply(self) -> dict | None:
         """The next reply a caller is owed: an unclaimed stop reply goes to the events instead."""
         while self._replies:
             reply = self._replies.pop(0)
-            if reply.get("interrupted") and self._unclaimed:
-                self._unclaimed = max(0, self._unclaimed - int(reply.get("interrupts") or 1))
-                self._events.append({**reply, "kind": "interrupted_reply"})
-                continue
+            if reply.get("interrupted"):                 # the interrupts it answers: those it names, else (no names)
+                ids = reply.get("interrupt_ids")         # as many of the owed as it counts
+                ids = list(ids) if ids is not None else self._owed[:int(reply.get("interrupts") or 1)]
+                owed = [i for i in ids if i in self._owed]
+                self._owed = [i for i in self._owed if i not in ids]
+                if owed and not self._waiting.intersection(ids):
+                    self._events.append({**reply, "kind": "interrupted_reply"})
+                    continue
             return reply
         return None
 
@@ -181,10 +191,15 @@ class Conversation:
         if self._transport is not None:
             self._transport_seq, events = self._transport.read(self._transport_seq, wait)
             for event in events:
+                if event.get("kind") == "reply" and event.get("rid"):
+                    if event["rid"] in self._rids:   # a reply the hook sent again, its first report having reached
+                        continue
+                    self._rids.add(event["rid"])
                 self.transcript.append({"from": "agent", **event})
-                if event.get("kind") == "interrupt_ack" and self._unclaimed:   # stopped at its Stop already: the
-                    self._unclaimed = max(0, self._unclaimed - (len(event.get("ids") or ()) or 1))   # reply it
-                    if self._replies:            # published there, not handed out yet, is the interrupt's
+                acked = [i for i in event.get("ids") or () if i in self._owed] if event.get("ids") else self._owed[:1]
+                if event.get("kind") == "interrupt_ack" and acked:   # stopped at its Stop already: the reply it
+                    self._owed = [i for i in self._owed if i not in acked]   # published there, not handed out yet,
+                    if self._replies:                                        # is the interrupt's
                         self._events.append({**self._replies.pop(), "kind": "interrupted_reply"})
                 (self._replies if event.get("kind") == "reply" else self._events).append(
                     event

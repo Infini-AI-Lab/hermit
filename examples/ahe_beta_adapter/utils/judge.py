@@ -12,7 +12,7 @@ which the run takes anyway, is neither its score nor its feedback; the run still
 the reason to train only on those.
 
 `verified` is hermit.task.verify's environment judge (the task's tests decide the score: pass@1), with the user's
-rating and outcome added to its record when the session had a user.
+score and rating added to its record when the session had a user's verdict.
 
 Both refuse a rollout that is not the agent's result (its environment, its session or its user failed: `unscored`):
 the run records it as a failed run, never as the agent's 0. A session the adapter failed before Codex started is the

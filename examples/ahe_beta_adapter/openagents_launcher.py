@@ -8,7 +8,7 @@ import argparse
 import os
 from pathlib import Path
 
-from openagents_runtime import command
+from openagents_runtime import command, own_environment
 
 
 def main() -> int:
@@ -31,6 +31,9 @@ def main() -> int:
             os.chdir(config_path.parent.parent)
     os.environ.setdefault("OPENAGENTS_NO_SELF_UPDATE", "1")
     os.environ.setdefault("OPENAGENTS_NO_UPDATE", "1")
+    if "--project" in argv:                              # the checkout's own environment, as it was synced
+        os.environ["UV_PROJECT_ENVIRONMENT"] = own_environment(Path(argv[argv.index("--project") + 1]))[
+            "UV_PROJECT_ENVIRONMENT"]
     os.execv(argv[0], argv)
     return 0
 

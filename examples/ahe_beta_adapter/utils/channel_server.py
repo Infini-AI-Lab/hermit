@@ -142,7 +142,7 @@ def _enqueue(root: Path, record: dict) -> None:
 def _peek(root: Path, kind: str) -> list[dict]:
     paths = _paths(root)
     out: list[dict] = []
-    for path in sorted(paths["queue"].glob(f"*-{kind}.json")) if paths["queue"].is_dir() else []:
+    for path in sorted(paths["queue"].glob(f"[!.]*-{kind}.json")) if paths["queue"].is_dir() else []:
         try:
             value = json.loads(path.read_text())
         except (OSError, ValueError):
@@ -155,12 +155,12 @@ def _peek(root: Path, kind: str) -> list[dict]:
 def _take(root: Path, kind: str, names: list[str] | None = None) -> list[dict]:
     paths = _paths(root)
     if kind == "message" and paths["queue"].is_dir() and (
-            any(paths["queue"].glob("*-end.json")) or any(paths["queue"].glob("*-interrupt.json"))):
+            any(paths["queue"].glob("[!.]*-end.json")) or any(paths["queue"].glob("[!.]*-interrupt.json"))):
         return []                        # after the user's end, and while an interrupt waits: no message handed over
     paths["taken"].mkdir(parents=True, exist_ok=True)
     out: list[dict] = []
     allowed = set(names or ())
-    candidates = sorted(paths["queue"].glob(f"*-{kind}.json")) if paths["queue"].is_dir() else []
+    candidates = sorted(paths["queue"].glob(f"[!.]*-{kind}.json")) if paths["queue"].is_dir() else []
     for path in candidates:
         if allowed and path.name not in allowed:
             continue

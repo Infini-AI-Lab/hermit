@@ -2,6 +2,9 @@
 
 import json
 from pathlib import Path
+import re
+
+import yaml
 
 EVENTS = {
     "PreToolUse",
@@ -51,8 +54,24 @@ def check(adapter_path):
                         isinstance(hook.get("command"), str) and hook["command"].strip()
                     ):
                         raise ValueError("Only command hooks with a command are supported")
+                    timeout = hook.get("timeout")
+                    if timeout is not None and (
+                        isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 3600
+                    ):  # whole seconds, as Codex and the Stop dispatcher read it: else every session fails
+                        raise ValueError(f"A hook's timeout is whole seconds, an integer in [1, 3600], not {timeout!r}")
     except (OSError, ValueError, KeyError, TypeError) as exc:
         errors.append({"path": ".codex/hooks.json", "problem": str(exc)})
+    try:  # the roles as Hermit reads them; Codex takes them as lowercase identifiers, `-` read as `_`, each its own
+        from hermit.adapter.loader import subagent_files
+        roles = subagent_files(root, "agents")
+        names = [str(role["name"]).replace("-", "_") for role in roles]
+        for role, name in zip(roles, names):  # each role's own file: what Hermit's repair restores
+            if not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", name) or names.count(name) > 1:
+                errors.append({"path": role["instructions"], "problem": "A role's name must be a lowercase "
+                               f"identifier (letters, digits, - or _), distinct from the others: not {role['name']!r}"})
+    except (OSError, ValueError, ImportError, yaml.YAMLError):  # a malformed role file: Hermit's deploy check
+        pass                                                        # reports it (a folder named here, its repair
+                                                                    # could not restore)
     for script in root.glob("scripts/*.py"):
         try:
             compile(script.read_text(), str(script), "exec")
