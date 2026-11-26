@@ -57,7 +57,7 @@ READ_BY = {"optimizers": {"ahe"},                       # the AHE example's conf
            "harness2": {"continual_harness"}}           # Continual Harness deploys with the harness2_codex template
 # an engine several benchmarks run on (examples/<engine>/) -> those benchmarks: a change to it runs the groups of every
 # method with an example under one of them
-ENGINES = {"cap_harness": ("robosuite", "libero", "robodojo_sim"), "math_grading": ("aime", "math500", "livemathbench")}
+ENGINES = {"cap_harness": ("robosuite", "libero", "robodojo_sim"), "math_grading": ("aime", "math500")}
 # what every method is built on: a change here runs every group (tests/core/test_selection.py checks that every
 # framework module these import, or a method's tests import, is here too)
 SHARED = ["hermit/agent/__init__.py", "hermit/agent/base/*", "hermit/environment/*",

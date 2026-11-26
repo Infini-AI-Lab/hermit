@@ -20,19 +20,22 @@ from math import ceil, comb
 from pathlib import Path
 
 
-def g_pass(n: int, c: int, k: int, tau: float) -> float:
-    if tau <= 0:
+def g_pass(n: int, c: int, k: int, least: int) -> float:
+    """The chance that at least `least` of k attempts drawn from n, c of them right, are right (least 0: pass@k)."""
+    if least <= 0:
         return 1.0 - comb(n - c, k) / comb(n, k)
-    return sum(comb(c, j) * comb(n - c, k - j) for j in range(ceil(tau * k), k + 1)) / comb(n, k)
+    return sum(comb(c, j) * comb(n - c, k - j) for j in range(least, k + 1)) / comb(n, k)
 
 
 def metrics(counts: list[tuple[int, int]], k: int) -> dict:
     """{G-Pass@k_τ for τ in 0, 0.25, 0.5, 0.75, 1, and mG-Pass@k} over questions given as (n, c)."""
     if not counts or min(n for n, _ in counts) < k:
         raise ValueError(f"every question needs at least k = {k} attempts")
-    mean = lambda tau: sum(g_pass(n, c, k, tau) for n, c in counts) / len(counts)
-    out = {f"G-Pass@{k}_{tau:g}": mean(tau) for tau in (0, 0.25, 0.5, 0.75, 1.0)}
-    out[f"mG-Pass@{k}"] = 2 / k * sum(mean(i / k) for i in range(ceil(k / 2) + 1, k + 1))
+    # the threshold as a count, ⌈τ·k⌉, from integers (τ = i/k as a float can round past i, as OpenCompass avoids)
+    mean = lambda least: sum(g_pass(n, c, k, least) for n, c in counts) / len(counts)
+    out = {f"G-Pass@{k}_{tau:g}": mean(-(-num * k // den) if num else 0)
+           for tau, (num, den) in {0: (0, 1), 0.25: (1, 4), 0.5: (1, 2), 0.75: (3, 4), 1.0: (1, 1)}.items()}
+    out[f"mG-Pass@{k}"] = 2 / k * sum(mean(i) for i in range(ceil(k / 2) + 1, k + 1))
     return out
 
 

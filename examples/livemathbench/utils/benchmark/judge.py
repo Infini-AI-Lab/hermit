@@ -1,24 +1,22 @@
 """LiveMathBench's judge, on the host, as OpenCompass's LiveMathBenchEvaluator scores an answer
-(opencompass/datasets/livemathbench/, commit 4f3812d4a1fb7ab80ab1f91e04494881400a165b): the answer is the last
-`\\boxed{}` of the agent's reply (its `math_postprocess_v2`; examples/math_grading/grade.py's `answer`), and a judge
+(opencompass/datasets/livemathbench/, commit 4f3812d4a1fb7ab80ab1f91e04494881400a165b): the answer is what its
+`math_postprocess_v2` takes from the agent's reply (utils/agent/answer.py, the agent's answer hook), and a judge
 model reads the question, the reference and that answer in OpenCompass's English judge prompt, at temperature 0 with
 8,192 output tokens; the score is 1 when the last `\\boxed{}` of its reply is `yes`, else 0.
 
 The judge model is a `<backend>/<model>` reference (docs/guides/model-backends.md) in LIVEMATHBENCH_JUDGE, by default
 the paper's Qwen2.5-72B-Instruct on a local vLLM server (`vllm serve Qwen/Qwen2.5-72B-Instruct`); OpenCompass's
 LiveMath-Judge (jnanliu/LiveMath-Judge) is the smaller one it offers. A judge call that fails raises: the run records a
-failed judgement, never a 0 the agent earned."""
+failed judgement (`hermit eval` counts it among its errors, and as 0 in its mean_score). An empty answer (an empty
+reply) scores 0 without a call, the verdict OpenCompass's judge gives an empty answer."""
 from __future__ import annotations
 
 import json
 import os
-import re
 from pathlib import Path
-import sys
+import re
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parents[2] / "math_grading"))
-from grade import last_boxed  # noqa: E402
 
 DEFAULT_JUDGE = "vllm/Qwen/Qwen2.5-72B-Instruct"
 # OpenCompass's JUDGE_PROMPT_EN (opencompass/datasets/livemathbench/prompts.py at the commit above), with its doubled
@@ -66,10 +64,10 @@ def client():
     return _client
 
 
-def label(reply: str) -> bool:
-    """OpenCompass's extract_judge_label: the last `\\boxed{...}`, and yes is right."""
+def verdict(reply: str) -> str | None:
+    """OpenCompass's extract_judge_label: the last `\\boxed{...}` of the judge's reply; `yes` is right."""
     found = re.findall(r"\\boxed{(.+?)}", reply or "")
-    return bool(found) and found[-1] == "yes"
+    return found[-1] if found else None
 
 
 def score(task: dict, output) -> dict:
@@ -78,12 +76,12 @@ def score(task: dict, output) -> dict:
     out = output.output if isinstance(output.output, dict) else {}
     given = out.get("answer")
     if not given:
-        return {"score": 0.0, "feedback": f"no \\boxed{{}} answer in the reply; the answer is {row['answer']}",
-                "answered": False}
+        why = out.get("fail_reason") or "no answer in the reply"
+        return {"score": 0.0, "feedback": f"{why}; the answer is {row['answer']}", "answered": False}
     prompt = JUDGE_PROMPT.format(question=row["question"], gold_answer=row["answer"], answer=given)
     reply = Direct(SETTINGS, client()).run(prompt)
-    right = label(reply.reply)
-    verdict = last_boxed(reply.reply or "")
-    return {"score": float(right), "answered": True, "judge_verdict": verdict,
+    said = verdict(reply.reply)
+    right = said == "yes"
+    return {"score": float(right), "answered": True, "judge_verdict": said,
             "judge_tokens": sum(u.input_tokens + u.output_tokens for u in reply.usage),
             "feedback": "correct" if right else f"answered {given}, but the answer is {row['answer']}"}

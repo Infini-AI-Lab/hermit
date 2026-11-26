@@ -16,11 +16,11 @@ agent:
   base: claude                     # Claude Code in each problem's own sandbox (Hermit's bubblewrap, no network but its model's)
   concurrency: 8
   params:
-    answer: ../../math_grading/grade.py:answer   # the last \boxed{} of its final message
+    answer: ../utils/agent/answer.py:answer   # OpenCompass's math_postprocess_v2 of its final message
   model: {name: claude-haiku-5-5, login: claude, effort: medium}  # the plan, shared
   claude: {web_search: false, timeout_s: 3600}  # the CLI's web search off; the task's own time
 environment:
-  read: [../../math_grading]          # the answer hook (grade.py:answer), which runs in the task sandbox
+  read: [../utils/agent]                   # the answer hook (answer.py:answer), which runs in the task sandbox
 judge:
   path: ../utils/benchmark/judge.py    # on the host: OpenCompass's judge model (LIVEMATHBENCH_JUDGE) on the reference
 template: prompt-only@1.0              # placeholder (see data.train)

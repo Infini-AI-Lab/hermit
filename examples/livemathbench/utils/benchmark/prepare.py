@@ -8,9 +8,8 @@ account, then sign in on this machine (`hf auth login`, or HF_TOKEN). Writes her
 directory per question in Harbor's format: instruction.md, OpenCompass's English prompt and the question; task.toml,
 its release, set, question type (202412) and subject (202505), no network but the model's, an hour; no tests/: the judge runs on the host), and
 the references with each question and its type to .private/answers.jsonl, which no sandbox is granted (the judge
-model reads all three). The splits under splits/ are prepare's (not committed: the
-dataset's terms come first): test.txt, the latest release's English questions
-(202505 `all_en`); train.txt (40), val.txt (20) and smoke.txt (2), drawn with seed 42 from the 202412 release's English
+model reads all three). The splits under splits/ (committed) are
+prepare's: test.txt, the latest release's English questions (202505 `all_en`); train.txt (40), val.txt (20) and smoke.txt (2), drawn with seed 42 from the 202412 release's English
 sets (AMC, CCEE, CNMO, WLPMC), leaving out any question the test set has.
 """
 from __future__ import annotations

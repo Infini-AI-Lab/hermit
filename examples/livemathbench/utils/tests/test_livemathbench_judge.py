@@ -1,9 +1,11 @@
-"""LiveMathBench's judge (utils/benchmark/judge.py) and metrics (utils/gpassk.py). The judge is called as the run calls
-it, `score(task row, output)`, with a stand-in chat client at the model's edge (`chat(messages, **kwargs) ->
-(message, usage)`, the shape hermit.agent.model.llm.ChatClient returns): the answer is the reply's last `\\boxed{}`,
-the judge model gets OpenCompass's judge prompt at temperature 0 with 8,192 tokens, and its last `\\boxed{yes}` is the
-score; no answer is no model call, and a model call that fails raises (a failed judgement, not the agent's 0).
-G-Pass@k is checked against counts worked by hand."""
+"""LiveMathBench's answer hook (utils/agent/answer.py), judge (utils/benchmark/judge.py) and metrics (utils/gpassk.py).
+The hook takes the answer as OpenCompass's math_postprocess_v2 does (the last box, else the "final answer" sentence).
+The judge is called as the run calls it, `score(task row, output)`, with a stand-in chat client at the model's edge
+(`chat(messages, **kwargs) -> (message, usage)`, the shape hermit.agent.model.llm.ChatClient returns): the judge model
+gets OpenCompass's judge prompt at temperature 0 with 8,192 tokens, and its last `\\boxed{yes}` is the score; no
+answer is no model call, and a model call that fails raises (a failed judgement, not the agent's 0); its real client
+is the default reference's, built without a call. G-Pass@k is checked against counts worked by hand, its thresholds
+as integers past k = 24."""
 from __future__ import annotations
 
 import importlib.util
@@ -47,9 +49,21 @@ def judge(tmp_path, monkeypatch):
     return module
 
 
+HOOK = load(UTILS / "agent" / "answer.py", "livemathbench_answer")
+
+
 def output(text):
-    return SimpleNamespace(output={"answer": load(UTILS.parents[1] / "math_grading" / "grade.py", "g").answer(
-        text, {})["answer"]})
+    return SimpleNamespace(output=HOOK.answer(text, {}))
+
+
+@pytest.mark.parametrize("reply, answer", [
+    ("so \\boxed{0.5}", "0.5"),
+    ("so \\boxed{{1,2}}", "1,2"),                                     # one pair of outer braces stripped
+    ("We compute it. The final answer is $\\frac{1}{2}$. Done", "\\frac{1}{2}"),   # no box: the sentence
+    ("It is 7. Then more", "Itis7"),                                    # neither: the first sentence, normalized
+])
+def test_the_answer_is_what_opencompass_takes_from_a_reply(reply, answer):
+    assert HOOK.answer(reply, {})["answer"] == answer
 
 
 def test_the_judge_models_yes_is_the_score_and_it_reads_opencompasss_prompt(judge, monkeypatch):
@@ -71,10 +85,17 @@ def test_anything_but_a_last_boxed_yes_scores_0_and_names_the_reference(judge, m
     assert result["score"] == 0.0 and "\\frac{1}{2}" in result["feedback"]
 
 
-def test_a_reply_without_a_boxed_answer_is_0_without_a_model_call(judge, monkeypatch):
+def test_an_empty_reply_is_0_without_a_model_call(judge, monkeypatch):
     model = Model("\\boxed{yes}")
     monkeypatch.setattr(judge, "_client", model)
-    assert judge.score({"id": "q1"}, output("I think it is a half"))["score"] == 0.0 and not model.calls
+    assert judge.score({"id": "q1"}, output(""))["score"] == 0.0 and not model.calls
+
+
+def test_the_judges_client_is_the_default_references_built_without_a_call(judge, monkeypatch):
+    monkeypatch.delenv("LIVEMATHBENCH_JUDGE", raising=False)
+    monkeypatch.setattr(judge, "_client", None)
+    client = judge.client()
+    assert client.base_url.rstrip("/") == "http://127.0.0.1:8000/v1" and client.model == "Qwen/Qwen2.5-72B-Instruct"
 
 
 def test_a_judge_call_that_fails_raises_rather_than_scoring(judge, monkeypatch):
@@ -90,6 +111,9 @@ def test_g_pass_at_k_matches_counts_worked_by_hand():
     assert got["G-Pass@4_0.5"] == pytest.approx(2 / 3)      # at least two of four
     assert got["G-Pass@4_0.75"] == pytest.approx(1 / 3)     # at least three
     assert got["mG-Pass@4"] == pytest.approx(1 / 3)         # (2/4)(G@4_3/4 + G@4_1)
-    assert gpassk.g_pass(8, 4, 4, 1.0) == pytest.approx(1 / 70)   # C(4,4)/C(8,4)
+    assert gpassk.g_pass(8, 4, 4, 4) == pytest.approx(1 / 70)     # all four right: C(4,4)/C(8,4)
+    # k = 25: 14/25 as a float is past 0.56, ⌈0.56·25⌉ would be 15, not 14; the count is taken from integers
+    assert gpassk.metrics([(25, 14)], 25)["mG-Pass@25"] == pytest.approx(
+        2 / 25 * sum(gpassk.g_pass(25, 14, 25, i) for i in range(14, 26)))
     with pytest.raises(ValueError, match="at least k"):
         gpassk.metrics([(2, 1)], 4)
