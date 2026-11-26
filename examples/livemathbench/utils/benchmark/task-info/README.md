@@ -13,7 +13,8 @@ its tools are fixed; the adapter is what changes. The adapter is deployed into t
 deploy` lays it out for that CLI: `ADAPTER.md` is the agent's instructions (a block of `AGENTS.md` for Codex,
 `CLAUDE.md` for Claude Code), and the rest of the adapter is copied to `hermit/<adapter id>/`.
 
-The score is 1 or 0. The answer is the content of the last `\boxed{}` in the agent's final message (a reply without
-one scores 0); a judge model reads the question, the reference and that answer and decides whether they match: every
-part of a multi-part answer must be right, and an equivalent form of the reference counts. Each question runs in a
-fresh workspace: nothing the agent writes in one question reaches another.
+The score is 1 or 0. The answer is taken from the agent's final message as OpenCompass takes it: the content of the last
+`\boxed{}`; without one, the sentence that says "final answer" or "answer is", else the first sentence. A judge model
+reads the question, the reference and that answer and decides whether they match: every part of a multi-part answer must
+be right, and an equivalent form of the reference counts. Each question runs in a fresh workspace: nothing the agent
+writes in one question reaches another.

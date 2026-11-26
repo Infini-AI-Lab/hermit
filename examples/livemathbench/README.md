@@ -2,10 +2,11 @@
 
 LiveMathBench in Hermit's own environment: each question is a task directory, the acting agent (Codex or Claude Code)
 solves it in a bubblewrap sandbox of its own with no network but its model's, and a judge on the host scores it as
-OpenCompass's LiveMathBench evaluator does: the last `\boxed{}` of the agent's final message is its answer, and a judge
-model reads the question, the reference and the answer in OpenCompass's judge prompt and says yes or no. The questions
-are the official dataset's (`opencompass/LiveMathBench`, gated, at a pinned revision) with OpenCompass's English
-prompt: the 202505 release's English questions are tested, and a method learns on the 202412 release's.
+OpenCompass's LiveMathBench evaluator does: the answer is what its `math_postprocess_v2` takes from the agent's final
+message (the last `\boxed{}`, else the "final answer" sentence), and a judge model reads the question, the reference and
+the answer in OpenCompass's judge prompt and says yes or no. The questions are the official dataset's
+(`opencompass/LiveMathBench`, gated, at a pinned revision) with OpenCompass's English prompt: the 202505 release's
+English questions are tested, and a method learns on the 202412 release's.
 
 | Folder | What it holds |
 |---|---|

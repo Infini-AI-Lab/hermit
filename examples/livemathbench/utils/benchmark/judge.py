@@ -8,7 +8,7 @@ The judge model is a `<backend>/<model>` reference (docs/guides/model-backends.m
 the paper's Qwen2.5-72B-Instruct on a local vLLM server (`vllm serve Qwen/Qwen2.5-72B-Instruct`); OpenCompass's
 LiveMath-Judge (jnanliu/LiveMath-Judge) is the smaller one it offers. A judge call that fails raises: the run records a
 failed judgement (`hermit eval` counts it among its errors, and as 0 in its mean_score). An empty answer (an empty
-reply) scores 0 without a call, the verdict OpenCompass's judge gives an empty answer."""
+reply) scores 0 without a call; OpenCompass would still ask its judge model, with nothing to match."""
 from __future__ import annotations
 
 import json
