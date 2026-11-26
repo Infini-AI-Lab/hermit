@@ -41,8 +41,8 @@ def test_a_baseline_names_its_profile_and_the_tasks_needs_and_is_hermit_evals_al
     assert (agent["base"], agent["model"]) == (cli, {"name": model, "login": login, "effort": "medium"})
     assert agent[cli]["web_search"] is False
     assert agent[cli]["timeout_s"] == prepare().TIMEOUT_SEC             # the session ends on the task's own time
-    assert config["environment"]["read"] == ["../../math_grading"]      # the answer hook, in the task sandbox
-    assert agent["params"]["answer"] == "../../math_grading/grade.py:answer"
+    assert config["environment"]["read"] == ["../../math_grading/utils"]      # the answer hook, in the task sandbox
+    assert agent["params"]["answer"] == "../../math_grading/utils/grade.py:answer"
     assert config["judge"]["path"] == "../utils/benchmark/judge.py"
     assert config["data"]["test"] == "../utils/benchmark/splits/test_2025.txt" and config["eval"]["repeats"] == 4
     assert (config["data"]["train"], config["template"], config["evolver"]) == (

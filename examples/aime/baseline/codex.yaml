@@ -15,11 +15,11 @@ agent:
   base: codex                      # Codex in each problem's own sandbox (Hermit's bubblewrap, no network but its model's)
   concurrency: 8
   params:
-    answer: ../../math_grading/grade.py:answer   # the last \boxed{} of its final message
+    answer: ../../math_grading/utils/grade.py:answer   # the last \boxed{} of its final message
   model: {name: gpt-5.6-luna, login: chatgpt, effort: medium}  # the plan, shared
   codex: {web_search: false, timeout_s: 3600}  # the CLI's web search off; the task's own time
 environment:
-  read: [../../math_grading]          # the answer hook (grade.py:answer), which runs in the task sandbox
+  read: [../../math_grading/utils]        # the answer hook (grade.py:answer), which runs in the task sandbox
 judge:
   path: ../utils/benchmark/judge.py    # on the host: Math-Verify against the reference, which only it reads
 template: prompt-only@1.0              # placeholder (see data.train)

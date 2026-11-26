@@ -38,6 +38,8 @@ jobs:
           # ace's group: it pulls torch)
           "$RUNNER_TEMP/test-env/bin/python" -m pip install -e '.[test,mini-swe-agent]' \
             --group gepa --group skillopt --group harness2 --group rrsi --group she
+          # the math benchmarks' grader (examples/math_grading), so its tests run rather than skip
+          "$RUNNER_TEMP/test-env/bin/python" -m pip install 'math-verify[antlr4-13-2]==0.9.0'
           echo "$RUNNER_TEMP/test-env/bin" >> "$GITHUB_PATH"
       - name: The test groups this pull request touches
         if: github.event_name == 'pull_request'

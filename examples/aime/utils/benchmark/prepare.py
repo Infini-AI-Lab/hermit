@@ -32,7 +32,8 @@ SOURCES = {
     "aime2025": ("aime_2025", "c94da77eb22bbd6439e62a323bec18493a421302", 0),
     "aime2026": ("aime_2026", "d61f486805306e6e6b5913504c07763a99e1b112", 0),
 }
-# MathArena's AIME instruction (configs/competitions/aime/aime_2025.yaml), followed by the problem as its runner does
+# MathArena's AIME instruction (configs/competitions/aime/aime_2025.yaml at github.com/eth-sri/matharena commit d98156f),
+# followed by the problem as its runner does (src/matharena/runner.py: the instruction, a blank line, the problem)
 INSTRUCTION = "Put your final answer within \\boxed{}.\nThe answer is an integer between 0 and 999 inclusive."
 SMOKE = ["aime2023-01", "aime2023-02"]
 TIMEOUT_SEC = 3600.0
