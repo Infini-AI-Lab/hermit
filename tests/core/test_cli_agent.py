@@ -566,6 +566,11 @@ def test_a_login_session_with_no_login_to_copy_is_a_lost_sign_in(tmp_path, monke
     endpoint.agent, endpoint.place = agent, None                             # does (cli_answer, a Local session)
     status, body, _ = endpoint.answer({"messages": [{"role": "user", "content": "go"}]}, None)
     assert status == 401 and json.loads(body)["error"]["code"] == "hermit_login_failed"
+    (tmp_path / "no-codex-here").mkdir()                                       # a login file not read (written
+    (tmp_path / "no-codex-here/auth.json").write_text('{"tokens": ')          # meanwhile): this session's failure
+    with pytest.raises(RuntimeError) as failed:
+        agent.run("go", environment=tmp_path / "w")
+    assert login_failure(failed.value) is None
 
 
 def test_a_long_window_still_over_holds_after_the_short_one_resets(tmp_path):

@@ -102,10 +102,19 @@ def test_resume_after_crash(tmp_path):
 def test_a_missing_login_met_in_the_evolvers_own_call_ends_the_run(tmp_path):
     """login.prepare names a missing login with Hermit's lost-sign-in mark: met in the Evolver's own call (its session),
     the step was recorded as failed and the run went on."""
-    trainer = Trainer(load(make_task(tmp_path)), log=lambda *_: None)
+    path = make_task(tmp_path)
+    code = (tmp_path / "toy/evolver.py").read_text()
+    (tmp_path / "toy/evolver.py").write_text(code.replace(
+        '        mode = ctx.params.get("mode", "learn")\n',
+        '        mode = ctx.params.get("mode", "learn")\n'
+        '        if mode == "signed_out":\n'
+        '            raise RuntimeError("login: chatgpt, but there is no Codex login at /gone/auth.json "\n'
+        '                               "(run `codex login`) [hermit_login_failed]")\n'))
+    trainer = Trainer(load(path, "evolver.params.mode=signed_out"), log=lambda *_: None)
     with pytest.raises(LoginFailed, match="no Codex login"):
-        trainer._raise_login_failed({"error": RuntimeError("login: chatgpt, but there is no Codex login "
-                                                           "[hermit_login_failed]")})
+        trainer.train()
+    journal = tmp_path / "runs/toy-run/steps.jsonl"
+    assert not journal.exists() or not journal.read_text().strip()             # the step is not recorded
     trainer._raise_login_failed({"error": RuntimeError("an ordinary failure")})   # recorded as a failed step
 
 

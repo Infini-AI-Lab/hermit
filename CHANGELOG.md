@@ -442,10 +442,11 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
-- A ChatGPT login with no login file to copy (`codex login` never run, or its file gone) is a lost sign-in: its error
-  carries Hermit's mark (`[hermit_login_failed]`), so a rollout raises `LoginFailed` and the run ends, a chat
-  endpoint answers 401 with the code `hermit_login_failed`, and the Trainer ends the run when the Evolver's own call
-  meets it, instead of a plain failure each task and step met again. A rollout that failed on this machine (an
+- A ChatGPT login whose file is gone when a session is prepared (`hermit train` checks it only at its start) is a
+  lost sign-in: its error carries Hermit's mark (`[hermit_login_failed]`), so a rollout raises `LoginFailed` and the
+  run ends, a chat endpoint answers 401 with the code `hermit_login_failed`, and the Trainer ends the run when the
+  Evolver's own call meets it, instead of a plain failure each task and step met again. A login file there that could
+  not be read stays a failure of that session. A rollout that failed on this machine (an
   `OSError`: `host_failed`) keeps what its agent said it spent, as the other failure paths do.
 - Continual Harness and Harness² now declare the adapter parts they write (`needs: [llm, skills, agents]` and
   `needs: [skills, agents, hooks]`), so a run whose acting agent does not take them (`react`) is refused before it
