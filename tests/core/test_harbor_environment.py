@@ -2202,6 +2202,24 @@ def test_a_pipeline_error_on_a_run_again_keeps_what_the_runs_before_it_spent(tmp
     assert record["api_speed"]["model_calls"] == 1 and record["pipeline_extra"]["attempts"]
 
 
+def test_a_failure_of_this_machine_keeps_what_the_run_spent(tmp_path):
+    """An OSError is this machine's (host_failed, never run again); what the agent said it spent before it was
+    dropped there alone of the failure paths."""
+    from hermit.task import Task
+    from hermit.trainer import rollout
+
+    def pipeline(task, adapter, environment=None):
+        exc = OSError(28, "No space left on device")
+        exc.spent = RunOutput(output=None, tokens=1500, cost_usd=0.02, api_speed={"model_calls": 2})
+        raise exc
+
+    task = Task(id="demo#1", public={"id": "demo#1", "harbor_task": "demo"})
+    out = rollout.environment_rollout(task, task.given(), None, pipeline, Environments(tmp_path), 0.0,
+                                      pause=lambda s: None)
+    assert out.extra["failure_cause"] == "host_failed"
+    assert out.tokens == 1500 and out.cost_usd == 0.02 and out.api_speed["model_calls"] == 2
+
+
 def test_an_attachment_over_the_limit_is_measured_there_and_never_read(tmp_path, monkeypatch):
     from hermit.agent.acting import answer as answer_mod
     from hermit.agent.model.usage import Usage

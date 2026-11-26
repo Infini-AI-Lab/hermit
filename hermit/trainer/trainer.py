@@ -279,6 +279,9 @@ class Trainer:
         self.root_copy = self.tree.export(ROOT_TAG, self.run_dir / "root")
         start = self._start_ref()
         self.checkout = self.tree.checkout_run(self.branch, start, self.run_dir / "checkout")
+        if not self.resuming and Tree.head(self.checkout) != self.tree.resolve(start):
+            # a first step (or the bootstrap) stopped between its commit and its line in steps.jsonl: no step ran
+            Tree.reset(self.checkout, self.tree.resolve(start))
         self.start_commit = start
         self.material = Material(self.run_dir / "learning_material")
         ws = self.run_dir / "workspace"

@@ -1380,6 +1380,11 @@ class Codex(CliAgent):
                         rejected=bool(rejected))
             if rejected:                                 # what session_verdict reads: Codex's own failure
                 said["failure"] = rejected[:600]         # what refused it, its status first (the runner's head)
+        elif not done and self.settings.get("login"):
+            # a session on this machine (a sandbox's, a chat endpoint's) on a login: its sign-in refused, read as a
+            # container's above, is the run's end (LoginFailed; an endpoint's 401), never a failure to retry
+            from hermit.agent.base import codex_stream
+            said["login_failed"] = codex_stream.codex_signin_lost(raw)
         return said
 
 

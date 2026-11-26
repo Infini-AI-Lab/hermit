@@ -96,8 +96,10 @@ def prepare(root: Path, home: Path, user_file: Path | None = None) -> None:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if user_file.is_file() and _newer(user_file, master):
             _replace(user_file, master)
-        if not master.is_file():
-            raise RuntimeError(f"login: chatgpt, but there is no Codex login at {user_file} (run `codex login`)")
+        if not master.is_file():                         # a sign-in to restore, which ends the run (LoginFailed)
+            from hermit.agent.base.interface import LOGIN_FAILED
+            raise RuntimeError(f"login: chatgpt, but there is no Codex login at {user_file} (run `codex login`)"
+                               f" [{LOGIN_FAILED}]")
         _replace(master, Path(home) / FILE)
 
 

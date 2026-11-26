@@ -98,6 +98,28 @@ def test_resume_after_crash(tmp_path):
     assert summary["steps"] == 4
 
 
+def test_a_first_step_stopped_before_its_record_starts_over_from_the_start(tmp_path):
+    """The first step's commit lands before its line in steps.jsonl: a stop between the two left the checkout at a
+    commit no step records, which the restart (nothing to resume) took for the start, its first rollouts run on it."""
+    path = make_task(tmp_path)
+    trainer = Trainer(load(path), log=lambda *_: None)
+    original = trainer._commit_step
+
+    def commit_then_stop(*a, **k):
+        original(*a, **k)
+        raise KeyboardInterrupt("stopped between the commit and its record")
+    trainer._commit_step = commit_then_stop
+    with pytest.raises(KeyboardInterrupt):
+        trainer.train()
+    run = tmp_path / "runs" / "toy-run"
+    assert not (run / "steps.jsonl").exists() and git(run / "checkout", "rev-parse", "HEAD") != \
+        trainer.tree.resolve(trainer.start_commit)
+    again = Trainer(load(path), log=lambda *_: None)
+    again.train()
+    first = json.loads((run / "steps.jsonl").read_text().splitlines()[0])
+    assert first["parent"] == again.tree.resolve(again.start_commit)
+
+
 def test_budget_stops_the_run(tmp_path):
     cfg = load(make_task(tmp_path), "trainer.budget.usd=0.05")
     summary = Trainer(cfg, log=lambda *_: None).train()
