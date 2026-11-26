@@ -875,9 +875,11 @@ def test_a_container_worker_takes_a_relative_login_root_as_preflight_did(tmp_pat
     from hermit.isolate import ContainerAgent
     (tmp_path / "t").mkdir()
     config = Config.load(make_task(tmp_path / "t"))
+    from hermit.agent.base import login as codex_login
     monkeypatch.chdir(tmp_path)
-    assert ContainerAgent(config, "rollout", {"login_root": "logins/codex"}).params["login_root"] == \
-        str(tmp_path / "logins/codex")
+    for root in ("logins/codex", "~/logins"):                                  # as preflight names its shared copy
+        given = ContainerAgent(config, "rollout", {"login": "chatgpt", "login_root": root}).params["login_root"]
+        assert codex_login.master(Path(given)) == codex_login.master(Path(root)).absolute()
 
 
 def test_a_container_session_ends_before_the_outer_deadline(tmp_path):

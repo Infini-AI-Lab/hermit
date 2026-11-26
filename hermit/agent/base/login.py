@@ -110,7 +110,8 @@ def prepare(root: Path, home: Path, user_file: Path | None = None) -> None:
             _replace(user_file, master)
         if not master.is_file():                         # no login file: a sign-in to restore, which ends the run
             from hermit.agent.base.interface import LOGIN_FAILED   # (LoginFailed); one there that could not be read
-            mark = f" [{LOGIN_FAILED}]" if _absent(user_file) and _absent(master) else ""   # (being written, in a
+            # (being written, in a folder this process cannot pass) fails this session alone
+            mark = f" [{LOGIN_FAILED}]" if _absent(user_file) and _absent(master) else ""
             raise RuntimeError(f"login: chatgpt, but there is no Codex login at {user_file} (run `codex login`){mark}")
         _replace(master, Path(home) / FILE)
 
