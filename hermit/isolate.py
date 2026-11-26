@@ -691,6 +691,9 @@ class ContainerAgent:
         login = self.params.get("login")
         if codex_login.LOGINS.get(login):
             self.params = {**self.params, "plan_dir": str(codex_login.plan_dir(self.params.get("plan_dir"), login))}
+        if self.params.get("login_root"):                # its shared copy too, the one preflight checked
+            self.params = {**self.params,
+                           "login_root": str(Path(os.path.expanduser(str(self.params["login_root"]))).absolute())}
         self.enforce = d["sandbox"].get("enforce", "required")
         self.box = Sandbox(enabled=False, role=role)     # the worker is on the host; the container is the boundary
 

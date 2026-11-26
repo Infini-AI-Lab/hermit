@@ -519,8 +519,9 @@ class Trainer:
         """The run ends, unfinished, when the Evolver's call or a tool call in it met a failed sign-in."""
         error = box.get("error")
         failed = error if isinstance(error, LoginFailed) else self._login_failed
-        if failed is None and isinstance(error, Exception) and login_failure(error):   # a session's sign-in missing
-            failed = LoginFailed(login_failure(error))   # (login.prepare): the run ends, as for a lost one
+        why = login_failure(error) if failed is None and isinstance(error, Exception) else None
+        if why:                                          # a session's sign-in missing (login.prepare): the run ends,
+            failed = LoginFailed(why)                    # as for a lost one
         if failed is not None:
             raise failed
 

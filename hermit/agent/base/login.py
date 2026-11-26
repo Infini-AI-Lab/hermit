@@ -78,6 +78,18 @@ def _newer(candidate: Path, than: Path) -> bool:
     return mine is not None and (theirs is None or mine > theirs)
 
 
+def _absent(path: Path) -> bool:
+    """Whether `path` is known not to be there (its stat says so), not merely unread: a folder this process cannot
+    pass hides a file from Path.is_file (Python 3.14) that may well be there."""
+    try:
+        os.stat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return True
+    except OSError:
+        return False
+    return False
+
+
 def _replace(src: Path, dst: Path) -> None:
     tmp = dst.with_suffix(".tmp")
     if os.path.lexists(tmp):                        # a link a session left beside the login: never written through
@@ -98,7 +110,7 @@ def prepare(root: Path, home: Path, user_file: Path | None = None) -> None:
             _replace(user_file, master)
         if not master.is_file():                         # no login file: a sign-in to restore, which ends the run
             from hermit.agent.base.interface import LOGIN_FAILED   # (LoginFailed); one there that could not be read
-            mark = "" if user_file.is_file() else f" [{LOGIN_FAILED}]"   # (being written, say) fails this session
+            mark = f" [{LOGIN_FAILED}]" if _absent(user_file) and _absent(master) else ""   # (being written, in a
             raise RuntimeError(f"login: chatgpt, but there is no Codex login at {user_file} (run `codex login`){mark}")
         _replace(master, Path(home) / FILE)
 

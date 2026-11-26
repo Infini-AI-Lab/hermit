@@ -571,6 +571,15 @@ def test_a_login_session_with_no_login_to_copy_is_a_lost_sign_in(tmp_path, monke
     with pytest.raises(RuntimeError) as failed:
         agent.run("go", environment=tmp_path / "w")
     assert login_failure(failed.value) is None
+    if os.geteuid() != 0:                                                      # in a folder it cannot pass: unread,
+        monkeypatch.setattr(Path, "is_file", lambda self: os.path.isfile(self))   # not absent (Python 3.14's is_file
+        (tmp_path / "no-codex-here").chmod(0)                                  # says False)
+        try:
+            with pytest.raises(RuntimeError) as failed:
+                agent.run("go", environment=tmp_path / "w")
+            assert login_failure(failed.value) is None
+        finally:
+            (tmp_path / "no-codex-here").chmod(0o700)
 
 
 def test_a_long_window_still_over_holds_after_the_short_one_resets(tmp_path):
