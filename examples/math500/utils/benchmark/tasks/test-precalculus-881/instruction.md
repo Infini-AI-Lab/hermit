@@ -1,0 +1,3 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Let $\mathbf{a},$ $\mathbf{b},$ $\mathbf{c}$ be three vectors such that
+\[\mathbf{a} \times \mathbf{b} = \begin{pmatrix} 6 \\ -7 \\ 3 \end{pmatrix}, \quad \mathbf{a} \times \mathbf{c} = \begin{pmatrix} 4 \\ 7 \\ 2 \end{pmatrix}, \quad \mathbf{b} \times \mathbf{c} = \begin{pmatrix} 1 \\ -7 \\ 18 \end{pmatrix}.\]Compute $(2 \mathbf{b} - \mathbf{a}) \times (3 \mathbf{c} + \mathbf{a}).$

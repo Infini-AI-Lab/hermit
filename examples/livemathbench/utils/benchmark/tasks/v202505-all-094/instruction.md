@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+We say that the positive integer $n \geq 3$ is happy if it is possible to arrange $n$ different positive integers in a circle such that two conditions are satisfied: (a) If integers $u$ and $v$ in the circle are neighbours, then either $u$ divides $v$ or $v$ divides $u$; (b) If different integers $u$ and $v$ are in the circle but are not neighbours, then neither divides the other. Determine which positive integers $n$ in the range $3 \leq n \leq 12$ are happy.

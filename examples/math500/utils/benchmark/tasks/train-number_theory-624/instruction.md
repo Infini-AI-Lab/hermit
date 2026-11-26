@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+There exist $r$ unique nonnegative integers $n_1 > n_2 > \cdots > n_r$ and $r$ unique integers $a_k$ ($1\le k\le r$) with each $a_k$ either $1$ or $- 1$ such that\[a_13^{n_1} + a_23^{n_2} + \cdots + a_r3^{n_r} = 2008.\]Find $n_1 + n_2 + \cdots + n_r$.

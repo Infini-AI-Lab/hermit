@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+The quality inspection department tests the compressive strength of a certain building component. The component has two vulnerable parts, $A$ and $B$. After each strike, the probability that part $A$ is damaged is $\frac{3}{10}$, and the probability that part $B$ is damaged is $\frac{1}{2}$. Given that at least one part is damaged after the first strike (considering only parts $A$ and $B$), the probability that both parts $A$ and $B$ are damaged is?

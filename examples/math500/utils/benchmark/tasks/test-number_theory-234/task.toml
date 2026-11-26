@@ -1,0 +1,12 @@
+version = "1.0"
+
+[metadata]
+subject = "Number Theory"
+level = 2
+source = "HuggingFaceH4/MATH-500@6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be"
+
+[environment]
+network_mode = "no-network"
+
+[agent]
+timeout_sec = 1800.0

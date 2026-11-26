@@ -2,7 +2,8 @@
 
 Each folder is one task, except [`cap_harness/`](cap_harness/), the engine that Robosuite and LIBERO run on (RoboDojo's
 simulator service builds on it too), and [`claude_subscription/`](claude_subscription/), the configs of the Claude
-subscription guide. Inside a task's folder the three things a task owner provides are kept apart, and the configs of
+subscription guide, and [`math_grading/`](math_grading/), the grading the math benchmarks share. Inside a task's
+folder the three things a task owner provides are kept apart, and the configs of
 every method that has been run on the task sit beside them:
 
 ```text
@@ -41,6 +42,9 @@ a `.hermit/CARD.md`.
 | [`robosuite/`](robosuite/) | The Robosuite tasks of ASPIRE's Code-as-Policy harness: development and held-out seeds, task success | Codex writing the program, GLM 5.3 Flash, on the [`cap_harness/`](cap_harness/) engine (ASPIRE's robot execution engine in its own venv through `bin/sim`), with a method's own session (ASPIRE's fix-loop subagent and verifier) | [`aspire`](robosuite/aspire/) |
 | [`libero/`](libero/) | LIBERO's five suites and LIBERO-Pro's `_swap` and `_task` perturbations, a program per task in ASPIRE's Code-as-Policy harness: development and held-out seeds, task success | Codex writing the program, on the `cap_harness/` engine (ASPIRE's LIBERO venv, seeded initial states), with a method's own session or a method-neutral prompt | [`aspire`](libero/aspire/), [`prompt_only`](libero/prompt_only/) |
 | [`robodojo_sim/`](robodojo_sim/) | RoboDojo-Sim's forty-two bimanual manipulation tasks: a program that controls the robot, developed on one layout set and scored on two others, task success (a first implementation: its smoke run on the real simulator, no training run yet) | Codex writing `policy.py` (`utils/agent/task.py`), GLM 5.3 Flash, RoboDojo evaluating it as an XPolicyLab policy whose program runs in a sandbox of its own | [`prompt_only`](robodojo_sim/prompt_only/) |
+| [`aime/`](aime/) | AIME 2025 and AIME 2026 (MathArena's sets and prompt), AIME 2024 split for learning; the last `\boxed{}` against the reference by Math-Verify, pass@1 over four attempts (an integration: its README has no result table yet) | Codex (GPT-5.6-Luna) or Claude Code (Claude Haiku 5.5) in Hermit's bubblewrap sandbox; the grading shared in [`math_grading/`](math_grading/) | a no-adapter baseline (`baseline/`) |
+| [`math500/`](math500/) | MATH-500 (its own prompt), MATH's training split drawn for learning; graded as AIME (an integration: its README has no result table yet) | as AIME | a no-adapter baseline (`baseline/`) |
+| [`livemathbench/`](livemathbench/) | LiveMathBench's 202505 English questions (OpenCompass's prompt), its 202412 release for learning; OpenCompass's answer extraction and judge model, accuracy and G-Pass@k (an integration: no scored run yet, the judge model not served) | Codex (GPT-5.6-Luna) or Claude Code (Claude Haiku 5.5) in Hermit's bubblewrap sandbox, judged by a model (`LIVEMATHBENCH_JUDGE`, by default Qwen2.5-72B-Instruct on vLLM) | a no-adapter baseline (`baseline/`) |
 | [`agentdyn/`](agentdyn/) | AgentDyn's frozen benign and injected cases (Shopping, GitHub, DailyLife), clean utility and attack success rate | `bridge.py:run`: AgentDyn's native agent loop, with the defense bundle's hooks around every tool call | [`evosafe`](agentdyn/evosafe/) (EvoSafeHarness) |
 | [`agentdojo/`](agentdojo/) | Official banking, Slack, travel and workspace suites; frozen 57/54/406 local protocol, native utility/ASR and errors | `task.py:run`: native AgentDojo loop through the shared AgentDyn supervised runtime | [`evosafe`](agentdojo/evosafe/), [`she`](agentdojo/she/), completed Lightning/Codex reference comparisons |
 

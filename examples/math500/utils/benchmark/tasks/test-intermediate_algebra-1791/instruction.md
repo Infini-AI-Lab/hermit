@@ -1,0 +1,3 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Consider the function $z(x,y)$ describing the paraboloid
+\[z = (2x - y)^2 - 2y^2 - 3y.\]Archimedes and Brahmagupta are playing a game.  Archimedes first chooses $x.$  Afterwards, Brahmagupta chooses $y.$  Archimedes wishes to minimize $z$ while Brahmagupta wishes to maximize $z.$  Assuming that Brahmagupta will play optimally, what value of $x$ should Archimedes choose?

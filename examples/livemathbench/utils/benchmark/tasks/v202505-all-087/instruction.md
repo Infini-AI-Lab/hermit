@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+On an $M \times N$ grid ($2 \leq M, N$), a treasure is buried in one cell. Detectors scan a subgrid $[a, b] \times [c, d]$ ($1 \leq a \leq b \leq M$, $1 \leq c \leq d \leq N$) and indicate if the treasure is present, without specifying the cell. With $Q$ detectors run simultaneously, what is the minimum $Q$ to guarantee determining the treasure’s location, in terms of $M$ and $N$?

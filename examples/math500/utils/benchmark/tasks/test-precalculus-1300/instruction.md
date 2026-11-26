@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+If $\mathbf{a} = \begin{pmatrix} 1 \\ 1 \\ 1 \end{pmatrix},$ then find the vector $\mathbf{v}$ such that $\mathbf{a} \cdot \mathbf{v} = 2$ and $\mathbf{a} \times \mathbf{v} = \begin{pmatrix} 1 \\ -2 \\ 1 \end{pmatrix}.$

@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+Eugene and Paul have a regular hexagon. They play a game: in one move, a player places a positive integer in any free vertex. After six moves, when the game ends, a referee writes on each side the product of the numbers in its ends. Then all 12 numbers are added up. If the sum is odd, then Eugene wins, and otherwise Paul. It is known that Eugene starts the game. Who can win regardless of the actions of the opponent and how should he act?

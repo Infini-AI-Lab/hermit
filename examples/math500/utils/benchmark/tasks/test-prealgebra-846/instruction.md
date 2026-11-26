@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+A class of 30 students recently took a test.  If 20 students scored 80, 8 students scored 90, and 2 students scored 100, then what was the class average (the mean) on this test?

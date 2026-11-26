@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+A pirate searches seven islands for buried treasure. If each island has a $\frac{1}{5}$ chance of having treasure, what is the probability that exactly 4 of the islands have treasure?

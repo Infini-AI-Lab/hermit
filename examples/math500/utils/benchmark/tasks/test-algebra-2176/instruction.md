@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Let $f(x)=\left\lfloor\left(-\frac58\right)^x\right\rfloor$ be a function that is defined for all values of $x$ in $[0,\infty)$ such that $f(x)$ is a real number. How many distinct values exist in the range of $f(x)$?

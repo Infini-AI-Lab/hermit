@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Let $f(x)$ be the polynomial \[f(x)=3x^4+5x^2-9x-2.\] If $g(x)$ is equal to the polynomial $f(x-1)$, what is the sum of the coefficients of $g$?

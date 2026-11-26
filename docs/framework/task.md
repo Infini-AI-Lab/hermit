@@ -268,7 +268,7 @@ itself (B).
 | `task.toml` limits | applied by Harbor; Hermit adds the agent's model hosts to `allowed_hosts` | the agent's timeout and the network applied by Hermit; a task that needs more memory than `environment.resources.memory_mb` is refused; `cpus` is not applied |
 | Harbor at run time | needed (in a venv of its own) | not needed (`hermit/task/directory.py` reads the format) |
 | Not supported yet (refused) | the adapter's tools, the agent's mounts, `prepare` and `collect`, multi-step tasks | files placed in the agent's workspace before it starts, multi-step tasks |
-| Examples | `terminal_bench_2_0`, `terminal_bench_science`, `swebench_verified`, `algotune`, `labbench`, `officeqa/gepa/run_codex_harbor.yaml` | `libero`, `robosuite`, `robodojo_sim`, `clbench_*`, `servelearnbench`, `agentdyn`, `agentdojo`, `officeqa` |
+| Examples | `terminal_bench_2_0`, `terminal_bench_science`, `swebench_verified`, `algotune`, `labbench`, `officeqa/gepa/run_codex_harbor.yaml` | `aime`, `math500`, `livemathbench`, `libero`, `robosuite`, `robodojo_sim`, `clbench_*`, `servelearnbench`, `agentdyn`, `agentdojo`, `officeqa` |
 
 The task format is the same, so a task set of B moves to A when its tasks need stricter isolation: give each task's
 `environment/` a Dockerfile (or a `docker_image`) and the run config `environment.harbor`. OfficeQA runs both ways:

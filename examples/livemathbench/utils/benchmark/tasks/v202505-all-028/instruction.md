@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+Let $m, n \geq 3$ be integers. Nemo is given an $m \times n$ grid of unit squares with one chip on every unit square initially. They can repeatedly pick three distinct collinear unit squares and move one chip from each outer square to the middle square, if the outer squares are not empty. Determine the maximum number of operations Nemo can make, or prove that an arbitrarily large number of operations is possible.

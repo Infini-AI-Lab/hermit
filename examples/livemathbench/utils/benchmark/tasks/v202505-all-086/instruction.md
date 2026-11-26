@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+Determine the maximal length $L$ of a sequence $a_1, \ldots, a_L$ of positive integers satisfying both of the following properties: every term in the sequence is less than or equal to $2^{2024}$, and there does not exist a consecutive subsequence $a_i, a_{i+1}, \ldots, a_j$ (where $1 \leq i \leq j \leq L$) with a choice of signs $s_i, s_{i+1}, \ldots, s_j \in \{1, -1\}$ for which $s_i a_i + s_{i+1} a_{i+1} + \cdots + s_j a_j = 0$.

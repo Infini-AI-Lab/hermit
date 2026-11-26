@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+If we write $\sqrt{2}+\frac{1}{\sqrt{2}} + \sqrt{3} + \frac{1}{\sqrt{3}}$ in the form $\dfrac{a\sqrt{2} + b\sqrt{3}}{c}$ such that $a$, $b$, and $c$ are positive integers and $c$ is as small as possible, then what is $a+b+c$?

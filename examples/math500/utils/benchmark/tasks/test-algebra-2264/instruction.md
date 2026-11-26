@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+William Sydney Porter tried to perform the calculation $\frac{-3+4i}{1+2i}$. However, he accidentally missed the minus sign, finding $\frac{3+4i}{1+2i}=\frac{11}{5}-\frac{2}{5}i$. What answer should he have obtained?

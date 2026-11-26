@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+The sum of the digits of a two-digit number is $13.$ The difference between the number and the number with its digits reversed is $27.$ What is the sum of the original number and the number with its digits reversed?

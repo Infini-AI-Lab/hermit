@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+The number $(\sqrt{2}+\sqrt{3})^3$ can be written in the form $a\sqrt{2} + b\sqrt{3} + c\sqrt{6}$, where $a$, $b$, and $c$ are integers.  What is $a+b+c$?

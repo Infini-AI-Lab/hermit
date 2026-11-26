@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+The chairs on the ski lift are numbered sequentially: $1, 2, 3$, etc. The distances between each pair of adjacent chairs are the same. During a thunderstorm, the ski lift stopped, and at that moment chair 22 was at the same height as chair 59, while chair 93 was at the same height as chair 142. Determine the number of chairs on the ski lift.

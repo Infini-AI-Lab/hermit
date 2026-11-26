@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+The function $y=\frac{x^3+8x^2+21x+18}{x+2}$ can be simplified into the function $y=Ax^2+Bx+C$, defined everywhere except at $x=D$. What is the sum of the values of $A$, $B$, $C$, and $D$?

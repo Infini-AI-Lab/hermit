@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Compute $i^{-100}+i^{-99}+i^{-98}+\cdots+i^{-1}+i^0+i^1+\cdots+i^{99}+i^{100}$.
