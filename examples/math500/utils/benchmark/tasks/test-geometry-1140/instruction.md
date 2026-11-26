@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+In triangle $ABC$, $AB = 17$, $AC = 8$, and $BC = 15$.  Let $D$ be the foot of the altitude from $C$ to $AB$.  Find the area of triangle $ACD$.

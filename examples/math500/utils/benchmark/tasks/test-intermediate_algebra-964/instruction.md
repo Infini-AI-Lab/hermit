@@ -1,0 +1,4 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+For every positive integer $n$, let $\text{mod}_5 (n)$ be the remainder obtained when $n$ is divided by 5. Define a function $f: \{0,1,2,3,\dots\} \times \{0,1,2,3,4\} \to \{0,1,2,3,4\}$ recursively as follows:
+
+\[f(i,j) = \begin{cases}\text{mod}_5 (j+1) & \text{ if } i = 0 \text{ and } 0 \le j \le 4 \text{,}\\ f(i-1,1) & \text{ if } i \ge 1 \text{ and } j = 0 \text{, and} \\ f(i-1, f(i,j-1)) & \text{ if } i \ge 1 \text{ and } 1 \le j \le 4. \end{cases}\]What is $f(2015,2)$?

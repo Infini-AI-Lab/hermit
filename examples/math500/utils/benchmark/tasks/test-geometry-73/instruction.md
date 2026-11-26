@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+A cylindrical beaker is 8 cm high and has a radius of 3 cm. How many such beakers of water will it take to fill a spherical tank of radius 6 cm?

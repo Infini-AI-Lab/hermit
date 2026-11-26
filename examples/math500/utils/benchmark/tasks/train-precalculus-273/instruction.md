@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Let $f(x) = \sin{x} + 2\cos{x} + 3\tan{x}$, using radian measure for the variable $x$.  Let $r$ be the smallest positive value of $x$ for which $f(x) = 0$.  Find $\lfloor r \rfloor.$

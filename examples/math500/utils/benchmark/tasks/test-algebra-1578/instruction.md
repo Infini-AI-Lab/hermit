@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+The average of Amy's, Ben's, and Chris's ages is 6. Four years ago,  Chris was the same age as Amy is now. In four years, Ben's age will be $\frac{3}{5}$ of Amy's age at that time. How many years old is Chris now?

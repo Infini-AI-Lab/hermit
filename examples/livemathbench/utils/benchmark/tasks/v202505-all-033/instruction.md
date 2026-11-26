@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+Donald sits at the origin $(0,0)$ in the $xy$-plane. Huey sits at the intersection of the lines $y = 3x - 5$ and $y = 4x - 8$. Dewey sits at the lowest point of the parabola $y = x^2 + 5$. Louie sits at the intersection of the circle $x^2 + y^2 = 30$ and the line $x = 2y$ in the first quadrant. Which among Huey, Dewey, and Louie sit closest to Donald?

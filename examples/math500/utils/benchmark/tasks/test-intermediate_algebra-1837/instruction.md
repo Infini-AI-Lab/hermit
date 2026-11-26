@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Let $f$ be the function defined by $f(x) = x^3 - 49x^2 + 623x - 2015,$ and let $g(x) = f(x + 5).$  Compute the sum of the roots of $g.$

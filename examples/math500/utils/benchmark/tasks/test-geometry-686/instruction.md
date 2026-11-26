@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Let $S$ be the union of the set of all points inside a regular nonagon with side length $2$ units and the set of all points less than $1$ unit away from a point on the perimeter of the nonagon.  What, in units, is the perimeter of $S$?

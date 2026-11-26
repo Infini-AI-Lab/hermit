@@ -1,0 +1,14 @@
+version = "1.0"
+
+[metadata]
+release = "202412"
+set = "AMC"
+question_type = "problem-solving"
+subject = ""
+source = "opencompass/LiveMathBench@ea05b95ab431f3ef3900ce86f864451cf5bcd699"
+
+[environment]
+network_mode = "no-network"
+
+[agent]
+timeout_sec = 3600.0

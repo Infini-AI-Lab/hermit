@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+There are 8 white cubes of the same size. Marina needs to paint 24 sides of the cubes blue and the remaining 24 sides red. Then Kate glues them into a cube $2 \times 2 \times 2$. If there are as many blue squares on the surface of the cube as red ones, then Kate wins. If not, then Marina wins. Can Marina paint faces so that Kate can't reach her goal?

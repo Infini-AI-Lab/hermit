@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+Alice and Bob play a game. Initially, Clara writes the integers $2, 3, \ldots, 30$ on a board. Players take turns erasing integers, with Clara choosing a non-empty set $S_1$ for Alice to erase in the first turn. For $k \geq 2$, the player choosing $S_k$ must ensure that for each $x \in S_k$, there exists $y \in S_{k-1}$ such that $\gcd(x, y) \neq 1$. The first player to choose an empty set loses. How many non-empty sets $S_1$ allow Alice to win regardless of Bob’s choices?

@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+Call any sequence of letters a word. The following operations are allowed on words: 1) remove the first letter of the word; 2) remove the last letter of the word; 3) append a copy of the word after itself. For example, if the original word is $ABC$, applying the operations yields $BC$, $AB$, and $ABCABC$, respectively. Is it true that using these operations, the letters of any word can be rearranged in any order?

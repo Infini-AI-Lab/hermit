@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+The authors of the Olympiad received 99 candies as their salary. The first author took 1, 2, or 3 candies. The second author took one more or one less than the first. The third took one more or one less than the second one, and so on: each person takes one candy more or one less than the previous one. As a result, the last author just took all the remaining candies. Determine the minimum possible number of authors.

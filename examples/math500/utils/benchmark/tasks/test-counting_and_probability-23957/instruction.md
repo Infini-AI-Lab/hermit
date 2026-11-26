@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Mr. Brennan has 7 boys and 4 girls in his statistics class. In how many ways can he pick 3 boys and 2 girls to give a group presentation tomorrow? (The order in which the boys and girls are chosen does not matter.)

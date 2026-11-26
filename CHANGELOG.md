@@ -143,6 +143,10 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- AIME as a benchmark in Hermit's own environment ([`examples/aime/`](examples/aime/README.md)): MathArena's AIME 2025
+  and AIME 2026, with its prompt, as task directories; the acting CLI in a bubblewrap sandbox with no network but its
+  model's; the last `\boxed{}` judged on the host by Math-Verify (`examples/math_grading/`, with its own
+  `requirements.txt`). A no-adapter baseline for Codex and Claude Code, and AIME 2024 split for a method that learns.
 - `hermit convert` names the adapter's folder and files as a deployment does: a Claude Code plugin prints, from a
   `SessionStart` hook, where its embedded adapter is and the files no export connects (the list a deployment's
   context gives); Codex, Pi and Hermes plugins list those files under `unnamed_files` in the result and their README.

@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Two different  numbers are selected simultaneously and at random from the set $\{1, 2, 3, 4, 5, 6, 7\}$. What is the probability that the positive difference between the two numbers is $2$ or greater? Express your answer as a common fraction.

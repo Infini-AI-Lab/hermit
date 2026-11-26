@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Let $(a,b,c,d)$ be a solution to the system\begin{align*}a+b&=15,\\ab+c+d&=78,\\ad+bc&=160,\\cd&=96.\end{align*}Find the greatest possible value of $a^2+b^2+c^2+d^2$.

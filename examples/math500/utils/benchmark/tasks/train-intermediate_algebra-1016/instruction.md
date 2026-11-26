@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Let $f(x)=ax^2+bx+c$, where $a$, $b$, and $c$ are integers. Suppose that $f(1)=0$, $50<f(7)<60$, $70<f(8)<80$, $5000k<f(100)<5000(k+1)$ for some integer $k$. What is $k$?

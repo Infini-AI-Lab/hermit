@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+Let $F_1$, $F_2$ be the foci of the ellipse $\Omega$. Take a point $P$ on $\Omega$ (not the endpoints of the major axis), and let $O$ be the circumcenter of $\triangle PF_1F_2$. If $\overrightarrow{PO} \cdot \overrightarrow{F_1F_2} = 2\overrightarrow{PF_1} \cdot \overrightarrow{PF_2}$, then what is the minimum value of the eccentricity of $\Omega$?

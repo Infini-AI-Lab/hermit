@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+On a balance scale, $3$ green balls balance $6$ blue balls, $2$ yellow balls balance $5$ blue balls, and $6$ blue balls balance $4$ white balls. How many blue balls are needed to balance $4$ green, $2$ yellow and $2$ white balls?

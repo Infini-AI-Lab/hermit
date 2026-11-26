@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+There is a pile of 100 stones. Two players play a game. The first player takes 1 stone, then the second player can take 1 or 2 stones, then the first player can take 1, 2, or 3 stones, then the second player can take 1, 2, 3, or 4 stones, and so on. The player who takes the last stone wins. Who can win, no matter how their opponent plays?

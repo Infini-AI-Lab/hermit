@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Let $P$ be a cubic polynomial with $P(0) = k$, $P(1) = 2k$, and $P(-1) = 3k$. What is $P(2) + P(-2)$ ?

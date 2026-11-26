@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+There is an island where 2023 people live. Some of them are friends (if $A$ is a friend of $B$, then $B$ is a friend of $A$), and each of them has no more than 10 friends. A team of doctors is going to visit the island to vaccinate some of the residents. It is required that everyone who remains unvaccinated has all their friends vaccinated. What is the minimum number of vaccine doses doctors should take with them to ensure they have enough?

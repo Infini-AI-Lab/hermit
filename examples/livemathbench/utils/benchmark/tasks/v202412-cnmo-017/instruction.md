@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+In the Cartesian coordinate system, a circle with its center on the $y$-axis and touching each branch of the hyperbola $\Gamma: x^2 - y^2 = 1$ exactly once is called a 'good circle'. Is there a constant $\lambda$ and a fixed point $A$ on the $x$-axis such that if two good circles are externally tangent at point $P$, then their centers' distance $d = \lambda |PA|$?

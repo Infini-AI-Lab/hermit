@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+Given vectors $\vec{e_1}, \vec{e_2}$ are two non-collinear unit vectors in the plane, and $\overrightarrow{AB}=\vec{e_1}+2\vec{e_2}$, $\overrightarrow{BC}=-3\vec{e_1}+2\vec{e_2}$, $\overrightarrow{DA}=3\vec{e_1}-6\vec{e_2}$, then which of the following is right? A, B, C three points collinear , A, B, D three points collinear , A, C, D three points collinear , B, C, D three points collinear

@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+$n$ fair 6-sided dice are simultaneously rolled. The probability that exactly two of them show a number other than 1 is $\frac{25}{216}$. Find $n$.

@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+If $x$, $y$, and $z$ are positive with $xy = 24$, $xz = 48$, and $yz = 72$, then find $x + y + z.$
