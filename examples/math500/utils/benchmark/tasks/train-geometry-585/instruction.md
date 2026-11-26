@@ -1,0 +1,3 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Let $ABCD$ be an isosceles trapezoid with bases $AB=92$ and $CD=19$. Suppose $AD=BC=x$ and a circle with center on $\overline{AB}$ is tangent to segments $\overline{AD}$ and $\overline{BC}$. If $m$ is the smallest possible value of $x$, then $m^2$=
+$\text{(A) } 1369\quad \text{(B) } 1679\quad \text{(C) } 1748\quad \text{(D) } 2109\quad \text{(E) } 8825$

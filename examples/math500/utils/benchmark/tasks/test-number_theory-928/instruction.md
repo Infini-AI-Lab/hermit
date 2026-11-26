@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+How many of the same digits are found in the base 7 and base 8 representations of $629_{10}$? For example, $121_{3}$ and $413_{5}$ would have one digit in common.

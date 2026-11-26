@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+A tourist called Alex visited Trickytown, where three castes live: knights, who answer 'Yes' if what they are asked is true, and 'No' if it is wrong; liars, acting in the opposite way; and imitators, who simply repeat the last phrase heard. Alex approached six residents and asked them (once) if they were imitators. In response he got 3 different phrases, each one twice. How many of these six residents could be imitators? Specify all possible options.

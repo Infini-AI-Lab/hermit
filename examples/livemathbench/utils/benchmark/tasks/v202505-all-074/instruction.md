@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+Kate wrote two numbers on the board and encrypted them according to the rules of alphametic puzzles, where same letters correspond to the same digits, and different letters correspond to different digits. She got words FORMULO and JARMILO. What are the minimum and maximum values of the difference between the original numbers?

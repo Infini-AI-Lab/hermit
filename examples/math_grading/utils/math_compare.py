@@ -19,9 +19,10 @@ def compare(given: str, reference: str) -> bool:
 
 
 if __name__ == "__main__":
-    try:                                # a bound on memory too: a power tower's digits would fill it (Linux)
+    try:                                # a bound on memory too, on Linux (macOS does not apply it): a power tower's digits would
+                                        # fill it, and several judges compare at once
         import resource
-        resource.setrlimit(resource.RLIMIT_AS, (4 << 30, 4 << 30))
+        resource.setrlimit(resource.RLIMIT_AS, (2 << 30, 2 << 30))
     except (ImportError, ValueError, OSError):
         pass
     pair = json.loads(sys.stdin.read())

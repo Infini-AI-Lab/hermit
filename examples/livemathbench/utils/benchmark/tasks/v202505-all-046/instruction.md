@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+Grogg takes an $a \times b \times c$ rectangular block (where $a, b, c$ are positive integers), paints the outside of it purple, and cuts it into $abc$ small $1 \times 1 \times 1$ cubes. He then places all the small cubes into a bag, and Winnie reaches in and randomly picks one of the small cubes. If the probability that Winnie picks a totally unpainted cube is $20\%$, determine all possible values of the number of cubes in the bag.

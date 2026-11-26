@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Simplify $4(3r^3+5r-6)-6(2r^3-r^2+4r)$, and express your answer in the form $Ar^2 + Br + C$, where $A$, $B$, and $C$ are integers.

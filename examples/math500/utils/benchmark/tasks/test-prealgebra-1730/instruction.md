@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+The product of three consecutive integers is 120. That product divided by the mean of the three integers is 24. What is the largest of the three consecutive integers?

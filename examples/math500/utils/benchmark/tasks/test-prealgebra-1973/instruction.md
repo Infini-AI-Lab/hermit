@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+A bicycle is traveling at 20 feet per minute. What is the bicycle's speed expressed in inches per second?

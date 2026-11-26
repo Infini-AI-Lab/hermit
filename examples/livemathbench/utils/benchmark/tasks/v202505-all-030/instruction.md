@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+If $a$ and $b$ are positive integers, we say that $a$ almost divides $b$ if $a$ divides at least one of $b-1$ and $b+1$. We call a positive integer $n$ almost prime if the following holds: for any positive integers $a, b$ such that $n$ almost divides $ab$, we have that $n$ almost divides at least one of $a$ and $b$. Determine all almost prime numbers.

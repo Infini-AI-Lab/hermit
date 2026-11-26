@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+The parabola with equation $y=ax^2+bx+c$ and vertex $(h,k)$ is reflected about the line $y=k$. This results in the parabola with equation $y=dx^2+ex+f$.  Express $a+b+c+d+e+f$ in terms of $k.$

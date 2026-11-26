@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+The product of $3t^2+5t+a$ and $4t^2+bt-2$ is $12t^4+26t^3-8t^2-16t+6$. What is $a+b$?

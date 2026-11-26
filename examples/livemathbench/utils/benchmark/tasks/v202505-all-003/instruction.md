@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+There are eight seats at a round table. Six adults $A_1, \ldots, A_6$ and two children sit around the table. The two children are not allowed to sit next to each other. All the seating configurations where the children are not seated next to each other are equally likely. What is the probability that the adults $A_1$ and $A_2$ end up sitting next to each other?

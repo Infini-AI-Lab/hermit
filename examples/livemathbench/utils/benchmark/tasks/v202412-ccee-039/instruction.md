@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+A school bought a batch of calligraphy brushes and ink for a 'Culture and Calligraphy into Campus' activity. It is known that the price per brush is 5 yuan more than the price per bottle of ink. The school spent 450 yuan on brushes and 150 yuan on ink, and the number of brushes is twice the number of bottles of ink. Find the quantity of brushes and ink purchased, respectively.

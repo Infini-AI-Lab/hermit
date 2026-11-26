@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+British mathematician Brook Taylor discovered that when $n \to + \infty$, $\cos x = \sum\limits_{i=1}^n[\frac{(-1)^{i-1} \cdot x^{2i-2}}{(2i-2)!}]$, which is a classic application of the Maclaurin series in trigonometric functions. Using the above formula, estimate the value of $\cos(\frac{2025\pi}{2}-0.4)$ (accurate to 0.01)

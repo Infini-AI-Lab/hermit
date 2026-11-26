@@ -1,0 +1,3 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+The vectors $\mathbf{a} = \begin{pmatrix} 3 \\ 1 \\ -2 \end{pmatrix}$ and $\mathbf{b} = \begin{pmatrix} 0 \\ 2 \\ -1 \end{pmatrix}.$  There exist scalars $p,$ $q,$ and $r$ such that
+\[\begin{pmatrix} 4 \\ 1 \\ -4 \end{pmatrix} = p \mathbf{a} + q \mathbf{b} + r (\mathbf{a} \times \mathbf{b}).\]Find $r.$

@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Charlie is riding on his unicycle. If the unicycle's wheel has a radius of 9 inches and makes 2 revolutions every 3 seconds, what is the unicycle's speed in inches per second?

@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Let $G$ and $H$ denote the centroid and orthocenter of triangle $ABC,$ respectively.   Let $F$ be the midpoint of $\overline{GH}.$  Express $AF^2 + BF^2 + CF^2$ in terms of the side lengths $a,$ $b,$ $c$ and circumradius $R$ of triangle $ABC.$

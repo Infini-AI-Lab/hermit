@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+Young Paul wants to go to the pool regularly during the summer holidays. In each week, he plans to have 2 days when he trains in the morning and in the evening, and also 4 days when he trains only in the evening. But he will not be able to train twice per day for two days in a row. He wants to plan his workouts for the week and stick to this schedule all the summer. In how many ways can he do it?

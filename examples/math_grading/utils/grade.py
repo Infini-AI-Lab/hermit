@@ -8,7 +8,7 @@ expressions compared as values; plain text compared as text).
     judge.path: ../utils/benchmark/judge.py                          # grade.score on the host
 
 `answer` runs in the task sandbox and uses the standard library only. `equal` runs on the host, each comparison in a
-process of its own (math_compare.py) with a time limit, so that an answer whose arithmetic never ends cannot hold the
+process of its own (math_compare.py) with a time limit and, on Linux, a memory bound, so that an answer whose arithmetic never ends cannot hold the
 run. The references stay on the host, in the benchmark's `.private/answers.jsonl`, which no sandbox is granted.
 """
 from __future__ import annotations
@@ -59,8 +59,18 @@ def equal(given: str, reference: str) -> bool | None:
         return None
     if done.returncode != 0:
         raise RuntimeError(f"math_compare.py failed: {done.stderr.strip()[-2000:]}")
-    result = json.loads(done.stdout)["equal"]
+    lines = done.stdout.strip().splitlines()     # its answer is the last line: a library may print before it
+    result = json.loads(lines[-1])["equal"] if lines else None
     return None if result is None else bool(result)
+
+
+def require() -> None:
+    """Math-Verify importable by this interpreter, which equal() runs math_compare.py with: checked when a judge loads,
+    so that a run without it stops before any agent session rather than failing every judgement after them."""
+    import importlib.util
+    if importlib.util.find_spec("math_verify") is None:
+        raise ImportError(f"Math-Verify is not installed for {sys.executable}: python -m pip install -r "
+                          f"{HERE.parent / 'requirements.txt'}")
 
 
 def load_answers(private: Path) -> dict[str, str]:
@@ -83,6 +93,6 @@ def score(task: dict, output, answers: dict[str, str]) -> dict:
     if right is None:
         return {"score": 0.0, "answered": True, "compared": False,
                 "feedback": f"answered {given}, which could not be compared with the answer, {reference}, within "
-                            f"{COMPARE_TIMEOUT_S} s and 4 GB"}
+                            f"{COMPARE_TIMEOUT_S} s (and 2 GB of memory, on Linux)"}
     return {"score": float(right), "answered": True,
             "feedback": "correct" if right else f"answered {given}, but the answer is {reference}"}

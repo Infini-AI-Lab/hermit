@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+What is the smallest base-10 integer that can be represented as $12_a$ in one base and $21_b$ in another base, where $a$ and $b$ are any bases larger than 2?

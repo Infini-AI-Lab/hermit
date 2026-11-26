@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+A 2x1 card is called valid if it contains two natural numbers, with the number in the top cell less than the number in the bottom cell. In one move, you can modify both numbers on the card by either adding the same integer (possibly negative) to each, or multiplying each by the same natural number, or dividing each by the same natural number, while keeping the card valid. What is the smallest number of such moves needed to transform any valid card into any other valid card?

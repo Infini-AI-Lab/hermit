@@ -8,6 +8,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import importlib.util
 from pathlib import Path
+import sys
 import time
 from types import SimpleNamespace
 
@@ -98,5 +99,24 @@ def test_the_feedback_names_the_reference_and_why_there_was_no_answer():
 
 def test_the_answer_hook_uses_the_standard_library_only():
     """It runs in the task sandbox, which shows the framework's environment but not the grader's requirements."""
-    source = (UTILS / "grade.py").read_text()
-    assert "math_verify" not in source and "import sympy" not in source
+    import ast
+    tree = ast.parse((UTILS / "grade.py").read_text())
+    imported = {alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, (ast.Import, ast.ImportFrom))
+                for alias in (node.names if isinstance(node, ast.Import) else [ast.alias(node.module or "")])}
+    assert not imported & {"math_verify", "sympy", "latex2sympy2_extended"} and imported <= set(sys.stdlib_module_names)
+
+
+def test_the_comparisons_answer_is_its_last_line(monkeypatch):
+    """A library in the comparison's process may print before it (ANTLR's runtime warns of a version mismatch on
+    stdout); the answer is the last line."""
+    printed = SimpleNamespace(returncode=0, stdout="ANTLR runtime and generated code versions disagree\n"
+                                                   '{"equal": true}\n', stderr="")
+    monkeypatch.setattr(grade.subprocess, "run", lambda *a, **k: printed)
+    assert grade.equal("070", "70") is True
+
+
+def test_a_judge_without_math_verify_stops_when_it_loads(monkeypatch):
+    import importlib.util
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+    with pytest.raises(ImportError, match="requirements.txt"):
+        grade.require()

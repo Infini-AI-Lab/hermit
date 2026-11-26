@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Suppose that $ABCD$ is a trapezoid in which $\overline{AD}|| \overline{BC}$.  Given $\overline{AC}\perp\overline{CD}$, $\overline{AC}$ bisects angle $\angle BAD$, and $[ABCD]=42$, then compute $[\triangle ACD]$.

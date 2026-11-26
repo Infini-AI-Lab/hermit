@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+The cost of five pencils and one pen is $\$2.50$, and the cost of one pencil and two pens is $\$1.85$. What is the cost of two pencils and one pen?

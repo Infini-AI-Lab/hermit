@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Consecutive powers of 3 are added to form this sequence: $3^0,3^0+ 3^1, 3^0+ 3^1+ 3^2$, and so on. What is the simplified value of the fourth term of the sequence?
