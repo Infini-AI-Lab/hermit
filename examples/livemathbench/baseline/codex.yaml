@@ -1,0 +1,32 @@
+# LiveMathBench, the baseline: Codex with GPT-5.6-Luna and no adapter, on the 202505 release's English questions,
+# four times each, an hour each, no web search. Codex runs GPT-5.6-Luna at medium effort on the ChatGPT login (`codex login`, no API key).
+# The judge is a model too: LIVEMATHBENCH_JUDGE, a `<backend>/<model>` reference (default
+# vllm/Qwen/Qwen2.5-72B-Instruct, the paper's, on a local vLLM server); see ../README.md.
+#
+#   hermit eval --config examples/livemathbench/baseline/codex.yaml --adapter none
+#
+# The accuracy is the summary's mean_score (runs/codex-baseline/eval/none/ beside this file); utils/gpassk.py gives
+# G-Pass@k from the same eval.
+data:
+  tasks: ../utils/benchmark/tasks
+  train: ../utils/benchmark/splits/smoke.txt   # placeholder, as template and evolver are: hermit eval trains nothing
+  test: ../utils/benchmark/splits/test.txt   # the 202505 release's English questions
+agent:
+  base: codex                      # Codex in each problem's own sandbox (Hermit's bubblewrap, no network but its model's)
+  concurrency: 8
+  params:
+    answer: ../../math_grading/grade.py:answer   # the last \boxed{} of its final message
+  model: {name: gpt-5.6-luna, login: chatgpt, effort: medium}  # the plan, shared
+  codex: {web_search: false, timeout_s: 3600}  # the CLI's web search off; the task's own time
+environment:
+  read: [../../math_grading]          # the answer hook (grade.py:answer), which runs in the task sandbox
+judge:
+  path: ../utils/benchmark/judge.py    # on the host: OpenCompass's judge model (LIVEMATHBENCH_JUDGE) on the reference
+template: prompt-only@1.0              # placeholder (see data.train)
+task_info: ../utils/benchmark/task-info  # what hermit check asks of a training config
+evolver: {name: eval-only}             # placeholder: no Evolver of this name, so hermit train refuses this config
+trainer:
+  run_name: codex-baseline
+  output_dir: runs
+eval:
+  repeats: 4                           # each test question four times: the mean accuracy; utils/gpassk.py: G-Pass@k

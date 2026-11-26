@@ -143,6 +143,10 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- LiveMathBench as a benchmark in Hermit's own environment
+  ([`examples/livemathbench/`](examples/livemathbench/README.md)): its 202505 English questions with OpenCompass's
+  prompt, judged by OpenCompass's judge prompt on a judge model (`LIVEMATHBENCH_JUDGE`), with G-Pass@k from an eval's
+  attempts; a no-adapter baseline for Codex and Claude Code, and 202412 questions drawn for a method that learns.
 - MATH-500 as a benchmark in Hermit's own environment ([`examples/math500/`](examples/math500/README.md)): its 500
   problems with its own prompt, graded as AIME's; a no-adapter baseline for Codex and Claude Code, and 150 problems of
   MATH's training split drawn for a method that learns.
