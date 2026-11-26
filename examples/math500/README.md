@@ -10,7 +10,7 @@ of MATH's training split (`EleutherAI/hendrycks_math`), both at pinned revisions
 |---|---|
 | `utils/benchmark/prepare.py` | writes the task directories and the references (`.private/answers.jsonl`, which no sandbox is granted) |
 | `utils/benchmark/splits/` | `test.txt`: MATH-500's 500; `train.txt` (100), `val.txt` (50), `smoke.txt` (2): MATH training problems drawn with seed 42 |
-| `utils/benchmark/judge.py` | the judge, on [`../math_grading/grade.py`](../math_grading/grade.py), as AIME's |
+| `utils/benchmark/judge.py` | the judge, on [`../math_grading/`](../math_grading/README.md), as AIME's |
 | `utils/benchmark/task-info/` | what a learner is told about the task |
 | `baseline/` | `codex.yaml`, `claude.yaml`: `hermit eval --adapter none` on the 500 |
 
@@ -29,7 +29,7 @@ It downloads MATH-500 and MATH's training split and writes 652 task directories.
 last `\boxed{}` of its solution, as MATH-500's answers were taken; no training problem is a MATH-500 problem (prepare
 checks). Each task's `task.toml` gives the agent half an hour and no network but its model's, and asks for no memory
 beyond the sandbox's default; the configs give the CLI the same half hour (`agent.<cli>.timeout_s: 1800`) and grant the
-sandbox `../../math_grading`, where the hook that reads the answer runs.
+sandbox `../../math_grading/utils`, where the hook that reads the answer runs.
 
 ## Scoring
 

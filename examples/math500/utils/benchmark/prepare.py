@@ -26,18 +26,19 @@ import urllib.request
 from hermit.task.directory import write_task
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parents[2] / "math_grading"))
+sys.path.insert(0, str(HERE.parents[2] / "math_grading" / "utils"))
 from grade import last_boxed  # noqa: E402
 
 MATH500 = ("HuggingFaceH4/MATH-500", "6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be")
 MATH = ("EleutherAI/hendrycks_math", "21a5633873b6a120296cce3e2df9d5550074f4a3")
 SUBJECTS = ("algebra", "counting_and_probability", "geometry", "intermediate_algebra", "number_theory", "prealgebra",
             "precalculus")
-# MATH-500's own prompt (its eval.yaml on Hugging Face), the problem in place of {prompt}
-PROMPT = ("Solve the following math problem efficiently and clearly.  The last line of your response should be of the "
-          "following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without "
-          "quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step "
-          "before answering.\n\n")
+# MATH-500's own prompt: the template of its eval.yaml (tasks[0].solvers[0].args.template, a folded YAML block, where a
+# backslash is a backslash: the model is sent `$\\boxed{ANSWER}$`, as written), the problem in place of {prompt}
+TEMPLATE = ("Solve the following math problem efficiently and clearly.  The last line of your response should be of the "
+            "following format: 'Therefore, the final answer is: $\\\\boxed{ANSWER}$. I hope it is correct' (without "
+            "quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step "
+            "before answering.\n{prompt}\n")
 SIZES = {"train": 100, "val": 50, "smoke": 2}
 TIMEOUT_SEC = 1800.0
 
@@ -80,7 +81,7 @@ def main() -> None:
     if (HERE / "tasks").exists():                              # this script's own output: rewritten whole
         shutil.rmtree(HERE / "tasks")
     for p in kept:
-        write_task(HERE / "tasks" / p["id"], PROMPT + p["problem"],
+        write_task(HERE / "tasks" / p["id"], TEMPLATE.replace("{prompt}", p["problem"]).strip(),
                    metadata={"subject": p["subject"], "level": p["level"], "source": p["source"]},
                    environment={"network_mode": "no-network"},  # the agent reaches its model only
                    agent={"timeout_sec": TIMEOUT_SEC})
