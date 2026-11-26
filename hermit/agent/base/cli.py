@@ -949,11 +949,9 @@ class CliAgent(BaseAgent):
             prompt = spell(prompt)
             roles = [{**r, "instructions": spell(str(r.get("instructions", "")))} for r in roles]
         placed: dict[str, str] = {}                     # a mount inside the workspace: bound there, or linked
-        server, copied, failed, signed_in = None, [], True, None
+        server, copied, failed = None, [], True
         try:
             copied = self._sign_in(home)
-            if s.get("login") == "chatgpt":              # the login this session starts from: another session may
-                signed_in = codex_login.refreshed(home / codex_login.FILE)   # refresh the shared one meanwhile
             if tools:
                 from hermit.agent.base.tool_server import ToolServer
                 from hermit.sandbox import inside_tools        # results name paths as the session sees them
@@ -1069,10 +1067,6 @@ class CliAgent(BaseAgent):
         readable = stream if wrote is not None and _identity(stream) == wrote else Path(os.devnull)
         raw = readable.read_text(encoding="utf-8", errors="replace") if readable is stream else ""
         said = self.outcome(raw, readable, last_file)
-        if said.get("login_failed") and signed_in is not None and \
-                (codex_login.refreshed(codex_login.master(Path(s.get("login_root") or codex_login.ROOT)))
-                 or signed_in) > signed_in:          # a copy another session's refresh replaced: run it again
-            said.update(login_failed=False, unavailable=True)
         said["failed"] = said.get("failed", False) and not timed_out and not cancelled
         began = said.pop("started", None)              # the CLI's own word, else: it wrote an event
         handle, usage = self.parse(readable, (s.get("binding") or {}).get("ref") or s.get("model") or self.backend)
@@ -1386,12 +1380,6 @@ class Codex(CliAgent):
                         rejected=bool(rejected))
             if rejected:                                 # what session_verdict reads: Codex's own failure
                 said["failure"] = rejected[:600]         # what refused it, its status first (the runner's head)
-        elif not done and self.settings.get("login"):
-            # a session on this machine (a sandbox's, a chat endpoint's) on a login: its sign-in refused, read as a
-            # container's above, is the run's end (LoginFailed; an endpoint's 401), never a failure to retry; a turn
-            # the provider could not serve is that, whatever else was said before it (an MCP server's 401, say)
-            from hermit.agent.base import codex_stream
-            said["login_failed"] = codex_stream.codex_signin_lost(raw) and not said["unavailable"]
         return said
 
 

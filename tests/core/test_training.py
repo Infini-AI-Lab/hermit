@@ -99,46 +99,14 @@ def test_resume_after_crash(tmp_path):
     assert summary["steps"] == 4
 
 
-def test_a_first_step_stopped_before_its_record_starts_over_from_the_start(tmp_path):
-    """The first step's commit lands before its line in steps.jsonl: a stop between the two left the checkout at a
-    commit no step records, which the restart (nothing to resume) took for the start, its first rollouts run on it."""
-    path = make_task(tmp_path)
-    trainer = Trainer(load(path), log=lambda *_: None)
-    original = trainer._commit_step
-
-    def commit_then_stop(*a, **k):
-        original(*a, **k)
-        raise KeyboardInterrupt("stopped between the commit and its record")
-    trainer._commit_step = commit_then_stop
-    with pytest.raises(KeyboardInterrupt):
-        trainer.train()
-    run = tmp_path / "runs" / "toy-run"
-    assert not (run / "steps.jsonl").exists() and git(run / "checkout", "rev-parse", "HEAD") != \
-        trainer.tree.resolve(trainer.start_commit)
-    (run / "steps.jsonl").touch()                        # its journal made, its first line never written
-    (run / "workspace/state/left-by-the-stopped-step").write_text("candidates of a step that never ran\n")
-    again = Trainer(load(path), log=lambda *_: None)
-    started = trainer.tree.resolve(trainer.start_commit)
-    again._start_ref = lambda: git(run / "checkout", "rev-parse", "HEAD")   # resolved otherwise now: the saved one
-    again._prepare()
-    assert git(run / "checkout", "rev-parse", "HEAD") == started
-    assert not (run / "workspace/state/left-by-the-stopped-step").exists()  # its learner state went with it
-    with pytest.raises(LoginFailed):                     # a session's sign-in missing in the Evolver's own call
-        again._raise_login_failed({"error": RuntimeError("login: chatgpt, but there is no Codex login "
-                                                         "[hermit_login_failed]")})
-
-
-def test_a_new_run_on_another_runs_branch_leaves_that_branch_as_it_was(tmp_path):
-    """A run folder removed, its branch kept in the tree: the reset of a stopped first step must not move it."""
-    import shutil
-    path = make_task(tmp_path)
-    first = Trainer(load(path), log=lambda *_: None)
-    first.train()
-    shutil.rmtree(tmp_path / "runs" / "toy-run")
-    git(first.tree.repo, "worktree", "prune")
-    before = git(first.tree.repo, "rev-parse", f"refs/heads/{first.branch}")
-    Trainer(load(path), log=lambda *_: None)._prepare()
-    assert git(first.tree.repo, "rev-parse", f"refs/heads/{first.branch}") == before
+def test_a_missing_login_met_in_the_evolvers_own_call_ends_the_run(tmp_path):
+    """login.prepare names a missing login with Hermit's lost-sign-in mark: met in the Evolver's own call (its session),
+    the step was recorded as failed and the run went on."""
+    trainer = Trainer(load(make_task(tmp_path)), log=lambda *_: None)
+    with pytest.raises(LoginFailed, match="no Codex login"):
+        trainer._raise_login_failed({"error": RuntimeError("login: chatgpt, but there is no Codex login "
+                                                           "[hermit_login_failed]")})
+    trainer._raise_login_failed({"error": RuntimeError("an ordinary failure")})   # recorded as a failed step
 
 
 def test_budget_stops_the_run(tmp_path):

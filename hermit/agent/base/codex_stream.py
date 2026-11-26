@@ -1,6 +1,5 @@
 """What Hermit reads of a CLI session's stream beyond its Base Agent's own `outcome`, for a session in a remote
-environment (a task's Harbor environment; for Codex's lost sign-in, a session on a login on this machine too): for
-Codex, a lost sign-in or key, a provider that could not serve, the
+environment (a task's Harbor environment): for Codex, a lost sign-in or key, a provider that could not serve, the
 plan's usage limit and a refusal of the run's configuration, each read from Codex's own notices only, never from what
 its log quotes of the session's work; for every CLI, whether a refusal was of the run's configuration or of the
 account's bill (`session_verdict`). Ported unchanged from Hermit's Harbor runner (hermit/harbor/signin.py's readers

@@ -442,13 +442,11 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
-- A Codex session on the ChatGPT login outside a task's container (a chat endpoint's, a sandbox's) whose sign-in was
-  refused now says so (`login_failed`), as one in a container did: the endpoint answers 401 with the code
-  `hermit_login_failed` and the run ends, instead of a 502 its client retried while the run went on. A ChatGPT login
-  with no login file to copy is the same lost sign-in (it raised a plain error). A rollout that failed on this
-  machine (an `OSError`: `host_failed`) keeps what its agent said it spent, as the other failure paths do. A run whose
-  first step (or the Evolver's bootstrap) stopped between its commit and its line in `steps.jsonl` starts over from
-  its start: the restart, with nothing to resume, ran its first rollouts on that unrecorded commit.
+- A ChatGPT login with no login file to copy (`codex login` never run, or its file gone) is a lost sign-in: its error
+  carries Hermit's mark (`[hermit_login_failed]`), so a rollout raises `LoginFailed` and the run ends, a chat
+  endpoint answers 401 with the code `hermit_login_failed`, and the Trainer ends the run when the Evolver's own call
+  meets it, instead of a plain failure each task and step met again. A rollout that failed on this machine (an
+  `OSError`: `host_failed`) keeps what its agent said it spent, as the other failure paths do.
 - Continual Harness and Harness² now declare the adapter parts they write (`needs: [llm, skills, agents]` and
   `needs: [skills, agents, hooks]`), so a run whose acting agent does not take them (`react`) is refused before it
   starts, instead of running a harness whose skills and sub-agents the acting agent drops.

@@ -262,9 +262,7 @@ class Trainer:
             self.log(f"WARNING: {w}")
         self.tree = Tree.open_or_create(self.config.tree_dir(self.template["id"]), self.template_dir)
         mode = str(d["trainer"]["resume_mode"])
-        journal = self.run_dir / "steps.jsonl"           # a record in it, not the file: it is made before its first
-        recorded = journal.exists() and any(line.strip() for line in journal.read_text().splitlines())   # line lands
-        unfinished = recorded and not (self.run_dir / "summary.json").exists()
+        unfinished = (self.run_dir / "steps.jsonl").exists() and not (self.run_dir / "summary.json").exists()
         if self.run_dir.exists() and mode == "disable":
             stamp = time.strftime("%Y%m%d-%H%M%S")
             self.run_dir.rename(self.run_dir.with_name(f"{self.run_name}.replaced-{stamp}"))
@@ -279,23 +277,14 @@ class Trainer:
         self.resuming = unfinished and mode != "disable"
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.root_copy = self.tree.export(ROOT_TAG, self.run_dir / "root")
-        # This run folder's own checkout, from a start that recorded no step: a first step (or the bootstrap) stopped
-        # between its commit and its line in steps.jsonl. It starts over from the start it had (config.yaml), its
-        # adapter and its learner state both; a branch of that name with no checkout here is left as it is.
-        interrupted = not self.resuming and (self.run_dir / "checkout" / ".git").exists()
-        start = (self._saved_start() if interrupted else None) or self._start_ref()
+        start = self._start_ref()
         self.checkout = self.tree.checkout_run(self.branch, start, self.run_dir / "checkout")
-        stale = interrupted and Tree.head(self.checkout) != self.tree.resolve(start)
-        if stale:
-            Tree.reset(self.checkout, self.tree.resolve(start))
         self.start_commit = start
         self.material = Material(self.run_dir / "learning_material")
         ws = self.run_dir / "workspace"
         self.ws = Workspace(adapter=ws / "adapter", learning_material=self.material.root,
                             task_info=self.config.path(d["task_info"]) or (ws / "task-info"),
                             history=ws / "history", state=ws / "state", scratch=ws / "scratch", output=ws / "output")
-        if stale and self.ws.state.exists():            # the stopped step's learner state, with its adapter
-            shutil.rmtree(self.ws.state)
         self.ws.state.mkdir(parents=True, exist_ok=True)
         if not self.ws.task_info.exists():
             self.ws.task_info.mkdir(parents=True)
@@ -367,14 +356,6 @@ class Trainer:
                     "warnings": self.warnings, "python": self.python}
         if not self.resuming:
             (self.run_dir / "config.yaml").write_text(yaml.safe_dump(resolved, sort_keys=False, allow_unicode=True))
-
-    def _saved_start(self) -> str | None:
-        """The start this run folder's config.yaml names, when it is still a commit of the tree."""
-        try:
-            saved = str(yaml.safe_load((self.run_dir / "config.yaml").read_text()).get("start") or "")
-            return self.tree.resolve(saved) if saved else None
-        except Exception:                                 # noqa: BLE001 - none, or not this tree's: resolved anew
-            return None
 
     def _start_ref(self) -> str:
         value = self.config.data.get("start_from")

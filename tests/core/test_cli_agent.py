@@ -54,18 +54,6 @@ if os.environ.get("FAKE_REFUSED"):                     # the plan's limit, as Co
     print(json.dumps({{"type": "thread.started", "thread_id": "th1"}}))
     print(json.dumps({{"type": "error", "message": "You've hit your usage limit. Try again later."}}))
     sys.exit(1)
-if os.environ.get("FAKE_MCP_THEN_OUTAGE"):             # a tool server's 401 on its stderr, then the provider's 503
-    print("2026-11-25T00:00:00Z ERROR rmcp::transport: unexpected status 401 Unauthorized", file=sys.stderr)
-    print(json.dumps({{"type": "thread.started", "thread_id": "th1"}}))
-    print(json.dumps({{"type": "error", "message": "unexpected status 503 Service Unavailable"}}))
-    sys.exit(1)
-if os.environ.get("FAKE_SIGNED_OUT"):                  # the login's refresh refused, as Codex reports it
-    if os.environ.get("FAKE_SHARED_REFRESHED"):        # while another session refreshed the shared login
-        Path(os.environ["FAKE_SHARED_REFRESHED"]).write_text(json.dumps({{"last_refresh": "2026-01-02T00:00:00Z"}}))
-    print(json.dumps({{"type": "thread.started", "thread_id": "th1"}}))
-    print(json.dumps({{"type": "error", "message": "Your access token could not be refreshed because your refresh "
-                                                  "token was already used. Please log out and sign in again."}}))
-    sys.exit(1)
 if os.environ.get("FAKE_OWN_TEXT"):                    # the session's own work quotes an outage and a limit
     print(json.dumps({{"type": "item.completed", "item": {{"type": "command_execution", "command": "rg error logs/",
                      "exit_code": 0, "aggregated_output": os.environ["FAKE_OWN_TEXT"]}}}}))
@@ -560,34 +548,6 @@ def test_a_login_session_waits_for_the_plan_and_runs_again_when_refused(fake, mo
     assert seen == {"waits": 2, "sessions": 2, "holds": 1} and result.reply.endswith("<answer>44,463</answer>")
 
 
-def test_a_login_session_on_this_machine_that_lost_its_sign_in_says_so(fake, monkeypatch):
-    """Only a session in a task's container was read for a lost sign-in: on this machine (a chat endpoint's, a
-    sandbox's) it was a plain failure, so the endpoint answered 502 and its client retried, the run going on."""
-    from hermit.agent.base import login as L
-    tmp_path = fake
-    root = tmp_path / "login-root"
-    (root / "login").mkdir(parents=True)
-    (root / "login" / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt",
-                                                          "last_refresh": "2026-01-01T00:00:00Z"}))
-    monkeypatch.setattr(L, "wait", lambda *a, **k: "")
-    monkeypatch.setenv("FAKE_SIGNED_OUT", "1")
-    (tmp_path / "w").mkdir()
-    agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
-                           "plan_dir": str(tmp_path / "plan")})
-    result = agent.run("go", environment=tmp_path / "w")
-    assert result.extra["login_failed"] and not result.extra["served"]
-    keyed = make("codex", {"web_search": False, "model": "gpt-x"}).run("go", environment=tmp_path / "w")
-    assert not keyed.extra["login_failed"]                 # a key, no login: the run's configuration
-    monkeypatch.setenv("FAKE_SHARED_REFRESHED", str(root / "login" / "auth.json"))
-    stale = agent.run("go", environment=tmp_path / "w")    # its copy replaced by another session's refresh
-    assert not stale.extra["login_failed"] and stale.extra["unavailable"]   # run again, on the newer one
-    monkeypatch.delenv("FAKE_SIGNED_OUT")
-    monkeypatch.delenv("FAKE_SHARED_REFRESHED")
-    monkeypatch.setenv("FAKE_MCP_THEN_OUTAGE", "1")
-    outage = agent.run("go", environment=tmp_path / "w")   # a tool server's 401 before the provider's 503
-    assert not outage.extra["login_failed"] and outage.extra["unavailable"]
-
-
 def test_a_login_session_with_no_login_to_copy_is_a_lost_sign_in(tmp_path, monkeypatch):
     """login.prepare raised a plain RuntimeError: an endpoint answered 502 and a run took it for a failure."""
     from hermit.agent.base.endpoint import ChatEndpoint
@@ -596,21 +556,16 @@ def test_a_login_session_with_no_login_to_copy_is_a_lost_sign_in(tmp_path, monke
     monkeypatch.setattr(L, "wait", lambda *a, **k: "")
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "no-codex-here"))
     agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x",
-                           "login_root": str(tmp_path / "no-root"), "plan_dir": str(tmp_path / "plan")})
+                           "login_root": str(tmp_path / "no-root"), "plan_dir": str(tmp_path / "plan"),
+                           "log": str(tmp_path / "logs/run.jsonl"), "log_dir": str(tmp_path / "logs")})
     (tmp_path / "w").mkdir()
     with pytest.raises(RuntimeError) as failed:
         agent.run("go", environment=tmp_path / "w")
     assert "codex login" in login_failure(failed.value)                       # a rollout's LoginFailed
-    endpoint = ChatEndpoint.__new__(ChatEndpoint)
-    endpoint.agent, endpoint.place = agent, lambda work: work
-    monkeypatch.setattr("hermit.agent.base.endpoint.cli_answer",
-                        lambda agent, request, abort, place: agent.run("go", environment=tmp_path / "w"))
+    endpoint = ChatEndpoint.__new__(ChatEndpoint)                            # the request answered as the endpoint
+    endpoint.agent, endpoint.place = agent, None                             # does (cli_answer, a Local session)
     status, body, _ = endpoint.answer({"messages": [{"role": "user", "content": "go"}]}, None)
     assert status == 401 and json.loads(body)["error"]["code"] == "hermit_login_failed"
-    from hermit.agent.base.endpoint import _no_reply
-    from hermit.agent.base.interface import Result
-    late = Result(reply="", exit_code=-1, timed_out=True, extra={"login_failed": True, "failure": "Not logged in"})
-    assert _no_reply(agent, late)[0] == 401                # a lost sign-in that also ran out its clock
 
 
 def test_a_long_window_still_over_holds_after_the_short_one_resets(tmp_path):

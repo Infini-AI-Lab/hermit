@@ -323,8 +323,8 @@ def _no_reply(agent: BaseAgent, result) -> tuple:
     503 and one the plan refused 429 (the client retries), a lost sign-in 401, a request no retry can help 400, anything
     else 502. What it spent comes with it: a failed session can have used tokens (a refused answer)."""
     extra = result.extra
-    status = 401 if extra.get("login_failed") else 504 if result.timed_out else 503 if extra.get("unavailable") \
-        else 429 if extra.get("refused") else 400 if extra.get("rejected") else 502   # a lost sign-in, timed out too
+    status = 504 if result.timed_out else 401 if extra.get("login_failed") else 503 if extra.get("unavailable") \
+        else 429 if extra.get("refused") else 400 if extra.get("rejected") else 502
     why = "timed out" if result.timed_out else f"exit {result.exit_code}"
     # the code first: a client's error text keeps only the start of the body
     error = {"code": LOGIN_FAILED} if extra.get("login_failed") else {}
