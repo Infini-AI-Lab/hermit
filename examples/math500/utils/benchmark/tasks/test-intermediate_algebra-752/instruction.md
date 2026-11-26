@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Find the value of $\log_2{3} \cdot \log_3{4} \cdot \log_4{5} \cdot \log_5{6} \cdot \log_6{7} \cdot \log_7{8}$.

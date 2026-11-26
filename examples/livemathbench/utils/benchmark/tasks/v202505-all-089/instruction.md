@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+An unreliable typist can guarantee that when they try to type a word with different letters, every letter of the word will appear exactly once in what they type, and each letter will occur at most one letter late (though it may occur more than one letter early). Thus, when trying to type MATHS, the typist may type MATHS, MTAHS, or TMASH, but not ATMSH. Determine the number of possible spellings of OLYMPIADS that might be typed.

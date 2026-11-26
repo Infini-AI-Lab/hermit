@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Find the sum of the coefficients in the polynomial $3(3x^{7} + 8x^4 - 7) + 7(x^5 - 7x^2 + 5)$ when it is fully simplified.

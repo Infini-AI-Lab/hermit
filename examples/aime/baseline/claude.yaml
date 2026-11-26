@@ -1,0 +1,32 @@
+# AIME, the baseline: Claude Code with Claude Haiku 5.5 and no adapter, on AIME 2025's 30 problems, four times each, an hour
+# each, no web search; AIME 2026's with `data.test=../utils/benchmark/splits/test_2026.txt` and a run name of its own
+# (below). Claude Code runs Claude Haiku 5.5 at medium effort on a Claude subscription (`claude setup-token`, the token exported as CLAUDE_CODE_OAUTH_TOKEN; no API key).
+#
+#   hermit eval --config examples/aime/baseline/claude.yaml --adapter none
+#   hermit eval --config examples/aime/baseline/claude.yaml --adapter none \
+#       data.test=../utils/benchmark/splits/test_2026.txt trainer.run_name=claude-baseline-2026
+#
+# The accuracy is the summary's mean_score (runs/claude-baseline/eval/none/ beside this file).
+data:
+  tasks: ../utils/benchmark/tasks
+  train: ../utils/benchmark/splits/smoke.txt   # placeholder, as template and evolver are: hermit eval trains nothing
+  test: ../utils/benchmark/splits/test_2025.txt
+agent:
+  base: claude                     # Claude Code in each problem's own sandbox (Hermit's bubblewrap, no network but its model's)
+  concurrency: 8
+  params:
+    answer: ../../math_grading/utils/grade.py:answer   # the last \boxed{} of its final message
+  model: {name: claude-haiku-5-5, login: claude, effort: medium}  # the plan, shared
+  claude: {web_search: false, timeout_s: 3600}  # the CLI's web search off; the task's own time
+environment:
+  read: [../../math_grading/utils]        # the answer hook (grade.py:answer), which runs in the task sandbox
+judge:
+  path: ../utils/benchmark/judge.py    # on the host: Math-Verify against the reference, which only it reads
+template: prompt-only@1.0              # placeholder (see data.train)
+task_info: ../utils/benchmark/task-info  # what hermit check asks of a training config
+evolver: {name: eval-only}             # placeholder: no Evolver of this name, so hermit train refuses this config
+trainer:
+  run_name: claude-baseline
+  output_dir: runs
+eval:
+  repeats: 4                           # each test problem four times, the mean its accuracy (MathArena's `--n 4`)

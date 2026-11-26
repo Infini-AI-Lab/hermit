@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+At the start of the year, $n$ pairwise unacquainted students joined a hypergraph enthusiasts' club. Over the year, the club held 100 meetings, each attended by at least one student. Two students became acquainted if they both attended at least one meeting. By the end of the year, each student's number of acquaintances was at least the number of meetings they attended. Find the minimal value of $n$ for which this is possible.

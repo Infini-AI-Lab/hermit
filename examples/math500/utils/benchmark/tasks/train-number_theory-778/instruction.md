@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+A day can be evenly divided into 86,400 periods of 1 second; 43,200 periods of each 2 seconds; or in many other ways. In total, how many ways are there to divide a day into $n$ periods of $m$ seconds, where $n$ and $m$ are positive integers?

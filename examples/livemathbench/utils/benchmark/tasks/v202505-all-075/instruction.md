@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+Petya writes a natural number on a board. Every minute, Vasya multiplies the last number on the board by 2 or 3 and writes the result on the board. Can Petya choose the initial number so that, at any moment, the number of numbers on the board starting with 1 or 2 is greater than the number of numbers starting with 7, 8, or 9, regardless of Vasya's actions?

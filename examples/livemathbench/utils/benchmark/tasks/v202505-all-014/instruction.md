@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+In a round-robin chess tournament with one match per pair of teams (3 points for a win, 1 for a draw, 0 for a loss), all teams together scored 60\% of the total points for both rounds in the first round. It is also known that the tournament winner scored 30 times fewer points in the second round than all teams combined in the first round. How many teams participated in the tournament?

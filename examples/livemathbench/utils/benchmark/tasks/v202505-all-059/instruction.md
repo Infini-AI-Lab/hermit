@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+In a bag for the game Bingo, there are 10 counters with the following numbers: $1, 2, 3, 5, 7, 10, 20, 30, 53, 75$. Three counters are taken out of the bag, and the largest number that can be formed by arranging them is recorded. For example, if you take out the counters $7, 20, 30$, you record the number 73020. How many numbers greater than 2024 can be recorded?

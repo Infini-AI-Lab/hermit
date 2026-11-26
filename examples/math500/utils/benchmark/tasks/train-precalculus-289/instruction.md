@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+For how many positive integers $n$ less than or equal to 1000 is $$(\sin t+i\cos t)^n=\sin nt+i\cos nt$$true for all real $t$?

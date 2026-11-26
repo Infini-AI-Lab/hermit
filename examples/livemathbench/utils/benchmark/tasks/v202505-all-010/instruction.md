@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+Let $\ell$ be a straight line and $A$ a subset of the plane. Suppose there exists a bijection $f: \ell \to A$ such that for any two points $X, Y$ on $\ell$, the length of the segment $XY$ differs from the length of the segment $f(X)f(Y)$ by at most 1. Is it true that any subset of the plane similar to a straight line lies between some two parallel lines?

@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+In $\triangle ABC$, $\angle ABC = 90^\circ$ and $BA = BC = \sqrt{2}$. Points $P_1, P_2, \dots, P_{2024}$ lie on hypotenuse $\overline{AC}$ so that $AP_1= P_1P_2 = P_2P_3 = \dots = P_{2023}P_{2024} = P_{2024}C$. What is the length of the vector sum $\overrightarrow{BP_1} + \overrightarrow{BP_2} + \overrightarrow{BP_3} + \dots + \overrightarrow{BP_{2024}}$?

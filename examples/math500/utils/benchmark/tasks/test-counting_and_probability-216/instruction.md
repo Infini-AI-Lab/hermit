@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+A Senate committee has 8 Republicans and 6 Democrats.  In how many ways can we form a subcommittee of 5 members that has at least one member from each party?

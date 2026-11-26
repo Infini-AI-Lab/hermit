@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+An artist arranges 1000 dots evenly around a circle, with each dot being either red or blue. A critic looks at the artwork and counts faults: each time two red dots are adjacent is one fault, and each time two blue dots are exactly two apart (that is, they have exactly one dot in between them) is another. What is the smallest number of faults the critic could find?

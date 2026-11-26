@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+Let $a_1, \ldots, a_{2^{2024}}$ be a sequence of pairwise distinct positive integers. Define $S_n = \frac{1}{1 + a_1} + \frac{a_1}{(1 + a_1)(1 + a_2)} + \cdots + \frac{a_1 a_2 \cdots a_{n-1}}{(1 + a_1)(1 + a_2) \cdots (1 + a_n)}$. Determine how many sequences $a_1, \ldots, a_{2^{2024}}$ exist such that $S_{2^i} = \frac{2^i}{2^i + 1}$ for all $0 \leq i \leq 2024$.

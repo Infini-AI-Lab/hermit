@@ -1,0 +1,12 @@
+version = "1.0"
+
+[metadata]
+subject = "Algebra"
+level = 2
+source = "EleutherAI/hendrycks_math@21a5633873b6a120296cce3e2df9d5550074f4a3"
+
+[environment]
+network_mode = "no-network"
+
+[agent]
+timeout_sec = 1800.0

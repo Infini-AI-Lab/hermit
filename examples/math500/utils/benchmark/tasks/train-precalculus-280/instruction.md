@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+The projection of $\begin{pmatrix} 0 \\ 1 \\ 4 \end{pmatrix}$ onto a certain vector $\mathbf{w}$ is $\begin{pmatrix} 1 \\ -1/2 \\ 1/2 \end{pmatrix}.$  Find the projection of $\begin{pmatrix} 3 \\ 3 \\ -2 \end{pmatrix}$ onto $\mathbf{w}.$

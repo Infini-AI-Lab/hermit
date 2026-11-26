@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+One gear turns $33\frac{1}{3}$ times in a minute.  Another gear turns   45 times in a minute.  Initially, a mark on each gear is pointing  due north.  After how many seconds will the two gears next  have both their marks pointing due north?

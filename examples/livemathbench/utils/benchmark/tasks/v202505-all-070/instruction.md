@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+Lizzie and Alex are playing a game on the whiteboard. Initially, $n$ twos are written on the board. On a player's turn they must either (1) change any single positive number to 0, or (2) subtract one from any positive number of positive numbers on the board. The game ends once all numbers are 0, and the last player who made a move wins. If Lizzie always plays first, find all $n$ for which Lizzie has a winning strategy.

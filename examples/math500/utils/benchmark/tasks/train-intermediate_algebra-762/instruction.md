@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+Simplify the product \[\frac{8}{4}\cdot\frac{12}{8}\cdot\frac{16}{12} \dotsm \frac{4n+4}{4n} \dotsm \frac{2008}{2004}.\]

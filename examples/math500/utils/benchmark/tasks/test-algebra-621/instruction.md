@@ -1,0 +1,2 @@
+Solve the following math problem efficiently and clearly.  The last line of your response should be of the following format: 'Therefore, the final answer is: $\\boxed{ANSWER}$. I hope it is correct' (without quotes) where ANSWER is just the final number or expression that solves the problem. Think step by step before answering.
+The quadratic $x^2+(2.6)x+3.6$ can be written in the form $(x+b)^2+c$, where $b$ and $c$ are constants. What is $b+c$ (as a decimal)?

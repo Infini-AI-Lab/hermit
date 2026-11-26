@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+Each of 99 cards has a distinct real number written on it, and their total sum is irrational. A stack of 99 cards is called unlucky if, for every natural number $k$ from 1 to 99, the sum of the numbers on the top $k$ cards is irrational. Petya calculated the number of ways to form an unlucky stack. What is the smallest possible value he could obtain?

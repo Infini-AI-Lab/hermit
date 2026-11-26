@@ -1,0 +1,2 @@
+Here is a math question, please reasoning step by step, and put your answer in \boxed{}.
+A dartboard is the region B in the coordinate plane consisting of points $(x, y)$ such that $|x| + |y| \le 8$. A target $T$ is the region where $(x^2 + y^2 - 25)^2 \le 49$. A dart is thrown and lands at a random point in $B$. The probability that the dart lands in $T$ can be expressed as $\frac{m}{n} \cdot \pi$, where $m$ and $n$ are relatively prime positive integers. What is $m + n$?
