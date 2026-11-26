@@ -54,7 +54,14 @@ if os.environ.get("FAKE_REFUSED"):                     # the plan's limit, as Co
     print(json.dumps({{"type": "thread.started", "thread_id": "th1"}}))
     print(json.dumps({{"type": "error", "message": "You've hit your usage limit. Try again later."}}))
     sys.exit(1)
+if os.environ.get("FAKE_MCP_THEN_OUTAGE"):             # a tool server's 401 on its stderr, then the provider's 503
+    print("2026-11-25T00:00:00Z ERROR rmcp::transport: unexpected status 401 Unauthorized", file=sys.stderr)
+    print(json.dumps({{"type": "thread.started", "thread_id": "th1"}}))
+    print(json.dumps({{"type": "error", "message": "unexpected status 503 Service Unavailable"}}))
+    sys.exit(1)
 if os.environ.get("FAKE_SIGNED_OUT"):                  # the login's refresh refused, as Codex reports it
+    if os.environ.get("FAKE_SHARED_REFRESHED"):        # while another session refreshed the shared login
+        Path(os.environ["FAKE_SHARED_REFRESHED"]).write_text(json.dumps({{"last_refresh": "2026-01-02T00:00:00Z"}}))
     print(json.dumps({{"type": "thread.started", "thread_id": "th1"}}))
     print(json.dumps({{"type": "error", "message": "Your access token could not be refreshed because your refresh "
                                                   "token was already used. Please log out and sign in again."}}))
@@ -571,6 +578,14 @@ def test_a_login_session_on_this_machine_that_lost_its_sign_in_says_so(fake, mon
     assert result.extra["login_failed"] and not result.extra["served"]
     keyed = make("codex", {"web_search": False, "model": "gpt-x"}).run("go", environment=tmp_path / "w")
     assert not keyed.extra["login_failed"]                 # a key, no login: the run's configuration
+    monkeypatch.setenv("FAKE_SHARED_REFRESHED", str(root / "login" / "auth.json"))
+    stale = agent.run("go", environment=tmp_path / "w")    # its copy replaced by another session's refresh
+    assert not stale.extra["login_failed"] and stale.extra["unavailable"]   # run again, on the newer one
+    monkeypatch.delenv("FAKE_SIGNED_OUT")
+    monkeypatch.delenv("FAKE_SHARED_REFRESHED")
+    monkeypatch.setenv("FAKE_MCP_THEN_OUTAGE", "1")
+    outage = agent.run("go", environment=tmp_path / "w")   # a tool server's 401 before the provider's 503
+    assert not outage.extra["login_failed"] and outage.extra["unavailable"]
 
 
 def test_a_login_session_with_no_login_to_copy_is_a_lost_sign_in(tmp_path, monkeypatch):
@@ -592,6 +607,10 @@ def test_a_login_session_with_no_login_to_copy_is_a_lost_sign_in(tmp_path, monke
                         lambda agent, request, abort, place: agent.run("go", environment=tmp_path / "w"))
     status, body, _ = endpoint.answer({"messages": [{"role": "user", "content": "go"}]}, None)
     assert status == 401 and json.loads(body)["error"]["code"] == "hermit_login_failed"
+    from hermit.agent.base.endpoint import _no_reply
+    from hermit.agent.base.interface import Result
+    late = Result(reply="", exit_code=-1, timed_out=True, extra={"login_failed": True, "failure": "Not logged in"})
+    assert _no_reply(agent, late)[0] == 401                # a lost sign-in that also ran out its clock
 
 
 def test_a_long_window_still_over_holds_after_the_short_one_resets(tmp_path):

@@ -7,6 +7,7 @@ import subprocess
 
 import pytest
 
+from hermit.agent.base.interface import LoginFailed
 from hermit.config import Config
 from hermit.evaluate import evaluate
 from hermit.settings_check import run_check
@@ -114,10 +115,30 @@ def test_a_first_step_stopped_before_its_record_starts_over_from_the_start(tmp_p
     run = tmp_path / "runs" / "toy-run"
     assert not (run / "steps.jsonl").exists() and git(run / "checkout", "rev-parse", "HEAD") != \
         trainer.tree.resolve(trainer.start_commit)
+    (run / "steps.jsonl").touch()                        # its journal made, its first line never written
+    (run / "workspace/state/left-by-the-stopped-step").write_text("candidates of a step that never ran\n")
     again = Trainer(load(path), log=lambda *_: None)
-    again.train()
-    first = json.loads((run / "steps.jsonl").read_text().splitlines()[0])
-    assert first["parent"] == again.tree.resolve(again.start_commit)
+    started = trainer.tree.resolve(trainer.start_commit)
+    again._start_ref = lambda: git(run / "checkout", "rev-parse", "HEAD")   # resolved otherwise now: the saved one
+    again._prepare()
+    assert git(run / "checkout", "rev-parse", "HEAD") == started
+    assert not (run / "workspace/state/left-by-the-stopped-step").exists()  # its learner state went with it
+    with pytest.raises(LoginFailed):                     # a session's sign-in missing in the Evolver's own call
+        again._raise_login_failed({"error": RuntimeError("login: chatgpt, but there is no Codex login "
+                                                         "[hermit_login_failed]")})
+
+
+def test_a_new_run_on_another_runs_branch_leaves_that_branch_as_it_was(tmp_path):
+    """A run folder removed, its branch kept in the tree: the reset of a stopped first step must not move it."""
+    import shutil
+    path = make_task(tmp_path)
+    first = Trainer(load(path), log=lambda *_: None)
+    first.train()
+    shutil.rmtree(tmp_path / "runs" / "toy-run")
+    git(first.tree.repo, "worktree", "prune")
+    before = git(first.tree.repo, "rev-parse", f"refs/heads/{first.branch}")
+    Trainer(load(path), log=lambda *_: None)._prepare()
+    assert git(first.tree.repo, "rev-parse", f"refs/heads/{first.branch}") == before
 
 
 def test_budget_stops_the_run(tmp_path):

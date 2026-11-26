@@ -73,6 +73,11 @@ def _last_refresh(path: Path):
     return when if when <= datetime.now(timezone.utc) + timedelta(hours=1) else None
 
 
+def refreshed(path: Path):
+    """When the login in `path` was last refreshed (None for no login): a session's copy against the shared one."""
+    return _last_refresh(path)
+
+
 def _newer(candidate: Path, than: Path) -> bool:
     mine, theirs = _last_refresh(candidate), _last_refresh(than) if Path(than).is_file() else None
     return mine is not None and (theirs is None or mine > theirs)
