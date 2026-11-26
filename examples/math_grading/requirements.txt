@@ -1,0 +1,2 @@
+math-verify[antlr4-13-2]==0.9.0
+pyarrow>=15
