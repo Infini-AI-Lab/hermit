@@ -1,4 +1,4 @@
-# OfficeQA through Harbor
+# OfficeQA_harbor
 
 This recipe runs OfficeQA Full (246 questions about U.S. Treasury Bulletins) as the
 [OfficeQA paper](https://arxiv.org/abs/2603.08655) evaluates agents: each question in its own Harbor environment
