@@ -46,7 +46,8 @@ a `.hermit/CARD.md`.
 
 ## Harbor benchmarks
 
-Five benchmarks of Harbor's registry, each with a baseline and the method whose paper's protocol fits it, packaged so
+Five benchmarks of Harbor's registry and OfficeQA from Harbor's dataset repository, each with a baseline and, for the
+five, the method whose paper's protocol fits it, packaged so
 that any of their runs can be handed to someone with a Docker host. Each task runs in its own Harbor environment
 (`environment.harbor`): Harbor starts the task's container and verifies the agent's work with the task's tests; the
 agent is Hermit's ([Benchmarks](../docs/framework/task.md#benchmarks)). Each folder's README gives the protocol, the
@@ -63,6 +64,7 @@ Claude Haiku 5.5 on a Claude subscription (`*claude*.yaml`), both at medium effo
 | [`algotune/`](algotune/) | 154 speedup tasks | harmonic mean of the speedups | no adapter, the 108 test tasks | [`skillopt`](algotune/skillopt/): SkillOpt's split 2:1:7, 4 epochs, its gate, slow update and meta skill |
 | [`terminal_bench_science/`](terminal_bench_science/) | 70 science workflows, 8 hours each | pass@1 | no adapter, each task twice (#3, #4) | Terminal-Bench 2.0's AHE adapter, frozen; [`ahe_adapter`](terminal_bench_science/ahe_adapter/) in Terminal-Bench 2.0's protocol |
 | [`labbench/`](labbench/) | 181 FigQA figure questions | accuracy | no adapter, the 127 test questions | [`skillopt`](labbench/skillopt/), as for AlgoTune |
+| [`officeqa_harbor/`](officeqa_harbor/) | 246 questions about U.S. Treasury Bulletins, in the OfficeQA paper's evaluation | the OfficeQA scorer at a 0.0% relative error | no adapter on the 172 test questions (a split of 50 train, 24 validation and 172 test questions): with Codex, 58.1% on all 172 test questions and 43.0% on the 93 OfficeQA Pro questions within that same run | none yet |
 
 **What a machine needs.**
 
@@ -81,7 +83,7 @@ Claude Haiku 5.5 on a Claude subscription (`*claude*.yaml`), both at medium effo
   environment (or a config mounts one of this machine's and names it as `agent.<cli>.bin`); a method run also needs it
   on this machine, where its learners run. The sign-in reaches the CLI in each task's environment (Codex's sign-in
   file, taken back and removed before the verifier; Claude Code's token by name, then on a descriptor), where the
-  session's commands run and, in these task sets, reach the public network: a command that read it could send it out.
+  session's commands run and, in these task sets but OfficeQA's, reach the public network: a command that read it could send it out.
   Run them on a sign-in you accept that risk for.
 - Room. No task's environment starts while Docker's disk has less than 25 GB free (the benchmark files'
   `disk_gate_gb`); a task's image is built or pulled for it: Terminal-Bench 2.0's prebuilt images from Docker Hub, 120-150 GB in all, each removed
@@ -97,6 +99,7 @@ Claude Haiku 5.5 on a Claude subscription (`*claude*.yaml`), both at medium effo
 
 ```bash
 python -m hermit.harbor.dataset prepare examples/<folder>/utils/benchmark.yaml   # once: download, check the lock
+                                                                   # (officeqa_harbor: utils/prepare.py)
 hermit eval  --config examples/<folder>/baseline/codex.yaml --adapter none      # the baseline
 hermit train --config examples/<folder>/<method>/smoke_codex.yaml               # the method on two tasks
 hermit eval  --config examples/<folder>/<method>/smoke_codex.yaml --adapter final
@@ -150,6 +153,7 @@ table. An AHE run also sends back its best iteration's in-sample pass@1, numbers
 | `labbench` | baseline | `hermit eval --config baseline/<p>.yaml --adapter none` | 127 | 5 min |
 | | the empty skill | `hermit eval --config skillopt/run_<p>.yaml --adapter root`, after SkillOpt's training | 127 | |
 | | SkillOpt | `hermit train --config skillopt/run_<p>.yaml`, then `hermit eval ... --adapter final` | at most 408 (more if resumed mid-step), then 127 | |
+| `officeqa_harbor` | baseline | `hermit eval --config baseline/<p>.yaml --adapter none`, after `utils/prepare.py` | 172 | 1 h |
 
 `<p>` is `codex` or `claude`, and a config is `examples/<folder>/...`. The trials are counted once each; a task runs
 again in a fresh environment when the provider could not serve its session (`environment.harbor.busy_retries`, 3, the

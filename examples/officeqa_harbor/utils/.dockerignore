@@ -1,0 +1,6 @@
+# the build copies nothing; the tasks (with their answers) stay out of the context sent to Docker
+.staging/
+tasks/
+tasks.jsonl
+tests/
+verifier/

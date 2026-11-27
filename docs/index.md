@@ -92,6 +92,7 @@ methods/she
 recipes/index
 tutorials/reproduce-a-result
 recipes/officeqa
+recipes/officeqa_harbor
 recipes/agentdyn
 recipes/agentdojo
 recipes/servelearnbench

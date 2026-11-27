@@ -143,6 +143,11 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- `examples/officeqa_harbor/`: OfficeQA as Harbor's task set (harbor-datasets' `datasets/officeqa`, pinned) in the
+  OfficeQA paper's evaluation: each question in its own Harbor environment, the paper's agent prompt, the final
+  message's `<FINAL_ANSWER>` scored by the paper's `reward.py` (the OfficeQA repository's at its commit) at a 0.0%
+  relative error, with 0.1%, 1% and 5% recorded; the agent's network limited to the model's hosts and the verifier's
+  cut off; no-adapter baseline configs for Codex and for Claude Code.
 - `hermit convert` names the adapter's folder and files as a deployment does: a Claude Code plugin prints, from a
   `SessionStart` hook, where its embedded adapter is and the files no export connects (the list a deployment's
   context gives); Codex, Pi and Hermes plugins list those files under `unnamed_files` in the result and their README.
