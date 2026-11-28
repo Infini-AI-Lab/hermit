@@ -1,4 +1,4 @@
-"""The five Harbor benchmarks of examples/ (examples/README.md#harbor-benchmarks) hold the protocols their READMEs
+"""The Harbor benchmarks of examples/ (examples/README.md#harbor-benchmarks) hold the protocols their READMEs
 state, read from their committed files alone (each benchmark file, its lock, its rows and splits, the configs), with
 no download: the in-sample benchmarks train on every task's rollouts #1 and #2 and test on #3 and #4; the SkillOpt
 benchmarks' splits are `hermit.harbor.dataset.split` of the locked tasks with SkillOpt's 2:1:7 and seed 42; a method
@@ -30,7 +30,7 @@ EXAMPLES = Path(__file__).resolve().parents[2] / "examples"
 IN_SAMPLE = ["terminal_bench_2_0", "terminal_bench_science"]
 SKILLOPT_SPLIT = ["algotune", "labbench"]
 METHODS = {"terminal_bench_2_0": "ahe_adapter", "terminal_bench_science": "ahe_adapter", "algotune": "skillopt",
-           "labbench": "skillopt", "swebench_verified": None}
+           "labbench": "skillopt", "swebench_verified": None, "officeqa_harbor": None}
 PROFILES = {"codex": {"cli": "codex", "model": "gpt-5.6-luna", "login": "chatgpt"},
             "claude": {"cli": "claude", "model": "claude-haiku-5-5", "login": "claude"}}
 LEARNS_ON = {"ahe_adapter": ("../utils/rows/train.txt", None),            # (data.train, data.val) of a method's run

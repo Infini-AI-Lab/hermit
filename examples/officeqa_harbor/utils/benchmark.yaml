@@ -1,0 +1,12 @@
+# OfficeQA in Harbor's environments: the environment.harbor settings every config of this example shares
+# (environment.harbor.benchmark; a config's own settings override these). prepare.py writes tasks/: Harbor's OfficeQA
+# tasks with the paper's agent prompt and scoring. One rollout is one task in its own Harbor environment: the corpus
+# image with Codex, Hermit's acting agent works in it (Codex, or Claude Code installed there by Harbor), and the task's
+# verifier, uploaded only after the agent stopped, scores its final message. The acting agent, its model and its
+# sign-in are each config's own.
+tasks_dir: tasks
+agent_timeout_sec: 3600                # one session's wall clock (the tasks' own: 1800 s)
+environment: {delete: true}
+docker_cleanup: images_keep            # one image for every task: nothing to reclaim between tasks
+disk_gate_gb: 25                       # no environment starts with less than this free on Docker's data root
+disk_gate_wait_s: 21600
