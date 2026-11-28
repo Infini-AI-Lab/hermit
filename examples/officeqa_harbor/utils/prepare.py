@@ -29,16 +29,18 @@ tasks/ holds the answers (each task's tests/config.json), which Harbor uploads o
 out of the repository. dataset.lock, committed, records the digest of every task directory: a later prepare checks the
 tasks it writes against it and stops on a difference, unless --relock (after a deliberate change) writes it anew.
 
-A prepare writes the new tasks, index and lock to .staging/ beside them, and replaces the previous ones only after the
-check against the lock and the image's build passed: on any failure the last successful setup stays as it was.
+A prepare writes the new tasks, index and lock to .staging/ beside them. One prepare runs at a time. It installs the
+new files after the lock check and image build, and restores the previous files if installation fails. A prepare
+interrupted during installation is rolled back when the next prepare starts.
 
 The set is not prepared with `python -m hermit.harbor.dataset prepare` and a `dataset.ref`: OfficeQA is not in Harbor's
 registry at that commit (its adapter is still a pull request), so no ref names it.
 """
 import argparse
-from pathlib import Path
+import errno
 import json
 import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -57,6 +59,7 @@ CODEX = "0.164.0"                                        # the configs' agent.co
 LOCAL_IMAGE = f"officeqa-corpus-codex:{CODEX}"
 HOSTS = ["chatgpt.com", "auth.openai.com"]               # the ChatGPT login: the model and its token refresh
 HERE = Path(__file__).resolve().parent
+OUTPUTS = ("tasks", "tasks.jsonl", "dataset.lock")
 
 # arXiv:2603.08655, Appendix E.5, line for line; the corpus path is this image's, and the sentence "You also have
 # access to web search in the case that you need to look something up." is left out.
@@ -138,13 +141,49 @@ def rewrite(task: Path) -> None:
     (task / "environment" / "resources" / "manifest.json").unlink(missing_ok=True)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--relock", action="store_true", help="write dataset.lock anew instead of checking against it")
-    opts = parser.parse_args()
-    out, index, lock = HERE / "tasks", HERE / "tasks.jsonl", HERE / "dataset.lock"
-    stage = HERE / ".staging"      # beside them, so a rename replaces them; git- and docker-ignored (it holds answers)
-    shutil.rmtree(stage, ignore_errors=True)
+def finish_stage(stage: Path) -> None:
+    """Restore an unfinished install before removing staging. A failed restore leaves its backups for the next run."""
+    if not stage.exists():
+        return
+    # Older prepare versions kept only a tasks backup. Preserve it when both generations are present.
+    legacy = stage / "old"
+    if legacy.exists():
+        if (HERE / "tasks").exists():
+            raise SystemExit(f"unfinished prepare: move the old tasks at {legacy} aside before retrying")
+        legacy.rename(HERE / "tasks")
+    previous = stage / "previous"
+    for name in OUTPUTS:
+        backup, live = previous / name, HERE / name
+        if backup.exists() or (previous / f"absent-{name}").exists():
+            if live.exists():
+                live.replace(stage / name)
+            if backup.exists():
+                backup.replace(live)
+    shutil.rmtree(stage)
+
+
+def install(stage: Path) -> None:
+    """Record how to roll back each replacement before publishing it."""
+    previous = stage / "previous"
+    previous.mkdir()
+    for name in OUTPUTS:
+        new, live = stage / name, HERE / name
+        if not new.exists():  # a checked-in lock is kept unless it was regenerated
+            continue
+        if live.is_dir():
+            live.rename(previous / name)
+        elif live.exists():
+            os.link(live, previous / name)  # keep the current file readable until replaced
+        else:
+            (previous / f"absent-{name}").touch()
+        new.replace(live)
+    previous.rename(stage / "committed")  # one rename commits all replacements, even if cleanup is interrupted
+
+
+def prepare(relock: bool) -> None:
+    out, lock = HERE / "tasks", HERE / "dataset.lock"
+    stage = HERE / ".staging"
+    finish_stage(stage)
     stage.mkdir()
     new_out, new_index, new_lock = stage / "tasks", stage / "tasks.jsonl", stage / "dataset.lock"
     dataset = [sys.executable, "-m", "hermit.harbor.dataset"]
@@ -158,7 +197,7 @@ def main() -> None:
         for task in tasks:
             rewrite(task)
         subprocess.run([*dataset, "index", str(new_out), "--out", str(new_index)], check=True)
-        if lock.exists() and not opts.relock:
+        if lock.exists() and not relock:
             if subprocess.run([*dataset, "check", str(new_out), "--lock", str(lock)]).returncode:
                 raise SystemExit(f"the tasks differ from {lock.name}; the previous setup is kept: rerun with --relock "
                                  "if the change is deliberate")
@@ -167,21 +206,31 @@ def main() -> None:
                             f"{REPO}@{COMMIT}:{DATASET}"], check=True)
         subprocess.run(["docker", "build", "-q", "-t", LOCAL_IMAGE, "--build-arg", f"BASE={IMAGE}@{DIGEST}",
                         "--build-arg", f"CODEX_VERSION={CODEX}", str(HERE)], check=True)
-        old = stage / "old"                             # the previous tasks, back in place if the new ones cannot be
-        if out.exists():
-            out.rename(old)
-        try:
-            new_out.rename(out)
-        except BaseException:
-            if old.exists():
-                old.rename(out)
-            raise
-        os.replace(new_index, index)
-        if new_lock.exists():
-            os.replace(new_lock, lock)
+        install(stage)
     finally:
-        shutil.rmtree(stage, ignore_errors=True)
+        finish_stage(stage)
     print(f"wrote {out}: {len(tasks)} tasks at harbor-datasets {COMMIT[:9]}, in the paper's evaluation")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--relock", action="store_true", help="write dataset.lock anew instead of checking against it")
+    opts = parser.parse_args()
+    with (HERE / ".prepare.lock").open("a+b") as writer:
+        try:
+            if os.name == "nt":
+                import msvcrt
+                writer.seek(0)
+                msvcrt.locking(writer.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(writer, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:
+            if error.errno not in (errno.EACCES, errno.EAGAIN):
+                raise
+            parser.exit(1, f"another prepare is running in {HERE}\n")
+        prepare(opts.relock)
+
 
 if __name__ == "__main__":
     main()

@@ -4,6 +4,7 @@ successful setup (stand-ins for its clone and its image build), and the verifier
 (utils/verifier/judge.py), with a stand-in for the OfficeQA reward.py the tasks carry. No network, no Harbor."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -167,6 +168,83 @@ def test_tasks_that_differ_from_the_lock_keep_the_last_successful_setup(prepare_
     assert_usable(here)
 
 
+@pytest.mark.parametrize("filename", ["tasks.jsonl", "dataset.lock"])
+@pytest.mark.parametrize("previous_setup", [False, True])
+def test_late_install_failure_restores_all_outputs(prepare_main, monkeypatch, filename, previous_setup):
+    """The tasks have already been published when the filesystem refuses the new index or lock."""
+    here, main = prepare_main
+    if previous_setup:
+        main()
+    before = setup_files(here)
+    replace = Path.replace
+
+    def fail_install(source, target):
+        if source == here / ".staging" / filename and target == here / filename:
+            raise OSError("cannot install staged file")
+        return replace(source, target)
+
+    monkeypatch.setattr(Path, "replace", fail_install)
+    with pytest.raises(OSError, match="cannot install staged file"):
+        main("--relock", answer="9")
+    assert setup_files(here) == before
+    if previous_setup:
+        assert_usable(here)
+    else:
+        assert not (here / "tasks").exists() and not (here / ".staging").exists()
+
+
+def test_next_prepare_recovers_an_interrupted_install(prepare_main):
+    """Stop the installer after it publishes the new tasks and index; the next prepare recovers before its build."""
+    here, main = prepare_main
+    main()
+    before = setup_files(here)
+    shutil.copy(UTILS / "prepare.py", here)
+    stage = here / ".staging"
+    (stage / "tasks").mkdir(parents=True)
+    (stage / "tasks.jsonl").write_text("new index")
+    (stage / "dataset.lock").write_text("new lock")
+    interrupt = """
+import os
+from pathlib import Path
+import prepare
+
+replace = Path.replace
+def stop_at_lock(source, target):
+    if target.name == 'dataset.lock':
+        os._exit(73)
+    return replace(source, target)
+Path.replace = stop_at_lock
+prepare.install(Path('.staging'))
+"""
+    assert subprocess.run([sys.executable, "-c", interrupt], cwd=here).returncode == 73
+    assert (here / "tasks.jsonl").read_text() == "new index"
+    with pytest.raises(subprocess.CalledProcessError):
+        main("--relock", answer="9", build_fails=True)
+    assert setup_files(here) == before
+    assert_usable(here)
+
+
+def test_concurrent_prepare_leaves_the_running_install_alone(prepare_main, monkeypatch):
+    """Run the second CLI with the first process's files temporarily between generations."""
+    here, main = prepare_main
+    main()
+    script = shutil.copy(UTILS / "prepare.py", here)
+    replace = Path.replace
+    other = []
+
+    def try_second_prepare(source, target):
+        if source == here / ".staging" / "tasks" and target == here / "tasks":
+            other.append(subprocess.run([sys.executable, script], cwd=here, capture_output=True, text=True,
+                                        env={**os.environ, "PATH": str(here)}, timeout=10))
+        return replace(source, target)
+
+    monkeypatch.setattr(Path, "replace", try_second_prepare)
+    main("--relock", answer="9")
+    second, = other
+    assert second.returncode == 1 and "another prepare is running" in second.stderr
+    assert_usable(here)
+
+
 def test_a_successful_prepare_replaces_the_setup(prepare_main):
     here, main = prepare_main
     main()
@@ -252,15 +330,61 @@ def test_the_verifier_scores_the_final_message_at_the_papers_thresholds(verifier
     assert feedback == "FAIL: final answer '44393'" and "44,463" not in feedback and "44463" not in feedback
 
 
-def test_the_verifier_reads_codexs_stream_when_the_log_has_no_last_message(verifier):
+def test_the_verifier_reads_the_completed_final_reply_from_codexs_stream(verifier):
     """The stream's shape is Codex 0.164.0's `codex exec --json` (its stderr line first, then its events), as the
     OfficeQA runs kept it (examples/officeqa/utils/tests/test_harbor_judge.py records one)."""
     events = ["Reading additional input from stdin...",
+              json.dumps({"type": "turn.started"}),
               json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "Searching."}}),
-              json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "44,463"}})]
+              json.dumps({"type": "item.completed", "item": {"type": "command_execution", "command": "rg revenue"}}),
+              json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "44,463"}}),
+              json.dumps({"type": "item.completed", "item": {"type": "todo_list", "items": []}}),
+              json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 10}}),
+              "a trailing diagnostic on stderr"]
     (verifier.LOGS / "agent-codex.jsonl").write_text("\n".join(events))
     rewards, feedback = verdict(verifier)
     assert rewards["reward"] == 1.0 and feedback == "PASS: final answer '44,463' (no <FINAL_ANSWER> tag)"
+
+
+@pytest.mark.parametrize("ending", [None, "turn.failed", "turn.completed"], ids=["cut-off", "failed", "no-reply"])
+@pytest.mark.parametrize("copied_reply", [False, True], ids=["stream-only", "progress-copied"])
+def test_codex_progress_followed_by_tool_work_is_not_a_final_answer(verifier, ending, copied_reply):
+    """Hermit may copy progress into last_message.txt even when the last turn has no final reply."""
+    progress = "I still need to check 44,463."
+    events = [
+        {"type": "turn.started"},
+        {"type": "item.completed", "item": {"type": "agent_message", "text": "44,463"}},
+        {"type": "turn.completed"},
+        {"type": "turn.started"},
+        {"type": "item.completed", "item": {"type": "agent_message", "text": progress}},
+        {"type": "item.started", "item": {"type": "command_execution", "command": "rg revision"}},
+    ]
+    if ending:
+        events.append({"type": ending})
+    if copied_reply:
+        (verifier.LOGS / "last_message.txt").write_text(progress)
+    (verifier.LOGS / "agent-codex.jsonl").write_text("\n".join(json.dumps(event) for event in events))
+    rewards, feedback = verdict(verifier)
+    assert set(rewards.values()) == {0.0}
+    assert feedback == "FAIL: no final message"
+
+
+def test_codex_message_needs_a_completed_turn_even_when_no_tool_follows(verifier):
+    """The last item can be a progress message even when a timeout cuts the stream immediately afterwards."""
+    message = {"type": "item.completed", "item": {"type": "agent_message", "text": "Looking up 44,463."}}
+    (verifier.LOGS / "agent-codex.jsonl").write_text(json.dumps(message))
+    rewards, feedback = verdict(verifier)
+    assert set(rewards.values()) == {0.0}
+    assert feedback == "FAIL: no final message"
+
+
+def test_claude_uses_its_own_last_message(verifier):
+    """Claude's reply comes from last_message.txt, regardless of Codex turn events."""
+    (verifier.LOGS / "agent-claude.jsonl").write_text("")
+    (verifier.LOGS / "last_message.txt").write_text("44,463")
+    rewards, feedback = verdict(verifier)
+    assert rewards["reward"] == 1.0
+    assert feedback == "PASS: final answer '44,463' (no <FINAL_ANSWER> tag)"
 
 
 def test_a_scorer_that_fails_leaves_no_reward(verifier, monkeypatch):

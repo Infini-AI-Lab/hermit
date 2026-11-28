@@ -26,9 +26,10 @@ match); the two give numbers of their own.
 
 `prepare.py` prepares the set itself rather than through `python -m hermit.harbor.dataset prepare`: OfficeQA is not in
 Harbor's registry at that commit, so no `dataset.ref` names it. The tasks it writes must match `utils/dataset.lock`
-(`--relock` after a deliberate change). It writes the new tasks, index and lock to `utils/.staging/` first and replaces
-the previous ones only after the check against the lock and the image's build passed, so on any failure the last
-successful setup stays as it was.
+(`--relock` after a deliberate change). Finish active evaluations before preparing the same checkout. Separate checkouts
+using different image builds also need distinct Docker tags. Prepare validates the tasks and builds the image before
+installing the new task directories, index and lock. A failed install restores the previous files. If the
+process stops during installation, rerun prepare to recover the files before starting an evaluation.
 
 It changes Harbor's tasks in four ways, and removes from each its answer's source (`source_files` and `source_docs` in
 the metadata and `environment/resources/manifest.json`, which the paper's full-corpus agents are not given) and
@@ -39,8 +40,9 @@ the metadata and `environment/resources/manifest.json`, which the paper's full-c
 - **The verifier.** `utils/verifier/`, with the tasks' own `reward.py`, the paper's (checked against its git blob),
   instead of Harbor's verifier, which reads `/app/answer.txt` at 1%. The feedback a learning method reads is `passed`,
   or `reward 0` with the verifier's line naming the agent's own final answer; never the expected one. The final message
-  is the agent log's `last_message.txt`; where the log has none (Harbor's timeout ended the phase before Hermit
-  delivered it), the verifier reads Codex's event stream only, so a Claude Code session cut off so scores 0. A verifier
+  comes from the Codex event stream when present. The last turn must complete with an agent reply after its tool
+  calls. This matters because a timed-out Codex session can leave a progress message in `last_message.txt`.
+  For Claude Code the verifier reads the delivered final message. A missing final reply scores zero. A verifier
   that fails writes no reward: the run records it as `agent_error` (`verifier_failed`) and scores it 0, as Harbor
   grades it. A record's `judge.extra.rewards` also holds the verdicts at 0.1%, 1% and 5%, which say how close a wrong
   answer came; a method that reads them reads that much more than the verdict.
@@ -74,10 +76,10 @@ needs.
 
 ## Results
 
-The no-adapter baseline on the 172 test questions, once each, 2026-11-25, with the agent, environment, judge and test
-split of `baseline/codex.yaml`. All 172 were the agent's result (no infrastructure error; one session ended at Codex's
-output-token limit and scored 0), so `mean_score` is also `python -m hermit.harbor.report`'s pass@1. Claude Code's has
-not been run.
+The 2026-11-25 no-adapter baseline ran once on each of the 172 test questions using `baseline/codex.yaml`.
+These figures were recorded before the verifier began checking for a completed Codex reply. The trials have not been
+rescored with that change. The original run reported no infrastructure errors and one session that reached Codex's
+output-token limit and scored 0. Its `mean_score` is also its pass@1. Claude Code's baseline has not been run.
 
 | Acting agent | All 172 test questions, 0.0% (the paper's headline, ± SE) | 0.1% | 1% | 5% | The 93 OfficeQA Pro questions of the same run, 0.0% (± SE) |
 |---|---|---|---|---|---|

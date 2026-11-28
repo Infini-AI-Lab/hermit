@@ -64,7 +64,7 @@ Claude Haiku 5.5 on a Claude subscription (`*claude*.yaml`), both at medium effo
 | [`algotune/`](algotune/) | 154 speedup tasks | harmonic mean of the speedups | no adapter, the 108 test tasks | [`skillopt`](algotune/skillopt/): SkillOpt's split 2:1:7, 4 epochs, its gate, slow update and meta skill |
 | [`terminal_bench_science/`](terminal_bench_science/) | 70 science workflows, 8 hours each | pass@1 | no adapter, each task twice (#3, #4) | Terminal-Bench 2.0's AHE adapter, frozen; [`ahe_adapter`](terminal_bench_science/ahe_adapter/) in Terminal-Bench 2.0's protocol |
 | [`labbench/`](labbench/) | 181 FigQA figure questions | accuracy | no adapter, the 127 test questions | [`skillopt`](labbench/skillopt/), as for AlgoTune |
-| [`officeqa_harbor/`](officeqa_harbor/) | 246 questions about U.S. Treasury Bulletins, in the OfficeQA paper's evaluation | the OfficeQA scorer at a 0.0% relative error | no adapter on the 172 test questions (a split of 50 train, 24 validation and 172 test questions): with Codex, 58.1% on all 172 test questions and 43.0% on the 93 OfficeQA Pro questions within that same run | none yet |
+| [`officeqa_harbor/`](officeqa_harbor/) | 246 questions about U.S. Treasury Bulletins, in the OfficeQA paper's evaluation | the OfficeQA scorer at a 0.0% relative error | Codex with no adapter (50 train, 24 validation, 172 test): the 2026-11-25 run scored 58.1% on all 172 test questions and 43.0% on its 93 OfficeQA Pro questions, before the verifier update for interrupted turns | none yet |
 
 **What a machine needs.**
 

@@ -25,7 +25,8 @@ python examples/officeqa_harbor/utils/prepare.py
 
 `prepare.py` downloads Harbor's OfficeQA tasks at a pinned commit, rewrites them to the paper's evaluation, checks them
 against `utils/dataset.lock`, and builds the image they run in. It writes `utils/tasks/` and `utils/tasks.jsonl`
-(git-ignored: they hold the answers); if any step fails, the previous setup stays as it was.
+(git-ignored: they hold the answers). Wait for any evaluation using this checkout to finish before preparing it again.
+A failed install restores the previous data files. If prepare was interrupted, rerun it before evaluating.
 
 ## Run
 
@@ -43,7 +44,8 @@ configs go in a folder of their own beside `baseline/`, with the same `agent` an
 ## Results
 
 Agent: GPT-5.6-Luna (reasoning effort medium) with Codex 0.164.0, one Harbor environment per question, no web search.
-One pass over the 172 test questions, 2026-11-25.
+One pass over the 172 test questions, 2026-11-25, before the verifier update for interrupted Codex turns.
+The original trials have not been rescored.
 
 | Method | All 172 test questions | The 93 OfficeQA Pro questions (same run) |
 |---|---|---|
