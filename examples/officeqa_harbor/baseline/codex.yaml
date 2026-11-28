@@ -1,0 +1,35 @@
+# OfficeQA through Harbor, the baseline: Codex with GPT-5.6-Luna at medium effort and no adapter, on the 172 test
+# questions of SkillOpt's split, once each, in the OfficeQA paper's evaluation (../README.md). Codex runs on the
+# machine's ChatGPT login (`codex login` once, no API key), in each task's container.
+#
+#   python examples/officeqa_harbor/utils/prepare.py
+#   hermit eval --config examples/officeqa_harbor/baseline/codex.yaml --adapter none
+#
+# The score is the eval's mean_score (runs/codex-baseline/eval/none/ beside this file): the paper's 0.0% threshold;
+# each record's judge.extra.rewards also holds 0.1%, 1% and 5%.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke.txt     # placeholder, as template and evolver are: hermit eval reads it, trains nothing
+  test: ../utils/splits/test.txt       # 172 questions (SkillOpt's split)
+agent:
+  base: codex                          # Codex in each task's own Harbor environment (the image has this version)
+  concurrency: 4                       # on a 7.5 GB machine 16 environments at once thrash and time out at setup
+  model: {name: gpt-5.6-luna, login: chatgpt, effort: medium}   # the ChatGPT plan, shared
+  codex:
+    web_search: false                  # set explicitly: Codex's hosted search runs past the network allowlist
+    version: "0.164.0"                 # the Codex in the tasks' image (../utils/Dockerfile)
+environment:
+  harbor:                              # each question in its own Harbor environment, verified by its verifier
+    benchmark: ../utils/benchmark.yaml  # the settings every config of this example shares
+    jobs_dir: ~/.cache/hermit/harbor/jobs/officeqa-codex  # the Codex configs' environments (each task's trial)
+judge:
+  path: hermit.task.verify             # the verifier's reward (the paper's 0.0% threshold) and its verdict line
+  name: environment
+template: prompt-only@1.0              # placeholder (see data.train)
+task_info: ../utils/task-info          # what hermit check asks of a training config
+evolver: {name: eval-only}             # placeholder: no Evolver of this name, so hermit train refuses this config
+trainer:
+  run_name: codex-baseline
+  output_dir: runs
+eval:
+  repeats: 1

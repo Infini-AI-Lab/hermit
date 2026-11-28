@@ -1,0 +1,4 @@
+tasks/
+tasks.jsonl
+.staging/
+.prepare.lock
