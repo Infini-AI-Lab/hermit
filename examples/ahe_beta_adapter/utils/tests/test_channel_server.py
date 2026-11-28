@@ -121,28 +121,30 @@ def test_a_drain_reads_the_stream_from_where_its_new_events_start(tmp_path):
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="the bridge checks its peer with Linux's SO_PEERCRED "
                     "and /proc")
 def test_root_bridge_delivers_to_hook_without_a_shared_mailbox(tmp_path):
-    root = tmp_path / "channel"
-    server = subprocess.Popen(
+    root = tmp_path / "channel"     # the socket is named relative to tmp_path: under a long TMPDIR its absolute path
+    server = subprocess.Popen(      # passes AF_UNIX's 107 bytes (the environment's is /run/ahe-user-channel/)
         [
             sys.executable,
             str(Path(channel_server.__file__).resolve()),
             "serve",
             "--root",
-            str(root),
+            "channel",
             "--pid-file",
-            str(tmp_path / "channel.pid"),
+            "channel.pid",
         ],
+        cwd=tmp_path,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
     )
     try:
-        for _ in range(50):
-            if (root / "channel.sock").exists():
+        for _ in range(250):
+            if (root / "channel.sock").exists() or server.poll() is not None:
                 break
             time.sleep(0.02)
-        else:
-            raise AssertionError("channel server did not start")
+        if not (root / "channel.sock").exists():
+            server.terminate()
+            raise AssertionError(f"channel server did not start: {server.communicate(timeout=5)[1]}")
 
         utils = Path(__file__).resolve().parents[1]
         hook = tmp_path / "user_hook.py"
@@ -150,7 +152,7 @@ def test_root_bridge_delivers_to_hook_without_a_shared_mailbox(tmp_path):
         (tmp_path / "user_hook.json").write_text(
             json.dumps(
                 {
-                    "channel": str(root / "channel.sock"),
+                    "channel": "channel/channel.sock",
                     "wait_s": 0.01,
                     "adapter_stop": [],
                     "reply_frame": "{text}",
@@ -168,6 +170,7 @@ def test_root_bridge_delivers_to_hook_without_a_shared_mailbox(tmp_path):
         )
         result = subprocess.run(
             [str(codex), str(hook)],
+            cwd=tmp_path,
             input=json.dumps({"last_assistant_message": "done"}),
             text=True,
             capture_output=True,
