@@ -1,0 +1,410 @@
+#!/usr/bin/env python3
+"""The user channel, container side: three Codex hooks that carry a simulated user's messages into a running session.
+
+    python3 user_hook.py PreToolUse | PostToolUse | Stop        (registered in <workdir>/.codex/hooks.json)
+
+Standard library only. The settings are in `user_hook.json` beside this file: `channel` (the root-owned bridge socket),
+`wait_s` (how long a Stop waits for the user), and `adapter_stop` (the adapter's own Stop commands, run here before
+the user hears anything). A legacy `mail` setting remains supported for offline hook tests.
+
+The legacy mailbox:
+
+    to-user/<time>-<pid>-<kind>.json     written here:        tool_start, tool, reply, delivered, timeout
+    to-agent/<time>-<kind>.json          written by the host: message, interrupt, end
+    taken/                               what this hook has delivered or consumed
+
+What each event does:
+
+    PreToolUse    reports the tool call that starts; while an `interrupt` is waiting, denies the call with the
+                  user's words (every call, until the agent stops); once the user has ended the session, denies
+                  every call (`end_frame`)
+    PostToolUse   reports the finished tool call; hands waiting messages to the model as additional context
+    Stop          runs the adapter's Stop hooks first (a block from one of them is passed on and the user hears
+                  nothing yet); then reports the agent's reply and waits: a message continues the session with the
+                  user's words, `end` lets it stop
+
+A tool's input and output reach the user whole up to SHORT characters (as JSON), else cut. A decision (a denial, a
+message handed over, a block) is printed before its event is reported, and stands though the report fails: a message
+claimed from the queue is always handed over.
+"""
+
+from __future__ import annotations       # the image's python3 may be 3.8: no annotation is evaluated
+
+import json
+import os
+import signal
+import socket
+import subprocess
+import sys
+import time
+import uuid
+from pathlib import Path
+
+HERE = Path(__file__).resolve()
+CFG = json.loads(HERE.with_suffix(".json").read_text())
+MAIL = Path(CFG.get("mail") or "/run/ahe-user-channel/legacy-mail")
+TO_USER, TO_AGENT, TAKEN = MAIL / "to-user", MAIL / "to-agent", MAIL / "taken"
+CHANNEL = Path(CFG["channel"]) if CFG.get("channel") else None
+SHORT = 20000  # characters of a tool's input or output reported to the user
+REPLY_CHARS = 50000  # characters of a reply: with JSON's escaping, within the bridge's 256 KiB a request
+REPORT_S = 3.0  # how long an event that informs the user (not a decision) may wait for the bridge
+
+
+def report(kind: str, _timeout: float = 10.0, **fields) -> None:
+    """One event for the user, written whole (a temporary name, then a rename)."""
+    if CHANNEL is not None:
+        response = _request({"op": "report", "event": {"kind": kind, "t": round(time.time(), 3), **fields}}, _timeout)
+        if not response.get("ok"):
+            raise RuntimeError(response.get("error") or "user channel report failed")
+        return
+    TO_USER.mkdir(parents=True, exist_ok=True)
+    name = f"{time.time():017.6f}-{os.getpid()}-{kind}.json"
+    tmp = TO_USER / ("." + name)
+    tmp.write_text(json.dumps({"kind": kind, "t": round(time.time(), 3), **fields}))
+    os.chmod(tmp, 0o666)
+    os.replace(tmp, TO_USER / name)
+
+
+def _request(payload: dict, timeout: float = 10.0) -> dict:
+    if CHANNEL is None:
+        return {}
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(timeout)
+        connection.connect(str(CHANNEL))
+        connection.sendall(json.dumps(payload, ensure_ascii=False).encode() + b"\n")
+        data = bytearray()
+        while len(data) < 256 * 1024:
+            chunk = connection.recv(4096)
+            if not chunk:
+                break
+            data.extend(chunk)
+            if b"\n" in chunk:
+                break
+    try:
+        response = json.loads(bytes(data).splitlines()[0])
+    except (IndexError, ValueError):
+        return {"ok": False, "error": "invalid channel response"}
+    if not isinstance(response, dict) or not response.get("ok"):
+        return {"ok": False, "error": str((response or {}).get("error") or "channel request failed")}
+    return response
+
+
+def waiting(kind: str) -> list[Path] | list[dict]:
+    if CHANNEL is not None:
+        response = _request({"op": "peek", "kind": kind})
+        if not response.get("ok"):
+            raise RuntimeError(response.get("error") or "user channel read failed")
+        return list(response.get("messages") or [])
+    return sorted(TO_AGENT.glob(f"[!.]*-{kind}.json")) if TO_AGENT.is_dir() else []   # not one still being written
+
+
+def take(paths: list[Path] | list[dict]) -> list[dict]:
+    """Claim the files (a rename: two hooks running at once never deliver the same message twice)."""
+    if CHANNEL is not None:
+        names = [str(value.get("_file")) for value in paths if isinstance(value, dict) and value.get("_file")]
+        if not names:
+            return []
+        kind = str(next((value.get("kind") for value in paths if isinstance(value, dict)), ""))
+        response = _request({"op": "take", "kind": kind, "names": names})
+        if not response.get("ok"):
+            raise RuntimeError(response.get("error") or "user channel claim failed")
+        return [dict(value) for value in response.get("messages") or []]
+    if paths and str(paths[0]).endswith("-message.json") and (waiting("end") or waiting("interrupt")):
+        return []                        # after the end, and while an interrupt waits, no message is handed over
+    TAKEN.mkdir(parents=True, exist_ok=True)
+    out = []
+    for path in paths:
+        try:
+            os.replace(path, TAKEN / path.name)
+        except OSError:
+            continue
+        try:
+            out.append(json.loads((TAKEN / path.name).read_text()))
+        except ValueError:
+            pass
+    return out
+
+
+def handed(kind: str, **fields) -> None:
+    """report(), for a reply: the session's answer, so tried again while the bridge fails a moment, under one id that
+    the host reads once (a report that reached it though its answer did not is no second reply)."""
+    fields.setdefault("rid", uuid.uuid4().hex)
+    for attempt in range(3):
+        try:
+            report(kind, **fields)
+            return
+        except Exception:                # noqa: BLE001 - the last failure is the caller's
+            if attempt == 2:
+                raise
+            time.sleep(1.0)
+
+
+def told(kind: str, **fields) -> None:
+    """report(), for an event a decision follows: the decision stands though the report did not reach the user."""
+    try:
+        report(kind, REPORT_S, **fields)
+    except Exception:                    # noqa: BLE001 - the channel's failure shows at the next read or Stop
+        pass
+
+
+def bounded(value):
+    """A tool's input or output as the user sees it: as it is up to SHORT characters (as JSON), else cut."""
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+    return value if len(text) <= SHORT else short(text)
+
+
+def reply_text(payload: dict) -> str:
+    """The agent's reply as the bridge carries it whole (at most 256 KiB a request): a longer one cut, and so said."""
+    text = payload.get("last_assistant_message") or ""
+    if len(text) <= REPLY_CHARS:
+        return text
+    return text[:REPLY_CHARS] + f" ... [{len(text) - REPLY_CHARS} more characters]"
+
+
+def short(value) -> str:
+    text = (
+        value
+        if isinstance(value, str)
+        else json.dumps(value, ensure_ascii=False, default=str)
+    )
+    return (
+        text
+        if len(text) <= SHORT
+        else text[:SHORT] + f" ... [{len(text) - SHORT} more characters]"
+    )
+
+
+def said(messages: list[dict], frame: str) -> str:
+    return frame.format(text="\n\n".join(str(m.get("text") or "") for m in messages))
+
+
+HOOK_MARK = "AHE_ADAPTER_HOOK"   # in a hook run's environment, a value of its own: every process it starts inherits it
+
+
+def marked(mark: str) -> list:
+    """The processes whose environment carries a hook run's mark: all it started, one that left its group or lost its
+    parent too, none of another run's or of this process's own."""
+    entry = f"{HOOK_MARK}={mark}".encode()
+    found = []
+    for pid in os.listdir("/proc") if os.path.isdir("/proc") else []:
+        if pid.isdigit():
+            try:
+                with open(f"/proc/{pid}/environ", "rb") as environ:
+                    if entry in environ.read().split(b"\0"):
+                        found.append(int(pid))
+            except OSError:                              # gone, or another user's
+                pass
+    return found
+
+
+def run_hook(command: str, raw: str, cwd, timeout: float) -> subprocess.CompletedProcess:
+    """An adapter's hook command (a shell line) with `raw` on its stdin, in a process group of its own: past its timeout
+    every process it started is killed (a pipeline's children, or a helper that left the group, would go on writing the
+    workspace into the user's next turn), then TimeoutExpired."""
+    mark = uuid.uuid4().hex
+    process = subprocess.Popen(command, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True, cwd=cwd, start_new_session=True,
+                               env={**os.environ, HOOK_MARK: mark})
+    try:
+        out, err = process.communicate(raw, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        deadline = time.monotonic() + 5
+        while True:                                      # until none is left: one may start another meanwhile
+            left = marked(mark)
+            for pid in left:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            try:
+                os.killpg(process.pid, signal.SIGKILL)   # one that cleared its environment, still in the group
+            except OSError:
+                pass
+            if not left or time.monotonic() > deadline:
+                break
+            time.sleep(0.05)
+        try:  # a child that left the group still holds the pipes: not waited for
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            for pipe in (process.stdout, process.stderr):
+                pipe.close()
+            process.wait()
+        raise
+    return subprocess.CompletedProcess(command, process.returncode, out, err)
+
+
+def adapter_stop(raw: str, payload: dict) -> dict | None:
+    """The adapter's own Stop hooks, one after another; the first block, else what they said without blocking (a
+    systemMessage), or None. Codex would run them at the same time as this hook, so the user would hear a reply the
+    adapter is still sending back for more work."""
+    passthrough = {}
+    for hook in CFG.get("adapter_stop") or []:
+        try:
+            run = run_hook(hook["command"], raw, payload.get("cwd") or None, float(hook.get("timeout") or 60))
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if run.returncode == 2:  # the exit-code form of a block: stderr is the reason
+            return {
+                "decision": "block",
+                "reason": run.stderr.strip() or "blocked by the adapter's Stop hook",
+            }
+        try:
+            out = json.loads(run.stdout or "{}")
+        except ValueError:
+            continue
+        if isinstance(out, dict) and (
+            out.get("decision") == "block" or out.get("continue") is False
+        ):
+            return out
+        if isinstance(out, dict) and out.get("systemMessage"):
+            told("adapter_message", text=out["systemMessage"])
+            passthrough["systemMessage"] = "\n".join(
+                filter(
+                    None, [passthrough.get("systemMessage"), str(out["systemMessage"])]
+                )
+            )
+    return passthrough or None
+
+
+def main() -> None:
+    event = sys.argv[1]
+    raw = sys.stdin.read()
+    try:
+        payload = json.loads(raw or "{}")
+    except ValueError:
+        payload = {}
+    tool = {"tool": payload.get("tool_name"), "input": bounded(payload.get("tool_input"))}
+    if event == "PreToolUse":
+        try:
+            interrupts = waiting("interrupt")
+            ended = [] if interrupts else waiting("end")
+            unread = False
+        except (OSError, RuntimeError, ValueError):  # the channel cannot be read: an end may wait there, so no call
+            interrupts, ended, unread = [], [], True  # runs unread (the agent tries it again)
+        if interrupts or ended or unread:  # left in place: every call is denied until the agent stops
+            try:
+                value = (interrupts or ended)[0]
+                text = (
+                    (value.get("text") if isinstance(value, dict) else json.loads(value.read_text()).get("text"))
+                    or ""
+                )
+            except (OSError, ValueError, AttributeError, IndexError):
+                text = ""
+            reason = (CFG["interrupt_frame"].format(text=text) if interrupts else
+                      "The user's channel could not be read just now; try the call again." if unread else
+                      CFG.get("end_frame") or "The user has ended the session. Do not call any more tools.")
+            print(
+                json.dumps(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": reason,
+                        }
+                    }
+                ),
+                flush=True,
+            )
+            told("denied", **tool)
+            return
+        told("tool_start", **tool)
+        return
+    if event == "PostToolUse":
+        # the decision first; none after the end, none while an interrupt waits (the interrupted turn would take it)
+        messages = [] if waiting("end") or waiting("interrupt") else take(waiting("message"))
+        if messages:
+            print(
+                json.dumps(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PostToolUse",
+                            "additionalContext": said(messages, CFG["insert_frame"]),
+                        }
+                    }
+                ),
+                flush=True,
+            )
+        told("tool", **tool, output=bounded(payload.get("tool_response")))
+        if messages:
+            told(
+                "delivered",
+                at="PostToolUse",
+                ids=[m.get("id") for m in messages],
+                **tool,
+            )
+        return
+    if event != "Stop":
+        return
+    passthrough = {}
+    interrupts = take(waiting("interrupt"))
+    interrupted = bool(interrupts)
+    ends = waiting("end")
+    if not interrupted and not ends:
+        block = adapter_stop(raw, payload)
+        interrupts += take(waiting("interrupt"))   # the user's, while they ran: before their decision
+        interrupted = bool(interrupts)
+        decided = bool(block) and (block.get("decision") == "block" or block.get("continue") is False)
+        if decided and not interrupted and not waiting("end"):
+            print(json.dumps(block), flush=True)
+            told(
+                "adapter_stop" if block.get("continue") is False else "adapter_block",
+                reason=short(block.get("stopReason") or block.get("reason") or ""),
+            )
+            if block.get("continue") is False:   # Codex exits on it: no later Stop could hand this reply over
+                try:
+                    handed(
+                        "reply",
+                        text=reply_text(payload),
+                        interrupted=False,
+                        turn=payload.get("turn_id"),
+                        terminal=True,
+                    )
+                except Exception:        # noqa: BLE001 - the decision stands; the host reads Codex gone
+                    pass
+            return
+        passthrough = {} if decided else (block or {})   # an end or interrupt overrode its block or stop
+    interrupts += take(waiting("interrupt"))   # one that came while the adapter's Stop hooks ran: this reply is its
+    interrupted = bool(interrupts)
+    handed(
+        "reply",
+        text=reply_text(payload),
+        interrupted=interrupted,
+        interrupts=len(interrupts),
+        interrupt_ids=[m.get("id") for m in interrupts],   # which interrupts it answers: whoever waits for one
+        turn=payload.get("turn_id"),
+    )
+    deadline = time.monotonic() + float(CFG.get("wait_s") or 3600)
+    while time.monotonic() < deadline:
+        if waiting("end"):                # left queued: every later tool call is denied until the session is over
+            if passthrough:
+                print(json.dumps(passthrough))
+            return
+        interrupted_messages = take(waiting("interrupt"))
+        if interrupted_messages:          # the host's bookkeeping of the reply above rests on it: waited for in full
+            report(
+                "interrupt_ack",
+                ids=[m.get("id") for m in interrupted_messages],
+                at="Stop",
+            )
+        messages = take(waiting("message"))
+        if messages:
+            print(
+                json.dumps(
+                    {
+                        **passthrough,
+                        "decision": "block",
+                        "reason": said(messages, CFG["reply_frame"]),
+                    }
+                ),
+                flush=True,
+            )
+            told("delivered", at="Stop", ids=[m.get("id") for m in messages])
+            return
+        if waiting("end"):
+            return
+        time.sleep(0.2)
+    told("timeout", waited_s=float(CFG.get("wait_s") or 3600))
+
+
+if __name__ == "__main__":
+    main()

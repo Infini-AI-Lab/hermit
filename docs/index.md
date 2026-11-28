@@ -79,6 +79,7 @@ methods/aspire
 methods/meta_harness_adapter
 methods/ace
 methods/ahe_adapter
+methods/ahe_beta_adapter
 methods/rrsi_adapter
 methods/evosafe
 methods/opro
