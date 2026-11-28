@@ -869,6 +869,19 @@ def test_a_declared_path_that_comes_to_hold_a_run_is_refused_before_the_next_cal
         agent.close()
 
 
+def test_a_container_worker_takes_a_relative_login_root_as_preflight_did(tmp_path, monkeypatch):
+    """The worker runs in its own folder: a relative `login_root` named another folder there, with no login in it,
+    and the session's missing login ended the run though preflight had found it."""
+    from hermit.isolate import ContainerAgent
+    (tmp_path / "t").mkdir()
+    config = Config.load(make_task(tmp_path / "t"))
+    from hermit.agent.base import login as codex_login
+    monkeypatch.chdir(tmp_path)
+    for root in ("logins/codex", "~/logins"):                                  # as preflight names its shared copy
+        given = ContainerAgent(config, "rollout", {"login": "chatgpt", "login_root": root}).params["login_root"]
+        assert codex_login.master(Path(given)) == codex_login.master(Path(root)).absolute()
+
+
 def test_a_container_session_ends_before_the_outer_deadline(tmp_path):
     """Killed at agent.timeout_min, the host worker could not remove the container: its session's own clock ends
     first."""

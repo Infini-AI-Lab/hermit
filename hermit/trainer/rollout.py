@@ -299,7 +299,8 @@ def _environment_run(task: Task, given: dict, adapter: Path | None, pipeline, en
                                 out.cost_usd, out.tokens = ledger.cost(None), ledger.tokens(None)
                                 out.api_speed = {**(out.api_speed or {}), "model_calls": ledger.calls()}
                     elif isinstance(exc, OSError):       # this machine's (the runner's host_failed): never run again
-                        out = _infra_output(task, "host_failed", f"{type(exc).__name__}: {exc}", begun, ran=True)
+                        out = _infra_output(task, "host_failed", f"{type(exc).__name__}: {exc}", begun, ran=True,
+                                            spent=getattr(exc, "spent", None))   # what the agent said it spent
                         final = True
                     else:
                         read = pipeline_cause(f"{type(exc).__name__}: {exc}")

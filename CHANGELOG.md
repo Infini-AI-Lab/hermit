@@ -447,6 +447,12 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
+- A ChatGPT login whose files are gone when a session is prepared (both the user's login file and the run's shared
+  copy; `hermit train` checks them only at its start) is a lost sign-in: its error carries Hermit's mark (`[hermit_login_failed]`), so a rollout raises `LoginFailed` and the
+  run ends, a chat endpoint answers 401 with the code `hermit_login_failed`, and the Trainer ends the run when the
+  Evolver's own call meets it, instead of a plain failure each task and step met again. A login file there that could
+  not be read stays a failure of that session. A container worker takes a relative `login_root` as preflight did. A rollout that failed on this machine (an
+  `OSError`: `host_failed`) keeps what its agent said it spent, as the other failure paths do.
 - Continual Harness and Harness² now declare the adapter parts they write (`needs: [llm, skills, agents]` and
   `needs: [skills, agents, hooks]`), so a run whose acting agent does not take them (`react`) is refused before it
   starts, instead of running a harness whose skills and sub-agents the acting agent drops.

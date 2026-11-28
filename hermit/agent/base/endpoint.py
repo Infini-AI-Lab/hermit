@@ -38,7 +38,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from hermit.agent.base.interface import LOGIN_FAILED, BaseAgent
+from hermit.agent.base.interface import LOGIN_FAILED, BaseAgent, login_failure
 
 HEADER_WAIT_S = 120.0
 KEEPALIVE_S = 15.0
@@ -165,6 +165,9 @@ class ChatEndpoint:
             except (ValueError, Unsupported) as exc:            # the session's settings: the client reads why
                 return 400, json.dumps({"error": {"message": f"{type(exc).__name__}: {exc}"}}).encode(), {}
             except Exception as exc:                            # noqa: BLE001 - the session failed to run
+                why = login_failure(exc)                        # no sign-in to run it (login.prepare): as a lost one
+                if why:
+                    return 401, json.dumps({"error": {"code": LOGIN_FAILED, "message": why}}).encode(), {}
                 return 502, json.dumps({"error": {"message": f"{type(exc).__name__}: {exc}"}}).encode(), {}
         from hermit.agent.model.llm import ChatAborted, ChatHTTPError
         try:

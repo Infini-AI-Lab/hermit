@@ -34,7 +34,7 @@ import yaml
 
 from hermit.adapter.manifest import CARD, MANIFEST, read_manifest
 from hermit.agent.base import login as subscription
-from hermit.agent.base.interface import LoginFailed
+from hermit.agent.base.interface import LoginFailed, login_failure
 from hermit.agent.model.backends import bindings_of, problems_of, registry
 from hermit.config import Config
 from hermit.agent.evolver.base import (Access, Context, Evolver, FinalResult, Progress, StepContext, StepResult, Usage,
@@ -517,7 +517,11 @@ class Trainer:
 
     def _raise_login_failed(self, box: dict) -> None:
         """The run ends, unfinished, when the Evolver's call or a tool call in it met a failed sign-in."""
-        failed = box["error"] if isinstance(box.get("error"), LoginFailed) else self._login_failed
+        error = box.get("error")
+        failed = error if isinstance(error, LoginFailed) else self._login_failed
+        why = login_failure(error) if failed is None and isinstance(error, Exception) else None
+        if why:                                          # a session's sign-in missing (login.prepare): the run ends,
+            failed = LoginFailed(why)                    # as for a lost one
         if failed is not None:
             raise failed
 

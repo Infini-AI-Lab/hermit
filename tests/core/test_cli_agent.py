@@ -548,6 +548,40 @@ def test_a_login_session_waits_for_the_plan_and_runs_again_when_refused(fake, mo
     assert seen == {"waits": 2, "sessions": 2, "holds": 1} and result.reply.endswith("<answer>44,463</answer>")
 
 
+def test_a_login_session_with_no_login_to_copy_is_a_lost_sign_in(tmp_path, monkeypatch):
+    """login.prepare raised a plain RuntimeError: an endpoint answered 502 and a run took it for a failure."""
+    from hermit.agent.base.endpoint import ChatEndpoint
+    from hermit.agent.base.interface import login_failure
+    from hermit.agent.base import login as L
+    monkeypatch.setattr(L, "wait", lambda *a, **k: "")
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "no-codex-here"))
+    agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x",
+                           "login_root": str(tmp_path / "no-root"), "plan_dir": str(tmp_path / "plan"),
+                           "log": str(tmp_path / "logs/run.jsonl"), "log_dir": str(tmp_path / "logs")})
+    (tmp_path / "w").mkdir()
+    with pytest.raises(RuntimeError) as failed:
+        agent.run("go", environment=tmp_path / "w")
+    assert "codex login" in login_failure(failed.value)                       # a rollout's LoginFailed
+    endpoint = ChatEndpoint.__new__(ChatEndpoint)                            # the request answered as the endpoint
+    endpoint.agent, endpoint.place = agent, None                             # does (cli_answer, a Local session)
+    status, body, _ = endpoint.answer({"messages": [{"role": "user", "content": "go"}]}, None)
+    assert status == 401 and json.loads(body)["error"]["code"] == "hermit_login_failed"
+    (tmp_path / "no-codex-here").mkdir()                                       # a login file not read (written
+    (tmp_path / "no-codex-here/auth.json").write_text('{"tokens": ')          # meanwhile): this session's failure
+    with pytest.raises(RuntimeError) as failed:
+        agent.run("go", environment=tmp_path / "w")
+    assert login_failure(failed.value) is None
+    if os.geteuid() != 0:                                                      # in a folder it cannot pass: unread,
+        monkeypatch.setattr(Path, "is_file", lambda self: os.path.isfile(self))   # not absent (Python 3.14's is_file
+        (tmp_path / "no-codex-here").chmod(0)                                  # says False)
+        try:
+            with pytest.raises(RuntimeError) as failed:
+                agent.run("go", environment=tmp_path / "w")
+            assert login_failure(failed.value) is None
+        finally:
+            (tmp_path / "no-codex-here").chmod(0o700)
+
+
 def test_a_long_window_still_over_holds_after_the_short_one_resets(tmp_path):
     import time
     from hermit.agent.base import login as L
